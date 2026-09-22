@@ -7,6 +7,7 @@ import { EventBus } from '../core/events/EventBus';
 import { RealtimeService } from '../realtime/RealtimeService';
 import { FileStorageService } from '../files/FileStorageService';
 import { QueryFilterParser } from './QueryFilterParser';
+import { CsvHelper } from './CsvHelper';
 import { AppError, ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../core/errors/AppError';
 import { CollectionModel } from '../schema/models/Collection';
 import { SchemaField } from '../schema/models/Field';
@@ -26,6 +27,24 @@ export interface QueryOptions {
   filter?: string;
   expand?: string;
   fields?: string;
+}
+
+export interface ExportResult {
+  data: string;
+  mimeType: string;
+  filename: string;
+}
+
+export interface ImportOptions {
+  continueOnError?: boolean;
+}
+
+export interface ImportResult {
+  success: boolean;
+  total: number;
+  imported: number;
+  failed: number;
+  errors: Array<{ row: number; error: string }>;
 }
 
 export class RecordService {
@@ -322,6 +341,205 @@ export class RecordService {
     this.realtimeService.broadcast('delete', col.name, deletedRecord);
   }
 
+  public async exportRecords(
+    collectionName: string,
+    format: 'csv' | 'json',
+    options: QueryOptions = {},
+    auth?: any
+  ): Promise<ExportResult> {
+    const col = this.schemaService.getCollectionOrThrow(collectionName);
+
+    // Rule check: listRule
+    if (!this.ruleEngine.evaluate(col.listRule, { auth, query: options })) {
+      throw new ForbiddenError(`You are not allowed to export records from '${collectionName}'`);
+    }
+
+    const allowedFields = new Set(col.schema.map((f) => f.name));
+    const { clause: whereClause, params: filterParams } = QueryFilterParser.parseFilter(
+      options.filter,
+      allowedFields
+    );
+    const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields);
+
+    const querySql = `SELECT * FROM "${col.name}" ${whereClause} ${orderClause}`;
+    const rawItems = this.db.all<any>(querySql, filterParams);
+
+    const items = await Promise.all(
+      rawItems.map(async (item) => {
+        const clean = this.sanitizeRecord(item, col, auth);
+        if (options.expand) {
+          await this.expandRecord(clean, col, options.expand, auth);
+        }
+        return clean;
+      })
+    );
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+    if (format === 'csv') {
+      const headers: string[] = ['id'];
+      if (col.type === 'auth') {
+        headers.push('email', 'verified', 'emailVisibility');
+      }
+      for (const field of col.schema) {
+        headers.push(field.name);
+      }
+      headers.push('created', 'updated');
+
+      const csvData = CsvHelper.serialize(headers, items);
+
+      return {
+        data: csvData,
+        mimeType: 'text/csv; charset=utf-8',
+        filename: `${col.name}_${timestamp}.csv`,
+      };
+    } else {
+      return {
+        data: JSON.stringify(items, null, 2),
+        mimeType: 'application/json; charset=utf-8',
+        filename: `${col.name}_${timestamp}.json`,
+      };
+    }
+  }
+
+  public async importRecords(
+    collectionName: string,
+    records: Array<Record<string, any>>,
+    auth?: any,
+    options: ImportOptions = {},
+    httpContext?: any
+  ): Promise<ImportResult> {
+    const col = this.schemaService.getCollectionOrThrow(collectionName);
+
+    // Rule check: createRule
+    if (!this.ruleEngine.evaluate(col.createRule, { auth })) {
+      throw new ForbiddenError(`You are not allowed to create records in '${collectionName}'`);
+    }
+
+    if (!Array.isArray(records) || records.length === 0) {
+      return {
+        success: true,
+        total: 0,
+        imported: 0,
+        failed: 0,
+        errors: [],
+      };
+    }
+
+    const continueOnError = options.continueOnError ?? true;
+    const errors: Array<{ row: number; error: string }> = [];
+    const validPreparedRecords: Array<{ rawData: Record<string, any>; insertData: Record<string, any> }> = [];
+
+    // Pre-validate records
+    for (let i = 0; i < records.length; i++) {
+      const rowNumber = i + 1;
+      const data = records[i];
+
+      if (!data || typeof data !== 'object') {
+        errors.push({ row: rowNumber, error: 'Row is not a valid object' });
+        if (!continueOnError) {
+          throw new ValidationError(`Row ${rowNumber}: Invalid record format`);
+        }
+        continue;
+      }
+
+      try {
+        const id = data.id && String(data.id).trim() ? String(data.id).trim() : `r_${crypto.randomBytes(6).toString('hex')}`;
+        const now = new Date().toISOString();
+        const created = data.created && !isNaN(Date.parse(data.created)) ? new Date(data.created).toISOString() : now;
+        const updated = data.updated && !isNaN(Date.parse(data.updated)) ? new Date(data.updated).toISOString() : now;
+
+        const recordToInsert: Record<string, any> = {
+          id,
+          created,
+          updated,
+        };
+
+        if (col.type === 'auth') {
+          if (!data.email || !String(data.email).trim()) {
+            throw new ValidationError('Email is required for auth records');
+          }
+          const email = String(data.email).trim().toLowerCase();
+          // Check unique email in DB
+          const existing = this.db.get<any>(`SELECT id FROM "${col.name}" WHERE email = ?`, [email]);
+          if (existing && existing.id !== id) {
+            throw new ConflictError(`Email '${email}' is already registered`);
+          }
+
+          // Check duplicate in the current import batch
+          const alreadyInBatch = validPreparedRecords.some((r) => r.insertData.email === email);
+          if (alreadyInBatch) {
+            throw new ConflictError(`Duplicate email '${email}' in import batch`);
+          }
+
+          recordToInsert.email = email;
+          recordToInsert.emailVisibility =
+            data.emailVisibility === true || data.emailVisibility === 'true' || data.emailVisibility === 1 ? 1 : 0;
+          recordToInsert.verified =
+            data.verified === true || data.verified === 'true' || data.verified === 1 ? 1 : 0;
+          const password = data.password ? String(data.password) : crypto.randomBytes(8).toString('hex');
+          recordToInsert.passwordHash = bcrypt.hashSync(password, 10);
+          recordToInsert.tokenKey = crypto.randomBytes(16).toString('hex');
+        }
+
+        // Validate and normalize schema fields
+        for (const field of col.schema) {
+          const val = data[field.name];
+          this.validateField(field, val);
+          recordToInsert[field.name] = this.normalizeFieldValue(field, val);
+        }
+
+        validPreparedRecords.push({ rawData: data, insertData: recordToInsert });
+      } catch (err: any) {
+        errors.push({ row: rowNumber, error: err.message || String(err) });
+        if (!continueOnError) {
+          throw err;
+        }
+      }
+    }
+
+    if (validPreparedRecords.length === 0) {
+      return {
+        success: errors.length === 0,
+        total: records.length,
+        imported: 0,
+        failed: errors.length,
+        errors,
+      };
+    }
+
+    // Insert inside SQLite transaction for speed and integrity
+    const insertedRecords: Array<Record<string, any>> = [];
+    this.db.transaction(() => {
+      for (const item of validPreparedRecords) {
+        const recordToInsert = item.insertData;
+        const columns = Object.keys(recordToInsert).map((k) => `"${k}"`);
+        const placeholders = Object.keys(recordToInsert).map(() => '?');
+        const values = Object.values(recordToInsert);
+
+        const sql = `INSERT INTO "${col.name}" (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+        this.db.run(sql, values);
+
+        const sanitized = this.sanitizeRecord(recordToInsert, col, auth, true);
+        insertedRecords.push(sanitized);
+      }
+    });
+
+    // Trigger lifecycle hooks & broadcast realtime
+    for (const rec of insertedRecords) {
+      this.eventBus.triggerRecordAfterCreate(col.name, rec, auth, httpContext).catch(() => {});
+      this.realtimeService.broadcast('create', col.name, rec);
+    }
+
+    return {
+      success: errors.length === 0,
+      total: records.length,
+      imported: insertedRecords.length,
+      failed: errors.length,
+      errors,
+    };
+  }
+
   private validateField(field: SchemaField, value: any): void {
     if (field.required && (value === undefined || value === null || value === '')) {
       throw new ValidationError(`Field '${field.name}' is required`);
@@ -343,7 +561,7 @@ export class RecordService {
   }
 
   private normalizeFieldValue(field: SchemaField, value: any): any {
-    if (value === undefined || value === null) {
+    if (value === undefined || value === null || (value === '' && field.type !== 'text')) {
       if (field.type === 'bool') {
         return field.defaultValue ? 1 : 0;
       }

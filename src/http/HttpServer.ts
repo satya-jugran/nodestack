@@ -56,6 +56,14 @@ export class HttpServer {
         fileSize: 100 * 1024 * 1024, // 100MB limit
       },
     });
+
+    this.app.addContentTypeParser(
+      ['text/csv', 'text/plain'],
+      { parseAs: 'string' },
+      (_req, body, done) => {
+        done(null, body);
+      }
+    );
   }
 
   private setupHooks(): void {
@@ -158,6 +166,15 @@ export class HttpServer {
     );
     app.delete('/api/collections/:collection/records/:id', (req: any, reply) =>
       this.recordController.delete(req, reply)
+    );
+    app.get('/api/collections/:collection/export', (req: any, reply) =>
+      this.recordController.exportRecords(req, reply)
+    );
+    app.get('/api/collections/:collection/export/:format', (req: any, reply) =>
+      this.recordController.exportRecords(req, reply)
+    );
+    app.post('/api/collections/:collection/import', (req: any, reply) =>
+      this.recordController.importRecords(req, reply)
     );
 
     // 5. File Serving

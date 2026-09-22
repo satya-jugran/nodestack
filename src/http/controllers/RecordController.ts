@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { RecordService, QueryOptions } from '../../records/RecordService';
+import { CsvHelper } from '../../records/CsvHelper';
 import { FileStorageService } from '../../files/FileStorageService';
 import { SchemaService } from '../../schema/SchemaService';
 
@@ -142,5 +143,71 @@ export class RecordController extends BaseController {
     const { collection, id } = req.params;
     await this.recordService.delete(collection, id, req.auth, req);
     this.noContent(reply);
+  }
+
+  public async exportRecords(
+    req: FastifyRequest<{ Params: { collection: string; format?: string }; Querystring: QueryOptions & { format?: string } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const { collection } = req.params;
+    const formatParam = (req.params.format || req.query.format || 'csv').toLowerCase();
+    const format: 'csv' | 'json' = formatParam === 'json' ? 'json' : 'csv';
+
+    const result = await this.recordService.exportRecords(collection, format, req.query, req.auth);
+
+    reply.header('Content-Type', result.mimeType);
+    reply.header('Content-Disposition', `attachment; filename="${result.filename}"`);
+    return reply.send(result.data);
+  }
+
+  public async importRecords(
+    req: FastifyRequest<{ Params: { collection: string }; Querystring: { continueOnError?: string } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const { collection } = req.params;
+    let records: Array<Record<string, any>> = [];
+    let continueOnError = req.query?.continueOnError !== 'false';
+
+    if (req.isMultipart && req.isMultipart()) {
+      const parts = req.parts();
+      let csvContent = '';
+      for await (const part of parts) {
+        if (part.type === 'file') {
+          const buf = await part.toBuffer();
+          csvContent = buf.toString('utf-8');
+        } else if (part.fieldname === 'continueOnError') {
+          continueOnError = part.value === 'true';
+        } else if (part.fieldname === 'records') {
+          try {
+            records = JSON.parse(part.value as string);
+          } catch {}
+        }
+      }
+      if (csvContent) {
+        records = CsvHelper.parse(csvContent);
+      }
+    } else if (typeof req.body === 'string') {
+      records = CsvHelper.parse(req.body);
+    } else if (Array.isArray(req.body)) {
+      records = req.body;
+    } else if (req.body && typeof req.body === 'object') {
+      const body = req.body as any;
+      if (Array.isArray(body.records)) {
+        records = body.records;
+      }
+      if (body.options?.continueOnError !== undefined) {
+        continueOnError = Boolean(body.options.continueOnError);
+      }
+    }
+
+    const result = await this.recordService.importRecords(
+      collection,
+      records,
+      req.auth,
+      { continueOnError },
+      req
+    );
+
+    this.ok(reply, result, 200);
   }
 }

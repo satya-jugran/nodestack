@@ -22,8 +22,9 @@ export * from './schema/models/Collection';
 export * from './schema/models/Field';
 
 // Records
-export { RecordService, ListResult, QueryOptions } from './records/RecordService';
+export { RecordService, ListResult, QueryOptions, ExportResult, ImportOptions, ImportResult } from './records/RecordService';
 export { QueryFilterParser, ParsedFilter, ParsedSort } from './records/QueryFilterParser';
+export { CsvHelper } from './records/CsvHelper';
 
 // Rules
 export { RuleEngine, RuleEvaluationContext } from './rules/RuleEngine';
