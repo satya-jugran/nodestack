@@ -8,6 +8,8 @@
 [![Node.js](https://img.shields.io/badge/Node.js-22%20%7C%2024-green.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+<img width="800" height="500" alt="image" src="https://github.com/user-attachments/assets/64a566da-6048-477f-bf94-ec0673921859" />
+
 ---
 
 ## 🌟 Why NodeStack?
