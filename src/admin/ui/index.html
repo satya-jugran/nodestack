@@ -1,0 +1,1726 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NodeStack — Admin Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="/_/icon.svg">
+  <link rel="alternate icon" href="/icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-main: #0c0e14;
+      --bg-card: #151821;
+      --bg-card-hover: #1b1f2b;
+      --bg-input: #1b1f2b;
+      --border-subtle: #242938;
+      --border-accent: #3b82f6;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --accent-primary: #3b82f6;
+      --accent-primary-hover: #2563eb;
+      --accent-success: #10b981;
+      --accent-danger: #ef4444;
+      --accent-warning: #f59e0b;
+      --font-main: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-main);
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+      font-size: 14px;
+    }
+
+    /* Layout */
+    #app { display: flex; width: 100%; height: 100%; }
+    .sidebar {
+      width: 260px;
+      background-color: var(--bg-card);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background-color: var(--bg-main);
+      overflow: hidden;
+    }
+
+    /* Sidebar Components */
+    .brand {
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: -0.02em;
+    }
+    .brand-icon {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 800;
+      font-size: 14px;
+    }
+    .version-tag {
+      font-size: 11px;
+      background: var(--bg-input);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .sidebar-section {
+      padding: 1rem 1rem 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .collections-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.5rem 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .collection-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.6rem 0.75rem;
+      border-radius: 6px;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.15s ease;
+    }
+    .collection-item:hover {
+      background-color: var(--bg-card-hover);
+      color: var(--text-main);
+    }
+    .collection-item.active {
+      background-color: #1e293b;
+      color: #60a5fa;
+      font-weight: 600;
+    }
+    .collection-badge {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    .sidebar-bottom {
+      padding: 1rem;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.55rem 0.75rem;
+      border-radius: 6px;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.15s ease;
+    }
+    .sidebar-nav-item:hover {
+      background-color: var(--bg-card-hover);
+      color: var(--text-main);
+    }
+    .sidebar-nav-item.active {
+      background-color: #1e293b;
+      color: #60a5fa;
+    }
+
+    /* Top Bar */
+    .top-bar {
+      height: 60px;
+      border-bottom: 1px solid var(--border-subtle);
+      background-color: var(--bg-card);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 1.5rem;
+    }
+    .page-title-box {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .page-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      font-family: var(--font-main);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 0.5rem 0.9rem;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
+    }
+    .btn-primary {
+      background-color: var(--accent-primary);
+      color: white;
+    }
+    .btn-primary:hover {
+      background-color: var(--accent-primary-hover);
+    }
+    .btn-secondary {
+      background-color: var(--bg-card-hover);
+      border-color: var(--border-subtle);
+      color: var(--text-main);
+    }
+    .btn-secondary:hover {
+      background-color: #242938;
+    }
+    .btn-danger {
+      background-color: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.3);
+      color: #f87171;
+    }
+    .btn-danger:hover {
+      background-color: rgba(239, 68, 68, 0.25);
+    }
+    .btn-sm {
+      padding: 0.35rem 0.65rem;
+      font-size: 12px;
+    }
+
+    /* Content Area & Tabs */
+    .tabs-bar {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      padding: 0 1.5rem;
+      border-bottom: 1px solid var(--border-subtle);
+      background-color: var(--bg-card);
+    }
+    .tab-btn {
+      padding: 0.75rem 0;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      position: relative;
+      border: none;
+      background: none;
+      font-size: 13px;
+    }
+    .tab-btn:hover { color: var(--text-main); }
+    .tab-btn.active {
+      color: var(--accent-primary);
+    }
+    .tab-btn.active::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background-color: var(--accent-primary);
+    }
+
+    .content-body {
+      flex: 1;
+      padding: 1.5rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Search and Controls */
+    .controls-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+      gap: 1rem;
+    }
+    .search-input-box {
+      position: relative;
+      flex: 1;
+      max-width: 380px;
+    }
+    .search-input {
+      width: 100%;
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 0.5rem 0.75rem 0.5rem 2rem;
+      color: var(--text-main);
+      font-size: 13px;
+      outline: none;
+    }
+    .search-input:focus {
+      border-color: var(--accent-primary);
+    }
+    .search-icon {
+      position: absolute;
+      left: 0.65rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+    }
+
+    /* Data Table */
+    .table-container {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      overflow: auto;
+      flex: 1;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+    th {
+      background-color: #11141d;
+      padding: 0.75rem 1rem;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border-subtle);
+      white-space: nowrap;
+    }
+    td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 13px;
+      white-space: nowrap;
+      max-width: 250px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background-color: var(--bg-card-hover); }
+
+    .id-pill {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background-color: rgba(255, 255, 255, 0.05);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #93c5fd;
+    }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+    .modal {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      width: 100%;
+      max-width: 580px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+    .modal-header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-title { font-size: 1.1rem; font-weight: 700; }
+    .modal-body {
+      padding: 1.5rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .modal-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.75rem;
+    }
+
+    /* Form Inputs */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .form-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .form-input, .form-select, .form-textarea {
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 0.6rem 0.75rem;
+      color: var(--text-main);
+      font-size: 13px;
+      outline: none;
+      font-family: var(--font-main);
+    }
+    .form-textarea {
+      font-family: var(--font-mono);
+      min-height: 100px;
+      resize: vertical;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      border-color: var(--accent-primary);
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-get { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+    .badge-post { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+    .badge-patch { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+    .badge-delete { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+    .badge-status-200 { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+    .badge-status-400 { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+    .badge-status-500 { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+
+    /* Live indicator */
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--accent-success);
+      display: inline-block;
+      box-shadow: 0 0 6px var(--accent-success);
+    }
+
+    /* Toast */
+    #toast-container {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      z-index: 9999;
+    }
+    .toast {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      font-size: 13px;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      animation: slideIn 0.2s ease;
+    }
+    .toast.success { border-left: 3px solid var(--accent-success); }
+    .toast.error { border-left: 3px solid var(--accent-danger); }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo" onclick="selectNav('home')" style="cursor: pointer;" title="Go to Dashboard Overview">
+          <div class="brand-icon" style="background: transparent; padding: 0;">
+            <img src="/_/icon.svg" width="28" height="28" alt="NodeStack" style="display: block; border-radius: 6px;" />
+          </div>
+          <span>NodeStack</span>
+        </div>
+        <span class="version-tag">v0.1.0</span>
+      </div>
+
+      <div style="padding: 0.75rem 1rem 0.25rem;">
+        <div class="sidebar-nav-item active" id="nav-home" onclick="selectNav('home')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+          <span>Dashboard Overview</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <span>Collections</span>
+        <button class="btn btn-secondary btn-sm" onclick="openNewCollectionModal()">+ New</button>
+      </div>
+
+      <div class="collections-list" id="collections-list">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <div class="sidebar-bottom">
+        <a href="/_/docs" target="_blank" class="sidebar-nav-item" id="nav-docs" style="text-decoration: none; color: inherit;" title="Interactive OpenAPI 3.0 Reference">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+          <span>API Docs (OpenAPI)</span>
+          <span style="margin-left: auto; font-size: 11px; opacity: 0.6; color: var(--accent-primary);">↗</span>
+        </a>
+        <div class="sidebar-nav-item" id="nav-logs" onclick="selectNav('logs')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          <span>Logs & Traffic</span>
+        </div>
+        <div class="sidebar-nav-item" id="nav-settings" onclick="selectNav('settings')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>System & Settings</span>
+        </div>
+        <div class="sidebar-nav-item" onclick="logout()" style="margin-top: 0.5rem; border-top: 1px solid var(--border-subtle); padding-top: 0.75rem;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          <span id="admin-user-email">Logout</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Top Bar -->
+      <div class="top-bar">
+        <div class="page-title-box">
+          <h1 class="page-title" id="view-title">Collections</h1>
+          <span class="badge" id="view-badge" style="display:none;"></span>
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); margin-left: 1rem;">
+            <span class="live-dot"></span>
+            <span>Realtime Live</span>
+          </div>
+        </div>
+        <div class="top-actions" id="view-actions">
+          <!-- Dynamic Action Buttons -->
+        </div>
+      </div>
+
+      <!-- Collection Tabs (shown only for collections) -->
+      <div class="tabs-bar" id="collection-tabs" style="display:none;">
+        <button class="tab-btn active" id="tab-records" onclick="switchCollectionTab('records')">Records Data Grid</button>
+        <button class="tab-btn" id="tab-schema" onclick="switchCollectionTab('schema')">Schema & API Rules</button>
+      </div>
+
+      <!-- Main Body -->
+      <div class="content-body" id="main-body">
+        <!-- Dynamic Content injected by JS -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container"></div>
+
+  <!-- Modals Container -->
+  <div id="modal-root"></div>
+
+  <script>
+    // State
+    const state = {
+      token: localStorage.getItem('nodestack_token') || localStorage.getItem('nb_token') || '',
+      admin: JSON.parse(localStorage.getItem('nodestack_admin') || localStorage.getItem('nb_admin') || 'null'),
+      collections: [],
+      activeCollection: null,
+      activeNav: 'collection', // 'collection' | 'logs' | 'settings'
+      collectionTab: 'records', // 'records' | 'schema'
+      records: [],
+      recordsPage: 1,
+      recordsPerPage: 30,
+      recordsTotal: 0,
+      recordsFilter: '',
+      realtimeEventSource: null,
+      logs: [],
+    };
+
+    // Initialize
+    async function init() {
+      // 1. Check if admins exist
+      try {
+        const res = await fetch('/api/admins/has-admins');
+        const data = await res.json();
+        if (!data.hasAdmins) {
+          openOnboardingModal();
+          return;
+        }
+      } catch (e) {
+        console.error('Failed to check admins:', e);
+      }
+
+      // 2. Check auth
+      if (!state.token) {
+        openLoginModal();
+        return;
+      }
+
+      // 3. Load App
+      await loadCollections();
+      initRealtime();
+      selectNav('home');
+    }
+
+    // API Helper
+    async function api(path, options = {}) {
+      const headers = {
+        ...(options.headers || {}),
+      };
+
+      // Only set Content-Type: application/json if body is a string (e.g. JSON.stringify)
+      // Do NOT set it for GET, DELETE (prevents Fastify empty body error), or FormData
+      if (options.body && typeof options.body === 'string') {
+        headers['Content-Type'] = 'application/json';
+      }
+
+      if (state.token) {
+        headers['Authorization'] = `Bearer ${state.token}`;
+      }
+
+      const res = await fetch(path, { ...options, headers });
+      if (res.status === 401) {
+        logout();
+        throw new Error('Session expired');
+      }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || `Request failed with status ${res.status}`);
+      }
+      if (res.status === 204) return null;
+      return res.json();
+    }
+
+    // Realtime SSE
+    function initRealtime() {
+      if (state.realtimeEventSource) {
+        state.realtimeEventSource.close();
+      }
+
+      const url = state.token ? `/api/realtime?token=${state.token}` : '/api/realtime';
+      const es = new EventSource(url);
+      state.realtimeEventSource = es;
+
+      const handleConnect = async (e) => {
+        const data = JSON.parse(e.data);
+        // Subscribe to all topics
+        await fetch('/api/realtime', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientId: data.clientId,
+            subscriptions: ['*'],
+          }),
+        }).catch(() => {});
+      };
+
+      es.addEventListener('NS_CONNECT', handleConnect);
+      es.addEventListener('NB_CONNECT', handleConnect);
+
+      // Listen for updates on any collection
+      for (const col of state.collections) {
+        es.addEventListener(col.name, (e) => {
+          const payload = JSON.parse(e.data);
+          toast(`[Realtime] Record ${payload.action}d in ${col.name}`, 'success');
+          if (state.activeCollection && state.activeCollection.name === col.name && state.collectionTab === 'records') {
+            loadRecords();
+          }
+        });
+      }
+    }
+
+    // Load Collections
+    async function loadCollections() {
+      try {
+        const res = await api('/api/collections');
+        state.collections = res.items || [];
+        renderCollectionsList();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    function renderCollectionsList() {
+      const container = document.getElementById('collections-list');
+      container.innerHTML = state.collections.map(col => `
+        <div class="collection-item ${state.activeCollection?.name === col.name ? 'active' : ''}" onclick="selectCollection('${col.name}')">
+          <span>${col.name}</span>
+          <span class="collection-badge">${col.type}</span>
+        </div>
+      `).join('');
+
+      if (state.admin) {
+        document.getElementById('admin-user-email').textContent = `Logout (${state.admin.email})`;
+      }
+    }
+
+    // Select Collection
+    async function selectCollection(name) {
+      state.activeNav = 'collection';
+      state.activeCollection = state.collections.find(c => c.name === name);
+      renderCollectionsList();
+
+      document.getElementById('nav-home')?.classList.remove('active');
+      document.getElementById('nav-logs').classList.remove('active');
+      document.getElementById('nav-settings').classList.remove('active');
+      document.getElementById('collection-tabs').style.display = 'flex';
+
+      document.getElementById('view-title').textContent = state.activeCollection.name;
+      const badge = document.getElementById('view-badge');
+      badge.style.display = 'inline-flex';
+      badge.textContent = state.activeCollection.type.toUpperCase();
+      badge.className = 'badge badge-post';
+
+      if (state.collectionTab === 'records') {
+        renderRecordsView();
+        await loadRecords();
+      } else {
+        renderSchemaView();
+      }
+    }
+
+    // Collection Tabs
+    function switchCollectionTab(tab) {
+      state.collectionTab = tab;
+      document.getElementById('tab-records').className = tab === 'records' ? 'tab-btn active' : 'tab-btn';
+      document.getElementById('tab-schema').className = tab === 'schema' ? 'tab-btn active' : 'tab-btn';
+
+      if (tab === 'records') {
+        renderRecordsView();
+        loadRecords();
+      } else {
+        renderSchemaView();
+      }
+    }
+
+    // Records View
+    function renderRecordsView() {
+      const actions = document.getElementById('view-actions');
+      actions.innerHTML = `
+        <button class="btn btn-primary btn-sm" onclick="openNewRecordModal()">+ New Record</button>
+      `;
+
+      const main = document.getElementById('main-body');
+      main.innerHTML = `
+        <div class="controls-bar">
+          <div class="search-input-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input" placeholder="Search records..." id="records-search" oninput="handleSearch(this.value)">
+          </div>
+          <div style="font-size:12px; color:var(--text-muted);" id="pagination-label">Loading records...</div>
+        </div>
+        <div class="table-container">
+          <table id="records-table">
+            <thead><tr id="table-head"></tr></thead>
+            <tbody id="table-body"><tr><td colspan="10" style="text-align:center;padding:2rem;">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    async function loadRecords() {
+      if (!state.activeCollection) return;
+      try {
+        const queryParams = new URLSearchParams({
+          page: state.recordsPage.toString(),
+          perPage: state.recordsPerPage.toString(),
+        });
+        if (state.recordsFilter) {
+          queryParams.set('filter', state.recordsFilter);
+        }
+
+        const res = await api(`/api/collections/${state.activeCollection.name}/records?${queryParams}`);
+        state.records = res.items || [];
+        state.recordsTotal = res.totalItems || 0;
+
+        renderRecordsTable();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    function renderRecordsTable() {
+      const col = state.activeCollection;
+      const thContainer = document.getElementById('table-head');
+      const tbContainer = document.getElementById('table-body');
+      const paginationLabel = document.getElementById('pagination-label');
+
+      if (!thContainer || !tbContainer) return;
+
+      paginationLabel.textContent = `Showing ${state.records.length} of ${state.recordsTotal} records`;
+
+      // Columns
+      const fields = col.schema.map(f => f.name);
+      thContainer.innerHTML = `
+        <th>ID</th>
+        ${fields.map(f => `<th>${f}</th>`).join('')}
+        <th>Created</th>
+        <th>Actions</th>
+      `;
+
+      if (state.records.length === 0) {
+        tbContainer.innerHTML = `<tr><td colspan="${fields.length + 3}" style="text-align:center;padding:3rem;color:var(--text-muted);">No records found in this collection.</td></tr>`;
+        return;
+      }
+
+      tbContainer.innerHTML = state.records.map(rec => `
+        <tr>
+          <td><span class="id-pill">${rec.id}</span></td>
+          ${fields.map(f => {
+            const schemaField = col.schema.find(sf => sf.name === f);
+            const val = rec[f];
+            if (val === null || val === undefined || val === '') return '<td style="color:#6b7280;">NULL</td>';
+            if (schemaField && schemaField.type === 'file') {
+              const filename = String(val);
+              const fileUrl = `/api/files/${col.name}/${rec.id}/${filename}?token=${state.token}`;
+              const isImg = /\.(jpe?g|png|gif|webp|svg)$/i.test(filename);
+              if (isImg) {
+                return `<td><a href="${fileUrl}" target="_blank" style="display:inline-flex; align-items:center; gap:6px; color:#60a5fa; text-decoration:none;"><img src="${fileUrl}" style="width:24px; height:24px; object-fit:cover; border-radius:4px; border:1px solid var(--border-subtle);"/> <span style="font-family:var(--font-mono); font-size:12px;">${filename}</span></a></td>`;
+              }
+              return `<td><a href="${fileUrl}" target="_blank" style="color:#60a5fa; text-decoration:underline; font-family:var(--font-mono); font-size:12px;">📎 ${filename}</a></td>`;
+            }
+            if (typeof val === 'boolean') return `<td><span class="badge ${val ? 'badge-get' : 'badge-delete'}">${val}</span></td>`;
+            if (typeof val === 'object') return `<td><code>${JSON.stringify(val).slice(0, 30)}...</code></td>`;
+            return `<td>${String(val)}</td>`;
+          }).join('')}
+          <td style="color:var(--text-muted);font-size:12px;">${new Date(rec.created).toLocaleString()}</td>
+          <td>
+            <button class="btn btn-secondary btn-sm" onclick="editRecord('${rec.id}')">Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteRecord('${rec.id}')">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function handleSearch(val) {
+      if (!val.trim()) {
+        state.recordsFilter = '';
+      } else {
+        // Search first text field
+        const firstTextField = state.activeCollection?.schema.find(f => f.type === 'text');
+        if (firstTextField) {
+          state.recordsFilter = `${firstTextField.name} ~ '${val.trim()}'`;
+        }
+      }
+      loadRecords();
+    }
+
+    // Schema View
+    function renderSchemaView() {
+      const col = state.activeCollection;
+      const actions = document.getElementById('view-actions');
+      actions.innerHTML = `
+        <button class="btn btn-primary btn-sm" onclick="saveSchemaChanges()">Save Schema</button>
+      `;
+
+      const main = document.getElementById('main-body');
+      main.innerHTML = `
+        <div style="max-width: 800px; display:flex; flex-direction:column; gap: 1.5rem;">
+          <div class="form-group">
+            <label class="form-label">Collection Name</label>
+            <input type="text" class="form-input" id="schema-col-name" value="${col.name}" ${col.system ? 'disabled' : ''}>
+          </div>
+
+          <div style="border:1px solid var(--border-subtle); border-radius:8px; padding:1.25rem; background:var(--bg-card);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+              <h3 style="font-size:14px; font-weight:700;">Fields Schema</h3>
+              <button class="btn btn-secondary btn-sm" onclick="addFieldToSchema()">+ Add Field</button>
+            </div>
+            <div id="schema-fields-container" style="display:flex; flex-direction:column; gap:0.75rem;">
+              <!-- Field rows -->
+            </div>
+          </div>
+
+          <div style="border:1px solid var(--border-subtle); border-radius:8px; padding:1.25rem; background:var(--bg-card);">
+            <h3 style="font-size:14px; font-weight:700; margin-bottom:1rem;">API Access Rules</h3>
+            <div style="display:flex; flex-direction:column; gap:1rem;">
+              <div class="form-group">
+                <label class="form-label">List Rule (list / search records)</label>
+                <input type="text" class="form-input" id="rule-list" value="${col.listRule ?? ''}" placeholder="Leave empty for public, or null for admin-only">
+              </div>
+              <div class="form-group">
+                <label class="form-label">View Rule (fetch single record)</label>
+                <input type="text" class="form-input" id="rule-view" value="${col.viewRule ?? ''}" placeholder="Leave empty for public, or null for admin-only">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Create Rule (insert record)</label>
+                <input type="text" class="form-input" id="rule-create" value="${col.createRule ?? ''}" placeholder="Leave empty for public, or null for admin-only">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Update Rule (edit record)</label>
+                <input type="text" class="form-input" id="rule-update" value="${col.updateRule ?? ''}" placeholder="Leave empty for public, or null for admin-only">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Delete Rule (remove record)</label>
+                <input type="text" class="form-input" id="rule-delete" value="${col.deleteRule ?? ''}" placeholder="Leave empty for public, or null for admin-only">
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      renderFieldRows(col.schema);
+    }
+
+    function renderFieldRows(fields) {
+      const container = document.getElementById('schema-fields-container');
+      container.innerHTML = fields.map((f, idx) => `
+        <div style="display:flex; gap:0.75rem; align-items:center; background:var(--bg-input); padding:0.5rem 0.75rem; border-radius:6px;" data-index="${idx}">
+          <input type="text" class="form-input" style="flex:2;" value="${f.name}" placeholder="Field name" onchange="updateField(${idx}, 'name', this.value)">
+          <select class="form-select" style="flex:1.5;" onchange="updateField(${idx}, 'type', this.value)">
+            ${['text', 'number', 'bool', 'email', 'url', 'date', 'select', 'json', 'file', 'relation'].map(t => `
+              <option value="${t}" ${f.type === t ? 'selected' : ''}>${t}</option>
+            `).join('')}
+          </select>
+          <label style="display:flex; align-items:center; gap:4px; font-size:12px; cursor:pointer;">
+            <input type="checkbox" ${f.required ? 'checked' : ''} onchange="updateField(${idx}, 'required', this.checked)"> Req
+          </label>
+          <label style="display:flex; align-items:center; gap:4px; font-size:12px; cursor:pointer;">
+            <input type="checkbox" ${f.unique ? 'checked' : ''} onchange="updateField(${idx}, 'unique', this.checked)"> Uniq
+          </label>
+          <button class="btn btn-danger btn-sm" onclick="removeField(${idx})">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function addFieldToSchema() {
+      state.activeCollection.schema.push({
+        id: `f_${Math.random().toString(36).substring(2, 8)}`,
+        name: `field_${state.activeCollection.schema.length + 1}`,
+        type: 'text',
+        required: false,
+        unique: false,
+      });
+      renderFieldRows(state.activeCollection.schema);
+    }
+
+    function updateField(idx, prop, val) {
+      state.activeCollection.schema[idx][prop] = val;
+    }
+
+    function removeField(idx) {
+      state.activeCollection.schema.splice(idx, 1);
+      renderFieldRows(state.activeCollection.schema);
+    }
+
+    async function saveSchemaChanges() {
+      const col = state.activeCollection;
+      try {
+        const body = {
+          name: document.getElementById('schema-col-name').value.trim(),
+          schema: col.schema,
+          listRule: document.getElementById('rule-list').value.trim() === 'null' ? null : document.getElementById('rule-list').value,
+          viewRule: document.getElementById('rule-view').value.trim() === 'null' ? null : document.getElementById('rule-view').value,
+          createRule: document.getElementById('rule-create').value.trim() === 'null' ? null : document.getElementById('rule-create').value,
+          updateRule: document.getElementById('rule-update').value.trim() === 'null' ? null : document.getElementById('rule-update').value,
+          deleteRule: document.getElementById('rule-delete').value.trim() === 'null' ? null : document.getElementById('rule-delete').value,
+        };
+
+        const updated = await api(`/api/collections/${col.name}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        });
+
+        toast('Schema updated successfully!', 'success');
+        await loadCollections();
+        selectCollection(updated.name);
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    // New Record Modal
+    function openNewRecordModal() {
+      const col = state.activeCollection;
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop">
+          <div class="modal">
+            <div class="modal-header">
+              <h2 class="modal-title">Create Record — ${col.name}</h2>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body">
+              ${col.type === 'auth' ? `
+                <div class="form-group">
+                  <label class="form-label">Email *</label>
+                  <input type="email" class="form-input" id="field-email" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Password * (min 8 chars)</label>
+                  <input type="password" class="form-input" id="field-password" required>
+                </div>
+              ` : ''}
+              ${col.schema.map(f => `
+                <div class="form-group">
+                  <label class="form-label">${f.name} (${f.type}) ${f.required ? '*' : ''}</label>
+                  ${f.type === 'file' ? `
+                    <input type="file" class="form-input" id="field-${f.name}" ${f.required ? 'required' : ''}>
+                  ` : f.type === 'bool' ? `
+                    <select class="form-select" id="field-${f.name}">
+                      <option value="false">False</option>
+                      <option value="true">True</option>
+                    </select>
+                  ` : f.type === 'json' ? `
+                    <textarea class="form-textarea" id="field-${f.name}" placeholder="{}"></textarea>
+                  ` : f.type === 'number' ? `
+                    <input type="number" class="form-input" id="field-${f.name}">
+                  ` : `
+                    <input type="text" class="form-input" id="field-${f.name}">
+                  `}
+                </div>
+              `).join('')}
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+              <button class="btn btn-primary" onclick="submitNewRecord()">Create Record</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function submitNewRecord() {
+      const col = state.activeCollection;
+      const hasFileInput = col.schema.some(f => f.type === 'file');
+
+      let body;
+      if (hasFileInput) {
+        const formData = new FormData();
+        if (col.type === 'auth') {
+          formData.append('email', document.getElementById('field-email').value);
+          formData.append('password', document.getElementById('field-password').value);
+        }
+
+        for (const f of col.schema) {
+          const el = document.getElementById(`field-${f.name}`);
+          if (!el) continue;
+          if (f.type === 'file') {
+            if (el.files && el.files[0]) {
+              formData.append(f.name, el.files[0]);
+            }
+          } else if (f.type === 'bool') {
+            formData.append(f.name, el.value === 'true' ? 'true' : 'false');
+          } else if (f.type === 'number') {
+            if (el.value !== '') formData.append(f.name, el.value);
+          } else {
+            formData.append(f.name, el.value);
+          }
+        }
+        body = formData;
+      } else {
+        const data = {};
+        if (col.type === 'auth') {
+          data.email = document.getElementById('field-email').value;
+          data.password = document.getElementById('field-password').value;
+        }
+
+        for (const f of col.schema) {
+          const el = document.getElementById(`field-${f.name}`);
+          if (!el) continue;
+          if (f.type === 'bool') {
+            data[f.name] = el.value === 'true';
+          } else if (f.type === 'number') {
+            data[f.name] = el.value !== '' ? Number(el.value) : null;
+          } else {
+            data[f.name] = el.value;
+          }
+        }
+        body = JSON.stringify(data);
+      }
+
+      try {
+        await api(`/api/collections/${col.name}/records`, {
+          method: 'POST',
+          body,
+        });
+        toast('Record created successfully!', 'success');
+        closeModal();
+        loadRecords();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    // Edit Record
+    function editRecord(id) {
+      const rec = state.records.find(r => r.id === id);
+      if (!rec) return;
+
+      const col = state.activeCollection;
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop">
+          <div class="modal">
+            <div class="modal-header">
+              <h2 class="modal-title">Edit Record — ${id}</h2>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body">
+              ${col.schema.map(f => `
+                <div class="form-group">
+                  <label class="form-label">${f.name} (${f.type})</label>
+                  ${f.type === 'file' ? `
+                    ${rec[f.name] ? `
+                      <div style="margin-bottom:6px; display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:12px; color:var(--text-muted);">Current:</span>
+                        <a href="/api/files/${col.name}/${rec.id}/${rec[f.name]}?token=${state.token}" target="_blank" style="color:#60a5fa; font-family:var(--font-mono); font-size:12px; text-decoration:underline;">
+                          ${rec[f.name]}
+                        </a>
+                      </div>
+                    ` : ''}
+                    <input type="file" class="form-input" id="field-edit-${f.name}">
+                    <small style="color:var(--text-muted); font-size:11px;">Select a file to replace the existing one</small>
+                  ` : f.type === 'bool' ? `
+                    <select class="form-select" id="field-edit-${f.name}">
+                      <option value="false" ${!rec[f.name] ? 'selected' : ''}>False</option>
+                      <option value="true" ${rec[f.name] ? 'selected' : ''}>True</option>
+                    </select>
+                  ` : f.type === 'json' ? `
+                    <textarea class="form-textarea" id="field-edit-${f.name}">${typeof rec[f.name] === 'object' ? JSON.stringify(rec[f.name], null, 2) : rec[f.name] || ''}</textarea>
+                  ` : f.type === 'number' ? `
+                    <input type="number" class="form-input" id="field-edit-${f.name}" value="${rec[f.name] ?? ''}">
+                  ` : `
+                    <input type="text" class="form-input" id="field-edit-${f.name}" value="${rec[f.name] ?? ''}">
+                  `}
+                </div>
+              `).join('')}
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+              <button class="btn btn-primary" onclick="submitEditRecord('${id}')">Save Changes</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function submitEditRecord(id) {
+      const col = state.activeCollection;
+      let hasNewFile = false;
+      for (const f of col.schema) {
+        if (f.type === 'file') {
+          const el = document.getElementById(`field-edit-${f.name}`);
+          if (el && el.files && el.files[0]) {
+            hasNewFile = true;
+            break;
+          }
+        }
+      }
+
+      let body;
+      if (hasNewFile) {
+        const formData = new FormData();
+        for (const f of col.schema) {
+          const el = document.getElementById(`field-edit-${f.name}`);
+          if (!el) continue;
+          if (f.type === 'file') {
+            if (el.files && el.files[0]) {
+              formData.append(f.name, el.files[0]);
+            }
+          } else if (f.type === 'bool') {
+            formData.append(f.name, el.value === 'true' ? 'true' : 'false');
+          } else if (f.type === 'number') {
+            if (el.value !== '') formData.append(f.name, el.value);
+          } else {
+            formData.append(f.name, el.value);
+          }
+        }
+        body = formData;
+      } else {
+        const data = {};
+        for (const f of col.schema) {
+          const el = document.getElementById(`field-edit-${f.name}`);
+          if (!el) continue;
+          if (f.type === 'file') {
+            // Keep existing file
+            continue;
+          }
+          if (f.type === 'bool') {
+            data[f.name] = el.value === 'true';
+          } else if (f.type === 'number') {
+            data[f.name] = el.value !== '' ? Number(el.value) : null;
+          } else {
+            data[f.name] = el.value;
+          }
+        }
+        body = JSON.stringify(data);
+      }
+
+      try {
+        await api(`/api/collections/${col.name}/records/${id}`, {
+          method: 'PATCH',
+          body,
+        });
+        toast('Record updated successfully!', 'success');
+        closeModal();
+        loadRecords();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    async function deleteRecord(id) {
+      if (!confirm(`Are you sure you want to delete record '${id}'?`)) return;
+      try {
+        await api(`/api/collections/${state.activeCollection.name}/records/${id}`, {
+          method: 'DELETE',
+        });
+        toast('Record deleted!', 'success');
+        loadRecords();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    // New Collection Modal
+    function openNewCollectionModal() {
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop">
+          <div class="modal">
+            <div class="modal-header">
+              <h2 class="modal-title">Create Collection</h2>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label class="form-label">Collection Name *</label>
+                <input type="text" class="form-input" id="new-col-name" placeholder="e.g. posts, products" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Type</label>
+                <select class="form-select" id="new-col-type">
+                  <option value="base">Base Collection</option>
+                  <option value="auth">Auth Collection (Users, Members)</option>
+                </select>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+              <button class="btn btn-primary" onclick="submitNewCollection()">Create</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function submitNewCollection() {
+      const name = document.getElementById('new-col-name').value.trim();
+      const type = document.getElementById('new-col-type').value;
+      if (!name) return;
+
+      try {
+        const col = await api('/api/collections', {
+          method: 'POST',
+          body: JSON.stringify({
+            name,
+            type,
+            schema: [
+              { id: 'f_title', name: 'title', type: 'text', required: true },
+            ],
+          }),
+        });
+
+        toast(`Collection '${col.name}' created!`, 'success');
+        closeModal();
+        await loadCollections();
+        selectCollection(col.name);
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    // Navigation Routing
+    async function selectNav(nav) {
+      state.activeNav = nav;
+      state.activeCollection = null;
+      renderCollectionsList();
+
+      document.getElementById('collection-tabs').style.display = 'none';
+      document.getElementById('view-badge').style.display = 'none';
+
+      if (nav === 'home') {
+        document.getElementById('nav-home')?.classList.add('active');
+        document.getElementById('nav-logs')?.classList.remove('active');
+        document.getElementById('nav-settings')?.classList.remove('active');
+        document.getElementById('view-title').textContent = 'Dashboard Overview';
+        document.getElementById('view-actions').innerHTML = `
+          <button class="btn btn-secondary btn-sm" onclick="window.open('/_/docs', '_blank')">API Docs (OpenAPI)</button>
+          <button class="btn btn-secondary btn-sm" onclick="window.open('/_/types.d.ts', '_blank')">TypeScript Types</button>
+          <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ New Collection</button>
+        `;
+        renderHomeView();
+      } else if (nav === 'logs') {
+        document.getElementById('nav-home')?.classList.remove('active');
+        document.getElementById('nav-logs')?.classList.add('active');
+        document.getElementById('nav-settings')?.classList.remove('active');
+        document.getElementById('view-title').textContent = 'Traffic & Logs';
+        document.getElementById('view-actions').innerHTML = `
+          <button class="btn btn-secondary btn-sm" onclick="loadLogs()">Refresh</button>
+          <button class="btn btn-danger btn-sm" onclick="clearLogs()">Clear Logs</button>
+        `;
+        renderLogsView();
+        loadLogs();
+      } else if (nav === 'settings') {
+        document.getElementById('nav-home')?.classList.remove('active');
+        document.getElementById('nav-settings')?.classList.add('active');
+        document.getElementById('nav-logs')?.classList.remove('active');
+        document.getElementById('view-title').textContent = 'System & Settings';
+        document.getElementById('view-actions').innerHTML = '';
+        renderSettingsView();
+      }
+    }
+
+    function renderHomeView() {
+      const main = document.getElementById('main-body');
+      const collectionsCount = state.collections.length;
+      main.innerHTML = `
+        <div style="max-width: 980px; margin: 0 auto; display:flex; flex-direction:column; gap:1.75rem; padding: 1rem 0;">
+          <!-- Hero Header with Brand SVG -->
+          <div style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(139, 92, 246, 0.08) 100%); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 2rem 2.25rem; display: flex; align-items: center; gap: 2rem;">
+            <div style="width: 80px; height: 80px; border-radius: 18px; background: #0c0e14; border: 1px solid rgba(59, 130, 246, 0.4); display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 24px -4px rgba(59, 130, 246, 0.4); flex-shrink: 0;">
+              <img src="/_/icon.svg" width="56" height="56" alt="NodeStack" style="display: block;" />
+            </div>
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                <h2 style="font-size: 26px; font-weight: 800; letter-spacing: -0.03em; color: #fff;">NodeStack</h2>
+                <span class="version-tag" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd;">v0.1.0</span>
+                <span class="badge badge-get" style="font-size: 11px;">● Server Online</span>
+              </div>
+              <p style="color: var(--text-muted); font-size: 14px; line-height: 1.5; max-width: 620px;">
+                The TypeScript-Native Embedded Backend Stack. Single-process backend powered by embedded SQLite, instant CRUD, Auth, Realtime SSE, and end-to-end type safety.
+              </p>
+            </div>
+          </div>
+
+          <!-- Quick Action Cards Grid -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+            <!-- Card 1: Collections -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.25rem; display:flex; flex-direction:column; justify-content:space-between; gap:1rem;">
+              <div>
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+                  <span style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.05em;">Database</span>
+                  <span class="badge badge-post">${collectionsCount} Collections</span>
+                </div>
+                <h4 style="font-size:16px; font-weight:700; margin-bottom:0.4rem;">Schema & Records</h4>
+                <p style="font-size:12px; color:var(--text-muted); line-height:1.4;">Manage tables, schema fields, and access rules with real-time UI synchronization.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" style="width:100%;" onclick="openNewCollectionModal()">+ Create Collection</button>
+            </div>
+
+            <!-- Card 2: TypeScript TypeGen -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.25rem; display:flex; flex-direction:column; justify-content:space-between; gap:1rem;">
+              <div>
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+                  <span style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.05em;">Type Safety</span>
+                  <span class="badge badge-get">types.d.ts</span>
+                </div>
+                <h4 style="font-size:16px; font-weight:700; margin-bottom:0.4rem;">TypeScript TypeGen</h4>
+                <p style="font-size:12px; color:var(--text-muted); line-height:1.4;">Auto-generated definitions for 100% end-to-end type safety across your client apps.</p>
+              </div>
+              <div style="display:flex; gap:0.5rem;">
+                <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="window.open('/_/types.d.ts', '_blank')">View types.d.ts</button>
+                <button class="btn btn-primary btn-sm" style="flex:1;" onclick="copyToClipboard('npx nodestack typegen > nodestack-types.ts', this)">Copy CLI</button>
+              </div>
+            </div>
+
+            <!-- Card 3: Traffic & Logs -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.25rem; display:flex; flex-direction:column; justify-content:space-between; gap:1rem;">
+              <div>
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+                  <span style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.05em;">Monitoring</span>
+                  <span class="badge badge-status-200">Realtime</span>
+                </div>
+                <h4 style="font-size:16px; font-weight:700; margin-bottom:0.4rem;">Traffic & Request Logs</h4>
+                <p style="font-size:12px; color:var(--text-muted); line-height:1.4;">Inspect incoming API requests, HTTP status codes, latency, and client details.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" style="width:100%;" onclick="selectNav('logs')">View Traffic Logs</button>
+            </div>
+          </div>
+
+          <!-- Quick Reference & Schema Overview -->
+          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.5rem;">
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:1rem; display:flex; align-items:center; justify-content:space-between;">
+              <span>Active Collections</span>
+              <span style="font-size:12px; font-weight:normal; color:var(--text-muted);">${collectionsCount} registered</span>
+            </h3>
+            <div style="display:flex; flex-direction:column; gap:0.5rem;">
+              ${state.collections.map(c => `
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:0.65rem 0.85rem; background:var(--bg-input); border-radius:6px; font-size:13px; cursor:pointer;" onclick="selectCollection('${c.name}')">
+                  <div style="display:flex; align-items:center; gap:0.6rem;">
+                    <span style="font-weight:600; color:#fff;">${c.name}</span>
+                    <span style="color:var(--text-muted); font-size:11px;">(${c.schema.length} fields)</span>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <span class="collection-badge">${c.type}</span>
+                    <span style="color:#60a5fa; font-size:12px;">Open ➔</span>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderLogsView() {
+      const main = document.getElementById('main-body');
+      main.innerHTML = `
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Method</th>
+                <th>URL</th>
+                <th>Duration</th>
+                <th>Time</th>
+                <th>Client IP</th>
+              </tr>
+            </thead>
+            <tbody id="logs-body">
+              <tr><td colspan="6" style="text-align:center;padding:2rem;">Loading logs...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    async function loadLogs() {
+      try {
+        const res = await api('/api/logs?perPage=100');
+        const tb = document.getElementById('logs-body');
+        if (!tb) return;
+
+        if (!res.items || res.items.length === 0) {
+          tb.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted);">No requests logged yet.</td></tr>';
+          return;
+        }
+
+        tb.innerHTML = res.items.map(log => {
+          let statusClass = 'badge-status-200';
+          if (log.status >= 500) statusClass = 'badge-status-500';
+          else if (log.status >= 400) statusClass = 'badge-status-400';
+
+          const methodClass = `badge-${log.method.toLowerCase()}`;
+
+          return `
+            <tr>
+              <td><span class="badge ${statusClass}">${log.status}</span></td>
+              <td><span class="badge ${methodClass}">${log.method}</span></td>
+              <td>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                  <code style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:280px;" title="${log.url}">${log.url}</code>
+                  <button class="btn btn-secondary btn-sm" style="padding:4px 6px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; border-radius:5px;" onclick="copyToClipboard('${log.url.replace(/'/g, "\\'")}', this)" title="Copy URL">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  </button>
+                </div>
+              </td>
+              <td>${log.duration.toFixed(1)}ms</td>
+              <td style="color:var(--text-muted);font-size:12px;">${new Date(log.created).toLocaleTimeString()}</td>
+              <td>${log.ip || '127.0.0.1'}</td>
+            </tr>
+          `;
+        }).join('');
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    async function clearLogs() {
+      if (!confirm('Clear all logs?')) return;
+      try {
+        await api('/api/logs', { method: 'DELETE' });
+        toast('Logs cleared', 'success');
+        loadLogs();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    // Settings View
+    async function renderSettingsView() {
+      const main = document.getElementById('main-body');
+      let health = { version: '0.1.0', appName: 'NodeStack' };
+      try {
+        health = await api('/api/health');
+      } catch {}
+
+      main.innerHTML = `
+        <div style="max-width: 700px; display:flex; flex-direction:column; gap:1.5rem;">
+          <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:1.5rem;">
+            <h3 style="font-size:16px; font-weight:700; margin-bottom:1rem;">NodeStack System Info</h3>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; font-size:13px;">
+              <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-subtle); padding-bottom:0.5rem;">
+                <span style="color:var(--text-muted);">Version</span>
+                <code>${health.version}</code>
+              </div>
+              <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-subtle); padding-bottom:0.5rem;">
+                <span style="color:var(--text-muted);">Uptime</span>
+                <code>${Math.floor(health.uptime || 0)} seconds</code>
+              </div>
+              <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-subtle); padding-bottom:0.5rem;">
+                <span style="color:var(--text-muted);">Node.js Runtime</span>
+                <code>${window.navigator.userAgent}</code>
+              </div>
+            </div>
+          </div>
+
+          <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:1.5rem;">
+            <h3 style="font-size:16px; font-weight:700; margin-bottom:0.5rem;">TypeScript Server Hooks</h3>
+            <p style="color:var(--text-muted); font-size:13px; margin-bottom:1rem;">
+              Extend your backend using standard TypeScript with full access to npm:
+            </p>
+            <pre style="background:var(--bg-input); padding:1rem; border-radius:6px; font-family:var(--font-mono); font-size:12px; overflow-x:auto;">
+import { NodeStack } from 'nodestack';
+
+const app = new NodeStack();
+
+app.onRecordBeforeCreate('posts', async (e) => {
+  // Validate, enrich data, or call any npm library
+  console.log('Creating post:', e.record.title);
+});
+
+await app.start(8090);</pre>
+          </div>
+        </div>
+      `;
+    }
+
+    // Modals
+    function closeModal() {
+      document.getElementById('modal-root').innerHTML = '';
+    }
+
+    function openLoginModal() {
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop">
+          <div class="modal" style="max-width:400px;">
+            <div style="display:flex; justify-content:center; margin-top:0.5rem; margin-bottom:0.75rem;">
+              <div style="width:50px; height:50px; border-radius:12px; background:#0c0e14; border:1px solid rgba(59,130,246,0.4); display:flex; align-items:center; justify-content:center; box-shadow:0 6px 16px -2px rgba(59,130,246,0.35);">
+                <img src="/_/icon.svg" width="34" height="34" alt="NodeStack" style="display:block;" />
+              </div>
+            </div>
+            <div class="modal-header" style="justify-content:center; text-align:center;">
+              <h2 class="modal-title">NodeStack Admin Login</h2>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label class="form-label">Admin Email</label>
+                <input type="email" class="form-input" id="login-email" required autofocus>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" class="form-input" id="login-password" required>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-primary" style="width:100%;" onclick="submitLogin()">Sign In</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function submitLogin() {
+      const email = document.getElementById('login-email').value;
+      const password = document.getElementById('login-password').value;
+
+      try {
+        const res = await api('/api/admins/auth-with-password', {
+          method: 'POST',
+          body: JSON.stringify({ email, password }),
+        });
+
+        state.token = res.token;
+        state.admin = res.admin;
+        localStorage.setItem('nodestack_token', res.token);
+        localStorage.setItem('nodestack_admin', JSON.stringify(res.admin));
+
+        closeModal();
+        await loadCollections();
+        initRealtime();
+        selectNav('home');
+        toast('Logged in successfully', 'success');
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    function openOnboardingModal() {
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop">
+          <div class="modal" style="max-width:440px;">
+            <div style="display:flex; align-items:center; gap:0.85rem; margin-bottom:0.75rem;">
+              <div style="width:46px; height:46px; border-radius:12px; background:#0c0e14; border:1px solid rgba(59,130,246,0.4); display:flex; align-items:center; justify-content:center; box-shadow:0 6px 16px -2px rgba(59,130,246,0.35); flex-shrink:0;">
+                <img src="/_/icon.svg" width="30" height="30" alt="NodeStack" style="display:block;" />
+              </div>
+              <div>
+                <h2 class="modal-title">Welcome to NodeStack 👋</h2>
+                <span style="color:var(--text-muted); font-size:12px;">Create your first Superuser</span>
+              </div>
+            </div>
+            <div class="modal-body">
+              <p style="color:var(--text-muted); font-size:13px; line-height:1.4;">
+                Create your first Superuser / Administrator account to take control of your backend:
+              </p>
+              <div class="form-group">
+                <label class="form-label">Admin Email *</label>
+                <input type="email" class="form-input" id="onboard-email" placeholder="admin@example.com" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Password * (min 8 characters)</label>
+                <input type="password" class="form-input" id="onboard-password" required>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-primary" style="width:100%;" onclick="submitOnboarding()">Create Admin Account & Launch</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function submitOnboarding() {
+      const email = document.getElementById('onboard-email').value;
+      const password = document.getElementById('onboard-password').value;
+
+      try {
+        const res = await api('/api/admins/create-initial', {
+          method: 'POST',
+          body: JSON.stringify({ email, password }),
+        });
+
+        state.token = res.token;
+        state.admin = res.admin;
+        localStorage.setItem('nodestack_token', res.token);
+        localStorage.setItem('nodestack_admin', JSON.stringify(res.admin));
+
+        closeModal();
+        await loadCollections();
+        initRealtime();
+        toast('Admin account created! Welcome to NodeStack.', 'success');
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    function logout() {
+      state.token = '';
+      state.admin = null;
+      localStorage.removeItem('nodestack_token');
+      localStorage.removeItem('nodestack_admin');
+      localStorage.removeItem('nb_token');
+      localStorage.removeItem('nb_admin');
+      if (state.realtimeEventSource) {
+        state.realtimeEventSource.close();
+      }
+      openLoginModal();
+    }
+
+    // Toast helper
+    function toast(msg, type = 'success') {
+      const container = document.getElementById('toast-container');
+      const el = document.createElement('div');
+      el.className = `toast ${type}`;
+      el.innerHTML = `<span>${type === 'success' ? '✓' : '⚠'}</span> <span>${msg}</span>`;
+      container.appendChild(el);
+      setTimeout(() => el.remove(), 4000);
+    }
+
+    // Copy helper
+    function copyToClipboard(text, btnEl) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          toast('URL copied to clipboard!', 'success');
+          if (btnEl) {
+            const orig = btnEl.innerHTML;
+            btnEl.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+            setTimeout(() => { btnEl.innerHTML = orig; }, 1500);
+          }
+        }).catch(() => fallbackCopy(text, btnEl));
+      } else {
+        fallbackCopy(text, btnEl);
+      }
+    }
+
+    function fallbackCopy(text, btnEl) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      toast('URL copied to clipboard!', 'success');
+      if (btnEl) {
+        const orig = btnEl.innerHTML;
+        btnEl.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        setTimeout(() => { btnEl.innerHTML = orig; }, 1500);
+      }
+    }
+
+    // Run on startup
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+nb_data/
+demo_data/
+nodestack_data/
+tmp_typegen_test_*/
+.test_*/
+*.log
+.DS_Store
