@@ -21,7 +21,12 @@ Building modern web and mobile apps often requires managing complex database ser
 - **Instant CRUD & Realtime SSE**: Automatically exposes REST endpoints and Server-Sent Events change streams for every collection.
 - **Embedded Web Admin UI**: A sleek, reactive dashboard served directly from `http://localhost:8090/_/` without needing an external web server.
 - **Built-in Auth & File Storage**: JWT authentication, bcrypt password hashing, auth collections (`users`), and multi-part file uploads.
-- **Full TypeScript & npm Extensibility**: Write server hooks, custom routes, and business logic with direct access to the entire 2-million-package npm ecosystem (Stripe, OpenAI, Resend, Zod, etc.).
+- **Auto-Generated TypeScript Definitions**: One-command type generation (`nodestack typegen`) and live HTTP type exports (`GET /_/types.d.ts`) for 100% end-to-end type safety.
+- **Interactive OpenAPI 3.0 Reference**: Live Scalar and Swagger UI API documentation and dynamic spec generation at `/_/docs`.
+- **One-Click CSV & JSON Import / Export**: RFC 4180-compliant import with auto-delimiter detection and filtered exports.
+- **Visual Access Rule Builder**: Intuitive visual clause builder with prebuilt security presets and live syntax validation.
+- **Realtime Analytics & Metrics Dashboard**: High-level KPI cards, 24-hour traffic throughput and error rate graphs, database disk usage, and client connection counts.
+- **Full TypeScript & npm Extensibility**: Write server hooks, custom routes, and business logic with direct access to the entire 2-million-package npm ecosystem.
 - **OOP Architecture with DI / IoC**: Built with Clean Architecture, Inversion of Control, and SOLID principles.
 
 ---
@@ -108,6 +113,8 @@ For every collection created, NodeStack automatically generates:
 - `POST /api/collections/:collection/records` — Create record (supports JSON & multi-part file uploads)
 - `PATCH /api/collections/:collection/records/:id` — Update record
 - `DELETE /api/collections/:collection/records/:id` — Delete record
+- `GET /api/collections/:collection/export?format=csv|json` — One-click record export
+- `POST /api/collections/:collection/import` — Batch record import (CSV or JSON)
 
 #### Advanced Query Syntax:
 - **Pagination**: `?page=1&perPage=25`
@@ -140,10 +147,12 @@ Served directly at `/_/`:
 - **First-run onboarding**: Create the first superuser account in seconds.
 - **Schema Designer**: Visual table designer with text, number, bool, email, url, date, select, json, file, and relation fields.
 - **Data Grid / Record Explorer**: Search, filter, edit, delete, and add records.
-- **Realtime Feed**: Table automatically updates when changes occur on the server.
-- **Traffic & Request Inspector**: Inspect HTTP method, status codes, request latency, and client IP in real time with quick URL copying.
+- **Visual Access Rule Builder**: Interactive rule builder with security presets and live syntax validation.
+- **Analytics & Metrics Dashboard**: Visual KPI cards and 24-hour traffic charts.
+- **CSV & JSON Import / Export**: Drag-and-drop CSV importer and one-click filtered dataset exporter.
+- **Traffic & Request Inspector**: Inspect HTTP method, status codes, request latency, client IP in real time with quick URL copying.
 
-### 7. Auto-Generated TypeScript Definitions
+### 7. Auto-Generated TypeScript Definitions (`nodestack typegen`)
 Get 100% end-to-end type safety in frontend and full-stack apps with zero manual maintenance:
 - **CLI Generation**:
   ```bash
@@ -175,6 +184,51 @@ Test and inspect endpoints directly in your browser without writing code:
   # Or write directly to file
   npx nodestack openapi -o ./openapi.json
   ```
+
+### 9. CSV & JSON Import / Export Engine
+Easily migrate, backup, and sync collection data:
+- **RFC 4180 Compliant CSV Parser**:
+  - Auto-delimiter detection (comma `,`, semicolon `;`, or tab `\t`).
+  - Full support for multi-line values, escaped quotes (`""`), and UTF-8 BOM sanitization.
+- **Batch Import API (`POST /api/collections/:collection/import`)**:
+  - Upload CSV files via `multipart/form-data`, send raw `text/csv`, or post a JSON array of records.
+  - Automatic type coercion (numbers, booleans, parsed JSON arrays/objects).
+  - Transactional safety: atomic inserts with configurable `continueOnError: false` rollback or `continueOnError: true` error reporting.
+  - Auth collection support: automatic bcrypt password hashing for imported user records.
+- **One-Click Export API (`GET /api/collections/:collection/export?format=csv|json`)**:
+  - Direct browser downloads with `Content-Disposition: attachment; filename="<collection>_<timestamp>.csv"`.
+  - Respects active filter expressions (e.g. export only `status = 'active'`).
+  - Automatic security filtering: sensitive fields like `passwordHash` and `tokenKey` are never exported.
+
+### 10. Visual Access Rule Builder
+Design granular permission models without memorizing syntax:
+- **Quick-Access Security Presets**:
+  - 🔒 **Admin Only (`null`)** — Restricted strictly to authenticated superusers.
+  - 🌐 **Public (`""`)** — Accessible to anyone without authentication.
+  - 🔑 **Authenticated Users (`@request.auth.id != ""`)** — Requires a valid user JWT.
+  - ⚡ **Custom** — Build compound multi-field permission logic.
+- **Interactive Visual Clause Builder**:
+  - Dropdown selector for collection schema fields and auth variables (`@request.auth.id`, `@request.auth.role`, `@request.auth.email`, `@request.auth.isAdmin`).
+  - Supported operators: `=` (Equals), `!=` (Not equals), `>` (Greater than), `>=` (Greater or equal), `<` (Less than), `<=` (Less or equal), `~` (Contains / Like).
+  - Flexible logic combining with `AND (&&)` or `OR (||)`.
+- **Dual Visual & Formula Modes**:
+  - Switch freely between the Visual UI builder and Raw Formula text input.
+  - Real-time syntax and parentheses balancing validation.
+
+### 11. Realtime Analytics & Metrics Dashboard
+Monitor system health, database load, and traffic in real time:
+- **Live KPI Overview**:
+  - **Active Records Count**: Total records stored across all collections.
+  - **Database Disk Footprint**: Live file size monitoring of the main SQLite database, WAL file, and SHM index.
+  - **Realtime Clients**: Count of currently connected Server-Sent Events (SSE) subscribers.
+  - **24-Hour Traffic Volume & Error Rate**: Total requests, failed requests percentage, and average latency.
+- **Interactive Visual Timeline**:
+  - Hourly request volume breakdown over the last 24 hours.
+  - Visual error rate markers and peak request hour tracking.
+- **Per-Collection Storage Breakdown**:
+  - Record distribution and table density visual bars for every collection.
+- **Metrics API (`GET /api/metrics`)**:
+  - Returns complete JSON analytics payload (requires superuser authorization).
 
 ---
 
@@ -208,7 +262,7 @@ Test and inspect endpoints directly in your browser without writing code:
 npm test
 ```
 
-Includes unit tests for IoC DI resolution, RuleEngine AST evaluation, SQL query filter parser, and full end-to-end integration tests for the REST API, Auth, File uploads, and Admin UI.
+Includes 90+ tests across 11 test suites covering IoC DI resolution, RuleEngine AST evaluation, Visual Rule Builder, SQL query filter parser, CSV/JSON import & export, OpenAPI generation, TypeScript typegen, Analytics metrics, REST API, Auth, File uploads, and the Web Admin UI.
 
 ---
 
