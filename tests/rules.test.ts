@@ -53,4 +53,16 @@ describe('RuleEngine', () => {
     expect(engine.evaluate('status = "draft" || status = "published"', ctx)).toBe(true);
     expect(engine.evaluate('status = "draft" && @request.auth.id != ""', ctx)).toBe(false);
   });
+
+  it('should evaluate contains (~) operator for strings', () => {
+    const ctx = {
+      auth: { email: 'alice@company.org', isAdmin: false },
+      record: { title: 'NodeStack Architecture Guide' },
+    };
+
+    expect(engine.evaluate('@request.auth.email ~ "@company.org"', ctx)).toBe(true);
+    expect(engine.evaluate('@request.auth.email ~ "@other.com"', ctx)).toBe(false);
+    expect(engine.evaluate('title ~ "architecture"', ctx)).toBe(true);
+  });
 });
+

@@ -28,6 +28,16 @@ export { CsvHelper } from './records/CsvHelper';
 
 // Rules
 export { RuleEngine, RuleEvaluationContext } from './rules/RuleEngine';
+export {
+  RuleBuilder,
+  RuleClause,
+  ParsedRule,
+  RuleOperator,
+  RuleMode,
+  RuleJoinOp,
+  SUPPORTED_OPERATORS,
+  COMMON_AUTH_FIELDS,
+} from './rules/RuleBuilder';
 
 // Auth & Files
 export { AuthService, AuthClaims, AuthResult } from './auth/AuthService';
