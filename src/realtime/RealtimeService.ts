@@ -62,6 +62,10 @@ export class RealtimeService {
     return true;
   }
 
+  public getConnectedClientsCount(): number {
+    return this.clients.size;
+  }
+
   public removeClient(clientId: string): void {
     const client = this.clients.get(clientId);
     if (client) {

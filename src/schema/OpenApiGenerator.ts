@@ -155,6 +155,74 @@ export class OpenApiGenerator {
       required: ['page', 'perPage', 'totalItems', 'totalPages', 'items'],
     };
 
+    schemas.HourlyDataPoint = {
+      type: 'object',
+      properties: {
+        timestamp: { type: 'string', format: 'date-time' },
+        hourKey: { type: 'string', example: '2026-09-23T07' },
+        label: { type: 'string', example: '07:00' },
+        totalRequests: { type: 'integer', example: 120 },
+        errorRequests: { type: 'integer', example: 2 },
+        successRequests: { type: 'integer', example: 118 },
+        errorRate: { type: 'number', example: 1.67 },
+        avgDuration: { type: 'number', example: 4.2 },
+      },
+      required: ['timestamp', 'hourKey', 'label', 'totalRequests', 'errorRequests', 'successRequests', 'errorRate', 'avgDuration'],
+    };
+
+    schemas.AnalyticsMetricsResponse = {
+      type: 'object',
+      properties: {
+        database: {
+          type: 'object',
+          properties: {
+            sizeBytes: { type: 'integer', example: 124500 },
+            sizeFormatted: { type: 'string', example: '121.58 KB' },
+            walSizeBytes: { type: 'integer', example: 0 },
+            totalRecords: { type: 'integer', example: 450 },
+            collectionsBreakdown: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  collection: { type: 'string' },
+                  type: { type: 'string' },
+                  count: { type: 'integer' },
+                },
+              },
+            },
+          },
+        },
+        realtime: {
+          type: 'object',
+          properties: {
+            connectedClients: { type: 'integer', example: 3 },
+          },
+        },
+        traffic24h: {
+          type: 'object',
+          properties: {
+            totalRequests: { type: 'integer', example: 1540 },
+            totalErrors: { type: 'integer', example: 12 },
+            overallErrorRate: { type: 'number', example: 0.78 },
+            avgDuration: { type: 'number', example: 3.5 },
+            peakHourRequests: { type: 'integer', example: 240 },
+            series: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/HourlyDataPoint' },
+            },
+          },
+        },
+        system: {
+          type: 'object',
+          properties: {
+            uptime: { type: 'number' },
+            memoryUsage: { type: 'object' },
+          },
+        },
+      },
+    };
+
     schemas.CollectionField = {
       type: 'object',
       properties: {
@@ -1054,6 +1122,26 @@ export class OpenApiGenerator {
         responses: {
           '204': { description: 'Logs cleared successfully' },
           '401': { description: 'Unauthorized' },
+        },
+      },
+    };
+
+    paths['/api/metrics'] = {
+      get: {
+        tags: ['System'],
+        summary: 'Analytics & system metrics',
+        description: 'Returns active record count, database size on disk, realtime connected clients, and 24h request throughput and error rate graphs (Admin only).',
+        security: [{ BearerAuth: [] }],
+        responses: {
+          '200': {
+            description: 'Analytics metrics',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/AnalyticsMetricsResponse' },
+              },
+            },
+          },
+          '403': { description: 'Forbidden (Admin only)' },
         },
       },
     };

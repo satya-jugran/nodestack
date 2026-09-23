@@ -11,6 +11,7 @@ import { FileController } from './controllers/FileController';
 import { RealtimeController } from './controllers/RealtimeController';
 import { LogController } from './controllers/LogController';
 import { HealthController } from './controllers/HealthController';
+import { AnalyticsController } from './controllers/AnalyticsController';
 import { AdminUIService } from '../admin/AdminUIService';
 import { DocsService } from '../admin/DocsService';
 import { TypeGenerator } from '../schema/TypeGenerator';
@@ -32,7 +33,8 @@ export class HttpServer {
     private healthController: HealthController,
     private adminUiService: AdminUIService,
     private typeGenerator?: TypeGenerator,
-    private docsService?: DocsService
+    private docsService?: DocsService,
+    private analyticsController?: AnalyticsController
   ) {
     this.app = fastify({
       logger: false,
@@ -194,7 +196,14 @@ export class HttpServer {
       this.logController.clearLogs(req, reply)
     );
 
-    // 8. TypeGen Endpoints
+    // 8. Analytics & Metrics (Admin only)
+    if (this.analyticsController) {
+      app.get('/api/metrics', { preHandler: requireAdmin }, (req, reply) =>
+        this.analyticsController!.getMetrics(req, reply)
+      );
+    }
+
+    // 9. TypeGen Endpoints
     const handleTypegen = (_req: FastifyRequest, reply: FastifyReply) => {
       if (!this.typeGenerator) {
         return reply.status(500).send({ message: 'TypeGenerator is not configured' });

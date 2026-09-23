@@ -64,6 +64,21 @@
               </div>
               <button class="btn btn-secondary btn-sm" style="width:100%;" onclick="selectNav('logs')">View Traffic Logs</button>
             </div>
+
+            <!-- Card 4: Analytics & Metrics Dashboard -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.25rem; display:flex; flex-direction:column; justify-content:space-between; gap:1rem;">
+              <div>
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+                  <span style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.05em;">Analytics</span>
+                  <span class="badge badge-post" id="home-kpi-badge" style="display:inline-flex; align-items:center; gap:4px;"><span class="live-pulse-dot" style="width:6px; height:6px;"></span> Live Metrics</span>
+                </div>
+                <h4 style="font-size:16px; font-weight:700; margin-bottom:0.4rem;">Metrics & Telemetry</h4>
+                <p style="font-size:12px; color:var(--text-muted); line-height:1.4;" id="home-kpi-summary">
+                  Database storage, active record counts, live SSE clients, and 24h throughput & error rate graphs.
+                </p>
+              </div>
+              <button class="btn btn-primary btn-sm" style="width:100%;" onclick="selectNav('analytics')">Open Metrics Dashboard ➔</button>
+            </div>
           </div>
 
           <!-- Quick Reference & Schema Overview -->
@@ -89,6 +104,14 @@
           </div>
         </div>
       `;
+
+      // Asynchronously enrich home overview card with live metrics
+      api('/api/metrics').then((metrics) => {
+        const el = document.getElementById('home-kpi-summary');
+        if (el && metrics) {
+          el.innerHTML = `<strong>${metrics.database.totalRecords.toLocaleString()}</strong> records &bull; <strong>${metrics.database.sizeFormatted}</strong> on disk &bull; <strong>${metrics.realtime.connectedClients}</strong> live client${metrics.realtime.connectedClients === 1 ? '' : 's'}.`;
+        }
+      }).catch(() => {});
     }
 
     function renderLogsView() {

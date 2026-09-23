@@ -17,7 +17,7 @@ export class AdminUIBundler {
     // 1. Inline CSS files if css directory exists
     const cssDir = path.join(uiDir, 'css');
     if (fs.existsSync(cssDir)) {
-      const cssFiles = ['main.css', 'rules.css'];
+      const cssFiles = ['main.css', 'rules.css', 'analytics.css'];
       let combinedCss = '';
       for (const file of cssFiles) {
         const filePath = path.join(cssDir, file);
@@ -43,6 +43,7 @@ export class AdminUIBundler {
         'schema.js',
         'records.js',
         'modals.js',
+        'analytics.js',
         'views.js',
         'app.js',
       ];

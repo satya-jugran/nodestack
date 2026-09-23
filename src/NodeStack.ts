@@ -25,6 +25,8 @@ import { FileController } from './http/controllers/FileController';
 import { RealtimeController } from './http/controllers/RealtimeController';
 import { LogController } from './http/controllers/LogController';
 import { HealthController } from './http/controllers/HealthController';
+import { AnalyticsController } from './http/controllers/AnalyticsController';
+import { AnalyticsService } from './analytics/AnalyticsService';
 import {
   HookHandler,
   RecordBeforeEventContext,
@@ -48,6 +50,7 @@ export class NodeStack {
   public readonly files: FileStorageService;
   public readonly realtime: RealtimeService;
   public readonly logs: LogService;
+  public readonly analytics: AnalyticsService;
   public readonly typegen: TypeGenerator;
   public readonly openapi: OpenApiGenerator;
   public readonly docs: DocsService;
@@ -114,14 +117,18 @@ export class NodeStack {
     );
     this.container.bindInstance(TOKENS.RecordService, this.records);
 
-    // 13. Admin UI & Docs Services
+    // 13. Analytics Service
+    this.analytics = new AnalyticsService(this.db, this.config, this.schema, this.realtime);
+    this.container.bindInstance(TOKENS.AnalyticsService, this.analytics);
+
+    // 14. Admin UI & Docs Services
     const adminUi = new AdminUIService();
     this.container.bindInstance(TOKENS.AdminUIService, adminUi);
 
     this.docs = new DocsService(this.openapi, this.config);
     this.container.bindInstance(TOKENS.DocsService, this.docs);
 
-    // 14. Controllers & Middleware
+    // 15. Controllers & Middleware
     const authMiddleware = new AuthMiddleware(this.auth);
     const authCtrl = new AuthController(this.auth);
     const collectionCtrl = new CollectionController(this.schema);
@@ -130,8 +137,9 @@ export class NodeStack {
     const realtimeCtrl = new RealtimeController(this.realtime);
     const logCtrl = new LogController(this.logs);
     const healthCtrl = new HealthController(this.config);
+    const analyticsCtrl = new AnalyticsController(this.analytics);
 
-    // 15. HTTP Server
+    // 16. HTTP Server
     this.server = new HttpServer(
       this.config,
       this.logs,
@@ -145,7 +153,8 @@ export class NodeStack {
       healthCtrl,
       adminUi,
       this.typegen,
-      this.docs
+      this.docs,
+      analyticsCtrl
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
   }

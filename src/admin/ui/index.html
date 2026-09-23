@@ -11,6 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./css/main.css">
   <link rel="stylesheet" href="./css/rules.css">
+  <link rel="stylesheet" href="./css/analytics.css">
 </head>
 <body>
   <div id="app">
@@ -26,10 +27,14 @@
         <span class="version-tag">v0.1.0</span>
       </div>
 
-      <div style="padding: 0.75rem 1rem 0.25rem;">
+      <div style="padding: 0.75rem 1rem 0.25rem; display: flex; flex-direction: column; gap: 4px;">
         <div class="sidebar-nav-item active" id="nav-home" onclick="selectNav('home')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
           <span>Dashboard Overview</span>
+        </div>
+        <div class="sidebar-nav-item" id="nav-analytics" onclick="selectNav('analytics')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          <span>Analytics & Metrics</span>
         </div>
       </div>
 
@@ -106,6 +111,7 @@
   <script src="./js/schema.js"></script>
   <script src="./js/records.js"></script>
   <script src="./js/modals.js"></script>
+  <script src="./js/analytics.js"></script>
   <script src="./js/views.js"></script>
   <script src="./js/app.js"></script>
 </body>

@@ -7,19 +7,44 @@
       document.getElementById('collection-tabs').style.display = 'none';
       document.getElementById('view-badge').style.display = 'none';
 
+      if (typeof stopAnalyticsAutoRefresh === 'function') {
+        stopAnalyticsAutoRefresh();
+      }
+
       if (nav === 'home') {
         document.getElementById('nav-home')?.classList.add('active');
+        document.getElementById('nav-analytics')?.classList.remove('active');
         document.getElementById('nav-logs')?.classList.remove('active');
         document.getElementById('nav-settings')?.classList.remove('active');
         document.getElementById('view-title').textContent = 'Dashboard Overview';
         document.getElementById('view-actions').innerHTML = `
+          <button class="btn btn-secondary btn-sm" onclick="selectNav('analytics')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            Metrics Dashboard
+          </button>
           <button class="btn btn-secondary btn-sm" onclick="window.open('/_/docs', '_blank')">API Docs (OpenAPI)</button>
           <button class="btn btn-secondary btn-sm" onclick="window.open('/_/types.d.ts', '_blank')">TypeScript Types</button>
           <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ New Collection</button>
         `;
         renderHomeView();
+      } else if (nav === 'analytics') {
+        document.getElementById('nav-home')?.classList.remove('active');
+        document.getElementById('nav-analytics')?.classList.add('active');
+        document.getElementById('nav-logs')?.classList.remove('active');
+        document.getElementById('nav-settings')?.classList.remove('active');
+        document.getElementById('view-title').textContent = 'Analytics & Metrics';
+        document.getElementById('view-actions').innerHTML = `
+          <button class="btn btn-secondary btn-sm" onclick="loadAnalytics()">Refresh</button>
+          <button class="btn btn-primary btn-sm" onclick="selectNav('home')">Overview</button>
+        `;
+        renderAnalyticsView();
+        loadAnalytics();
+        if (analyticsState.autoRefreshEnabled) {
+          startAnalyticsAutoRefresh();
+        }
       } else if (nav === 'logs') {
         document.getElementById('nav-home')?.classList.remove('active');
+        document.getElementById('nav-analytics')?.classList.remove('active');
         document.getElementById('nav-logs')?.classList.add('active');
         document.getElementById('nav-settings')?.classList.remove('active');
         document.getElementById('view-title').textContent = 'Traffic & Logs';
@@ -31,6 +56,7 @@
         loadLogs();
       } else if (nav === 'settings') {
         document.getElementById('nav-home')?.classList.remove('active');
+        document.getElementById('nav-analytics')?.classList.remove('active');
         document.getElementById('nav-settings')?.classList.add('active');
         document.getElementById('nav-logs')?.classList.remove('active');
         document.getElementById('view-title').textContent = 'System & Settings';

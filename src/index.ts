@@ -47,6 +47,18 @@ export { FileStorageService, SavedFileMeta } from './files/FileStorageService';
 export { RealtimeService, RealtimeAction, RealtimeClient } from './realtime/RealtimeService';
 export { LogService, LogEntry } from './logger/LogService';
 
+// Analytics & Metrics
+export {
+  AnalyticsService,
+  AnalyticsMetrics,
+  DatabaseMetrics,
+  RealtimeMetrics,
+  Traffic24hMetrics,
+  HourlyDataPoint,
+  CollectionRecordCount,
+  formatBytes,
+} from './analytics/AnalyticsService';
+
 // HTTP
 export { HttpServer } from './http/HttpServer';
 export { AdminUIService } from './admin/AdminUIService';
