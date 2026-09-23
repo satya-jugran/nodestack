@@ -1,0 +1,244 @@
+/* Visual Access Rule Builder */
+    .rules-container {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .rule-card {
+      background: #11141d;
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 1rem 1.15rem;
+      transition: border-color 0.2s ease;
+    }
+    .rule-card:hover {
+      border-color: #2e364a;
+    }
+    .rule-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .rule-info {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .rule-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+    .rule-desc {
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+    .rule-presets {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: var(--bg-main);
+      padding: 3px;
+      border-radius: 6px;
+      border: 1px solid var(--border-subtle);
+    }
+    .rule-preset-btn {
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .rule-preset-btn:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .rule-preset-btn.active-admin {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.35);
+    }
+    .rule-preset-btn.active-public {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.35);
+    }
+    .rule-preset-btn.active-auth {
+      background: rgba(59, 130, 246, 0.2);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.35);
+    }
+    .rule-preset-btn.active-custom {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.35);
+    }
+    .rule-mode-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .rule-mode-toggle button {
+      background: var(--bg-main);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.15s ease;
+    }
+    .rule-mode-toggle button.active {
+      background: rgba(59, 130, 246, 0.2);
+      color: #93c5fd;
+      border-color: rgba(59, 130, 246, 0.4);
+      font-weight: 600;
+    }
+    .rule-mode-toggle button:hover:not(.active) {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .rule-visual-editor {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      margin-top: 0.6rem;
+    }
+    .rule-condition-row {
+      display: grid;
+      grid-template-columns: minmax(140px, 1.8fr) minmax(110px, 1.2fr) minmax(150px, 2fr) auto;
+      gap: 0.5rem;
+      align-items: center;
+      background: var(--bg-input);
+      padding: 0.5rem 0.65rem;
+      border-radius: 6px;
+      border: 1px solid var(--border-subtle);
+    }
+    @media (max-width: 640px) {
+      .rule-condition-row {
+        grid-template-columns: 1fr;
+      }
+    }
+    .rule-join-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding-left: 0.25rem;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .rule-join-pill {
+      background: var(--bg-main);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      color: #93c5fd;
+      transition: all 0.15s ease;
+    }
+    .rule-join-pill:hover {
+      border-color: var(--accent-primary);
+      background: rgba(59, 130, 246, 0.15);
+    }
+    .rule-raw-editor {
+      margin-top: 0.6rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .rule-raw-input {
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 0.55rem 0.75rem;
+      color: #93c5fd;
+      outline: none;
+      width: 100%;
+    }
+    .rule-raw-input:focus {
+      border-color: var(--accent-primary);
+    }
+    .rule-chips-bar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .rule-chip {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      color: #cbd5e1;
+      padding: 2px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+    .rule-chip:hover {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: var(--accent-primary);
+      color: #60a5fa;
+    }
+    .rule-status-banner {
+      font-size: 12px;
+      border-radius: 6px;
+      padding: 0.55rem 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      line-height: 1.4;
+    }
+    .rule-status-banner.admin {
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+    }
+    .rule-status-banner.public {
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+      color: #6ee7b7;
+    }
+    .rule-status-banner.auth {
+      background: rgba(59, 130, 246, 0.08);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      color: #93c5fd;
+    }
+    .rule-preview-box {
+      margin-top: 0.6rem;
+      font-size: 11.5px;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px dashed var(--border-subtle);
+      border-radius: 5px;
+      padding: 0.4rem 0.65rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-muted);
+    }
+    .rule-preview-code {
+      font-family: var(--font-mono);
+      color: #38bdf8;
+      font-weight: 500;
+    }

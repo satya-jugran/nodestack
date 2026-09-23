@@ -10,7 +10,7 @@
   },
   "type": "commonjs",
   "scripts": {
-    "build": "tsc && node -e \"const fs = require('fs'); fs.mkdirSync('dist/admin/ui', { recursive: true }); fs.copyFileSync('src/admin/ui/index.html', 'dist/admin/ui/index.html'); if (fs.existsSync('src/admin/ui/icon.svg')) fs.copyFileSync('src/admin/ui/icon.svg', 'dist/admin/ui/icon.svg'); if (fs.existsSync('src/admin/ui/favicon.svg')) fs.copyFileSync('src/admin/ui/favicon.svg', 'dist/admin/ui/favicon.svg');\"",
+    "build": "tsc && node -e \"const fs = require('fs'); fs.mkdirSync('dist/admin/ui', { recursive: true }); fs.cpSync('src/admin/ui', 'dist/admin/ui', { recursive: true }); const { AdminUIBundler } = require('./dist/admin/AdminUIBundler'); fs.writeFileSync('dist/admin/ui/index.html', AdminUIBundler.bundle('dist/admin/ui'));\"",
     "dev": "tsx src/cli/cli.ts start",
     "start": "node bin/nodestack.js start",
     "test": "vitest run"

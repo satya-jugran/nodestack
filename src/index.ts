@@ -50,4 +50,5 @@ export { LogService, LogEntry } from './logger/LogService';
 // HTTP
 export { HttpServer } from './http/HttpServer';
 export { AdminUIService } from './admin/AdminUIService';
+export { AdminUIBundler } from './admin/AdminUIBundler';
 export { DocsService } from './admin/DocsService';

@@ -1,17 +1,25 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import * as fs from 'fs';
 import * as path from 'path';
+import { AdminUIBundler } from './AdminUIBundler';
 
 export class AdminUIService {
   private adminHtml: string;
   private iconSvg: string;
+  private uiDir: string;
 
   constructor() {
-    const htmlPath = path.join(__dirname, 'ui', 'index.html');
-    if (fs.existsSync(htmlPath)) {
-      this.adminHtml = fs.readFileSync(htmlPath, 'utf-8');
+    this.uiDir = path.join(__dirname, 'ui');
+    const bundled = AdminUIBundler.bundle(this.uiDir);
+    if (bundled) {
+      this.adminHtml = bundled;
     } else {
-      this.adminHtml = this.getFallbackHtml();
+      const htmlPath = path.join(this.uiDir, 'index.html');
+      if (fs.existsSync(htmlPath)) {
+        this.adminHtml = fs.readFileSync(htmlPath, 'utf-8');
+      } else {
+        this.adminHtml = this.getFallbackHtml();
+      }
     }
 
     const iconPath = path.join(__dirname, 'ui', 'icon.svg');
@@ -23,6 +31,14 @@ export class AdminUIService {
     } else {
       this.iconSvg = this.getFallbackSvg();
     }
+  }
+
+  public getHtml(): string {
+    if (process.env.NODE_ENV !== 'production') {
+      const live = AdminUIBundler.bundle(this.uiDir);
+      if (live) return live;
+    }
+    return this.adminHtml;
   }
 
   public registerRoutes(server: FastifyInstance): void {
@@ -50,12 +66,12 @@ export class AdminUIService {
         return reply.callNotFound();
       }
       reply.header('Content-Type', 'text/html; charset=utf-8');
-      return reply.send(this.adminHtml);
+      return reply.send(this.getHtml());
     });
 
     server.get('/_/', async (_req: FastifyRequest, reply: FastifyReply) => {
       reply.header('Content-Type', 'text/html; charset=utf-8');
-      return reply.send(this.adminHtml);
+      return reply.send(this.getHtml());
     });
 
     server.get('/_', async (_req: FastifyRequest, reply: FastifyReply) => {
