@@ -12,7 +12,7 @@
             <div>
               <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
                 <h2 style="font-size: 26px; font-weight: 800; letter-spacing: -0.03em; color: #fff;">NodeStack</h2>
-                <span class="version-tag" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd;">v0.1.0</span>
+                <span class="version-tag" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd;">v1.0.0</span>
                 <span class="badge badge-get" style="font-size: 11px;">● Server Online</span>
               </div>
               <p style="color: var(--text-muted); font-size: 14px; line-height: 1.5; max-width: 620px;">
@@ -192,7 +192,7 @@
     // Settings View
     async function renderSettingsView() {
       const main = document.getElementById('main-body');
-      let health = { version: '0.1.0', appName: 'NodeStack' };
+      let health = { version: '1.0.0', appName: 'NodeStack' };
       try {
         health = await api('/api/health');
       } catch {}

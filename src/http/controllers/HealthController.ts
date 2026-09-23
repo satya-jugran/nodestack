@@ -10,7 +10,7 @@ export class HealthController extends BaseController {
   public async getHealth(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
     this.ok(reply, {
       status: 'ok',
-      version: '0.1.0',
+      version: '1.0.0',
       appName: this.config.appName,
       uptime: process.uptime(),
       memory: process.memoryUsage(),
@@ -20,7 +20,7 @@ export class HealthController extends BaseController {
   public async getSettings(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
     this.ok(reply, {
       appName: this.config.appName,
-      version: '0.1.0',
+      version: '1.0.0',
     });
   }
 }

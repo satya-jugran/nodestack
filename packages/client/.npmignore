@@ -1,0 +1,8 @@
+# Source & Testing
+src/
+tests/
+build.js
+tsconfig.json
+*.log
+.DS_Store
+.git*

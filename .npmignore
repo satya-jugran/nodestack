@@ -1,0 +1,9 @@
+# Source & Development
+src/
+tests/
+packages/
+.test_*
+*.log
+.DS_Store
+tsconfig.json
+.git*

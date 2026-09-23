@@ -1,6 +1,6 @@
 {
   "name": "nodestack",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "The TypeScript-Native Backend Stack. Single-process backend with embedded SQLite, instant CRUD, Auth, Realtime, Files & Admin UI.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -9,8 +9,17 @@
     "nodebase": "bin/nodebase.js"
   },
   "type": "commonjs",
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "tsc && node -e \"const fs = require('fs'); fs.mkdirSync('dist/admin/ui', { recursive: true }); fs.cpSync('src/admin/ui', 'dist/admin/ui', { recursive: true }); const { AdminUIBundler } = require('./dist/admin/AdminUIBundler'); fs.writeFileSync('dist/admin/ui/index.html', AdminUIBundler.bundle('dist/admin/ui'));\"",
+    "build": "npm run build:server && npm run build:client",
+    "build:server": "tsc && node -e \"const fs = require('fs'); fs.mkdirSync('dist/admin/ui', { recursive: true }); fs.cpSync('src/admin/ui', 'dist/admin/ui', { recursive: true }); const { AdminUIBundler } = require('./dist/admin/AdminUIBundler'); fs.writeFileSync('dist/admin/ui/index.html', AdminUIBundler.bundle('dist/admin/ui'));\"",
+    "build:client": "npm --workspace=packages/client run build",
     "dev": "tsx src/cli/cli.ts start",
     "start": "node bin/nodestack.js start",
     "test": "vitest run"

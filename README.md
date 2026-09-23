@@ -26,6 +26,7 @@ Building modern web and mobile apps often requires managing complex database ser
 - **One-Click CSV & JSON Import / Export**: RFC 4180-compliant import with auto-delimiter detection and filtered exports.
 - **Visual Access Rule Builder**: Intuitive visual clause builder with prebuilt security presets and live syntax validation.
 - **Realtime Analytics & Metrics Dashboard**: High-level KPI cards, 24-hour traffic throughput and error rate graphs, database disk usage, and client connection counts.
+- **First-Party Client SDK (`nodestack-client`)**: Zero-dependency, lightweight (<10KB) TypeScript/JavaScript client for web apps, React/Next.js, React Native, Node.js, Bun, and Deno.
 - **Full TypeScript & npm Extensibility**: Write server hooks, custom routes, and business logic with direct access to the entire 2-million-package npm ecosystem.
 - **OOP Architecture with DI / IoC**: Built with Clean Architecture, Inversion of Control, and SOLID principles.
 
@@ -95,6 +96,57 @@ app.router.get('/api/v1/stats', async (req, reply) => {
 // Start the server
 await app.start(8090);
 ```
+
+---
+
+## 🌐 First-Party Client SDK (`nodestack-client`)
+
+[![npm version](https://img.shields.io/npm/v/nodestack-client.svg?color=blue)](https://www.npmjs.com/package/nodestack-client)
+[![npm bundle size](https://img.shields.io/bundlephobia/minzip/nodestack-client)](https://www.npmjs.com/package/nodestack-client)
+
+Connect frontend web apps (React, Vue, Svelte, Angular, Solid), mobile apps (React Native / Expo), backend scripts (Node.js, Bun, Deno), and Edge workers to NodeStack using the official lightweight client SDK ([`nodestack-client` on npm](https://www.npmjs.com/package/nodestack-client)):
+
+```bash
+npm install nodestack-client
+```
+
+### Quick Example
+
+```typescript
+import { NodeStackClient } from 'nodestack-client';
+
+const client = new NodeStackClient('http://localhost:8090');
+
+// 1. Authenticate user
+await client.collection('users').authWithPassword('user@example.com', 'password123');
+
+// 2. Fetch paginated records with filtering & sorting
+const posts = await client.collection('posts').getList(1, 20, {
+  filter: "status = 'published' && views >= 10",
+  sort: '-created',
+});
+
+// 3. Create record with file upload (multipart/form-data)
+const formData = new FormData();
+formData.append('title', 'My First Post');
+formData.append('coverImage', fileInput.files[0]);
+const newPost = await client.collection('posts').create(formData);
+
+// 4. File URL helper
+const imageUrl = client.files.getUrl(newPost, newPost.coverImage);
+
+// 5. Multiplexed Realtime SSE subscriptions
+const unsubscribe = await client.collection('posts').subscribe('*', (event) => {
+  console.log(`Action: ${event.action}`, event.record);
+});
+
+// 6. 100% End-to-End Type Safety with nodestack typegen
+// import { SchemaCollections } from './types/nodestack';
+// const typedClient = new NodeStackClient<SchemaCollections>('http://localhost:8090');
+// const typedPosts = await typedClient.collection('posts').getList(); // fully typed!
+```
+
+> 📖 For full SDK reference, authentication stores, and reactive subscriptions, check out the [`nodestack-client` documentation](packages/client/README.md).
 
 ---
 

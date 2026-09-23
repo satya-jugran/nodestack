@@ -1,0 +1,49 @@
+{
+  "name": "nodestack-client",
+  "version": "1.0.0",
+  "description": "First-party lightweight, type-safe client SDK for NodeStack",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node build.js",
+    "prepublishOnly": "node build.js",
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/satya-jugran/nodebase.git",
+    "directory": "packages/client"
+  },
+  "bugs": {
+    "url": "https://github.com/satya-jugran/nodebase/issues"
+  },
+  "homepage": "https://github.com/satya-jugran/nodebase#readme",
+  "keywords": [
+    "nodestack",
+    "nodestack-client",
+    "sdk",
+    "api-client",
+    "realtime",
+    "baas",
+    "sqlite",
+    "typescript"
+  ],
+  "author": "NodeStack Contributors",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "typescript": "^5.8.2"
+  }
+}
