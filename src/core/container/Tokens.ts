@@ -18,4 +18,5 @@ export const TOKENS = {
   OpenApiGenerator: Symbol('OpenApiGenerator'),
   DocsService: Symbol('DocsService'),
   AnalyticsService: Symbol('AnalyticsService'),
+  MockDataService: Symbol('MockDataService'),
 } as const;

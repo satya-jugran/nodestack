@@ -1,11 +1,13 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import * as fs from 'fs';
+import * as path from 'path';
 import { BaseController } from './BaseController';
 import { FileStorageService } from '../../files/FileStorageService';
 import { SchemaService } from '../../schema/SchemaService';
 import { RuleEngine } from '../../rules/RuleEngine';
 import { DatabaseService } from '../../database/DatabaseService';
 import { ForbiddenError, NotFoundError } from '../../core/errors/AppError';
+import { FakerEngine } from '../../records/FakerEngine';
 
 export class FileController extends BaseController {
   constructor(
@@ -37,7 +39,30 @@ export class FileController extends BaseController {
       throw new ForbiddenError('You are not allowed to view this file');
     }
 
-    const filePath = this.fileStorageService.getFilePath(col.id, recordId, filename);
+    let filePath: string;
+    try {
+      filePath = this.fileStorageService.getFilePath(col.id, recordId, filename);
+    } catch (err) {
+      // Dynamic healing: If requested file is a mock avatar or image that was missed, generate and save it on-the-fly!
+      if (filename.startsWith('avatar_') || filename.startsWith('image_')) {
+        const safeName = record.name || record.title || filename;
+        const isPng = filename.toLowerCase().endsWith('.png');
+        const buf = isPng
+          ? FakerEngine.generateLocalPngAvatar(safeName, filename)
+          : FakerEngine.generateLocalSvgAvatar(safeName, filename);
+
+        const dir = path.join(this.fileStorageService.storageDir, col.id, recordId);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        const safeFilename = path.basename(filename);
+        const targetPath = path.join(dir, safeFilename);
+        fs.writeFileSync(targetPath, buf);
+        filePath = targetPath;
+      } else {
+        throw err;
+      }
+    }
 
     if (req.query.download === '1') {
       reply.header('Content-Disposition', `attachment; filename="${filename}"`);

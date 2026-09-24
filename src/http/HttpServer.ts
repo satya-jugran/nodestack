@@ -178,6 +178,9 @@ export class HttpServer {
     app.post('/api/collections/:collection/import', (req: any, reply) =>
       this.recordController.importRecords(req, reply)
     );
+    app.post('/api/collections/:collection/generate-mock', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.recordController.generateMock(req, reply)
+    );
 
     // 5. File Serving
     app.get('/api/files/:collection/:recordId/:filename', (req: any, reply) =>

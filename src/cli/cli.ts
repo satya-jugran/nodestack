@@ -152,6 +152,32 @@ export async function runCli(argv = process.argv): Promise<Command> {
       }
     });
 
+  // Command: mock / seed
+  program
+    .command('mock <collection> [count]')
+    .alias('seed')
+    .description('Generate realistic mock data using the built-in Faker engine')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('--no-files', 'Skip downloading external avatar / placeholder images', false)
+    .option('--no-relations', 'Skip auto-seeding empty referenced collections', false)
+    .action(async (collection, countArg, options) => {
+      const count = parseInt(countArg, 10) || 25;
+      const app = new NodeStack({ dataDir: options.dir });
+      try {
+        const res = await app.mockData.generate(collection, {
+          count,
+          downloadFiles: options.files !== false,
+          autoSeedRelations: options.relations !== false,
+        });
+        console.log(chalk.green(`✓ Successfully generated ${res.count} mock records for '${collection}'!`));
+      } catch (err: any) {
+        console.error(chalk.red(`✗ Failed to generate mock data: ${err.message}`));
+        process.exit(1);
+      } finally {
+        app.db.close();
+      }
+    });
+
   return await program.parseAsync(argv);
 }
 

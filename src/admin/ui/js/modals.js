@@ -921,3 +921,246 @@
 
       toast(`Import finished: ${res.imported} records added to ${col.name}`, res.imported > 0 ? 'success' : 'error');
     }
+
+    // ==========================================
+    // 1-Click Generate Mock Data Modal (Faker Engine)
+    // ==========================================
+
+    let selectedMockCount = 50;
+
+    function getFieldMockDescription(f, col) {
+      const clean = f.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (f.type === 'email' || clean.includes('email') || clean.includes('mail')) {
+        return 'Realistic unique emails (e.g. sarah.jenkins@example.com)';
+      }
+      if (f.type === 'file') {
+        if (clean.includes('avatar') || clean.includes('photo') || clean.includes('profile')) {
+          return 'DiceBear / Unsplash avatar images (with SVG badge fallback)';
+        }
+        return 'Placeholder cover/product images with SVG metadata';
+      }
+      if (f.type === 'select') {
+        const vals = f.options?.values || ['draft', 'published', 'archived'];
+        return `Random distribution across options: [${vals.slice(0, 3).join(', ')}${vals.length > 3 ? '...' : ''}]`;
+      }
+      if (f.type === 'relation') {
+        const targetId = f.options?.collectionId || 'collection';
+        const targetCol = state.collections.find(c => c.id === targetId || c.name === targetId);
+        const colTitle = targetCol ? targetCol.name : targetId;
+        return `Auto-links to existing '${colTitle}' records (auto-seeds if empty)`;
+      }
+      if (f.type === 'number') {
+        if (clean.includes('price') || clean.includes('cost') || clean.includes('amount') || clean.includes('salary')) {
+          return 'Realistic currency figures (e.g. $19.99, $49.00, $129.50)';
+        }
+        if (clean === 'age') return 'Realistic human ages (18-70)';
+        if (clean.includes('rating') || clean.includes('score')) return 'Star ratings (3.5 - 5.0)';
+        return 'Random realistic numeric values';
+      }
+      if (f.type === 'bool') {
+        return 'Distributed booleans (true/false weighted for active/published)';
+      }
+      if (f.type === 'date') {
+        return 'Realistic ISO timestamps in recent past';
+      }
+      if (f.type === 'json') {
+        return 'Structured mock JSON (tags, settings, address)';
+      }
+      if (clean === 'name' || clean === 'fullname' || clean === 'author' || clean === 'customer') {
+        return 'Real human full names (e.g. Sarah Jenkins, Marcus Vance)';
+      }
+      if (clean === 'firstname') return 'First names (e.g. Sarah, Marcus)';
+      if (clean === 'lastname') return 'Last names (e.g. Jenkins, Vance)';
+      if (clean.includes('company') || clean.includes('org')) return 'Company names (e.g. Acme Corp, Nexus Digital)';
+      if (clean.includes('title') || clean.includes('headline')) return 'Article/Product titles';
+      if (clean.includes('bio') || clean.includes('desc') || clean.includes('about')) return 'Natural sentences and bios';
+      if (clean.includes('city')) return 'World cities (e.g. San Francisco, Tokyo)';
+      if (clean.includes('country')) return 'Country names (e.g. United States, Japan)';
+      if (clean.includes('street') || clean.includes('address')) return 'Realistic street addresses';
+      if (clean.includes('phone') || clean.includes('tel')) return 'International phone numbers';
+      return `Realistic synthetic ${f.name} values`;
+    }
+
+    function selectMockCount(count) {
+      selectedMockCount = count;
+      document.querySelectorAll('.count-pill').forEach(btn => {
+        if (parseInt(btn.getAttribute('data-count')) === count) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+      const input = document.getElementById('mock-custom-count');
+      if (input) input.value = count;
+      const submitBtn = document.getElementById('btn-submit-mock');
+      if (submitBtn) {
+        submitBtn.innerHTML = `<span>✨ Generate ${count} Records</span>`;
+      }
+    }
+
+    function onMockCustomCountChange(val) {
+      const parsed = Math.max(1, Math.min(500, parseInt(val) || 25));
+      selectedMockCount = parsed;
+      document.querySelectorAll('.count-pill').forEach(btn => {
+        if (parseInt(btn.getAttribute('data-count')) === parsed) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+      const submitBtn = document.getElementById('btn-submit-mock');
+      if (submitBtn) {
+        submitBtn.innerHTML = `<span>✨ Generate ${parsed} Records</span>`;
+      }
+    }
+
+    function openMockDataModal() {
+      const col = state.activeCollection;
+      if (!col) return;
+
+      selectedMockCount = 50;
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+          <div class="modal modal-lg">
+            <div class="modal-header">
+              <div style="display:flex; align-items:center; gap:0.75rem;">
+                <div style="width:36px; height:36px; border-radius:8px; background:rgba(59,130,246,0.15); color:#60a5fa; display:flex; align-items:center; justify-content:center; font-size:18px;">
+                  ✨
+                </div>
+                <div>
+                  <h2 class="modal-title" style="margin:0;">Generate Mock Data — ${col.name}</h2>
+                  <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">Built-in Faker Engine with intelligent schema type inspection</div>
+                </div>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+
+            <div class="modal-body" style="gap:1.25rem;">
+              <!-- Record Count Picker -->
+              <div>
+                <label class="form-label" style="margin-bottom:0.5rem; font-weight:600;">How many records would you like to generate?</label>
+                <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                  <button type="button" class="count-pill" data-count="10" onclick="selectMockCount(10)">10 records</button>
+                  <button type="button" class="count-pill" data-count="25" onclick="selectMockCount(25)">25 records</button>
+                  <button type="button" class="count-pill active" data-count="50" onclick="selectMockCount(50)">50 records</button>
+                  <button type="button" class="count-pill" data-count="100" onclick="selectMockCount(100)">100 records</button>
+                  
+                  <div style="display:flex; align-items:center; gap:6px; margin-left:auto;">
+                    <span style="font-size:12px; color:var(--text-muted);">Custom:</span>
+                    <input type="number" id="mock-custom-count" min="1" max="500" value="50" class="form-input" style="width:80px; padding:0.35rem 0.5rem; text-align:center;" oninput="onMockCustomCountChange(this.value)">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Schema Field Inspection Preview -->
+              <div>
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.5rem;">
+                  <label class="form-label" style="margin:0; font-weight:600;">Schema Field Inspection</label>
+                  <span style="font-size:11px; color:var(--text-muted);">${col.schema.length + (col.type === 'auth' ? 2 : 0)} fields detected</span>
+                </div>
+                <div class="mapping-table-container" style="max-height:220px; overflow-y:auto; border:1px solid var(--border-subtle); border-radius:6px;">
+                  <table class="mapping-table" style="width:100%; border-collapse:collapse; font-size:12px;">
+                    <thead>
+                      <tr style="background:var(--bg-input); text-align:left; border-bottom:1px solid var(--border-subtle);">
+                        <th style="padding:8px 12px; width:25%;">Field</th>
+                        <th style="padding:8px 12px; width:15%;">Type</th>
+                        <th style="padding:8px 12px; width:60%;">Simulated Content</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${col.type === 'auth' ? `
+                        <tr style="border-bottom:1px solid var(--border-subtle);">
+                          <td style="padding:8px 12px; font-weight:600;">email</td>
+                          <td style="padding:8px 12px;"><span class="badge">auth</span></td>
+                          <td style="padding:8px 12px; color:var(--text-muted);">Unique realistic emails (e.g. sarah.jenkins@example.com)</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid var(--border-subtle);">
+                          <td style="padding:8px 12px; font-weight:600;">password</td>
+                          <td style="padding:8px 12px;"><span class="badge">auth</span></td>
+                          <td style="padding:8px 12px; color:var(--text-muted);">Secure bcrypt-hashed credentials ("NodeStack2026!")</td>
+                        </tr>
+                      ` : ''}
+                      ${col.schema.map(f => `
+                        <tr style="border-bottom:1px solid var(--border-subtle);">
+                          <td style="padding:8px 12px; font-weight:600;">
+                            ${f.name} ${f.required ? '<span style="color:#f87171;">*</span>' : ''}
+                          </td>
+                          <td style="padding:8px 12px;">
+                            <span class="badge badge-${f.type}">${f.type}</span>
+                          </td>
+                          <td style="padding:8px 12px; color:var(--text-muted);">
+                            ${getFieldMockDescription(f, col)}
+                          </td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Options -->
+              <div style="background:var(--bg-input); padding:0.85rem 1rem; border-radius:6px; border:1px solid var(--border-subtle); display:flex; flex-direction:column; gap:0.6rem;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                  <input type="checkbox" id="mock-download-files" checked style="cursor:pointer;">
+                  <span>Auto-download realistic avatar / placeholder images (DiceBear / Unsplash)</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                  <input type="checkbox" id="mock-auto-seed-relations" checked style="cursor:pointer;">
+                  <span>Automatically seed empty referenced collections to satisfy relations</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="modal-footer">
+              <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+              <button class="btn btn-primary" id="btn-submit-mock" onclick="submitGenerateMockData()">
+                <span>✨ Generate ${selectedMockCount} Records</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function submitGenerateMockData() {
+      const col = state.activeCollection;
+      if (!col) return;
+
+      const submitBtn = document.getElementById('btn-submit-mock');
+      const downloadFiles = document.getElementById('mock-download-files')?.checked ?? true;
+      const autoSeedRelations = document.getElementById('mock-auto-seed-relations')?.checked ?? true;
+
+      const count = selectedMockCount || 50;
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `
+          <div style="width:14px; height:14px; border:2px solid #ffffff; border-top-color:transparent; border-radius:50%; animation:spin 0.6s linear infinite;"></div>
+          <span>Generating ${count} Records...</span>
+        `;
+      }
+
+      try {
+        const res = await api(`/api/collections/${col.name}/generate-mock`, {
+          method: 'POST',
+          body: JSON.stringify({
+            count,
+            options: {
+              downloadFiles,
+              autoSeedRelations,
+            },
+          }),
+        });
+
+        toast(`✨ Successfully generated ${res.count || count} realistic records!`, 'success');
+        closeModal();
+        await loadRecords();
+      } catch (err) {
+        toast(`Mock Generation Failed: ${err.message || String(err)}`, 'error');
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = `<span>✨ Generate ${count} Records</span>`;
+        }
+      }
+    }

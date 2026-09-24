@@ -11,6 +11,7 @@ import { DocsService } from './admin/DocsService';
 import { RuleEngine } from './rules/RuleEngine';
 import { AuthService } from './auth/AuthService';
 import { RecordService } from './records/RecordService';
+import { MockDataService } from './records/MockDataService';
 import { FileStorageService } from './files/FileStorageService';
 import { RealtimeService } from './realtime/RealtimeService';
 import { LogService } from './logger/LogService';
@@ -46,6 +47,7 @@ export class NodeStack {
   public readonly db: DatabaseService;
   public readonly schema: SchemaService;
   public readonly records: RecordService;
+  public readonly mockData: MockDataService;
   public readonly auth: AuthService;
   public readonly files: FileStorageService;
   public readonly realtime: RealtimeService;
@@ -117,22 +119,32 @@ export class NodeStack {
     );
     this.container.bindInstance(TOKENS.RecordService, this.records);
 
-    // 13. Analytics Service
+    // 13. Mock Data Service
+    this.mockData = new MockDataService(
+      this.db,
+      this.schema,
+      this.files,
+      this.eventBus,
+      this.realtime
+    );
+    this.container.bindInstance(TOKENS.MockDataService, this.mockData);
+
+    // 14. Analytics Service
     this.analytics = new AnalyticsService(this.db, this.config, this.schema, this.realtime);
     this.container.bindInstance(TOKENS.AnalyticsService, this.analytics);
 
-    // 14. Admin UI & Docs Services
+    // 15. Admin UI & Docs Services
     const adminUi = new AdminUIService();
     this.container.bindInstance(TOKENS.AdminUIService, adminUi);
 
     this.docs = new DocsService(this.openapi, this.config);
     this.container.bindInstance(TOKENS.DocsService, this.docs);
 
-    // 15. Controllers & Middleware
+    // 16. Controllers & Middleware
     const authMiddleware = new AuthMiddleware(this.auth);
     const authCtrl = new AuthController(this.auth);
     const collectionCtrl = new CollectionController(this.schema);
-    const recordCtrl = new RecordController(this.records, this.schema, this.files);
+    const recordCtrl = new RecordController(this.records, this.schema, this.files, this.mockData);
     const fileCtrl = new FileController(this.files, this.schema, ruleEngine, this.db);
     const realtimeCtrl = new RealtimeController(this.realtime);
     const logCtrl = new LogController(this.logs);

@@ -23,6 +23,8 @@ export * from './schema/models/Field';
 
 // Records
 export { RecordService, ListResult, QueryOptions, ExportResult, ImportOptions, ImportResult } from './records/RecordService';
+export { MockDataService, MockGenerateOptions, MockGenerateResult } from './records/MockDataService';
+export { FakerEngine, FakerContext, GeneratedFilePayload } from './records/FakerEngine';
 export { QueryFilterParser, ParsedFilter, ParsedSort } from './records/QueryFilterParser';
 export { CsvHelper } from './records/CsvHelper';
 

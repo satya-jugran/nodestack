@@ -15,6 +15,10 @@ export interface SavedFileMeta {
 export class FileStorageService {
   constructor(private config: ConfigService) {}
 
+  public get storageDir(): string {
+    return this.config.storageDir;
+  }
+
   /**
    * Save a buffer or stream to the storage directory
    */
