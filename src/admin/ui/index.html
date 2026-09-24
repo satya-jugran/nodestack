@@ -40,7 +40,10 @@
 
       <div class="sidebar-section">
         <span>Collections</span>
-        <button class="btn btn-secondary btn-sm" onclick="openNewCollectionModal()">+ New</button>
+        <div style="display: flex; gap: 4px;">
+          <button class="btn btn-secondary btn-sm" onclick="openImportJsonModal()" title="Paste JSON → Instant API (Schema Auto-Inference)" style="padding: 2px 7px; font-size: 11px;">Import JSON</button>
+          <button class="btn btn-secondary btn-sm" onclick="openNewCollectionModal()" style="padding: 2px 7px; font-size: 11px;">+ New</button>
+        </div>
       </div>
 
       <div class="collections-list" id="collections-list">

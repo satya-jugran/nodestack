@@ -19,4 +19,5 @@ export const TOKENS = {
   DocsService: Symbol('DocsService'),
   AnalyticsService: Symbol('AnalyticsService'),
   MockDataService: Symbol('MockDataService'),
+  SchemaInferenceService: Symbol('SchemaInferenceService'),
 } as const;

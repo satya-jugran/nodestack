@@ -1,10 +1,14 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { SchemaService } from '../../schema/SchemaService';
+import { SchemaInferenceService, ImportJsonOptions } from '../../schema/SchemaInferenceService';
 import { CreateCollectionDto, UpdateCollectionDto } from '../../schema/models/Collection';
 
 export class CollectionController extends BaseController {
-  constructor(private schemaService: SchemaService) {
+  constructor(
+    private schemaService: SchemaService,
+    private schemaInferenceService?: SchemaInferenceService
+  ) {
     super();
   }
 
@@ -46,5 +50,27 @@ export class CollectionController extends BaseController {
   ): Promise<void> {
     this.schemaService.deleteCollection(req.params.collection);
     this.noContent(reply);
+  }
+
+  public async inferSchema(
+    req: FastifyRequest<{ Body: { data: any } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    if (!this.schemaInferenceService) {
+      throw new Error('SchemaInferenceService is not initialized');
+    }
+    const result = this.schemaInferenceService.inferSchema(req.body?.data);
+    this.ok(reply, result);
+  }
+
+  public async importJson(
+    req: FastifyRequest<{ Body: ImportJsonOptions }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    if (!this.schemaInferenceService) {
+      throw new Error('SchemaInferenceService is not initialized');
+    }
+    const result = await this.schemaInferenceService.importJson(req.body);
+    this.ok(reply, result, 201);
   }
 }

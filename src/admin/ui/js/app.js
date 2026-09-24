@@ -23,7 +23,7 @@
             Metrics Dashboard
           </button>
           <button class="btn btn-secondary btn-sm" onclick="window.open('/_/docs', '_blank')">API Docs (OpenAPI)</button>
-          <button class="btn btn-secondary btn-sm" onclick="window.open('/_/types.d.ts', '_blank')">TypeScript Types</button>
+          <button class="btn btn-secondary btn-sm" onclick="openImportJsonModal()">⚡ Import from JSON</button>
           <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ New Collection</button>
         `;
         renderHomeView();

@@ -33,7 +33,10 @@
                 <h4 style="font-size:16px; font-weight:700; margin-bottom:0.4rem;">Schema & Records</h4>
                 <p style="font-size:12px; color:var(--text-muted); line-height:1.4;">Manage tables, schema fields, and access rules with real-time UI synchronization.</p>
               </div>
-              <button class="btn btn-secondary btn-sm" style="width:100%;" onclick="openNewCollectionModal()">+ Create Collection</button>
+              <div style="display:flex; gap:0.5rem;">
+                <button class="btn btn-primary btn-sm" style="flex:1;" onclick="openImportJsonModal()">⚡ Import from JSON</button>
+                <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="openNewCollectionModal()">+ Create</button>
+              </div>
             </div>
 
             <!-- Card 2: TypeScript TypeGen -->

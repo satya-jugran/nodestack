@@ -146,6 +146,12 @@ export class HttpServer {
     app.post('/api/collections', { preHandler: requireAdmin }, (req: any, reply) =>
       this.collectionController.create(req, reply)
     );
+    app.post('/api/collections/infer-schema', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.collectionController.inferSchema(req, reply)
+    );
+    app.post('/api/collections/import-json', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.collectionController.importJson(req, reply)
+    );
     app.patch('/api/collections/:collection', { preHandler: requireAdmin }, (req: any, reply) =>
       this.collectionController.update(req, reply)
     );
@@ -235,5 +241,9 @@ export class HttpServer {
 
   public async close(): Promise<void> {
     await this.app.close();
+  }
+
+  public inject(opts: any): Promise<any> {
+    return this.app.inject(opts);
   }
 }

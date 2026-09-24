@@ -5,6 +5,7 @@ import { TOKENS } from './core/container/Tokens';
 import { ConfigService, NodeStackConfigOptions } from './core/config/ConfigService';
 import { DatabaseService } from './database/DatabaseService';
 import { SchemaService } from './schema/SchemaService';
+import { SchemaInferenceService } from './schema/SchemaInferenceService';
 import { TypeGenerator } from './schema/TypeGenerator';
 import { OpenApiGenerator } from './schema/OpenApiGenerator';
 import { DocsService } from './admin/DocsService';
@@ -53,9 +54,11 @@ export class NodeStack {
   public readonly realtime: RealtimeService;
   public readonly logs: LogService;
   public readonly analytics: AnalyticsService;
+  public readonly schemaInference: SchemaInferenceService;
   public readonly typegen: TypeGenerator;
   public readonly openapi: OpenApiGenerator;
   public readonly docs: DocsService;
+  public readonly adminUi: AdminUIService;
   public readonly server: HttpServer;
 
   constructor(options: NodeStackOptions = {}) {
@@ -134,16 +137,20 @@ export class NodeStack {
     this.container.bindInstance(TOKENS.AnalyticsService, this.analytics);
 
     // 15. Admin UI & Docs Services
-    const adminUi = new AdminUIService();
-    this.container.bindInstance(TOKENS.AdminUIService, adminUi);
+    this.adminUi = new AdminUIService();
+    this.container.bindInstance(TOKENS.AdminUIService, this.adminUi);
 
     this.docs = new DocsService(this.openapi, this.config);
     this.container.bindInstance(TOKENS.DocsService, this.docs);
 
-    // 16. Controllers & Middleware
+    // 16. Schema Inference Service ("Paste JSON → Instant API")
+    this.schemaInference = new SchemaInferenceService(this.db, this.schema, this.realtime);
+    this.container.bindInstance(TOKENS.SchemaInferenceService, this.schemaInference);
+
+    // 17. Controllers & Middleware
     const authMiddleware = new AuthMiddleware(this.auth);
     const authCtrl = new AuthController(this.auth);
-    const collectionCtrl = new CollectionController(this.schema);
+    const collectionCtrl = new CollectionController(this.schema, this.schemaInference);
     const recordCtrl = new RecordController(this.records, this.schema, this.files, this.mockData);
     const fileCtrl = new FileController(this.files, this.schema, ruleEngine, this.db);
     const realtimeCtrl = new RealtimeController(this.realtime);
@@ -163,7 +170,7 @@ export class NodeStack {
       realtimeCtrl,
       logCtrl,
       healthCtrl,
-      adminUi,
+      this.adminUi,
       this.typegen,
       this.docs,
       analyticsCtrl

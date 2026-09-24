@@ -16,6 +16,16 @@ export { NodeSqliteDriver } from './database/drivers/NodeSqliteDriver';
 
 // Schema
 export { SchemaService } from './schema/SchemaService';
+export {
+  SchemaInferenceService,
+  inferFieldType,
+  isDateString,
+  sanitizeFieldName,
+  parsePayload,
+  InferredSchemaResult,
+  ImportJsonOptions,
+  ImportJsonResult,
+} from './schema/SchemaInferenceService';
 export { TypeGenerator } from './schema/TypeGenerator';
 export { OpenApiGenerator, OpenApiGeneratorOptions } from './schema/OpenApiGenerator';
 export * from './schema/models/Collection';

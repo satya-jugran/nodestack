@@ -903,6 +903,104 @@ export class OpenApiGenerator {
       },
     };
 
+    paths['/api/collections/infer-schema'] = {
+      post: {
+        tags: ['Collections'],
+        summary: 'Infer schema from JSON',
+        description: 'Analyzes a raw JSON object or array and automatically infers field types (text, number, bool, date, json).',
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['data'],
+                properties: {
+                  data: {
+                    description: 'Raw JSON object or array of objects',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Inferred schema result',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    suggestedName: { type: 'string' },
+                    fields: { type: 'array', items: { $ref: '#/components/schemas/SchemaField' } },
+                    recordCount: { type: 'integer' },
+                    sampleRecords: { type: 'array', items: { type: 'object' } },
+                  },
+                },
+              },
+            },
+          },
+          '400': { description: 'Invalid JSON payload' },
+          '401': { description: 'Unauthorized' },
+        },
+      },
+    };
+
+    paths['/api/collections/import-json'] = {
+      post: {
+        tags: ['Collections'],
+        summary: 'Paste JSON → Instant API',
+        description: 'Infers schema, creates collection & SQLite columns, and populates records instantly in 1 second.',
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['name', 'data'],
+                properties: {
+                  name: { type: 'string', description: 'Name of the collection to create' },
+                  data: { description: 'Raw JSON object or array of objects to import' },
+                  type: { type: 'string', enum: ['base', 'auth'], default: 'base' },
+                  schemaOverrides: {
+                    type: 'array',
+                    items: { $ref: '#/components/schemas/SchemaField' },
+                    description: 'Optional schema field overrides',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '201': {
+            description: 'Collection created and records imported',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean' },
+                    collection: { $ref: '#/components/schemas/CollectionModel' },
+                    recordCount: { type: 'integer' },
+                    records: { type: 'array', items: { type: 'object' } },
+                    inferredFields: { type: 'array', items: { $ref: '#/components/schemas/SchemaField' } },
+                    durationMs: { type: 'number' },
+                  },
+                },
+              },
+            },
+          },
+          '400': { description: 'Validation failed or invalid JSON' },
+          '401': { description: 'Unauthorized' },
+          '409': { description: 'Collection already exists' },
+        },
+      },
+    };
+
     paths['/api/collections/{collection}'] = {
       get: {
         tags: ['Collections'],

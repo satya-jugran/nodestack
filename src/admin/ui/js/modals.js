@@ -259,6 +259,13 @@
               <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
             </div>
             <div class="modal-body">
+              <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
+                <div>
+                  <div style="font-weight: 600; font-size: 13px; color: #fff;">Paste JSON → Instant API</div>
+                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Have mock JSON from Postman or ChatGPT? Auto-infer schema in 1 second.</div>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="openImportJsonModal()">⚡ Import JSON</button>
+              </div>
               <div class="form-group">
                 <label class="form-label">Collection Name *</label>
                 <input type="text" class="form-input" id="new-col-name" placeholder="e.g. posts, products" required>
@@ -278,6 +285,452 @@
           </div>
         </div>
       `;
+    }
+
+    // ==========================================
+    // Paste JSON → Instant API (Schema Auto-Inference)
+    // ==========================================
+
+    let importJsonState = {
+      parsedRecords: [],
+      inferredFields: [],
+      suggestedName: '',
+      error: null,
+    };
+
+    function isClientDateString(val) {
+      if (typeof val !== 'string') return false;
+      const str = val.trim();
+      if (str.length < 8 || str.length > 35) return false;
+      if (/^\d+(\.\d+)?$/.test(str)) return false;
+      const dateRegex = /^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[T\s]\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?)?$/i;
+      if (!dateRegex.test(str)) return false;
+      return !isNaN(Date.parse(str));
+    }
+
+    function inferFieldTypeClient(values) {
+      const nonNull = values.filter((v) => v !== undefined && v !== null && v !== '');
+      if (nonNull.length === 0) return 'text';
+
+      if (nonNull.some((v) => typeof v === 'object')) return 'json';
+      if (nonNull.every((v) => typeof v === 'boolean' || v === 'true' || v === 'false')) return 'bool';
+      if (
+        nonNull.every(
+          (v) =>
+            typeof v === 'number' ||
+            (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()) && !/^0\d+/.test(v.trim()))
+        )
+      )
+        return 'number';
+      if (nonNull.every((v) => isClientDateString(v))) return 'date';
+      return 'text';
+    }
+
+    function sanitizeFieldNameClient(rawKey) {
+      let clean = rawKey
+        .trim()
+        .replace(/[^a-zA-Z0-9_]/g, '_')
+        .replace(/^_+/, '')
+        .replace(/_+$/, '');
+      if (!clean) clean = 'field';
+      if (/^[0-9]/.test(clean)) clean = `f_${clean}`;
+      return clean;
+    }
+
+    function openImportJsonModal() {
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+          <div class="modal modal-lg" style="max-width: 780px;">
+            <div class="modal-header">
+              <div style="display:flex; align-items:center; gap:0.6rem;">
+                <div style="width:32px; height:32px; border-radius:8px; background:rgba(59,130,246,0.15); display:flex; align-items:center; justify-content:center; color:#60a5fa; font-size:16px;">⚡</div>
+                <div>
+                  <h2 class="modal-title" style="display:flex; align-items:center; gap:8px;">
+                    Import from JSON
+                    <span class="badge badge-get" style="font-size:10px; font-weight:700;">INSTANT API</span>
+                  </h2>
+                  <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">
+                    Paste any raw JSON object or array. Field types & SQLite columns are auto-inferred in 1 second.
+                  </div>
+                </div>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+
+            <div class="modal-body" style="gap:1rem; max-height:75vh; overflow-y:auto;">
+              <!-- Collection Name Input -->
+              <div class="form-group" style="margin-bottom:0.25rem;">
+                <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
+                  <span>Collection Name *</span>
+                  <span id="name-feedback" style="font-size:11px; color:var(--text-muted);">Will create SQLite table and REST API</span>
+                </label>
+                <div style="position:relative;">
+                  <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:13px; color:var(--text-muted); font-family:monospace;">/api/collections/</span>
+                  <input type="text" class="form-input" id="import-json-name" placeholder="products" style="padding-left:145px; font-family:monospace; font-weight:600;" oninput="updateImportJsonPreview()">
+                </div>
+              </div>
+
+              <!-- Raw JSON Textarea -->
+              <div class="form-group" style="margin-bottom:0.25rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+                  <label class="form-label" style="margin:0;">Raw JSON Payload (Object or Array) *</label>
+                  <div style="display:flex; gap:6px;">
+                    <button class="btn btn-secondary btn-sm" style="font-size:11px; padding:2px 8px;" onclick="loadSampleJson()" title="Load realistic mock JSON">✨ Load Sample JSON</button>
+                    <button class="btn btn-secondary btn-sm" style="font-size:11px; padding:2px 8px;" onclick="pasteFromClipboard()" title="Paste from clipboard">📋 Paste</button>
+                    <button class="btn btn-secondary btn-sm" style="font-size:11px; padding:2px 8px;" onclick="clearJsonInput()">Clear</button>
+                  </div>
+                </div>
+                <textarea class="form-textarea" id="import-json-input" placeholder='Paste mock JSON from ChatGPT, Postman, or an API spec:&#10;[&#10;  {&#10;    "name": "Wireless Headphones",&#10;    "price": 149.99,&#10;    "inStock": true,&#10;    "releasedAt": "2026-03-15T09:30:00Z",&#10;    "features": { "bluetooth": 5.3, "anc": true }&#10;  }&#10;]' style="min-height:160px; font-family:\x27JetBrains Mono\x27, monospace; font-size:12px; line-height:1.45; tab-size:2;" oninput="onJsonInputChanged()"></textarea>
+              </div>
+
+              <!-- Live Auto-Inference Schema Preview -->
+              <div id="import-json-preview-container" style="background:var(--bg-input); border:1px solid var(--border-subtle); border-radius:8px; padding:0.85rem 1rem;">
+                <div id="import-json-preview-content">
+                  <div style="font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:8px;">
+                    <span>ℹ</span>
+                    <span>Paste raw JSON above to preview auto-inferred columns (text, number, bool, date, json).</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+              <div style="font-size:11px; color:var(--text-muted); display:flex; align-items:center; gap:4px;">
+                <span class="live-dot" style="width:6px; height:6px;"></span>
+                <span>Creates collection, SQLite columns & populates records in 1s</span>
+              </div>
+              <div style="display:flex; gap:0.5rem;">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" id="btn-submit-import-json" onclick="submitImportJson()">⚡ Create Collection & Import Records</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // If user had selected text or already typed something, re-trigger
+      importJsonState = { parsedRecords: [], inferredFields: [], suggestedName: '', error: null };
+    }
+
+    function loadSampleJson() {
+      const sample = [
+        {
+          name: 'Sony WH-1000XM5',
+          category: 'Audio',
+          price: 348.0,
+          inStock: true,
+          rating: 4.8,
+          releasedAt: '2026-01-20T10:00:00Z',
+          specs: { driver: '30mm', batteryHours: 30, anc: true },
+        },
+        {
+          name: 'Apple AirPods Max',
+          category: 'Audio',
+          price: 549.0,
+          inStock: true,
+          rating: 4.6,
+          releasedAt: '2025-11-15T08:00:00Z',
+          specs: { driver: '40mm', batteryHours: 20, anc: true },
+        },
+        {
+          name: 'Bose QuietComfort Ultra',
+          category: 'Audio',
+          price: 429.0,
+          inStock: false,
+          rating: 4.7,
+          releasedAt: '2026-02-10T12:00:00Z',
+          specs: { driver: '35mm', batteryHours: 24, spatialAudio: true },
+        },
+      ];
+
+      const nameInput = document.getElementById('import-json-name');
+      if (nameInput && !nameInput.value.trim()) {
+        nameInput.value = 'products';
+      }
+      const jsonInput = document.getElementById('import-json-input');
+      if (jsonInput) {
+        jsonInput.value = JSON.stringify(sample, null, 2);
+        onJsonInputChanged();
+      }
+    }
+
+    async function pasteFromClipboard() {
+      try {
+        const text = await navigator.clipboard.readText();
+        const jsonInput = document.getElementById('import-json-input');
+        if (jsonInput && text) {
+          jsonInput.value = text;
+          onJsonInputChanged();
+        }
+      } catch {
+        toast('Please paste using Ctrl+V or Cmd+V directly in the textarea', 'info');
+      }
+    }
+
+    function clearJsonInput() {
+      const jsonInput = document.getElementById('import-json-input');
+      if (jsonInput) {
+        jsonInput.value = '';
+        onJsonInputChanged();
+      }
+    }
+
+    function onJsonInputChanged() {
+      const text = document.getElementById('import-json-input')?.value.trim();
+      const previewContainer = document.getElementById('import-json-preview-content');
+      const nameInput = document.getElementById('import-json-name');
+
+      if (!text) {
+        importJsonState = { parsedRecords: [], inferredFields: [], suggestedName: '', error: null };
+        if (previewContainer) {
+          previewContainer.innerHTML = `
+            <div style="font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:8px;">
+              <span>ℹ</span>
+              <span>Paste raw JSON above to preview auto-inferred columns (text, number, bool, date, json).</span>
+            </div>
+          `;
+        }
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(text);
+        let records = [];
+        let suggestedName = '';
+
+        if (Array.isArray(parsed)) {
+          if (parsed.length === 0) throw new Error('Array must contain at least one item');
+          if (typeof parsed[0] !== 'object' || parsed[0] === null || Array.isArray(parsed[0])) {
+            throw new Error('Array items must be JSON objects, not primitives');
+          }
+          records = parsed;
+        } else if (typeof parsed === 'object' && parsed !== null) {
+          const wrapperCandidates = ['data', 'items', 'records', 'results', 'rows', 'list'];
+          for (const cand of wrapperCandidates) {
+            if (Array.isArray(parsed[cand]) && parsed[cand].length > 0 && typeof parsed[cand][0] === 'object') {
+              records = parsed[cand];
+              suggestedName = parsed.collection || parsed.name || '';
+              break;
+            }
+          }
+
+          if (records.length === 0) {
+            const arrayKeys = Object.keys(parsed).filter(
+              (k) => Array.isArray(parsed[k]) && parsed[k].length > 0 && typeof parsed[k][0] === 'object'
+            );
+            if (arrayKeys.length === 1) {
+              records = parsed[arrayKeys[0]];
+              suggestedName = arrayKeys[0].toLowerCase();
+            } else {
+              records = [parsed];
+            }
+          }
+        } else {
+          throw new Error('JSON payload must be an object or an array of objects');
+        }
+
+        if (suggestedName && nameInput && !nameInput.value.trim()) {
+          nameInput.value = suggestedName.replace(/[^a-zA-Z0-9_]/g, '_');
+        }
+
+        const rawKeys = [];
+        const seenKeys = new Set();
+        for (const rec of records) {
+          for (const k of Object.keys(rec)) {
+            if (!seenKeys.has(k)) {
+              seenKeys.add(k);
+              rawKeys.push(k);
+            }
+          }
+        }
+
+        const inferredFields = [];
+        const existingFieldNames = new Set(['id', 'created', 'updated']);
+
+        for (const k of rawKeys) {
+          const lower = k.toLowerCase().trim();
+          if (lower === 'id' || lower === 'created' || lower === 'updated') continue;
+
+          const clean = sanitizeFieldNameClient(k);
+          let finalName = clean;
+          let counter = 1;
+          while (existingFieldNames.has(finalName.toLowerCase())) {
+            counter++;
+            finalName = `${clean}_${counter}`;
+          }
+          existingFieldNames.add(finalName.toLowerCase());
+
+          const vals = [];
+          for (const rec of records) {
+            if (rec[k] !== undefined) vals.push(rec[k]);
+          }
+
+          const type = inferFieldTypeClient(vals);
+          const sampleVal = vals.length > 0 ? vals[0] : null;
+
+          inferredFields.push({
+            name: finalName,
+            originalKey: k,
+            type: type,
+            sample: sampleVal,
+          });
+        }
+
+        importJsonState = {
+          parsedRecords: records,
+          inferredFields: inferredFields,
+          suggestedName: suggestedName,
+          error: null,
+        };
+
+        renderInferredFieldsPreview();
+      } catch (e) {
+        importJsonState = { parsedRecords: [], inferredFields: [], suggestedName: '', error: e.message };
+        if (previewContainer) {
+          previewContainer.innerHTML = `
+            <div style="font-size:12px; color:var(--accent-danger); display:flex; align-items:center; gap:8px;">
+              <span>⚠</span>
+              <span>Invalid JSON: ${e.message}</span>
+            </div>
+          `;
+        }
+      }
+    }
+
+    function renderInferredFieldsPreview() {
+      const previewContainer = document.getElementById('import-json-preview-content');
+      if (!previewContainer) return;
+
+      const { parsedRecords, inferredFields } = importJsonState;
+      const colName = document.getElementById('import-json-name')?.value.trim() || 'my_collection';
+
+      const typeBadges = {
+        text: 'background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3);',
+        number: 'background:rgba(168,85,247,0.15); color:#c084fc; border:1px solid rgba(168,85,247,0.3);',
+        bool: 'background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3);',
+        date: 'background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3);',
+        json: 'background:rgba(236,72,153,0.15); color:#f472b6; border:1px solid rgba(236,72,153,0.3);',
+        email: 'background:rgba(20,184,166,0.15); color:#2dd4bf; border:1px solid rgba(20,184,166,0.3);',
+        url: 'background:rgba(99,102,241,0.15); color:#818cf8; border:1px solid rgba(99,102,241,0.3);',
+      };
+
+      previewContainer.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; border-bottom:1px solid var(--border-subtle); padding-bottom:0.5rem;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-weight:700; font-size:13px; color:#fff;">✓ ${parsedRecords.length} record${parsedRecords.length === 1 ? '' : 's'} detected</span>
+            <span class="badge badge-get" style="font-size:11px;">${inferredFields.length} columns inferred</span>
+          </div>
+          <span style="font-size:11px; color:var(--text-muted);">Instant SQLite columns</span>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:6px; max-height:180px; overflow-y:auto; margin-bottom:0.75rem; padding-right:4px;">
+          ${inferredFields.map((f, idx) => `
+            <div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg-card); padding:6px 10px; border-radius:6px; border:1px solid var(--border-subtle); font-size:12px;">
+              <div style="display:flex; align-items:center; gap:8px; min-width:140px;">
+                <span style="font-family:monospace; font-weight:600; color:#fff;">${f.name}</span>
+                ${f.originalKey !== f.name ? `<span style="font-size:10px; color:var(--text-muted); font-family:monospace;">(from "${f.originalKey}")</span>` : ''}
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <select class="form-select" id="field-type-override-${idx}" style="font-size:11px; padding:2px 6px; height:24px; border-radius:4px; font-family:monospace; ${typeBadges[f.type] || ''}" onchange="onFieldTypeOverrideChanged(${idx}, this.value)">
+                  <option value="text" ${f.type === 'text' ? 'selected' : ''}>text</option>
+                  <option value="number" ${f.type === 'number' ? 'selected' : ''}>number</option>
+                  <option value="bool" ${f.type === 'bool' ? 'selected' : ''}>bool</option>
+                  <option value="date" ${f.type === 'date' ? 'selected' : ''}>date</option>
+                  <option value="json" ${f.type === 'json' ? 'selected' : ''}>json</option>
+                  <option value="email" ${f.type === 'email' ? 'selected' : ''}>email</option>
+                  <option value="url" ${f.type === 'url' ? 'selected' : ''}>url</option>
+                </select>
+                <span style="color:var(--text-muted); font-size:11px; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:monospace;" title='${JSON.stringify(f.sample)}'>
+                  ${f.sample !== null && f.sample !== undefined ? (typeof f.sample === 'object' ? JSON.stringify(f.sample) : String(f.sample)) : '<null>'}
+                </span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(59,130,246,0.2); border-radius:6px; padding:6px 10px; font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <span style="color:#60a5fa; font-weight:600;">REST API ready:</span>
+            <code style="margin-left:6px; color:#fff;">GET /api/collections/${colName}/records</code>
+          </div>
+          <span style="font-size:10px; color:#34d399;">● Full CRUD + Realtime + Docs</span>
+        </div>
+      `;
+    }
+
+    function onFieldTypeOverrideChanged(idx, newType) {
+      if (importJsonState.inferredFields[idx]) {
+        importJsonState.inferredFields[idx].type = newType;
+        renderInferredFieldsPreview();
+      }
+    }
+
+    function updateImportJsonPreview() {
+      if (importJsonState.parsedRecords.length > 0) {
+        renderInferredFieldsPreview();
+      }
+    }
+
+    async function submitImportJson() {
+      const nameInput = document.getElementById('import-json-name');
+      const jsonInput = document.getElementById('import-json-input');
+      const submitBtn = document.getElementById('btn-submit-import-json');
+
+      const name = nameInput ? nameInput.value.trim() : '';
+      if (!name) {
+        toast('Please enter a collection name', 'error');
+        nameInput?.focus();
+        return;
+      }
+
+      if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+        toast('Collection name must only contain alphanumeric characters and underscores', 'error');
+        nameInput?.focus();
+        return;
+      }
+
+      const text = jsonInput ? jsonInput.value.trim() : '';
+      if (!text) {
+        toast('Please paste raw JSON payload', 'error');
+        jsonInput?.focus();
+        return;
+      }
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating API...';
+      }
+
+      try {
+        const schemaOverrides = (importJsonState.inferredFields || []).map((f) => ({
+          name: f.name,
+          type: f.type,
+        }));
+
+        const res = await api('/api/collections/import-json', {
+          method: 'POST',
+          body: JSON.stringify({
+            name,
+            data: text,
+            schemaOverrides,
+          }),
+        });
+
+        toast(
+          `Collection '${res.collection.name}' created with ${res.recordCount} records in ${res.durationMs}ms!`,
+          'success'
+        );
+        closeModal();
+        await loadCollections();
+        selectCollection(res.collection.name);
+      } catch (e) {
+        toast(e.message, 'error');
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = '⚡ Create Collection & Import Records';
+        }
+      }
     }
 
     async function submitNewCollection() {

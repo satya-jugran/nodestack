@@ -178,6 +178,44 @@ export async function runCli(argv = process.argv): Promise<Command> {
       }
     });
 
+  // Command: import-json ("Paste JSON → Instant API")
+  program
+    .command('import-json <collection> <source>')
+    .alias('import')
+    .description('Import raw JSON object or array to auto-infer schema, create table, and populate records')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .action(async (collection, source, options) => {
+      const app = new NodeStack({ dataDir: options.dir });
+      try {
+        let payload: any;
+        const fs = await import('fs');
+        const path = await import('path');
+        const resolvedPath = path.resolve(process.cwd(), source);
+        if (fs.existsSync(resolvedPath)) {
+          payload = fs.readFileSync(resolvedPath, 'utf-8');
+        } else {
+          payload = source;
+        }
+
+        const res = await app.schemaInference.importJson({
+          name: collection,
+          data: payload,
+        });
+
+        console.log(
+          chalk.green(
+            `\n✓ Collection '${res.collection.name}' created with ${res.inferredFields.length} inferred fields!\n` +
+            `✓ Successfully populated ${res.recordCount} records in ${res.durationMs}ms.\n`
+          )
+        );
+      } catch (err: any) {
+        console.error(chalk.red(`\n✗ Failed to import JSON: ${err.message}\n`));
+        process.exit(1);
+      } finally {
+        app.db.close();
+      }
+    });
+
   return await program.parseAsync(argv);
 }
 
