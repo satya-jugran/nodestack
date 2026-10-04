@@ -27,6 +27,17 @@ export interface QueryOptions {
   filter?: string;
   expand?: string;
   fields?: string;
+  mock_delay?: number | string;
+  mock_error?: number | string;
+  mock_fail_rate?: number;
+  mock_jitter?: number;
+  mock_error_message?: string;
+  mockDelay?: number | string;
+  mockError?: number | string;
+  mockFailRate?: number;
+  mockJitter?: number;
+  mockErrorMessage?: string;
+  [key: string]: any;
 }
 
 export interface ExportResult {

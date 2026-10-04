@@ -71,8 +71,14 @@ export {
   formatBytes,
 } from './analytics/AnalyticsService';
 
-// HTTP
+// HTTP & Middleware
 export { HttpServer } from './http/HttpServer';
+export { AuthMiddleware } from './http/middleware/AuthMiddleware';
+export {
+  ChaosMiddleware,
+  ChaosSimulationConfig,
+  RequestSimulationParams,
+} from './http/middleware/ChaosMiddleware';
 export { AdminUIService } from './admin/AdminUIService';
 export { AdminUIBundler } from './admin/AdminUIBundler';
 export { DocsService } from './admin/DocsService';

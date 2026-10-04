@@ -20,6 +20,7 @@ import { EventBus } from './core/events/EventBus';
 import { HttpServer } from './http/HttpServer';
 import { AdminUIService } from './admin/AdminUIService';
 import { AuthMiddleware } from './http/middleware/AuthMiddleware';
+import { ChaosMiddleware } from './http/middleware/ChaosMiddleware';
 import { AuthController } from './http/controllers/AuthController';
 import { CollectionController } from './http/controllers/CollectionController';
 import { RecordController } from './http/controllers/RecordController';
@@ -59,6 +60,7 @@ export class NodeStack {
   public readonly openapi: OpenApiGenerator;
   public readonly docs: DocsService;
   public readonly adminUi: AdminUIService;
+  public readonly chaos: ChaosMiddleware;
   public readonly server: HttpServer;
 
   constructor(options: NodeStackOptions = {}) {
@@ -148,6 +150,9 @@ export class NodeStack {
     this.container.bindInstance(TOKENS.SchemaInferenceService, this.schemaInference);
 
     // 17. Controllers & Middleware
+    this.chaos = new ChaosMiddleware(this.config);
+    this.container.bindInstance(TOKENS.ChaosMiddleware, this.chaos);
+
     const authMiddleware = new AuthMiddleware(this.auth);
     const authCtrl = new AuthController(this.auth);
     const collectionCtrl = new CollectionController(this.schema, this.schemaInference);
@@ -173,7 +178,8 @@ export class NodeStack {
       this.adminUi,
       this.typegen,
       this.docs,
-      analyticsCtrl
+      analyticsCtrl,
+      this.chaos
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
   }

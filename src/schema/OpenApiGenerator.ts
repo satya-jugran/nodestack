@@ -449,6 +449,24 @@ export class OpenApiGenerator {
             schema: { type: 'string' },
             description: 'Comma-separated field names to return.',
           },
+          {
+            name: 'mock_delay',
+            in: 'query',
+            schema: { type: 'string', example: '1500' },
+            description: 'Simulate mobile/network latency in milliseconds (e.g. 1500 or 500-1500).',
+          },
+          {
+            name: 'mock_error',
+            in: 'query',
+            schema: { type: 'integer', example: 500 },
+            description: 'Simulate an HTTP error status code (e.g. 500, 503, 404).',
+          },
+          {
+            name: 'mock_fail_rate',
+            in: 'query',
+            schema: { type: 'number', example: 0.2 },
+            description: 'Simulate random network failure probability between 0.0 and 1.0 (e.g. 0.2 for 20% drops).',
+          },
         ],
         responses: {
           '200': {

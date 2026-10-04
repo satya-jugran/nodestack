@@ -246,6 +246,41 @@ try {
 
 ---
 
+## ⚡ Latency & Chaos Simulation (For Testing Frontend States)
+
+Test your frontend loading spinners, skeleton states, error toasts, and retry mechanisms against simulated network conditions:
+
+```typescript
+// 1. Query-level simulation
+const posts = await client.collection('posts').getList({
+  mock_delay: 1500, // 1.5s mobile 3G delay to test loading skeletons
+});
+
+// 2. Simulate network drops & HTTP errors
+try {
+  await client.collection('posts').getList({
+    mock_error: 500, // Or ?mock_fail_rate=0.2 for random 20% drops
+  });
+} catch (err) {
+  if (err instanceof ClientResponseError) {
+    showToast(`Server error (${err.status}): ${err.message}`);
+  }
+}
+
+// 3. App-wide chaos simulation toggle (useful during frontend development)
+client.setChaos({
+  delay: 1000,     // 1000ms delay on all requests
+  failRate: 0.15,  // 15% random network drop rate
+  errorStatus: 503 // Return 503 on failure
+});
+
+// Disable chaos
+client.setChaos(null);
+```
+
+---
+
 ## 📄 License
 
 MIT © NodeStack Contributors
+

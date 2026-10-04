@@ -4,6 +4,7 @@ import multipart from '@fastify/multipart';
 import { ConfigService } from '../core/config/ConfigService';
 import { LogService } from '../logger/LogService';
 import { AuthMiddleware } from './middleware/AuthMiddleware';
+import { ChaosMiddleware } from './middleware/ChaosMiddleware';
 import { AuthController } from './controllers/AuthController';
 import { CollectionController } from './controllers/CollectionController';
 import { RecordController } from './controllers/RecordController';
@@ -19,6 +20,7 @@ import { AppError } from '../core/errors/AppError';
 
 export class HttpServer {
   public readonly app: FastifyInstance;
+  public readonly chaosMiddleware: ChaosMiddleware;
 
   constructor(
     private config: ConfigService,
@@ -34,8 +36,18 @@ export class HttpServer {
     private adminUiService: AdminUIService,
     private typeGenerator?: TypeGenerator,
     private docsService?: DocsService,
-    private analyticsController?: AnalyticsController
+    analyticsControllerOrChaos?: AnalyticsController | ChaosMiddleware,
+    chaosMiddleware?: ChaosMiddleware
   ) {
+    let analyticsController: AnalyticsController | undefined;
+    if (analyticsControllerOrChaos instanceof ChaosMiddleware) {
+      this.chaosMiddleware = analyticsControllerOrChaos;
+    } else {
+      analyticsController = analyticsControllerOrChaos;
+      this.chaosMiddleware = chaosMiddleware || new ChaosMiddleware(config);
+    }
+    this.analyticsController = analyticsController;
+
     this.app = fastify({
       logger: false,
     });
@@ -46,11 +58,19 @@ export class HttpServer {
     this.setupErrorHandler();
   }
 
+  private analyticsController?: AnalyticsController;
+
   private setupPlugins(): void {
     this.app.register(cors, {
       origin: true,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      exposedHeaders: [
+        'x-simulated-delay',
+        'x-simulated-chaos',
+        'x-simulated-error',
+        'x-simulated-fail-rate',
+      ],
     });
 
     this.app.register(multipart, {
@@ -70,8 +90,17 @@ export class HttpServer {
 
   private setupHooks(): void {
     // Latency and audit logging
-    this.app.addHook('onRequest', async (req: FastifyRequest) => {
+    this.app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
       (req as any)._startTime = process.hrtime();
+
+      // Latency & Chaos Simulation (For Testing Frontend States)
+      if (this.chaosMiddleware) {
+        await this.chaosMiddleware.handle(req, reply);
+        if (reply.sent) {
+          return;
+        }
+      }
+
       await this.authMiddleware.handle(req, null as any);
     });
 

@@ -30,6 +30,14 @@ export interface ListResult<T = any> {
   items: T[];
 }
 
+export interface ChaosOptions {
+  delay?: number | string;
+  failRate?: number;
+  errorStatus?: number | string;
+  errorMessage?: string;
+  jitter?: number;
+}
+
 export interface QueryOptions {
   page?: number;
   perPage?: number;
@@ -37,6 +45,16 @@ export interface QueryOptions {
   filter?: string;
   expand?: string;
   fields?: string;
+  mock_delay?: number | string;
+  mock_error?: number | string;
+  mock_fail_rate?: number;
+  mock_jitter?: number;
+  mock_error_message?: string;
+  mockDelay?: number | string;
+  mockError?: number | string;
+  mockFailRate?: number;
+  mockJitter?: number;
+  mockErrorMessage?: string;
   [key: string]: any;
 }
 
@@ -66,6 +84,11 @@ export interface SendOptions extends Omit<RequestInit, 'body'> {
   body?: any;
   headers?: Record<string, string>;
   autoCancel?: boolean;
+  chaos?: ChaosOptions;
+  mockDelay?: number | string;
+  mockError?: number | string;
+  mockFailRate?: number;
+  mockJitter?: number;
 }
 
 export interface ClientOptions {
@@ -74,6 +97,7 @@ export interface ClientOptions {
   EventSource?: any;
   headers?: Record<string, string>;
   timeout?: number;
+  chaos?: ChaosOptions;
 }
 
 export interface ImportOptions {

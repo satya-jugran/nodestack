@@ -282,6 +282,54 @@ Monitor system health, database load, and traffic in real time:
 - **Metrics API (`GET /api/metrics`)**:
   - Returns complete JSON analytics payload (requires superuser authorization).
 
+### 12. Latency & Chaos Simulation (For Testing Frontend States)
+**The Problem:** When building frontends locally against embedded SQLite, responses return in 0.5ms. You never get to see loading spinners, skeleton states, or error toasts.
+
+**The Solution:** NodeStack features built-in network condition simulation via query parameters, HTTP headers, CLI options, and SDK methods:
+
+- **Simulate Mobile & Network Latency:**
+  ```http
+  GET /api/collections/posts/records?mock_delay=1500
+  ```
+  *(Delays response by 1.5 seconds so you can verify loading spinners and skeleton loaders)*
+  - Supports ranges for variable mobile latency/jitter: `?mock_delay=500-1500` or `?mock_delay=1.5s`
+  - Jitter support: `?mock_delay=1000&mock_jitter=250`
+
+- **Simulate HTTP Server Errors (e.g. 500, 503, 429):**
+  ```http
+  GET /api/collections/posts/records?mock_error=500
+  GET /api/collections/posts/records?mock_error=503&mock_error_message=Service+Unavailable
+  ```
+
+- **Simulate Flaky Connections & Random Network Drops:**
+  ```http
+  GET /api/collections/posts/records?mock_fail_rate=0.2
+  ```
+  *(Simulates random 20% network drops to test frontend error toasts, retry logic, and error boundaries)*
+
+- **Header-Based Simulation:**
+  Works with any HTTP client or browser fetch without changing URL paths:
+  ```http
+  x-mock-delay: 1500
+  x-mock-error: 500
+  x-mock-fail-rate: 0.2
+  ```
+
+- **Global CLI Simulation:**
+  Launch NodeStack with simulated conditions applied across all requests:
+  ```bash
+  nodestack start --mock-delay 1500 --mock-fail-rate 0.2
+  ```
+
+- **First-Party Client SDK Support (`nodestack-client`):**
+  ```typescript
+  // Per-query simulation
+  const posts = await client.collection('posts').getList({ mock_delay: 1500 });
+
+  // App-wide simulation toggle
+  client.setChaos({ delay: 1000, failRate: 0.2, errorStatus: 500 });
+  ```
+
 ---
 
 ## 🛠️ CLI Reference
@@ -290,6 +338,8 @@ Monitor system health, database load, and traffic in real time:
 |---|---|
 | `nodestack start` | Start the server and Web Admin UI (default) |
 | `nodestack start -d ./data -h 0.0.0.0:8090` | Custom data directory and bind address |
+| `nodestack start --mock-delay 1500` | Start with global 1.5s simulated network latency |
+| `nodestack start --mock-fail-rate 0.2` | Start with 20% random network drop simulation |
 | `nodestack superuser create` | Interactively create a superuser / admin account |
 | `nodestack superuser create <email> <password>` | Create a superuser non-interactively |
 | `nodestack typegen` | Generate TypeScript definitions to stdout (alias: `types`) |

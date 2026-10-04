@@ -19,6 +19,10 @@ export async function runCli(argv = process.argv): Promise<Command> {
     .option('-d, --dir <path>', 'The directory where data and uploads are stored', './nodestack_data')
     .option('-h, --http <address>', 'Server bind address (host:port)', '0.0.0.0:8090')
     .option('--dev', 'Run in development mode with verbose error traces', false)
+    .option('--mock-delay <ms>', 'Simulate network latency in milliseconds across API requests (e.g. 1500)')
+    .option('--mock-fail-rate <rate>', 'Simulate random network drop rate between 0.0 and 1.0 (e.g. 0.2 for 20%)')
+    .option('--mock-error <code>', 'Simulate HTTP error status code for network drops (e.g. 500 or 503)')
+    .option('--mock-jitter <ms>', 'Simulate latency variance / jitter in milliseconds')
     .action(async (options) => {
       let host = '0.0.0.0';
       let port = 8090;
@@ -36,7 +40,19 @@ export async function runCli(argv = process.argv): Promise<Command> {
         host,
         port,
         dev: options.dev,
+        mockDelay: options.mockDelay,
+        mockFailRate: options.mockFailRate !== undefined ? parseFloat(options.mockFailRate) : undefined,
+        mockError: options.mockError !== undefined ? (!isNaN(Number(options.mockError)) ? Number(options.mockError) : options.mockError) : undefined,
+        mockJitter: options.mockJitter !== undefined ? parseFloat(options.mockJitter) : undefined,
       });
+
+      if (options.mockDelay || options.mockFailRate || options.mockError) {
+        console.log(
+          chalk.magenta(
+            `  ⚡ Latency & Chaos Simulation active: delay=${options.mockDelay ?? 0}ms, failRate=${options.mockFailRate ?? 0}, error=${options.mockError ?? 500}`
+          )
+        );
+      }
 
       // Check if superuser exists
       if (!app.auth.hasAdmins()) {
