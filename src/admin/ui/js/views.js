@@ -13,7 +13,7 @@
             <div>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="font-weight: 800; font-size: 16px; color: #fff; letter-spacing: -0.02em;">NodeStack Core</span>
-                <span class="version-tag" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd; font-size: 11px;">v1.0.0</span>
+                <span class="version-tag" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd; font-size: 11px;">v1.1.0</span>
                 <span class="badge badge-get" style="font-size: 11px; display: inline-flex; align-items: center; gap: 5px;">
                   <span class="live-dot" style="width: 6px; height: 6px;"></span>
                   <span>Server Online</span>
@@ -397,7 +397,7 @@
     // Settings View
     async function renderSettingsView() {
       const main = document.getElementById('main-body');
-      let health = { version: '1.0.0', appName: 'NodeStack' };
+      let health = { version: '1.1.0', appName: 'NodeStack' };
       try {
         health = await api('/api/health');
       } catch {}

@@ -1,6 +1,6 @@
 {
   "name": "nodestack",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "The TypeScript-Native Backend Stack. Single-process backend with embedded SQLite, instant CRUD, Auth, Realtime, Files & Admin UI.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
