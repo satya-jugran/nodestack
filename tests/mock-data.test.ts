@@ -305,6 +305,34 @@ describe('1-Click Mock Data Generator (Faker Engine) Tests', () => {
       const text = await fileRes.text();
       expect(text).toContain('<svg');
     });
+
+    it('should reject undeclared missing filenames with 404 and NOT write files to disk', async () => {
+      const author = await app.records.create('authors', {
+        email: 'attacker.test@nodestack.io',
+        password: 'Password123!',
+        name: 'Attacker Test User',
+        avatar: 'avatar_legit.svg',
+      });
+
+      // Request an undeclared filename starting with avatar_ or image_
+      const undeclaredFilename = 'avatar_attacker_fake_123.svg';
+      const fileRes = await fetch(
+        `http://127.0.0.1:${port}/api/files/authors/${author.id}/${undeclaredFilename}?token=${adminToken}`
+      );
+
+      // Must return 404 Not Found!
+      expect(fileRes.status).toBe(404);
+
+      // Verify that no file was created on disk in the storage directory
+      const authorCol = app.schema.getCollection('authors')!;
+      const expectedFilePath = path.join(
+        app.files.storageDir,
+        authorCol.id,
+        author.id,
+        undeclaredFilename
+      );
+      expect(fs.existsSync(expectedFilePath)).toBe(false);
+    });
   });
 
   describe('HTTP API Endpoint: POST /api/collections/:collection/generate-mock', () => {
