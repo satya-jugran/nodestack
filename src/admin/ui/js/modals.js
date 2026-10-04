@@ -1652,7 +1652,7 @@
           accent: '#10b981',
           description: 'Pre-seeded with technical markdown articles, author avatars, category tags, cover images, and discussions.',
           collections: ['posts', 'authors', 'tags', 'comments'],
-          stats: '4 collections • 30 records • 12 images'
+          stats: '4 collections • 28 records • 12 images'
         },
         {
           id: 'crm',
@@ -1662,7 +1662,7 @@
           accent: '#8b5cf6',
           description: 'Pre-seeded with B2B companies with logo marks, leads with scoring, pipeline deal stages, and activity logs.',
           collections: ['companies', 'leads', 'deals', 'activities'],
-          stats: '4 collections • 42 records • 6 images'
+          stats: '4 collections • 26 records • 6 images'
         }
       ];
 

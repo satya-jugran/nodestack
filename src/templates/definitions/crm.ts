@@ -12,7 +12,7 @@ export const crmTemplate: TemplateDefinition = {
   aliases: ['saas', 'crm', 'pipeline', 'sales'],
   stats: {
     collections: 4,
-    records: 42,
+    records: 26,
     images: 6,
   },
   collections: [

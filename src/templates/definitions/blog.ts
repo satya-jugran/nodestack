@@ -12,7 +12,7 @@ export const blogTemplate: TemplateDefinition = {
   aliases: ['blog', 'content', 'editorial', 'news'],
   stats: {
     collections: 4,
-    records: 30,
+    records: 28,
     images: 12,
   },
   collections: [

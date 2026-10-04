@@ -51,14 +51,20 @@ describe('Starter Templates / Recipes Tests', () => {
       expect(ecommerce.collections).toEqual(['categories', 'products', 'orders', 'reviews']);
       expect(ecommerce.icon).toBe('🛒');
       expect(ecommerce.badge).toContain('20 Items');
+      expect(ecommerce.stats.records).toBe(48);
+      expect(ecommerce.stats.images).toBe(25);
 
       const blog = templates.find((t) => t.id === 'blog')!;
       expect(blog.collections).toEqual(['authors', 'tags', 'posts', 'comments']);
       expect(blog.icon).toBe('📝');
+      expect(blog.stats.records).toBe(28);
+      expect(blog.stats.images).toBe(12);
 
       const crm = templates.find((t) => t.id === 'crm')!;
       expect(crm.collections).toEqual(['companies', 'leads', 'deals', 'activities']);
       expect(crm.icon).toBe('👥');
+      expect(crm.stats.records).toBe(26);
+      expect(crm.stats.images).toBe(6);
     });
 
     it('should support case-insensitive aliases for templates', () => {
@@ -179,6 +185,8 @@ describe('Starter Templates / Recipes Tests', () => {
       const res = await app.templates.apply('blog');
       expect(res.success).toBe(true);
       expect(res.collections).toEqual(['authors', 'tags', 'posts', 'comments']);
+      expect(res.totalRecords).toBe(28);
+      expect(res.totalImages).toBe(12);
 
       const authCol = app.schema.getCollectionOrThrow('authors');
       const postsCol = app.schema.getCollectionOrThrow('posts');
@@ -218,6 +226,8 @@ describe('Starter Templates / Recipes Tests', () => {
       const res = await app.templates.apply('crm');
       expect(res.success).toBe(true);
       expect(res.collections).toEqual(['companies', 'leads', 'deals', 'activities']);
+      expect(res.totalRecords).toBe(26);
+      expect(res.totalImages).toBe(6);
 
       const compCol = app.schema.getCollectionOrThrow('companies');
 
