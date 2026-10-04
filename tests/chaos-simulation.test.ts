@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
+import { ChaosMiddleware } from '../src/http/middleware/ChaosMiddleware';
 import { NodeStackClient, ClientResponseError, MemoryAuthStore } from '../packages/client/src';
 
 describe('Latency & Chaos Simulation (For Testing Frontend States)', () => {
@@ -197,23 +198,78 @@ describe('Latency & Chaos Simulation (For Testing Frontend States)', () => {
       expect(res.headers['x-simulated-fail-rate']).toBe('1');
     });
 
-    it('should simulate realistic intermittent failures (~20% drops)', async () => {
-      let fails = 0;
-      const total = 40;
+    it('should simulate deterministic intermittent failures by stubbing Math.random', async () => {
+      // Deterministically return values: [0.10 (< 0.25 -> 500), 0.50 (>= 0.25 -> 200), 0.20 (< 0.25 -> 500), 0.80 (>= 0.25 -> 200)]
+      const sequence = [0.1, 0.5, 0.2, 0.8];
+      let seqIndex = 0;
+      const randomSpy = vi.spyOn(Math, 'random').mockImplementation(() => {
+        const val = sequence[seqIndex % sequence.length];
+        seqIndex++;
+        return val;
+      });
 
-      for (let i = 0; i < total; i++) {
-        const res = await app.server.inject({
-          method: 'GET',
-          url: '/api/collections/posts/records?mock_fail_rate=0.25',
-        });
-        if (res.statusCode === 500) {
+      try {
+        const statuses: number[] = [];
+        for (let i = 0; i < 4; i++) {
+          const res = await app.server.inject({
+            method: 'GET',
+            url: '/api/collections/posts/records?mock_fail_rate=0.25',
+          });
+          statuses.push(res.statusCode);
+        }
+
+        expect(statuses).toEqual([500, 200, 500, 200]);
+        expect(randomSpy).toHaveBeenCalled();
+      } finally {
+        randomSpy.mockRestore();
+      }
+    });
+
+    it('should separately test random sampling behavior, fail_rate boundaries, and custom RNG injection', () => {
+      const middleware = new ChaosMiddleware({ enabled: true, chaosEnabled: true });
+
+      // 1. Boundary conditions
+      expect(middleware.shouldFail({ failRate: 0 })).toBe(false);
+      expect(middleware.shouldFail({ failRate: -0.1 })).toBe(false);
+      expect(middleware.shouldFail({ failRate: 1 })).toBe(true);
+      expect(middleware.shouldFail({ failRate: 1.5 })).toBe(true);
+
+      // 2. Exact threshold testing with stubbed random
+      const randomSpy = vi.spyOn(Math, 'random');
+      try {
+        randomSpy.mockReturnValue(0.249);
+        expect(middleware.shouldFail({ failRate: 0.25 })).toBe(true);
+
+        randomSpy.mockReturnValue(0.25);
+        expect(middleware.shouldFail({ failRate: 0.25 })).toBe(false);
+
+        randomSpy.mockReturnValue(0.251);
+        expect(middleware.shouldFail({ failRate: 0.25 })).toBe(false);
+      } finally {
+        randomSpy.mockRestore();
+      }
+
+      // 3. Custom / deterministic RNG injection
+      let deterministicVal = 0.1;
+      const customRngMiddleware = new ChaosMiddleware({
+        rng: () => deterministicVal,
+      });
+      expect(customRngMiddleware.shouldFail({ failRate: 0.25 })).toBe(true);
+      deterministicVal = 0.8;
+      expect(customRngMiddleware.shouldFail({ failRate: 0.25 })).toBe(false);
+
+      // 4. Statistical sampling behavior over large sample size
+      const iterations = 10000;
+      let fails = 0;
+      for (let i = 0; i < iterations; i++) {
+        if (middleware.shouldFail({ failRate: 0.25 })) {
           fails++;
         }
       }
-
-      // 25% failure rate over 40 requests should have at least 1 failure and at least 1 success
-      expect(fails).toBeGreaterThan(0);
-      expect(fails).toBeLessThan(total);
+      const observedRate = fails / iterations;
+      // 0.25 rate over 10,000 samples has std dev ~0.0043 (testing within ±0.05 is safe to 10+ sigma)
+      expect(observedRate).toBeGreaterThan(0.20);
+      expect(observedRate).toBeLessThan(0.30);
     });
 
     it('should allow pairing mock_fail_rate with custom mock_error code (e.g. 503)', async () => {

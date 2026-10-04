@@ -10,6 +10,7 @@ export interface ChaosSimulationConfig {
   mockFailRate?: number;
   mockJitter?: number;
   mockErrorMessage?: string;
+  rng?: () => number;
 }
 
 export interface RequestSimulationParams {
@@ -31,6 +32,7 @@ export interface RequestSimulationParams {
 export class ChaosMiddleware {
   private config: ChaosSimulationConfig;
   private configService?: ConfigService;
+  private rng: () => number;
 
   /**
    * Protected system endpoints that must NEVER be disrupted by request-driven chaos parameters.
@@ -60,6 +62,7 @@ export class ChaosMiddleware {
         mockJitter: configServiceOrConfig.mockJitter,
         mockErrorMessage: configServiceOrConfig.mockErrorMessage,
       };
+      this.rng = () => Math.random();
     } else if (configServiceOrConfig && typeof configServiceOrConfig === 'object') {
       this.config = {
         enabled: configServiceOrConfig.enabled ?? true,
@@ -71,13 +74,29 @@ export class ChaosMiddleware {
         mockJitter: configServiceOrConfig.mockJitter,
         mockErrorMessage: configServiceOrConfig.mockErrorMessage,
       };
+      this.rng = configServiceOrConfig.rng || (() => Math.random());
     } else {
       this.config = {
         enabled: true,
         chaosEnabled: true,
         maxMockDelayMs: 15000,
       };
+      this.rng = () => Math.random();
     }
+  }
+
+  /**
+   * Inject a custom / deterministic RNG for testing or simulation.
+   */
+  public setRng(rng: () => number): void {
+    this.rng = rng;
+  }
+
+  /**
+   * Restore the default Math.random generator.
+   */
+  public resetRng(): void {
+    this.rng = () => Math.random();
   }
 
   /**
@@ -338,7 +357,7 @@ export class ChaosMiddleware {
     if (params.failRate !== undefined) {
       if (params.failRate <= 0) return false;
       if (params.failRate >= 1) return true;
-      return Math.random() < params.failRate;
+      return this.rng() < params.failRate;
     }
 
     // If mock_error was explicitly provided without a fail_rate, fail 100% of the time
@@ -377,7 +396,7 @@ export class ChaosMiddleware {
           if (!isNaN(min) && !isNaN(max)) {
             const low = Math.min(min, max);
             const high = Math.max(min, max);
-            delayMs = Math.round(low + Math.random() * (high - low));
+            delayMs = Math.round(low + this.rng() * (high - low));
           } else {
             delayMs = this.parseSingleDuration(trimmed);
           }
@@ -395,7 +414,7 @@ export class ChaosMiddleware {
 
     // Apply jitter if provided: ±jitter
     if (jitter > 0) {
-      const variance = (Math.random() * 2 - 1) * jitter;
+      const variance = (this.rng() * 2 - 1) * jitter;
       delayMs = Math.round(delayMs + variance);
     }
 
