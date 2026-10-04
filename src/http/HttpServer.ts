@@ -126,15 +126,17 @@ export class HttpServer {
         });
       }
 
+      // Extract authentication claims first so req.auth is populated for gate checks
+      await this.authMiddleware.handle(req, null as any);
+
       // Latency & Chaos Simulation (For Testing Frontend States)
+      // Gated by explicit development/feature flag or admin authorization
       if (this.chaosMiddleware) {
         await this.chaosMiddleware.handle(req, reply);
         if (reply.sent) {
           return;
         }
       }
-
-      await this.authMiddleware.handle(req, null as any);
     });
 
     this.app.addHook('onResponse', async (req: FastifyRequest, reply: FastifyReply) => {

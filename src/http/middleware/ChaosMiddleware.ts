@@ -3,6 +3,8 @@ import { ConfigService } from '../../core/config/ConfigService';
 
 export interface ChaosSimulationConfig {
   enabled?: boolean;
+  chaosEnabled?: boolean;
+  maxMockDelayMs?: number;
   mockDelay?: number | string;
   mockError?: number | string;
   mockFailRate?: number;
@@ -22,25 +24,99 @@ export interface RequestSimulationParams {
  * ChaosMiddleware simulates real-world mobile network latency, intermittent network drops,
  * and HTTP server errors. This allows frontend developers to test loading spinners,
  * skeleton placeholders, error boundary toasts, and retry logic locally against SQLite.
+ *
+ * Security: Gated behind development/feature flag (chaosEnabled) or admin authorization.
+ * Critical system endpoints (/api/health, /api/admins/auth-with-password) are immune to chaos.
  */
 export class ChaosMiddleware {
   private config: ChaosSimulationConfig;
+  private configService?: ConfigService;
 
-  constructor(configService?: ConfigService | ChaosSimulationConfig) {
-    if (configService && 'mockDelay' in configService) {
+  /**
+   * Protected system endpoints that must NEVER be disrupted by request-driven chaos parameters.
+   * Health probes, liveness checks, and admin auth endpoints must remain available and responsive.
+   */
+  private static readonly PROTECTED_PATHS = [
+    '/api/health',
+    '/api/settings',
+    '/api/admins/auth-with-password',
+    '/api/admins/create-initial',
+    '/api/admins/has-admins',
+    '/api/admins/me',
+    '/api/demo/reset',
+    '/api/realtime',
+  ];
+
+  constructor(configServiceOrConfig?: ConfigService | ChaosSimulationConfig) {
+    if (configServiceOrConfig instanceof ConfigService) {
+      this.configService = configServiceOrConfig;
       this.config = {
         enabled: true,
-        mockDelay: configService.mockDelay,
-        mockError: configService.mockError,
-        mockFailRate: configService.mockFailRate,
-        mockJitter: configService.mockJitter,
-        mockErrorMessage: configService.mockErrorMessage,
+        chaosEnabled: configServiceOrConfig.chaosEnabled,
+        maxMockDelayMs: configServiceOrConfig.maxMockDelayMs,
+        mockDelay: configServiceOrConfig.mockDelay,
+        mockError: configServiceOrConfig.mockError,
+        mockFailRate: configServiceOrConfig.mockFailRate,
+        mockJitter: configServiceOrConfig.mockJitter,
+        mockErrorMessage: configServiceOrConfig.mockErrorMessage,
+      };
+    } else if (configServiceOrConfig && typeof configServiceOrConfig === 'object') {
+      this.config = {
+        enabled: configServiceOrConfig.enabled ?? true,
+        chaosEnabled: configServiceOrConfig.chaosEnabled ?? true,
+        maxMockDelayMs: configServiceOrConfig.maxMockDelayMs ?? 15000,
+        mockDelay: configServiceOrConfig.mockDelay,
+        mockError: configServiceOrConfig.mockError,
+        mockFailRate: configServiceOrConfig.mockFailRate,
+        mockJitter: configServiceOrConfig.mockJitter,
+        mockErrorMessage: configServiceOrConfig.mockErrorMessage,
       };
     } else {
       this.config = {
         enabled: true,
+        chaosEnabled: true,
+        maxMockDelayMs: 15000,
       };
     }
+  }
+
+  /**
+   * Checks whether the requested URL pathname is a protected system endpoint.
+   */
+  public isProtectedPath(url: string): boolean {
+    const pathname = url.split('?')[0].toLowerCase();
+    return ChaosMiddleware.PROTECTED_PATHS.some(
+      (path) => pathname === path || pathname === `${path}/`
+    );
+  }
+
+  /**
+   * Determines whether request-driven chaos parameters (query params or headers)
+   * are permitted for the current request.
+   *
+   * Gated behind:
+   * 1. Authenticated admin caller (req.auth?.isAdmin === true), OR
+   * 2. Explicit development / feature flag (dev mode or chaosEnabled: true).
+   *
+   * In production (NODE_ENV === 'production' or dev: false), unauthenticated callers
+   * cannot trigger latency or errors.
+   */
+  public isRequestChaosAllowed(req: FastifyRequest): boolean {
+    // 1. Authenticated admins are always authorized
+    if (req.auth && req.auth.isAdmin) {
+      return true;
+    }
+
+    // 2. Explicit feature flag in config
+    if (this.config.chaosEnabled !== undefined) {
+      return this.config.chaosEnabled;
+    }
+
+    if (this.configService) {
+      return this.configService.chaosEnabled;
+    }
+
+    return process.env.NODE_ENV !== 'production';
   }
 
   /**
@@ -64,7 +140,11 @@ export class ChaosMiddleware {
    * Reset simulation options to clean defaults.
    */
   public reset(): void {
-    this.config = { enabled: true };
+    this.config = {
+      enabled: true,
+      chaosEnabled: this.configService ? this.configService.chaosEnabled : true,
+      maxMockDelayMs: this.configService ? this.configService.maxMockDelayMs : 15000,
+    };
   }
 
   /**
@@ -160,11 +240,15 @@ export class ChaosMiddleware {
    * 3. ConfigService / Server global options
    */
   public resolveParams(req: FastifyRequest): RequestSimulationParams | null {
+    const isProtected = this.isProtectedPath(req.url);
+    const allowRequestParams = !isProtected && this.isRequestChaosAllowed(req);
+
     const query = (req.query as Record<string, any>) || {};
     const headers = req.headers || {};
 
     // Helper to find first defined value among multiple keys
     const getQueryVal = (...keys: string[]): any => {
+      if (!allowRequestParams) return undefined;
       for (const k of keys) {
         if (query[k] !== undefined && query[k] !== null && query[k] !== '') {
           return query[k];
@@ -174,6 +258,7 @@ export class ChaosMiddleware {
     };
 
     const getHeaderVal = (...keys: string[]): any => {
+      if (!allowRequestParams) return undefined;
       for (const k of keys) {
         const val = headers[k.toLowerCase()];
         if (val !== undefined && val !== null && val !== '') {
@@ -183,31 +268,31 @@ export class ChaosMiddleware {
       return undefined;
     };
 
-    // Raw values: query overrides header overrides config
+    // Raw values: query overrides header overrides config (unless protected path)
     const rawDelay =
       getQueryVal('mock_delay', 'mockDelay', 'mock-delay', 'delay') ??
       getHeaderVal('x-mock-delay', 'mock-delay', 'x-delay') ??
-      this.config.mockDelay;
+      (!isProtected ? this.config.mockDelay : undefined);
 
     const rawJitter =
       getQueryVal('mock_jitter', 'mockJitter', 'mock-jitter') ??
       getHeaderVal('x-mock-jitter', 'mock-jitter') ??
-      this.config.mockJitter;
+      (!isProtected ? this.config.mockJitter : undefined);
 
     const rawError =
       getQueryVal('mock_error', 'mockError', 'mock-error') ??
       getHeaderVal('x-mock-error', 'mock-error') ??
-      this.config.mockError;
+      (!isProtected ? this.config.mockError : undefined);
 
     const rawFailRate =
       getQueryVal('mock_fail_rate', 'mockFailRate', 'mock-fail-rate', 'mock_failure_rate', 'mockFailureRate') ??
       getHeaderVal('x-mock-fail-rate', 'mock-fail-rate', 'x-mock-failure-rate', 'mock-failure-rate') ??
-      this.config.mockFailRate;
+      (!isProtected ? this.config.mockFailRate : undefined);
 
     const rawErrorMessage =
       getQueryVal('mock_error_message', 'mockErrorMessage', 'mock-error-message') ??
       getHeaderVal('x-mock-error-message', 'mock-error-message') ??
-      this.config.mockErrorMessage;
+      (!isProtected ? this.config.mockErrorMessage : undefined);
 
     // If nothing is configured or requested on this request, skip
     if (
@@ -301,8 +386,9 @@ export class ChaosMiddleware {
       delayMs = Math.round(delayMs + variance);
     }
 
-    // Clamp between 0 and 120,000ms (2 minutes max safety limit)
-    return Math.min(120000, Math.max(0, delayMs));
+    const maxLimit = this.config.maxMockDelayMs ?? (this.configService?.maxMockDelayMs || 15000);
+    // Clamp between 0 and maxLimit (default 15,000ms / 15 seconds)
+    return Math.min(maxLimit, Math.max(0, delayMs));
   }
 
   private parseSingleDuration(str: string): number {

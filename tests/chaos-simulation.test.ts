@@ -388,4 +388,94 @@ describe('Latency & Chaos Simulation (For Testing Frontend States)', () => {
       expect(normalList.items.length).toBeGreaterThanOrEqual(1);
     });
   });
+
+  describe('8. Security Gating, Protected Endpoints & Production DoS Protection', () => {
+    it('should NEVER allow mock_error or mock_delay to disrupt public health check (/api/health)', async () => {
+      const res = await app.server.inject({
+        method: 'GET',
+        url: '/api/health?mock_error=500&mock_delay=2000',
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.status).toBe('ok');
+      expect(res.headers['x-simulated-chaos']).toBeUndefined();
+      expect(res.headers['x-simulated-delay']).toBeUndefined();
+    });
+
+    it('should NEVER allow mock_error or mock_delay to disrupt admin auth endpoint (/api/admins/auth-with-password)', async () => {
+      const res = await app.server.inject({
+        method: 'POST',
+        url: '/api/admins/auth-with-password?mock_error=500',
+        payload: {
+          email: 'nonexistent@nodestack.io',
+          password: 'wrong',
+        },
+      });
+
+      // Should fail with normal 400/401 auth error, NOT simulated 500 chaos error
+      expect(res.statusCode).not.toBe(500);
+      expect(res.headers['x-simulated-chaos']).toBeUndefined();
+    });
+
+    it('should clamp mock_delay to maxMockDelayMs limit', () => {
+      // Direct unit check on middleware parseDelay
+      const clamped = app.chaos.parseDelay(999999);
+      expect(clamped).toBeLessThanOrEqual(15000);
+    });
+
+    it('should ignore unauthenticated chaos parameters in production mode (chaosEnabled: false)', async () => {
+      const prodDir = path.resolve(__dirname, '../.test_chaos_prod_data');
+      if (fs.existsSync(prodDir)) {
+        fs.rmSync(prodDir, { recursive: true, force: true });
+      }
+
+      const prodApp = new NodeStack({
+        dataDir: prodDir,
+        dev: false,
+        chaosEnabled: false,
+      });
+
+      // Seed a post
+      prodApp.schema.createCollection({
+        name: 'articles',
+        type: 'base',
+        listRule: '',
+        createRule: '',
+        schema: [{ id: 'f_title', name: 'title', type: 'text' }],
+      });
+      await prodApp.records.create('articles', { title: 'Production Article' });
+
+      // Unauthenticated caller tries to trigger chaos
+      const unauthRes = await prodApp.server.inject({
+        method: 'GET',
+        url: '/api/collections/articles/records?mock_error=500&mock_delay=5000',
+      });
+
+      // Must NOT fail with 500, must NOT delay, must succeed normally
+      expect(unauthRes.statusCode).toBe(200);
+      expect(unauthRes.headers['x-simulated-chaos']).toBeUndefined();
+      expect(unauthRes.headers['x-simulated-delay']).toBeUndefined();
+
+      // Create super admin on prodApp to test admin authorization override
+      await prodApp.auth.createAdmin('admin@prod.io', 'secret123');
+      const auth = await prodApp.auth.authenticateAdmin('admin@prod.io', 'secret123');
+
+      // Authenticated admin CAN test chaos even in production mode
+      const adminRes = await prodApp.server.inject({
+        method: 'GET',
+        url: '/api/collections/articles/records?mock_error=502',
+        headers: { authorization: `Bearer ${auth.token}` },
+      });
+
+      expect(adminRes.statusCode).toBe(502);
+      expect(adminRes.headers['x-simulated-chaos']).toBe('true');
+
+      prodApp.db.close();
+      if (fs.existsSync(prodDir)) {
+        fs.rmSync(prodDir, { recursive: true, force: true });
+      }
+    });
+  });
 });
+

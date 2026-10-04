@@ -9,6 +9,8 @@ export interface NodeStackConfigOptions {
   jwtSecret?: string;
   appName?: string;
   dev?: boolean;
+  chaosEnabled?: boolean;
+  maxMockDelayMs?: number;
   mockDelay?: number | string;
   mockFailRate?: number;
   mockError?: number | string;
@@ -28,6 +30,8 @@ export class ConfigService {
   public readonly jwtSecret: string;
   public readonly appName: string;
   public readonly dev: boolean;
+  public readonly chaosEnabled: boolean;
+  public readonly maxMockDelayMs: number;
   public readonly mockDelay?: number | string;
   public readonly mockFailRate?: number;
   public readonly mockError?: number | string;
@@ -40,6 +44,22 @@ export class ConfigService {
     this.host = options.host || process.env.NODESTACK_HOST || process.env.NODEBASE_HOST || '0.0.0.0';
     this.appName = options.appName || 'NodeStack';
     this.dev = options.dev ?? process.env.NODE_ENV !== 'production';
+
+    // Chaos simulation feature flag (enabled by default in dev, gated in production)
+    const envChaos = process.env.NODESTACK_CHAOS_ENABLED || process.env.NODESTACK_ENABLE_CHAOS;
+    if (options.chaosEnabled !== undefined) {
+      this.chaosEnabled = options.chaosEnabled;
+    } else if (envChaos !== undefined) {
+      this.chaosEnabled = envChaos === 'true' || envChaos === '1';
+    } else {
+      this.chaosEnabled = this.dev && process.env.NODE_ENV !== 'production';
+    }
+
+    // Maximum mock delay clamping limit (default 15,000ms)
+    const envMaxDelay = process.env.NODESTACK_MAX_MOCK_DELAY || process.env.NODESTACK_MAX_DELAY;
+    this.maxMockDelayMs = options.maxMockDelayMs !== undefined
+      ? options.maxMockDelayMs
+      : (envMaxDelay ? Number(envMaxDelay) : 15000);
 
     // Simulation / Chaos Configuration defaults
     const envDelay = process.env.NODESTACK_MOCK_DELAY || process.env.NODESTACK_CHAOS_DELAY;
