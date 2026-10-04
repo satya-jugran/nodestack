@@ -40,3 +40,10 @@ export class ConflictError extends AppError {
     super(message, 409, data);
   }
 }
+
+export class ServiceUnavailableError extends AppError {
+  constructor(message = 'Service temporarily unavailable', data?: Record<string, any>) {
+    super(message, 503, data);
+  }
+}
+

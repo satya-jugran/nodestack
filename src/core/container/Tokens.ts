@@ -25,4 +25,5 @@ export const TOKENS = {
   TemplateController: Symbol('TemplateController'),
   DemoService: Symbol('DemoService'),
   DemoController: Symbol('DemoController'),
+  MaintenanceGate: Symbol('MaintenanceGate'),
 } as const;

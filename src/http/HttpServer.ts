@@ -19,10 +19,12 @@ import { AdminUIService } from '../admin/AdminUIService';
 import { DocsService } from '../admin/DocsService';
 import { TypeGenerator } from '../schema/TypeGenerator';
 import { AppError } from '../core/errors/AppError';
+import { MaintenanceGate } from '../core/maintenance/MaintenanceGate';
 
 export class HttpServer {
   public readonly app: FastifyInstance;
   public readonly chaosMiddleware: ChaosMiddleware;
+  public readonly maintenanceGate?: MaintenanceGate;
 
   constructor(
     private config: ConfigService,
@@ -41,8 +43,10 @@ export class HttpServer {
     analyticsControllerOrChaos?: AnalyticsController | ChaosMiddleware,
     chaosMiddleware?: ChaosMiddleware,
     private templateController?: TemplateController,
-    private demoController?: DemoController
+    private demoController?: DemoController,
+    maintenanceGate?: MaintenanceGate
   ) {
+    this.maintenanceGate = maintenanceGate;
 
     let analyticsController: AnalyticsController | undefined;
     if (analyticsControllerOrChaos instanceof ChaosMiddleware) {
@@ -94,9 +98,33 @@ export class HttpServer {
   }
 
   private setupHooks(): void {
-    // Latency and audit logging
+    // Latency, request tracking, and audit logging
     this.app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
       (req as any)._startTime = process.hrtime();
+      const reqId = (req.id as string) || (req.headers['x-request-id'] as string) || `req_${Math.random().toString(36).substring(2, 9)}`;
+      (req as any)._reqId = reqId;
+
+      // Coordinate reset with request/database locking maintenance gate
+      if (this.maintenanceGate) {
+        const isExempt = req.url.startsWith('/api/demo/reset') || req.url.startsWith('/api/realtime');
+        try {
+          await this.maintenanceGate.trackRequestStart(reqId, isExempt);
+        } catch (err: any) {
+          return reply.status(503).send({
+            statusCode: 503,
+            error: 'Service Unavailable',
+            message: err.message || 'Server is temporarily undergoing demo reset maintenance. Please retry.',
+          });
+        }
+      }
+
+      if (req.raw && !req.raw.destroyed) {
+        req.raw.once('close', () => {
+          if (this.maintenanceGate) {
+            this.maintenanceGate.trackRequestEnd(reqId);
+          }
+        });
+      }
 
       // Latency & Chaos Simulation (For Testing Frontend States)
       if (this.chaosMiddleware) {
@@ -110,6 +138,11 @@ export class HttpServer {
     });
 
     this.app.addHook('onResponse', async (req: FastifyRequest, reply: FastifyReply) => {
+      const reqId = (req as any)._reqId;
+      if (reqId && this.maintenanceGate) {
+        this.maintenanceGate.trackRequestEnd(reqId);
+      }
+
       const startTime = (req as any)._startTime;
       let duration = 0;
       if (startTime) {
@@ -127,6 +160,13 @@ export class HttpServer {
         authCollection: req.auth?.collection,
         userAgent: req.headers['user-agent'],
       });
+    });
+
+    this.app.addHook('onError', async (req: FastifyRequest) => {
+      const reqId = (req as any)._reqId;
+      if (reqId && this.maintenanceGate) {
+        this.maintenanceGate.trackRequestEnd(reqId);
+      }
     });
   }
 

@@ -367,4 +367,116 @@ describe('"Reset to Demo State" & Snapshot Demo Baseline Feature Tests', () => {
       checkApp.db.close();
     });
   });
+
+  describe('5. Maintenance Gate & Concurrency Coordination during Live Reset', () => {
+    it('should lock DatabaseService directly and throw ServiceUnavailableError if queries are attempted while locked', async () => {
+      expect(app.db.isDatabaseLocked()).toBe(false);
+      app.db.lock();
+      expect(app.db.isDatabaseLocked()).toBe(true);
+
+      expect(() => {
+        app.db.all('SELECT 1');
+      }).toThrow('Database is temporarily locked');
+
+      app.db.unlock();
+      expect(app.db.isDatabaseLocked()).toBe(false);
+
+      const rows = app.db.all('SELECT 1 as num');
+      expect(rows[0].num).toBe(1);
+    });
+
+    it('should reject concurrent demo reset calls with ConflictError (409)', async () => {
+      // Create snapshot first
+      await app.demo.snapshot({ name: 'Concurrency Baseline' });
+
+      // Simulate a long reset operation holding the exclusive gate
+      const gate = app.maintenanceGate;
+      let released = false;
+
+      const longExclusive = gate.executeExclusive(async () => {
+        await new Promise((r) => setTimeout(r, 60));
+        released = true;
+      });
+
+      // While the gate is held, a concurrent reset attempt must fail with ConflictError
+      await expect(
+        app.demo.reset()
+      ).rejects.toThrow('A demo reset or maintenance operation is already in progress');
+
+      await longExclusive;
+      expect(released).toBe(true);
+    });
+
+    it('should queue incoming HTTP requests during reset and seamlessly resolve them against restored state', async () => {
+      // 1. Snapshot clean baseline
+      await app.demo.snapshot({ name: 'Clean Baseline Before Concurrency Test' });
+
+      // 2. Add messy evaluation record
+      await app.records.create('leads', { company: 'Messy In-Flight Lead', deal_size: 1000 });
+
+      // 3. Start reset
+      const resetPromise = app.server.app.inject({
+        method: 'POST',
+        url: '/api/demo/reset',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+
+      // 4. Poll until the maintenance gate is active (or small timeout)
+      const startWait = Date.now();
+      while (!app.maintenanceGate.isMaintenanceActive() && Date.now() - startWait < 500) {
+        await new Promise((r) => setTimeout(r, 1));
+      }
+
+      // Send GET request specifically while the gate is active
+      const getPromise = app.server.app.inject({
+        method: 'GET',
+        url: '/api/collections/leads/records',
+      });
+
+      const [resetRes, getRes] = await Promise.all([resetPromise, getPromise]);
+
+      expect(resetRes.statusCode).toBe(200);
+      expect(getRes.statusCode).toBe(200);
+
+      // Verify the queued request observed the clean restored data without error
+      const body = JSON.parse(getRes.payload);
+      expect(body.items.some((item: any) => item.company === 'Messy In-Flight Lead')).toBe(false);
+    });
+
+    it('should drain in-flight requests before database close and swap', async () => {
+      // Start an in-flight request with simulated delay
+      const inFlightReq = app.server.app.inject({
+        method: 'GET',
+        url: '/api/collections/leads/records?mock_delay=50',
+      });
+
+      // Fire reset while in-flight request is still active
+      const resetReq = app.server.app.inject({
+        method: 'POST',
+        url: '/api/demo/reset',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+
+      const [inFlightRes, resetRes] = await Promise.all([inFlightReq, resetReq]);
+
+      expect(inFlightRes.statusCode).toBe(200);
+      expect(resetRes.statusCode).toBe(200);
+    });
+
+    it('should guarantee maintenance gate release even if exclusive action throws', async () => {
+      const gate = app.maintenanceGate;
+      expect(gate.isMaintenanceActive()).toBe(false);
+
+      await expect(
+        gate.executeExclusive(async () => {
+          throw new Error('Simulated failure during filesystem copy');
+        })
+      ).rejects.toThrow('Simulated failure during filesystem copy');
+
+      // Maintenance gate must be unlocked in finally
+      expect(gate.isMaintenanceActive()).toBe(false);
+      expect(gate.isExclusiveActive()).toBe(false);
+    });
+  });
 });
+

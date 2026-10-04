@@ -34,6 +34,7 @@ import { TemplateService } from './templates/TemplateService';
 import { TemplateController } from './http/controllers/TemplateController';
 import { DemoService } from './demo/DemoService';
 import { DemoController } from './http/controllers/DemoController';
+import { MaintenanceGate } from './core/maintenance/MaintenanceGate';
 import {
   HookHandler,
   RecordBeforeEventContext,
@@ -49,6 +50,7 @@ export interface NodeStackOptions extends NodeStackConfigOptions {
 export class NodeStack {
   public readonly container: Container;
   public readonly config: ConfigService;
+  public readonly maintenanceGate: MaintenanceGate;
   public readonly eventBus: EventBus;
   public readonly db: DatabaseService;
   public readonly schema: SchemaService;
@@ -76,6 +78,10 @@ export class NodeStack {
     // 1. Config Service
     this.config = new ConfigService(options);
     this.container.bindInstance(TOKENS.ConfigService, this.config);
+
+    // 1.5 Maintenance Gate (coordinates demo resets & system maintenance with HTTP requests)
+    this.maintenanceGate = new MaintenanceGate();
+    this.container.bindInstance(TOKENS.MaintenanceGate, this.maintenanceGate);
 
     // 2. Database Service
     this.db = new DatabaseService(this.config, options.customDriver);
@@ -158,7 +164,8 @@ export class NodeStack {
       this.schema,
       this.files,
       this.eventBus,
-      this.realtime
+      this.realtime,
+      this.maintenanceGate
     );
     this.container.bindInstance(TOKENS.DemoService, this.demo);
 
@@ -213,7 +220,8 @@ export class NodeStack {
       analyticsCtrl,
       this.chaos,
       templateCtrl,
-      demoCtrl
+      demoCtrl,
+      this.maintenanceGate
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
 

@@ -8,6 +8,7 @@ import { FileStorageService } from '../files/FileStorageService';
 import { EventBus } from '../core/events/EventBus';
 import { RealtimeService } from '../realtime/RealtimeService';
 import { NotFoundError } from '../core/errors/AppError';
+import { MaintenanceGate } from '../core/maintenance/MaintenanceGate';
 
 export interface DemoSnapshotOptions {
   name?: string;
@@ -59,14 +60,23 @@ export interface DemoResetResult {
 }
 
 export class DemoService {
+  private maintenanceGate: MaintenanceGate;
+
   constructor(
     private config: ConfigService,
     private db: DatabaseService,
     private schemaService: SchemaService,
     private fileStorageService: FileStorageService,
     private eventBus: EventBus,
-    private realtimeService: RealtimeService
-  ) {}
+    private realtimeService: RealtimeService,
+    maintenanceGate?: MaintenanceGate
+  ) {
+    this.maintenanceGate = maintenanceGate || new MaintenanceGate();
+  }
+
+  public getGate(): MaintenanceGate {
+    return this.maintenanceGate;
+  }
 
   public get snapshotDir(): string {
     return path.join(this.config.dataDir, '.demo_snapshot');
@@ -210,71 +220,79 @@ export class DemoService {
       );
     }
 
-    const startTime = Date.now();
-    const metadata: DemoSnapshotMetadata = JSON.parse(
-      fs.readFileSync(this.snapshotMetadataPath, 'utf-8')
-    );
+    return await this.maintenanceGate.executeExclusive(async () => {
+      const startTime = Date.now();
+      const metadata: DemoSnapshotMetadata = JSON.parse(
+        fs.readFileSync(this.snapshotMetadataPath, 'utf-8')
+      );
 
-    // 1. Safely close database connection
-    try {
-      this.db.getDriver().close();
-    } catch {
-      // ignore
-    }
+      // 1. Lock database and checkpoint WAL journal
+      this.db.lock();
+      this.db.checkpoint();
 
-    // 2. Overwrite live data.db with snapshot
-    fs.copyFileSync(this.snapshotDbPath, this.config.dbPath);
+      // 2. Safely close database connection
+      this.db.close();
 
-    // 3. Remove existing WAL and SHM journal files
-    const walPath = `${this.config.dbPath}-wal`;
-    if (fs.existsSync(walPath)) {
       try {
-        fs.unlinkSync(walPath);
-      } catch {
-        // ignore
+        // 3. Overwrite live data.db with snapshot
+        fs.copyFileSync(this.snapshotDbPath, this.config.dbPath);
+
+        // 4. Remove existing WAL and SHM journal files
+        const walPath = `${this.config.dbPath}-wal`;
+        if (fs.existsSync(walPath)) {
+          try {
+            fs.unlinkSync(walPath);
+          } catch {
+            // ignore
+          }
+        }
+
+        const shmPath = `${this.config.dbPath}-shm`;
+        if (fs.existsSync(shmPath)) {
+          try {
+            fs.unlinkSync(shmPath);
+          } catch {
+            // ignore
+          }
+        }
+
+        // 5. Restore file storage
+        if (fs.existsSync(this.config.storageDir)) {
+          fs.rmSync(this.config.storageDir, { recursive: true, force: true });
+        }
+        fs.mkdirSync(this.config.storageDir, { recursive: true });
+
+        if (fs.existsSync(this.snapshotStorageDir)) {
+          fs.cpSync(this.snapshotStorageDir, this.config.storageDir, { recursive: true });
+        }
+      } finally {
+        // 6. Guaranteed database driver reconnection and unlock
+        try {
+          this.db.reconnect();
+        } finally {
+          this.db.unlock();
+        }
       }
-    }
 
-    const shmPath = `${this.config.dbPath}-shm`;
-    if (fs.existsSync(shmPath)) {
-      try {
-        fs.unlinkSync(shmPath);
-      } catch {
-        // ignore
-      }
-    }
+      const durationMs = Date.now() - startTime;
 
-    // 4. Reconnect SQLite database driver
-    this.db.reconnect();
+      // 7. Broadcast SSE realtime event to update all open client sessions
+      this.realtimeService.broadcastSystemEvent('DEMO_RESET', {
+        timestamp: new Date().toISOString(),
+        snapshot: metadata,
+        durationMs,
+      });
 
-    // 5. Restore file storage
-    if (fs.existsSync(this.config.storageDir)) {
-      fs.rmSync(this.config.storageDir, { recursive: true, force: true });
-    }
-    fs.mkdirSync(this.config.storageDir, { recursive: true });
+      this.eventBus.emit('demo:reset', { metadata, durationMs });
 
-    if (fs.existsSync(this.snapshotStorageDir)) {
-      fs.cpSync(this.snapshotStorageDir, this.config.storageDir, { recursive: true });
-    }
-
-    const durationMs = Date.now() - startTime;
-
-    // 6. Broadcast SSE realtime event to update all open client sessions
-    this.realtimeService.broadcastSystemEvent('DEMO_RESET', {
-      timestamp: new Date().toISOString(),
-      snapshot: metadata,
-      durationMs,
+      return {
+        success: true,
+        message: `Successfully restored clean demo state '${metadata.name}' in ${durationMs}ms.`,
+        durationMs,
+        snapshot: metadata,
+        restoredAt: new Date().toISOString(),
+      };
     });
-
-    this.eventBus.emit('demo:reset', { metadata, durationMs });
-
-    return {
-      success: true,
-      message: `Successfully restored clean demo state '${metadata.name}' in ${durationMs}ms.`,
-      durationMs,
-      snapshot: metadata,
-      restoredAt: new Date().toISOString(),
-    };
   }
 
   /**
