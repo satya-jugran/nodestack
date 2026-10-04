@@ -424,7 +424,10 @@ export async function runCli(argv = process.argv): Promise<Command> {
               if (drift.isModified) {
                 const recDiff = drift.recordsDelta >= 0 ? `+${drift.recordsDelta}` : `${drift.recordsDelta}`;
                 const colDiff = drift.collectionsDelta >= 0 ? `+${drift.collectionsDelta}` : `${drift.collectionsDelta}`;
-                console.log(chalk.magenta(`  • Live drift detected: ${recDiff} records, ${colDiff} collections since snapshot`));
+                const details = (drift.recordsDelta !== 0 || drift.collectionsDelta !== 0)
+                  ? `${recDiff} records, ${colDiff} collections since snapshot`
+                  : `record or schema content modified since snapshot`;
+                console.log(chalk.magenta(`  • Live drift detected: ${details}`));
                 console.log(chalk.green(`  ➜ Click "Reset Demo Data" in Admin UI or run: npx nodestack demo reset\n`));
               } else {
                 console.log(chalk.green(`  • Status: Live data is pristine and matches demo baseline!\n`));

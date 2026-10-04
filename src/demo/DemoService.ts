@@ -33,6 +33,7 @@ export interface DemoSnapshotMetadata {
   totalFiles: number;
   storageSizeBytes: number;
   dbSizeBytes: number;
+  contentHash?: string;
 }
 
 export interface DemoSnapshotStatus {
@@ -42,10 +43,12 @@ export interface DemoSnapshotStatus {
     totalCollections: number;
     totalRecords: number;
     totalFiles: number;
+    contentHash?: string;
     drift: {
       collectionsDelta: number;
       recordsDelta: number;
       filesDelta: number;
+      contentChanged?: boolean;
       isModified: boolean;
     };
   };
@@ -117,11 +120,13 @@ export class DemoService {
         fs.readFileSync(this.snapshotMetadataPath, 'utf-8')
       );
       const live = this.calculateLiveStats();
+      const liveContentHash = this.computeStateHash();
 
       const collectionsDelta = live.totalCollections - metadata.totalCollections;
       const recordsDelta = live.totalRecords - metadata.totalRecords;
       const filesDelta = live.totalFiles - metadata.totalFiles;
-      const isModified = collectionsDelta !== 0 || recordsDelta !== 0 || filesDelta !== 0;
+      const contentChanged = Boolean(metadata.contentHash && liveContentHash !== metadata.contentHash);
+      const isModified = collectionsDelta !== 0 || recordsDelta !== 0 || filesDelta !== 0 || contentChanged;
 
       return {
         hasSnapshot: true,
@@ -130,10 +135,12 @@ export class DemoService {
           totalCollections: live.totalCollections,
           totalRecords: live.totalRecords,
           totalFiles: live.totalFiles,
+          contentHash: liveContentHash,
           drift: {
             collectionsDelta,
             recordsDelta,
             filesDelta,
+            contentChanged,
             isModified,
           },
         },
@@ -177,12 +184,13 @@ export class DemoService {
       fs.cpSync(this.config.storageDir, this.snapshotStorageDir, { recursive: true });
     }
 
-    // 5. Gather statistics
+    // 5. Gather statistics and compute baseline content hash
     const live = this.calculateLiveStats();
     const storageStats = this.getDirectoryStats(this.snapshotStorageDir);
     const dbSizeBytes = fs.existsSync(this.snapshotDbPath)
       ? fs.statSync(this.snapshotDbPath).size
       : 0;
+    const contentHash = this.computeStateHash();
 
     const metadata: DemoSnapshotMetadata = {
       id: `snap_${crypto.randomBytes(6).toString('hex')}`,
@@ -197,6 +205,7 @@ export class DemoService {
       totalFiles: storageStats.count,
       storageSizeBytes: storageStats.sizeBytes,
       dbSizeBytes,
+      contentHash,
     };
 
     fs.writeFileSync(
@@ -386,5 +395,94 @@ export class DemoService {
 
     walk(dirPath);
     return { count, sizeBytes };
+  }
+
+  /**
+   * Computes a deterministic SHA-256 hash representing the full contents of the
+   * database (collections schema, indexes, rules, records in every table, admins)
+   * and uploaded files storage.
+   */
+  public computeStateHash(): string {
+    const hash = crypto.createHash('sha256');
+
+    // 1. Schema & Collections definition (sorted by collection name)
+    const collections = this.schemaService.getAllCollections().sort((a, b) => a.name.localeCompare(b.name));
+    for (const c of collections) {
+      hash.update(`col:${c.id}:${c.name}:${c.type}:${c.system ? 1 : 0}`);
+      hash.update(`schema:${JSON.stringify(c.schema || [])}`);
+      hash.update(`indexes:${JSON.stringify(c.indexes || [])}`);
+      hash.update(`rules:${c.listRule}:${c.viewRule}:${c.createRule}:${c.updateRule}:${c.deleteRule}`);
+      hash.update(`options:${JSON.stringify(c.options || {})}`);
+    }
+
+    // 2. Collection records content (sorted by id within each table)
+    for (const c of collections) {
+      try {
+        const rows = this.db.all<Record<string, any>>(`SELECT * FROM "${c.name}" ORDER BY "id" ASC`);
+        hash.update(`table:${c.name}:count:${rows.length}`);
+        for (const row of rows) {
+          const sortedKeys = Object.keys(row).sort();
+          const canonicalRow: Record<string, any> = {};
+          for (const k of sortedKeys) {
+            canonicalRow[k] = row[k];
+          }
+          hash.update(JSON.stringify(canonicalRow));
+        }
+      } catch {
+        // Table might not exist or query failed
+      }
+    }
+
+    // 3. Super Admin records
+    try {
+      const adminRows = this.db.all<Record<string, any>>('SELECT id, email, created, updated FROM _admins ORDER BY "id" ASC');
+      hash.update(`admins:count:${adminRows.length}`);
+      for (const row of adminRows) {
+        hash.update(JSON.stringify(row));
+      }
+    } catch {
+      // ignore
+    }
+
+    // 4. File storage manifest (paths, sizes, and md5 content hash sorted by relative path)
+    const files = this.getFileManifest(this.config.storageDir);
+    hash.update(`files:count:${files.length}`);
+    for (const f of files) {
+      hash.update(`${f.relPath}:${f.sizeBytes}:${f.md5}`);
+    }
+
+    return hash.digest('hex');
+  }
+
+  private getFileManifest(dirPath: string): Array<{ relPath: string; sizeBytes: number; md5: string }> {
+    const list: Array<{ relPath: string; sizeBytes: number; md5: string }> = [];
+    if (!fs.existsSync(dirPath)) return list;
+
+    const walk = (current: string) => {
+      try {
+        const entries = fs.readdirSync(current, { withFileTypes: true });
+        for (const entry of entries) {
+          const full = path.join(current, entry.name);
+          if (entry.isDirectory()) {
+            walk(full);
+          } else if (entry.isFile()) {
+            try {
+              const stat = fs.statSync(full);
+              const relPath = path.relative(dirPath, full).replace(/\\/g, '/');
+              const buf = fs.readFileSync(full);
+              const md5 = crypto.createHash('md5').update(buf).digest('hex');
+              list.push({ relPath, sizeBytes: stat.size, md5 });
+            } catch {
+              // ignore
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    walk(dirPath);
+    return list.sort((a, b) => a.relPath.localeCompare(b.relPath));
   }
 }

@@ -63,8 +63,12 @@ function renderSnapshotsView() {
       ? (drift.recordsDelta >= 0 ? `+${drift.recordsDelta}` : `${drift.recordsDelta}`)
       : '0';
 
+    const driftLabel = (drift?.recordsDelta !== 0 && drift?.recordsDelta !== undefined)
+      ? `${recDelta} records`
+      : 'Content modified';
+
     const statusBadge = isModified
-      ? `<span class="badge badge-post" style="font-size:11.5px; background:rgba(245, 158, 11, 0.15); border-color:rgba(245, 158, 11, 0.4); color:#fbbf24; padding:3px 9px;">⚠️ Live Data Modified (${recDelta} records)</span>`
+      ? `<span class="badge badge-post" style="font-size:11.5px; background:rgba(245, 158, 11, 0.15); border-color:rgba(245, 158, 11, 0.4); color:#fbbf24; padding:3px 9px;">⚠️ Live Data Modified (${driftLabel})</span>`
       : `<span class="badge badge-get" style="font-size:11.5px; background:rgba(16, 185, 129, 0.15); border-color:rgba(16, 185, 129, 0.4); color:#34d399; padding:3px 9px;">● Pristine Clean Baseline</span>`;
 
     heroHtml = `
@@ -120,7 +124,7 @@ function renderSnapshotsView() {
         <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.1rem 1.25rem;">
           <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Live Drift Status</div>
           <div style="font-size: 22px; font-weight: 800; color: ${isModified ? '#fbbf24' : '#34d399'}; margin-top: 4px;">
-            ${isModified ? `${recDelta} Changes` : '0 Changes'}
+            ${isModified ? (drift?.recordsDelta !== 0 ? `${recDelta} Changes` : 'Modified') : '0 Changes'}
           </div>
           <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
             ${isModified ? 'Data modified during evaluations' : 'Exact match with baseline'}
@@ -262,8 +266,12 @@ function updateDemoHomeCardUI() {
       ? (drift.recordsDelta >= 0 ? `+${drift.recordsDelta}` : `${drift.recordsDelta}`)
       : '0';
 
+    const driftLabel = (drift?.recordsDelta !== 0 && drift?.recordsDelta !== undefined)
+      ? `${recDelta} records`
+      : 'Content modified';
+
     const statusPill = isModified
-      ? `<span class="badge badge-post" style="font-size:10.5px;">⚠️ Modified (${recDelta} records)</span>`
+      ? `<span class="badge badge-post" style="font-size:10.5px;">⚠️ Modified (${driftLabel})</span>`
       : `<span class="badge badge-get" style="font-size:10.5px;">● Clean Baseline</span>`;
 
     card.innerHTML = `

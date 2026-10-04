@@ -131,6 +131,7 @@ export interface DemoSnapshotMetadata {
   totalFiles: number;
   storageSizeBytes: number;
   dbSizeBytes: number;
+  contentHash?: string;
 }
 
 export interface DemoSnapshotStatus {
@@ -140,10 +141,12 @@ export interface DemoSnapshotStatus {
     totalCollections: number;
     totalRecords: number;
     totalFiles: number;
+    contentHash?: string;
     drift: {
       collectionsDelta: number;
       recordsDelta: number;
       filesDelta: number;
+      contentChanged?: boolean;
       isModified: boolean;
     };
   };

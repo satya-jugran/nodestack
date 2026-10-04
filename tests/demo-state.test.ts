@@ -150,6 +150,60 @@ describe('"Reset to Demo State" & Snapshot Demo Baseline Feature Tests', () => {
       expect(status.liveStats?.drift.isModified).toBe(false);
       expect(status.liveStats?.drift.recordsDelta).toBe(0);
     });
+
+    it('should detect drift when a record is edited in-place without changing record or collection counts', async () => {
+      // At this point, clean baseline has 3 leads
+      const initialStatus = app.demo.getStatus();
+      expect(initialStatus.liveStats?.drift.isModified).toBe(false);
+      expect(initialStatus.liveStats?.drift.recordsDelta).toBe(0);
+
+      // Edit 1 lead's company in-place (records count stays 3)
+      const lead = (await app.records.getList('leads', { filter: 'company = "Acme Corp"' })).items[0];
+      await app.records.update('leads', lead.id, { company: 'Acme Corp Edited In Place' });
+
+      // Record count is STILL 3 (recordsDelta === 0)
+      const leadsAfter = await app.records.getList('leads');
+      expect(leadsAfter.items.length).toBe(3);
+
+      // Verify that DemoService detects content drift despite zero delta in counts!
+      const statusAfterEdit = app.demo.getStatus();
+      expect(statusAfterEdit.liveStats?.drift.recordsDelta).toBe(0);
+      expect(statusAfterEdit.liveStats?.drift.collectionsDelta).toBe(0);
+      expect(statusAfterEdit.liveStats?.drift.contentChanged).toBe(true);
+      expect(statusAfterEdit.liveStats?.drift.isModified).toBe(true);
+
+      // Reset restores clean state and clears contentChanged / isModified
+      await app.demo.reset();
+      const statusAfterReset = app.demo.getStatus();
+      expect(statusAfterReset.liveStats?.drift.contentChanged).toBe(false);
+      expect(statusAfterReset.liveStats?.drift.isModified).toBe(false);
+      const restoredLead = await app.records.getOne('leads', lead.id);
+      expect(restoredLead.company).toBe('Acme Corp');
+    });
+
+    it('should detect drift when a collection schema is modified in-place without changing counts', async () => {
+      const initialStatus = app.demo.getStatus();
+      expect(initialStatus.liveStats?.drift.isModified).toBe(false);
+
+      // Modify collection rule in-place (collections count stays identical)
+      app.schema.updateCollection('leads', {
+        listRule: '@request.auth.id != ""',
+      });
+
+      // Verify that DemoService detects schema content drift!
+      const statusAfterSchemaEdit = app.demo.getStatus();
+      expect(statusAfterSchemaEdit.liveStats?.drift.collectionsDelta).toBe(0);
+      expect(statusAfterSchemaEdit.liveStats?.drift.recordsDelta).toBe(0);
+      expect(statusAfterSchemaEdit.liveStats?.drift.contentChanged).toBe(true);
+      expect(statusAfterSchemaEdit.liveStats?.drift.isModified).toBe(true);
+
+      // Reset restores clean schema rule
+      await app.demo.reset();
+      const statusAfterReset = app.demo.getStatus();
+      expect(statusAfterReset.liveStats?.drift.isModified).toBe(false);
+      const restoredCol = app.schema.getCollection('leads')!;
+      expect(restoredCol.listRule).toBe('');
+    });
   });
 
   describe('2. HTTP REST Endpoints', () => {
