@@ -57,7 +57,14 @@ export class CollectionController extends BaseController {
     const col = this.schemaService.getCollectionOrThrow(req.params.collection);
     // Clean storage files before dropping the collection to prevent orphaned files
     if (this.fileStorageService) {
-      await this.fileStorageService.deleteCollectionFiles(col.id);
+      try {
+        await this.fileStorageService.deleteCollectionFiles(col.id);
+      } catch (err: any) {
+        throw new AppError(
+          `Failed to delete storage files for collection '${req.params.collection}': ${err.message}. Aborting deletion to prevent orphaned data.`,
+          500
+        );
+      }
     }
     this.schemaService.deleteCollection(req.params.collection);
     this.noContent(reply);

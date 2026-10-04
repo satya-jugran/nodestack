@@ -489,6 +489,8 @@ describe('Starter Templates / Recipes Tests', () => {
         });
         // Must fail with error
         expect(res.status).toBe(500);
+        const data = await res.json();
+        expect(data.message).toContain('Failed to delete storage files for collection');
 
         // Verify collection and table were NOT deleted
         expect(app.schema.getCollection('secure_docs')).toBeDefined();
