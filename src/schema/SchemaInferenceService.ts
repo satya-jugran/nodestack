@@ -98,6 +98,13 @@ export function sanitizeFieldName(rawKey: string, existingNames: Set<string>): s
   return finalName;
 }
 
+/**
+ * Checks if a value is a valid record object (non-null, non-array object).
+ */
+export function isRecordObject(item: any): item is Record<string, any> {
+  return item !== null && typeof item === 'object' && !Array.isArray(item);
+}
+
 export interface ParsedPayload {
   records: Array<Record<string, any>>;
   suggestedName?: string;
@@ -129,7 +136,7 @@ export function parsePayload(data: any): ParsedPayload {
     if (parsed.length === 0) {
       throw new ValidationError('JSON array must contain at least one item');
     }
-    const nonObjects = parsed.some((item) => !item || typeof item !== 'object' || Array.isArray(item));
+    const nonObjects = parsed.some((item) => !isRecordObject(item));
     if (nonObjects) {
       throw new ValidationError('JSON array items must be objects, not primitives or arrays');
     }
@@ -144,18 +151,80 @@ export function parsePayload(data: any): ParsedPayload {
 
   // Check if one of the properties is an array of objects (e.g. { data: [...] }, { items: [...] }, { products: [...] })
   const wrapperCandidates = ['data', 'items', 'records', 'results', 'rows', 'list', 'itemsList'];
+  const ENVELOPE_METADATA_KEYS = new Set([
+    'collection',
+    'name',
+    'total',
+    'totalitems',
+    'total_items',
+    'page',
+    'perpage',
+    'per_page',
+    'totalpages',
+    'total_pages',
+    'count',
+    'status',
+    'statuscode',
+    'status_code',
+    'success',
+    'message',
+    'meta',
+    'metadata',
+    'limit',
+    'offset',
+  ]);
+
   for (const candidate of wrapperCandidates) {
-    if (Array.isArray(parsed[candidate]) && parsed[candidate].length > 0 && typeof parsed[candidate][0] === 'object') {
-      return {
-        records: parsed[candidate],
-        suggestedName: parsed.collection || parsed.name || undefined,
-      };
+    if (candidate in parsed && Array.isArray(parsed[candidate])) {
+      const arr = parsed[candidate];
+      const otherKeys = keys.filter((k) => k !== candidate);
+      const isEnvelope =
+        candidate === 'data' ||
+        otherKeys.length === 0 ||
+        otherKeys.every((k) => ENVELOPE_METADATA_KEYS.has(k.toLowerCase())) ||
+        (arr.length > 0 && arr.some((item: any) => isRecordObject(item)));
+
+      if (isEnvelope) {
+        if (arr.length === 0) {
+          throw new ValidationError('JSON array must contain at least one item');
+        }
+        for (const item of arr) {
+          if (!isRecordObject(item)) {
+            throw new ValidationError('JSON array items must be objects, not primitives or arrays');
+          }
+        }
+        return {
+          records: arr,
+          suggestedName: parsed.collection || parsed.name || undefined,
+        };
+      }
     }
   }
 
-  // If there is a single key whose value is an array of objects (e.g. { "products": [ {...} ] })
+  // If there is a single key whose value is an array (e.g. { "products": [ {...} ] })
+  if (keys.length === 1 && Array.isArray(parsed[keys[0]])) {
+    const key = keys[0];
+    const arr = parsed[key];
+    if (arr.length === 0) {
+      throw new ValidationError('JSON array must contain at least one item');
+    }
+    for (const item of arr) {
+      if (!isRecordObject(item)) {
+        throw new ValidationError('JSON array items must be objects, not primitives or arrays');
+      }
+    }
+    return {
+      records: arr,
+      suggestedName: key.toLowerCase(),
+    };
+  }
+
+  // Check if exactly one key is an array of non-null, non-array objects
   const arrayKeys = keys.filter(
-    (k) => Array.isArray(parsed[k]) && parsed[k].length > 0 && typeof parsed[k][0] === 'object'
+    (k) =>
+      Array.isArray(parsed[k]) &&
+      parsed[k].length > 0 &&
+      parsed[k].every((item: any) => isRecordObject(item))
   );
   if (arrayKeys.length === 1) {
     const key = arrayKeys[0];
@@ -253,7 +322,7 @@ export class SchemaInferenceService {
 
       const values: any[] = [];
       for (const rec of records) {
-        if (rec[rawKey] !== undefined) {
+        if (rec && typeof rec === 'object' && rec[rawKey] !== undefined) {
           values.push(rec[rawKey]);
         }
       }
@@ -409,6 +478,9 @@ export class SchemaInferenceService {
     const preparedRows: Array<Record<string, any>> = [];
 
     for (const raw of inference.records) {
+      if (!isRecordObject(raw)) {
+        throw new ValidationError('Import records must be non-null, non-array objects');
+      }
       const row: Record<string, any> = {};
 
       // System ID handling

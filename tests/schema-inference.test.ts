@@ -148,8 +148,37 @@ describe('"Paste JSON → Instant API" (Schema Auto-Inference) Tests', () => {
       expect(() => parsePayload('invalid-json')).toThrow('Invalid JSON format');
       expect(() => parsePayload([])).toThrow('JSON array must contain at least one item');
       expect(() => parsePayload([1, 2, 3])).toThrow('JSON array items must be objects');
+      expect(() => parsePayload([null])).toThrow('JSON array items must be objects');
       expect(() => parsePayload({})).toThrow('JSON object cannot be empty');
       expect(() => parsePayload(42)).toThrow('JSON payload must be an object or an array of objects');
+
+      // Envelope / wrapper candidate validations
+      expect(() => parsePayload({ data: [null] })).toThrow('JSON array items must be objects');
+      expect(() => parsePayload({ data: [{ id: 1 }, null] })).toThrow('JSON array items must be objects');
+      expect(() => parsePayload({ data: [[1, 2]] })).toThrow('JSON array items must be objects');
+      expect(() => parsePayload({ data: [] })).toThrow('JSON array must contain at least one item');
+      expect(() => parsePayload({ items: [null] })).toThrow('JSON array items must be objects');
+      expect(() => parsePayload({ products: [null] })).toThrow('JSON array items must be objects');
+      expect(() => parsePayload({ products: [] })).toThrow('JSON array must contain at least one item');
+    });
+
+    it('inferSchema and importJson should throw ValidationError instead of TypeError for { data: [null] }', async () => {
+      expect(() => app.schemaInference.inferSchema({ data: [null] })).toThrow('JSON array items must be objects');
+      expect(() => app.schemaInference.inferSchema({ data: [{ id: 1 }, null] })).toThrow('JSON array items must be objects');
+
+      await expect(
+        app.schemaInference.importJson({
+          name: 'test_null_payload',
+          data: { data: [null] },
+        })
+      ).rejects.toThrow('JSON array items must be objects');
+
+      await expect(
+        app.schemaInference.importJson({
+          name: 'test_mixed_null_payload',
+          data: { data: [{ title: 'hello' }, null] },
+        })
+      ).rejects.toThrow('JSON array items must be objects');
     });
   });
 
@@ -435,6 +464,41 @@ describe('"Paste JSON → Instant API" (Schema Auto-Inference) Tests', () => {
       expect(fieldTypes.isOfficial).toBe('bool');
       expect(fieldTypes.date).toBe('date');
       expect(fieldTypes.tags).toBe('json');
+    });
+
+    it('POST /api/collections/infer-schema should reject wrapper payloads containing null or non-objects with 422', async () => {
+      const res = await app.server.app.inject({
+        method: 'POST',
+        url: '/api/collections/infer-schema',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+        payload: {
+          data: { data: [null] },
+        },
+      });
+
+      expect(res.statusCode).toBe(422);
+      const json = JSON.parse(res.body);
+      expect(json.message).toContain('JSON array items must be objects');
+    });
+
+    it('POST /api/collections/import-json should reject wrapper payloads containing null or non-objects with 422', async () => {
+      const res = await app.server.app.inject({
+        method: 'POST',
+        url: '/api/collections/import-json',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+        payload: {
+          name: 'null_items_col',
+          data: { data: [null] },
+        },
+      });
+
+      expect(res.statusCode).toBe(422);
+      const json = JSON.parse(res.body);
+      expect(json.message).toContain('JSON array items must be objects');
     });
 
     it('POST /api/collections/import-json should create collection and populate records instantly', async () => {
