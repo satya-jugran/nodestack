@@ -225,6 +225,65 @@ describe('Latency & Chaos Simulation (For Testing Frontend States)', () => {
       expect(res.statusCode).toBe(503);
       expect(res.headers['x-simulated-error']).toBe('503');
     });
+
+    it('should drop raw socket and prevent route handler execution / database mutation on mock_error=drop', async () => {
+      // Create a test record
+      const post = await app.records.create('posts', {
+        title: 'Safe Post Before Drop',
+        body: 'Must not be deleted when socket drops',
+      });
+
+      // Attempt to delete the record with mock_error=drop
+      let fetchError: any = null;
+      try {
+        await fetch(`http://127.0.0.1:${port}/api/collections/posts/records/${post.id}?mock_error=drop`, {
+          method: 'DELETE',
+        });
+      } catch (err: any) {
+        fetchError = err;
+      }
+
+      // Verify the network request failed (connection reset / dropped)
+      expect(fetchError).not.toBeNull();
+
+      // Verify the record still exists in the database and was NOT deleted!
+      const stillExists = await app.records.getOne('posts', post.id);
+      expect(stillExists).toBeDefined();
+      expect(stillExists.id).toBe(post.id);
+      expect(stillExists.title).toBe('Safe Post Before Drop');
+    });
+
+    it('should prevent record creation when POST request uses mock_error=drop or x-mock-error: drop', async () => {
+      const initialCount = (await app.records.getList('posts')).totalItems;
+
+      // Attempt to create a record with mock_error=drop via header
+      let fetchError: any = null;
+      try {
+        await fetch(`http://127.0.0.1:${port}/api/collections/posts/records`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-mock-error': 'drop',
+          },
+          body: JSON.stringify({
+            title: 'Should Never Be Inserted',
+            body: 'Chaos drop test',
+          }),
+        });
+      } catch (err: any) {
+        fetchError = err;
+      }
+
+      expect(fetchError).not.toBeNull();
+
+      // Verify the database record count has NOT increased
+      const afterCount = (await app.records.getList('posts')).totalItems;
+      expect(afterCount).toBe(initialCount);
+
+      // Verify no record with the title exists
+      const list = await app.records.getList('posts', { filter: "title = 'Should Never Be Inserted'" });
+      expect(list.totalItems).toBe(0);
+    });
   });
 
   describe('4. Combined Latency + Chaos Simulation', () => {

@@ -170,20 +170,22 @@ export class ChaosMiddleware {
 
   /**
    * Fastify onRequest hook handler.
+   * Returns true if the request was handled / short-circuited (e.g. simulated error or socket drop),
+   * or false if processing should continue normally.
    */
-  public async handle(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  public async handle(req: FastifyRequest, reply: FastifyReply): Promise<boolean> {
     // Never simulate chaos on CORS preflight OPTIONS requests
     if (req.method === 'OPTIONS') {
-      return;
+      return false;
     }
 
     if (this.config.enabled === false) {
-      return;
+      return false;
     }
 
     const params = this.resolveParams(req);
     if (!params) {
-      return;
+      return false;
     }
 
     // 1. Latency Simulation
@@ -197,10 +199,18 @@ export class ChaosMiddleware {
     if (shouldFail) {
       // Simulate raw TCP socket drop / connection hangup if requested
       if (params.errorStatus === 'drop') {
+        // Explicitly hijack Fastify reply so Fastify halts request lifecycle
+        // and does NOT execute subsequent hooks, body parsers, or route handlers!
+        if (typeof reply.hijack === 'function') {
+          reply.hijack();
+        }
         if (req.raw && typeof req.raw.destroy === 'function') {
           req.raw.destroy();
-          return;
         }
+        if (reply.raw && typeof reply.raw.destroy === 'function' && !reply.raw.destroyed) {
+          reply.raw.destroy();
+        }
+        return true;
       }
 
       const statusCode = typeof params.errorStatus === 'number' ? params.errorStatus : 500;
@@ -219,7 +229,7 @@ export class ChaosMiddleware {
       }
 
       // Fastify reply short-circuits route execution
-      return reply.status(statusCode).send({
+      await reply.status(statusCode).send({
         statusCode,
         message,
         chaos: true,
@@ -230,7 +240,10 @@ export class ChaosMiddleware {
           mockDelay: params.delay,
         },
       });
+      return true;
     }
+
+    return false;
   }
 
   /**

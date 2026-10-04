@@ -132,8 +132,11 @@ export class HttpServer {
       // Latency & Chaos Simulation (For Testing Frontend States)
       // Gated by explicit development/feature flag or admin authorization
       if (this.chaosMiddleware) {
-        await this.chaosMiddleware.handle(req, reply);
-        if (reply.sent) {
+        const shortCircuited = await this.chaosMiddleware.handle(req, reply);
+        if (shortCircuited || reply.sent) {
+          if (this.maintenanceGate && req.raw?.destroyed) {
+            this.maintenanceGate.trackRequestEnd(reqId);
+          }
           return;
         }
       }
