@@ -20,12 +20,12 @@
         document.getElementById('view-actions').innerHTML = `
           <button class="btn btn-secondary btn-sm" onclick="selectNav('analytics')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-            Metrics Dashboard
+            Metrics
           </button>
           <button class="btn btn-secondary btn-sm" onclick="window.open('/_/docs', '_blank')">API Docs (OpenAPI)</button>
-          <button class="btn btn-secondary btn-sm" onclick="openImportJsonModal()">⚡ Import from JSON</button>
           <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ New Collection</button>
         `;
+
         renderHomeView();
       } else if (nav === 'analytics') {
         document.getElementById('nav-home')?.classList.remove('active');
@@ -78,11 +78,19 @@
     function renderCollectionsList() {
       const container = document.getElementById('collections-list');
       container.innerHTML = state.collections.map(col => `
-        <div class="collection-item ${state.activeCollection?.name === col.name ? 'active' : ''}" onclick="selectCollection('${col.name}')">
-          <span>${col.name}</span>
-          <span class="collection-badge">${col.type}</span>
+        <div class="collection-item ${state.activeCollection?.name === col.name ? 'active' : ''}" onclick="selectCollection('${col.name}')" style="display:flex; align-items:center; justify-content:space-between; gap:4px;">
+          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">${col.name}</span>
+          <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+            <span class="collection-badge">${col.type}</span>
+            ${!col.system ? `
+              <span class="col-del-btn" title="Delete collection" onclick="event.stopPropagation(); openDeleteCollectionModal('${col.name}')" style="cursor:pointer; opacity:0.4; font-size:11px; padding:2px 4px; border-radius:3px; transition:all 0.15s;" onmouseover="this.style.opacity='1'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.15)'" onmouseout="this.style.opacity='0.4'; this.style.color='inherit'; this.style.background='transparent'">
+                ✕
+              </span>
+            ` : ''}
+          </div>
         </div>
       `).join('');
+
 
       if (state.admin) {
         document.getElementById('admin-user-email').textContent = `Logout (${state.admin.email})`;
@@ -128,7 +136,51 @@
       }
     }
 
-    // Records View
+    // ==========================================
+    // Collections Create Dropdown Menu (+ New ▾)
+    // ==========================================
+
+    function toggleCollectionCreateMenu(e) {
+      if (e) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+      const menu = document.getElementById('collection-create-menu');
+      if (!menu) return;
+      const isHidden = menu.style.display === 'none' || !menu.style.display;
+      menu.style.display = isHidden ? 'flex' : 'none';
+    }
+
+    function closeCollectionCreateMenu() {
+      const menu = document.getElementById('collection-create-menu');
+      if (menu) menu.style.display = 'none';
+    }
+
+    function handleCollectionMenuAction(action) {
+      closeCollectionCreateMenu();
+      if (action === 'new') {
+        openNewCollectionModal();
+      } else if (action === 'templates') {
+        openTemplatesModal();
+      } else if (action === 'import') {
+        openImportJsonModal();
+      }
+    }
+
+    // Close menu when clicking outside
+    window.addEventListener('click', (e) => {
+      const menu = document.getElementById('collection-create-menu');
+      if (menu && !e.target.closest('#btn-collection-new-dropdown') && !e.target.closest('#collection-create-menu')) {
+        menu.style.display = 'none';
+      }
+    });
+
+    // Close on Escape
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeCollectionCreateMenu();
+      }
+    });
 
 // Run on startup
 window.addEventListener('DOMContentLoaded', init);

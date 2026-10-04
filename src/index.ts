@@ -82,3 +82,9 @@ export {
 export { AdminUIService } from './admin/AdminUIService';
 export { AdminUIBundler } from './admin/AdminUIBundler';
 export { DocsService } from './admin/DocsService';
+
+// Starter Templates & Recipes
+export { TemplateService } from './templates/TemplateService';
+export { TemplateImageGenerator } from './templates/TemplateImageGenerator';
+export { STARTER_TEMPLATES, ecommerceTemplate, blogTemplate, crmTemplate } from './templates/definitions';
+export * from './templates/types';

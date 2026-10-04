@@ -98,4 +98,15 @@ export class FileStorageService {
       await fs.promises.rm(dir, { recursive: true, force: true });
     }
   }
+
+  /**
+   * Delete all files for an entire collection
+   */
+  public async deleteCollectionFiles(collectionId: string): Promise<void> {
+    const dir = path.join(this.config.storageDir, collectionId);
+    if (fs.existsSync(dir)) {
+      await fs.promises.rm(dir, { recursive: true, force: true });
+    }
+  }
 }
+

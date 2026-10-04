@@ -10,6 +10,11 @@
 
       const actions = document.getElementById('view-actions');
       actions.innerHTML = `
+        ${!col.system ? `
+          <button class="btn btn-danger btn-sm" onclick="openDeleteCollectionModal('${col.name}')" title="Permanently delete this collection">
+            Delete Collection
+          </button>
+        ` : ''}
         <button class="btn btn-primary btn-sm" onclick="saveSchemaChanges()">Save Schema</button>
       `;
 
@@ -34,8 +39,21 @@
           <div id="access-rules-container-wrapper">
             <!-- Access Rules Section -->
           </div>
+
+          ${!col.system ? `
+            <div style="border:1px solid rgba(239, 68, 68, 0.35); border-radius:8px; padding:1.25rem; background:rgba(239, 68, 68, 0.05); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+              <div>
+                <h4 style="color:#ef4444; font-size:14px; font-weight:700; margin-bottom:0.25rem;">⚠️ Danger Zone</h4>
+                <p style="font-size:12px; color:var(--text-muted); margin:0;">
+                  Permanently delete collection <strong>${col.name}</strong>, drop the SQLite table, and delete all records and stored files.
+                </p>
+              </div>
+              <button class="btn btn-danger btn-sm" onclick="openDeleteCollectionModal('${col.name}')">Delete Collection</button>
+            </div>
+          ` : ''}
         </div>
       `;
+
 
       renderFieldRows(col.schema);
       renderAccessRulesSection(col);

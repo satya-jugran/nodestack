@@ -3,11 +3,14 @@ import { BaseController } from './BaseController';
 import { SchemaService } from '../../schema/SchemaService';
 import { SchemaInferenceService, ImportJsonOptions } from '../../schema/SchemaInferenceService';
 import { CreateCollectionDto, UpdateCollectionDto } from '../../schema/models/Collection';
+import { FileStorageService } from '../../files/FileStorageService';
+import { AppError } from '../../core/errors/AppError';
 
 export class CollectionController extends BaseController {
   constructor(
     private schemaService: SchemaService,
-    private schemaInferenceService?: SchemaInferenceService
+    private schemaInferenceService?: SchemaInferenceService,
+    private fileStorageService?: FileStorageService
   ) {
     super();
   }
@@ -48,9 +51,17 @@ export class CollectionController extends BaseController {
     req: FastifyRequest<{ Params: { collection: string } }>,
     reply: FastifyReply
   ): Promise<void> {
+    if (req.params.collection.startsWith('_')) {
+      throw new AppError('Cannot delete system collection', 400);
+    }
+    const col = this.schemaService.getCollectionOrThrow(req.params.collection);
     this.schemaService.deleteCollection(req.params.collection);
+    if (this.fileStorageService) {
+      await this.fileStorageService.deleteCollectionFiles(col.id).catch(() => {});
+    }
     this.noContent(reply);
   }
+
 
   public async inferSchema(
     req: FastifyRequest<{ Body: { data: any } }>,

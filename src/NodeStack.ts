@@ -30,6 +30,8 @@ import { LogController } from './http/controllers/LogController';
 import { HealthController } from './http/controllers/HealthController';
 import { AnalyticsController } from './http/controllers/AnalyticsController';
 import { AnalyticsService } from './analytics/AnalyticsService';
+import { TemplateService } from './templates/TemplateService';
+import { TemplateController } from './http/controllers/TemplateController';
 import {
   HookHandler,
   RecordBeforeEventContext,
@@ -50,6 +52,7 @@ export class NodeStack {
   public readonly schema: SchemaService;
   public readonly records: RecordService;
   public readonly mockData: MockDataService;
+  public readonly templates: TemplateService;
   public readonly auth: AuthService;
   public readonly files: FileStorageService;
   public readonly realtime: RealtimeService;
@@ -62,6 +65,7 @@ export class NodeStack {
   public readonly adminUi: AdminUIService;
   public readonly chaos: ChaosMiddleware;
   public readonly server: HttpServer;
+
 
   constructor(options: NodeStackOptions = {}) {
     this.container = new Container();
@@ -134,6 +138,16 @@ export class NodeStack {
     );
     this.container.bindInstance(TOKENS.MockDataService, this.mockData);
 
+    // 13.5 Starter Templates & Recipes Service
+    this.templates = new TemplateService(
+      this.db,
+      this.schema,
+      this.files,
+      this.eventBus,
+      this.realtime
+    );
+    this.container.bindInstance(TOKENS.TemplateService, this.templates);
+
     // 14. Analytics Service
     this.analytics = new AnalyticsService(this.db, this.config, this.schema, this.realtime);
     this.container.bindInstance(TOKENS.AnalyticsService, this.analytics);
@@ -155,15 +169,17 @@ export class NodeStack {
 
     const authMiddleware = new AuthMiddleware(this.auth);
     const authCtrl = new AuthController(this.auth);
-    const collectionCtrl = new CollectionController(this.schema, this.schemaInference);
+    const collectionCtrl = new CollectionController(this.schema, this.schemaInference, this.files);
     const recordCtrl = new RecordController(this.records, this.schema, this.files, this.mockData);
     const fileCtrl = new FileController(this.files, this.schema, ruleEngine, this.db);
     const realtimeCtrl = new RealtimeController(this.realtime);
     const logCtrl = new LogController(this.logs);
     const healthCtrl = new HealthController(this.config);
     const analyticsCtrl = new AnalyticsController(this.analytics);
+    const templateCtrl = new TemplateController(this.templates);
+    this.container.bindInstance(TOKENS.TemplateController, templateCtrl);
 
-    // 16. HTTP Server
+    // 18. HTTP Server
     this.server = new HttpServer(
       this.config,
       this.logs,
@@ -179,9 +195,11 @@ export class NodeStack {
       this.typegen,
       this.docs,
       analyticsCtrl,
-      this.chaos
+      this.chaos,
+      templateCtrl
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
+
   }
 
   // --- Type & OpenAPI Generation ---

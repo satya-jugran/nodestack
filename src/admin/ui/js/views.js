@@ -3,116 +3,309 @@
       const main = document.getElementById('main-body');
       const collectionsCount = state.collections.length;
       main.innerHTML = `
-        <div style="max-width: 980px; margin: 0 auto; display:flex; flex-direction:column; gap:1.75rem; padding: 1rem 0;">
-          <!-- Hero Header with Brand SVG -->
-          <div style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(139, 92, 246, 0.08) 100%); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 2rem 2.25rem; display: flex; align-items: center; gap: 2rem;">
-            <div style="width: 80px; height: 80px; border-radius: 18px; background: #0c0e14; border: 1px solid rgba(59, 130, 246, 0.4); display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 24px -4px rgba(59, 130, 246, 0.4); flex-shrink: 0;">
-              <img src="/_/icon.svg" width="56" height="56" alt="NodeStack" style="display: block;" />
+        <div style="max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem; padding: 1.25rem 0;">
+          
+          <!-- 1. Header Status Bar -->
+          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.85rem;">
+            <div style="width: 40px; height: 40px; border-radius: 10px; background: #0c0e14; border: 1px solid rgba(59, 130, 246, 0.4); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <img src="/_/icon.svg" width="26" height="26" alt="NodeStack" style="display: block;" />
             </div>
             <div>
-              <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                <h2 style="font-size: 26px; font-weight: 800; letter-spacing: -0.03em; color: #fff;">NodeStack</h2>
-                <span class="version-tag" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd;">v1.0.0</span>
-                <span class="badge badge-get" style="font-size: 11px;">● Server Online</span>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-weight: 800; font-size: 16px; color: #fff; letter-spacing: -0.02em;">NodeStack Core</span>
+                <span class="version-tag" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd; font-size: 11px;">v1.0.0</span>
+                <span class="badge badge-get" style="font-size: 11px; display: inline-flex; align-items: center; gap: 5px;">
+                  <span class="live-dot" style="width: 6px; height: 6px;"></span>
+                  <span>Server Online</span>
+                </span>
               </div>
-              <p style="color: var(--text-muted); font-size: 14px; line-height: 1.5; max-width: 620px;">
-                The TypeScript-Native Embedded Backend Stack. Single-process backend powered by embedded SQLite, instant CRUD, Auth, Realtime SSE, and end-to-end type safety.
-              </p>
+              <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                Embedded SQLite Backend Stack • WAL Mode • Realtime SSE • End-to-End Type Safety
+              </div>
             </div>
           </div>
 
-          <!-- Quick Action Cards Grid -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
-            <!-- Card 1: Collections -->
-            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.25rem; display:flex; flex-direction:column; justify-content:space-between; gap:1rem;">
-              <div>
-                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
-                  <span style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.05em;">Database</span>
-                  <span class="badge badge-post">${collectionsCount} Collections</span>
-                </div>
-                <h4 style="font-size:16px; font-weight:700; margin-bottom:0.4rem;">Schema & Records</h4>
-                <p style="font-size:12px; color:var(--text-muted); line-height:1.4;">Manage tables, schema fields, and access rules with real-time UI synchronization.</p>
+          <!-- 2. Operational KPI Metric Cards Row -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+            <!-- KPI 1: Collections -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.1rem 1.25rem;">
+              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.5rem;">
+                <span style="font-size: 14px;">📦</span>
+                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Collections</span>
               </div>
-              <div style="display:flex; gap:0.5rem;">
-                <button class="btn btn-primary btn-sm" style="flex:1;" onclick="openImportJsonModal()">⚡ Import from JSON</button>
-                <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="openNewCollectionModal()">+ Create</button>
-              </div>
+              <div style="font-size: 22px; font-weight: 800; color: #fff;" id="home-stat-collections">${collectionsCount}</div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Registered database tables</div>
             </div>
 
-            <!-- Card 2: TypeScript TypeGen -->
-            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.25rem; display:flex; flex-direction:column; justify-content:space-between; gap:1rem;">
-              <div>
-                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
-                  <span style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.05em;">Type Safety</span>
-                  <span class="badge badge-get">types.d.ts</span>
-                </div>
-                <h4 style="font-size:16px; font-weight:700; margin-bottom:0.4rem;">TypeScript TypeGen</h4>
-                <p style="font-size:12px; color:var(--text-muted); line-height:1.4;">Auto-generated definitions for 100% end-to-end type safety across your client apps.</p>
+            <!-- KPI 2: Active Records -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.1rem 1.25rem;">
+              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.5rem;">
+                <span style="font-size: 14px;">📝</span>
+                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Total Records</span>
               </div>
-              <div style="display:flex; gap:0.5rem;">
-                <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="window.open('/_/types.d.ts', '_blank')">View types.d.ts</button>
-                <button class="btn btn-primary btn-sm" style="flex:1;" onclick="copyToClipboard('npx nodestack typegen > nodestack-types.ts', this)">Copy CLI</button>
-              </div>
+              <div style="font-size: 22px; font-weight: 800; color: #60a5fa;" id="home-stat-records">--</div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Active rows across tables</div>
             </div>
 
-            <!-- Card 3: Traffic & Logs -->
-            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.25rem; display:flex; flex-direction:column; justify-content:space-between; gap:1rem;">
-              <div>
-                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
-                  <span style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.05em;">Monitoring</span>
-                  <span class="badge badge-status-200">Realtime</span>
-                </div>
-                <h4 style="font-size:16px; font-weight:700; margin-bottom:0.4rem;">Traffic & Request Logs</h4>
-                <p style="font-size:12px; color:var(--text-muted); line-height:1.4;">Inspect incoming API requests, HTTP status codes, latency, and client details.</p>
+            <!-- KPI 3: Storage Size -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.1rem 1.25rem;">
+              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.5rem;">
+                <span style="font-size: 14px;">💾</span>
+                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Database Storage</span>
               </div>
-              <button class="btn btn-secondary btn-sm" style="width:100%;" onclick="selectNav('logs')">View Traffic Logs</button>
+              <div style="font-size: 22px; font-weight: 800; color: #34d399;" id="home-stat-size">--</div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">data.db + WAL journal</div>
             </div>
 
-            <!-- Card 4: Analytics & Metrics Dashboard -->
-            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.25rem; display:flex; flex-direction:column; justify-content:space-between; gap:1rem;">
-              <div>
-                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
-                  <span style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.05em;">Analytics</span>
-                  <span class="badge badge-post" id="home-kpi-badge" style="display:inline-flex; align-items:center; gap:4px;"><span class="live-pulse-dot" style="width:6px; height:6px;"></span> Live Metrics</span>
-                </div>
-                <h4 style="font-size:16px; font-weight:700; margin-bottom:0.4rem;">Metrics & Telemetry</h4>
-                <p style="font-size:12px; color:var(--text-muted); line-height:1.4;" id="home-kpi-summary">
-                  Database storage, active record counts, live SSE clients, and 24h throughput & error rate graphs.
-                </p>
+            <!-- KPI 4: Realtime Clients -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.1rem 1.25rem;">
+              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.5rem;">
+                <span style="font-size: 14px;">⚡</span>
+                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Realtime Streams</span>
               </div>
-              <button class="btn btn-primary btn-sm" style="width:100%;" onclick="selectNav('analytics')">Open Metrics Dashboard ➔</button>
+              <div style="font-size: 22px; font-weight: 800; color: #c084fc;" id="home-stat-realtime">--</div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Connected SSE clients</div>
             </div>
           </div>
 
-          <!-- Quick Reference & Schema Overview -->
-          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.5rem;">
-            <h3 style="font-size:15px; font-weight:700; margin-bottom:1rem; display:flex; align-items:center; justify-content:space-between;">
-              <span>Active Collections</span>
-              <span style="font-size:12px; font-weight:normal; color:var(--text-muted);">${collectionsCount} registered</span>
-            </h3>
-            <div style="display:flex; flex-direction:column; gap:0.5rem;">
-              ${state.collections.map(c => `
-                <div style="display:flex; align-items:center; justify-content:space-between; padding:0.65rem 0.85rem; background:var(--bg-input); border-radius:6px; font-size:13px; cursor:pointer;" onclick="selectCollection('${c.name}')">
-                  <div style="display:flex; align-items:center; gap:0.6rem;">
-                    <span style="font-weight:600; color:#fff;">${c.name}</span>
-                    <span style="color:var(--text-muted); font-size:11px;">(${c.schema.length} fields)</span>
-                  </div>
-                  <div style="display:flex; align-items:center; gap:0.5rem;">
-                    <span class="collection-badge">${c.type}</span>
-                    <span style="color:#60a5fa; font-size:12px;">Open ➔</span>
-                  </div>
-                </div>
-              `).join('')}
+          <!-- 3. System & Traffic Snapshot (Placed ABOVE Quick Accelerator Bar) -->
+          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 16px;">📊</span>
+                <h3 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0;">System & Traffic Snapshot</h3>
+                <span class="badge badge-status-200" style="font-size: 10px;">24h Telemetry</span>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="selectNav('analytics')" style="padding: 3px 9px; font-size: 11px;">
+                Open Full Metrics ➔
+              </button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.75rem;">
+              <!-- 24h Requests -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.75rem 1rem;">
+                <div style="font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">24h API Requests</div>
+                <div style="font-size: 18px; font-weight: 800; color: #fff; margin-top: 4px;" id="home-snap-requests">--</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Incoming HTTP traffic</div>
+              </div>
+
+              <!-- Avg Latency -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.75rem 1rem;">
+                <div style="font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Avg Latency</div>
+                <div style="font-size: 18px; font-weight: 800; color: #60a5fa; margin-top: 4px;" id="home-snap-latency">--</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Sub-millisecond SQLite</div>
+              </div>
+
+              <!-- Error Rate -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.75rem 1rem;">
+                <div style="font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Error Rate</div>
+                <div style="font-size: 18px; font-weight: 800; color: #34d399; margin-top: 4px;" id="home-snap-errors">--</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">4xx & 5xx HTTP codes</div>
+              </div>
+
+              <!-- Peak Throughput -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.75rem 1rem;">
+                <div style="font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Peak Volume</div>
+                <div style="font-size: 18px; font-weight: 800; color: #c084fc; margin-top: 4px;" id="home-snap-peak">--</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Max requests / hour</div>
+              </div>
             </div>
           </div>
+
+          <!-- 4. Quick Accelerator Bar (Confirmation modal on click) -->
+          <div style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(139, 92, 246, 0.06) 100%); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 10px; padding: 0.85rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+              <span style="font-size: 16px;">⚡</span>
+              <span style="font-size: 12.5px; font-weight: 700; color: #fff;">1-Click Starter Accelerators:</span>
+              <span style="font-size: 12px; color: var(--text-muted);">Launch pre-seeded schemas with confirmation</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('ecommerce')" style="border-color: rgba(59, 130, 246, 0.35); font-size: 11.5px; padding: 4px 10px;" title="Preview & install E-Commerce recipe">
+                🛒 E-Commerce
+              </button>
+              <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('blog')" style="border-color: rgba(16, 185, 129, 0.35); font-size: 11.5px; padding: 4px 10px;" title="Preview & install Blog recipe">
+                📝 Blog / Content
+              </button>
+              <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('crm')" style="border-color: rgba(139, 92, 246, 0.35); font-size: 11.5px; padding: 4px 10px;" title="Preview & install CRM recipe">
+                👥 SaaS / CRM
+              </button>
+              <button class="btn btn-secondary btn-sm" onclick="openImportJsonModal()" style="border-color: rgba(245, 158, 11, 0.35); font-size: 11.5px; padding: 4px 10px;" title="Paste JSON → Auto-infer schema">
+                ⚡ Import JSON
+              </button>
+              <button class="btn btn-secondary btn-sm" onclick="openTemplatesModal()" style="font-size: 11.5px; padding: 4px 9px;" title="Browse all template recipes">
+                All ➔
+              </button>
+            </div>
+          </div>
+
+          <!-- 5. Active Database Collections Table (Centerpiece) -->
+          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden;">
+            <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 16px;">📂</span>
+                <h3 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0;">Database Collections</h3>
+                <span class="badge badge-post" style="font-size: 11px;">${collectionsCount} Active</span>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ Create Collection</button>
+            </div>
+
+            ${collectionsCount === 0 ? `
+              <div style="padding: 2.5rem; text-align: center; color: var(--text-muted); font-size: 13px;">
+                <p style="font-size: 14px; color: #fff; margin-bottom: 0.5rem; font-weight: 600;">No collections created yet</p>
+                <p style="max-width: 480px; margin: 0 auto 1.25rem; line-height: 1.5;">Launch an instant working demo with pre-seeded data, or design your first collection schema from scratch.</p>
+                <div style="display: flex; justify-content: center; gap: 0.75rem;">
+                  <button class="btn btn-primary btn-sm" onclick="openApplyTemplateConfirmModal('ecommerce')">🚀 Launch E-Commerce</button>
+                  <button class="btn btn-secondary btn-sm" onclick="openNewCollectionModal()">+ Create Blank Collection</button>
+                </div>
+              </div>
+            ` : `
+              <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
+                  <thead>
+                    <tr style="border-bottom: 1px solid var(--border-subtle); background: rgba(0,0,0,0.15); color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;">
+                      <th style="padding: 0.75rem 1.25rem;">Collection Name</th>
+                      <th style="padding: 0.75rem 1rem;">Type</th>
+                      <th style="padding: 0.75rem 1rem;">Fields</th>
+                      <th style="padding: 0.75rem 1rem;">Records</th>
+                      <th style="padding: 0.75rem 1rem;">Sync Status</th>
+                      <th style="padding: 0.75rem 1.25rem; text-align: right;">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${state.collections.map(c => `
+                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.03); transition: background 0.15s ease; cursor: pointer;" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background='transparent'" onclick="selectCollection('${c.name}')">
+                        <td style="padding: 0.85rem 1.25rem;">
+                          <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-weight: 700; color: #fff;">${c.name}</span>
+                            ${c.system ? '<span class="badge" style="font-size:10px; background:rgba(255,255,255,0.06);">System</span>' : ''}
+                          </div>
+                        </td>
+                        <td style="padding: 0.85rem 1rem;">
+                          <span class="collection-badge">${c.type}</span>
+                        </td>
+                        <td style="padding: 0.85rem 1rem; color: var(--text-muted);">
+                          ${c.schema.length} fields
+                        </td>
+                        <td style="padding: 0.85rem 1rem;">
+                          <span id="col-count-${c.name}" style="font-family: var(--font-mono); font-weight: 600; color: #93c5fd;">--</span>
+                        </td>
+                        <td style="padding: 0.85rem 1rem;">
+                          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted);">
+                            <span class="live-dot" style="width: 6px; height: 6px;"></span>
+                            <span>Active Sync</span>
+                          </div>
+                        </td>
+                        <td style="padding: 0.85rem 1.25rem; text-align: right;" onclick="event.stopPropagation()">
+                          <div style="display: inline-flex; align-items: center; gap: 6px;">
+                            <button class="btn btn-secondary btn-sm" style="padding: 3px 8px; font-size: 11px;" onclick="selectCollection('${c.name}')">
+                              Open ➔
+                            </button>
+                            ${!c.system ? `
+                              <button class="btn btn-danger btn-sm" style="padding: 3px 7px; font-size: 11px;" onclick="openDeleteCollectionModal('${c.name}')" title="Delete collection">
+                                ✕
+                              </button>
+                            ` : ''}
+                          </div>
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            `}
+          </div>
+
+          <!-- 6. Developer Quick Tools -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem;">
+            <!-- TypeScript TypeGen -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.15rem 1.25rem; display: flex; flex-direction: column; justify-content: space-between; gap: 0.85rem;">
+              <div>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+                  <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Type Safety</span>
+                  <span class="badge badge-get" style="font-size: 10px;">types.d.ts</span>
+                </div>
+                <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 0.25rem;">TypeScript TypeGen</h4>
+                <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4; margin: 0;">Auto-generated TypeScript definitions for full type safety across frontend and server clients.</p>
+              </div>
+              <div style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-secondary btn-sm" style="flex: 1;" onclick="window.open('/_/types.d.ts', '_blank')">View types.d.ts</button>
+                <button class="btn btn-primary btn-sm" style="flex: 1;" onclick="copyToClipboard('npx nodestack typegen > nodestack-types.ts', this)">Copy CLI</button>
+              </div>
+            </div>
+
+            <!-- REST & Realtime Base Endpoints -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.15rem 1.25rem; display: flex; flex-direction: column; justify-content: space-between; gap: 0.85rem;">
+              <div>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+                  <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">API Connection</span>
+                  <span class="badge badge-post" style="font-size: 10px;">HTTP + SSE</span>
+                </div>
+                <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 0.25rem;">REST & Realtime Base URL</h4>
+                <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; font-family: var(--font-mono); font-size: 11px; color: #93c5fd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px;">
+                  ${window.location.origin}/api
+                </div>
+              </div>
+              <div style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-secondary btn-sm" style="flex: 1;" onclick="copyToClipboard('${window.location.origin}/api', this)">Copy API URL</button>
+                <button class="btn btn-secondary btn-sm" style="flex: 1;" onclick="copyToClipboard('${window.location.origin}/api/realtime', this)">Copy SSE URL</button>
+              </div>
+            </div>
+          </div>
+
         </div>
       `;
 
-      // Asynchronously enrich home overview card with live metrics
+      // Asynchronously enrich dashboard overview with live metrics and counts
       api('/api/metrics').then((metrics) => {
-        const el = document.getElementById('home-kpi-summary');
-        if (el && metrics) {
-          el.innerHTML = `<strong>${metrics.database.totalRecords.toLocaleString()}</strong> records &bull; <strong>${metrics.database.sizeFormatted}</strong> on disk &bull; <strong>${metrics.realtime.connectedClients}</strong> live client${metrics.realtime.connectedClients === 1 ? '' : 's'}.`;
+        if (!metrics) return;
+
+        // Top KPI row
+        const recEl = document.getElementById('home-stat-records');
+        if (recEl && metrics.database?.totalRecords !== undefined) {
+          recEl.textContent = metrics.database.totalRecords.toLocaleString();
+        }
+
+        const sizeEl = document.getElementById('home-stat-size');
+        if (sizeEl && metrics.database?.sizeFormatted) {
+          sizeEl.textContent = metrics.database.sizeFormatted;
+        }
+
+        const rtEl = document.getElementById('home-stat-realtime');
+        if (rtEl && metrics.realtime?.connectedClients !== undefined) {
+          rtEl.textContent = metrics.realtime.connectedClients.toString();
+        }
+
+        // System & Traffic Snapshot
+        const reqEl = document.getElementById('home-snap-requests');
+        if (reqEl && metrics.traffic24h?.totalRequests !== undefined) {
+          reqEl.textContent = metrics.traffic24h.totalRequests.toLocaleString();
+        }
+
+        const latEl = document.getElementById('home-snap-latency');
+        if (latEl && metrics.traffic24h?.avgDuration !== undefined) {
+          latEl.textContent = `${metrics.traffic24h.avgDuration.toFixed(1)} ms`;
+        }
+
+        const errEl = document.getElementById('home-snap-errors');
+        if (errEl && metrics.traffic24h?.overallErrorRate !== undefined) {
+          const errRate = metrics.traffic24h.overallErrorRate;
+          errEl.textContent = `${errRate.toFixed(1)} %`;
+          errEl.style.color = errRate > 5 ? '#f87171' : '#34d399';
+        }
+
+        const peakEl = document.getElementById('home-snap-peak');
+        if (peakEl && metrics.traffic24h?.peakHourRequests !== undefined) {
+          peakEl.textContent = `${metrics.traffic24h.peakHourRequests} req/h`;
+        }
+
+        // Update record counts in collections table
+        if (metrics.database?.collectionsBreakdown && Array.isArray(metrics.database.collectionsBreakdown)) {
+          for (const item of metrics.database.collectionsBreakdown) {
+            const countEl = document.getElementById(`col-count-${item.collection}`);
+            if (countEl) {
+              countEl.textContent = (item.count || 0).toLocaleString();
+            }
+          }
         }
       }).catch(() => {});
     }

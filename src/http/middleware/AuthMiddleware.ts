@@ -44,4 +44,20 @@ export class AuthMiddleware {
       }
     };
   }
+
+  public requireAdminOrInitialSetup() {
+    return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+      await this.handle(req, reply);
+      if (!this.authService.hasAdmins()) {
+        return;
+      }
+      if (!req.auth || !req.auth.isAdmin) {
+        reply.status(403).send({
+          statusCode: 403,
+          message: 'Only admins are authorized to access this resource',
+        });
+      }
+    };
+  }
 }
+

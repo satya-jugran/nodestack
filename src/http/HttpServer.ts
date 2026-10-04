@@ -13,6 +13,7 @@ import { RealtimeController } from './controllers/RealtimeController';
 import { LogController } from './controllers/LogController';
 import { HealthController } from './controllers/HealthController';
 import { AnalyticsController } from './controllers/AnalyticsController';
+import { TemplateController } from './controllers/TemplateController';
 import { AdminUIService } from '../admin/AdminUIService';
 import { DocsService } from '../admin/DocsService';
 import { TypeGenerator } from '../schema/TypeGenerator';
@@ -37,8 +38,10 @@ export class HttpServer {
     private typeGenerator?: TypeGenerator,
     private docsService?: DocsService,
     analyticsControllerOrChaos?: AnalyticsController | ChaosMiddleware,
-    chaosMiddleware?: ChaosMiddleware
+    chaosMiddleware?: ChaosMiddleware,
+    private templateController?: TemplateController
   ) {
+
     let analyticsController: AnalyticsController | undefined;
     if (analyticsControllerOrChaos instanceof ChaosMiddleware) {
       this.chaosMiddleware = analyticsControllerOrChaos;
@@ -187,6 +190,19 @@ export class HttpServer {
     app.delete('/api/collections/:collection', { preHandler: requireAdmin }, (req: any, reply) =>
       this.collectionController.delete(req, reply)
     );
+
+    // 3.5 Starter Templates & Recipes Endpoints
+    if (this.templateController) {
+      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
+      app.get('/api/templates', (req, reply) => this.templateController!.list(req, reply));
+      app.get('/api/templates/:template', (req: any, reply) => this.templateController!.getOne(req, reply));
+      app.post('/api/templates/apply', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.templateController!.apply(req, reply)
+      );
+      app.post('/api/templates/:template/apply', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.templateController!.applyParam(req, reply)
+      );
+    }
 
     // 4. Record CRUD Endpoints
     app.get('/api/collections/:collection/records', (req: any, reply) =>

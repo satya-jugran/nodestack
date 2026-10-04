@@ -259,12 +259,24 @@
               <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
             </div>
             <div class="modal-body">
-              <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
-                <div>
-                  <div style="font-weight: 600; font-size: 13px; color: #fff;">Paste JSON → Instant API</div>
-                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Have mock JSON from Postman or ChatGPT? Auto-infer schema in 1 second.</div>
+              <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 1.25rem;">
+                <div style="font-weight: 600; font-size: 11px; color: #93c5fd; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">Or Start Fast With:</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                  <button type="button" class="btn btn-secondary btn-sm" onclick="openTemplatesModal()" style="display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 7px 10px; border-color: rgba(147, 197, 253, 0.25); text-align: left;">
+                    <span style="font-size: 16px;">✨</span>
+                    <div>
+                      <div style="font-weight: 600; font-size: 12px; color: #fff;">Starter Templates</div>
+                      <div style="font-size: 10px; color: var(--text-muted);">E-Commerce, Blog, CRM</div>
+                    </div>
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" onclick="openImportJsonModal()" style="display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 7px 10px; border-color: rgba(147, 197, 253, 0.25); text-align: left;">
+                    <span style="font-size: 16px;">⚡</span>
+                    <div>
+                      <div style="font-weight: 600; font-size: 12px; color: #fff;">Paste JSON → Instant API</div>
+                      <div style="font-size: 10px; color: var(--text-muted);">Auto-infer schema in 1 second</div>
+                    </div>
+                  </button>
                 </div>
-                <button class="btn btn-primary btn-sm" onclick="openImportJsonModal()">⚡ Import JSON</button>
               </div>
               <div class="form-group">
                 <label class="form-label">Collection Name *</label>
@@ -1617,3 +1629,363 @@
         }
       }
     }
+
+    // Starter Templates & Recipes Modal
+    function openTemplatesModal() {
+      const modal = document.getElementById('modal-root');
+      const templates = [
+        {
+          id: 'ecommerce',
+          name: 'E-Commerce',
+          icon: '🛒',
+          badge: '20 Items & Images',
+          accent: '#3b82f6',
+          description: 'Pre-seeded with 20 items & high-res SVG product images, categories, orders, and verified customer reviews.',
+          collections: ['products', 'categories', 'orders', 'reviews'],
+          stats: '4 collections • 48 records • 25 images'
+        },
+        {
+          id: 'blog',
+          name: 'Blog / Content',
+          icon: '📝',
+          badge: 'Editorial Engine',
+          accent: '#10b981',
+          description: 'Pre-seeded with technical markdown articles, author avatars, category tags, cover images, and discussions.',
+          collections: ['posts', 'authors', 'tags', 'comments'],
+          stats: '4 collections • 30 records • 12 images'
+        },
+        {
+          id: 'crm',
+          name: 'SaaS / CRM',
+          icon: '👥',
+          badge: 'Pipeline & Deals',
+          accent: '#8b5cf6',
+          description: 'Pre-seeded with B2B companies with logo marks, leads with scoring, pipeline deal stages, and activity logs.',
+          collections: ['companies', 'leads', 'deals', 'activities'],
+          stats: '4 collections • 42 records • 6 images'
+        }
+      ];
+
+      modal.innerHTML = `
+        <div class="modal-backdrop">
+          <div class="modal" style="max-width:820px; max-height:90vh; display:flex; flex-direction:column;">
+            <div class="modal-header" style="align-items:flex-start;">
+              <div>
+                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.25rem;">
+                  <h2 class="modal-title" style="font-size:20px;">Starter Templates & Recipes</h2>
+                  <span class="badge badge-get" style="font-size:11px;">1-Click Setup</span>
+                </div>
+                <p style="font-size:13px; color:var(--text-muted); margin:0;">
+                  Never start from an empty database. Choose a battle-tested template pre-seeded with schemas, relations, and realistic data with images.
+                </p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+            
+            <div class="modal-body" style="overflow-y:auto; padding:1.25rem; display:flex; flex-direction:column; gap:1.25rem;">
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:1rem;">
+                ${templates.map(t => `
+                  <div style="background:var(--bg-input); border:1px solid var(--border-subtle); border-radius:10px; padding:1.25rem; display:flex; flex-direction:column; justify-content:space-between; gap:1rem; position:relative; overflow:hidden; transition:all 0.2s ease;">
+                    <div style="position:absolute; top:0; left:0; right:0; height:4px; background:${t.accent};"></div>
+                    <div>
+                      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.6rem;">
+                        <span style="font-size:24px;">${t.icon}</span>
+                        <span class="badge" style="background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.15); font-size:11px; color:#fff;">${t.badge}</span>
+                      </div>
+                      <h3 style="font-size:16px; font-weight:700; margin-bottom:0.3rem; color:#fff;">${t.name}</h3>
+                      <p style="font-size:12px; color:var(--text-muted); line-height:1.4; margin-bottom:0.75rem;">${t.description}</p>
+                      
+                      <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:6px; padding:0.6rem; margin-bottom:0.5rem;">
+                        <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:0.4rem;">Collections included:</div>
+                        <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                          ${t.collections.map(c => `
+                            <span style="background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px; font-family:var(--font-mono); font-size:11px; color:#cbd5e1;">${c}</span>
+                          `).join('')}
+                        </div>
+                      </div>
+                      <div style="font-size:11px; color:var(--text-muted);">${t.stats}</div>
+                    </div>
+
+                    <button class="btn btn-primary" id="btn-apply-${t.id}" style="width:100%; display:flex; align-items:center; justify-content:center; gap:6px;" onclick="openApplyTemplateConfirmModal('${t.id}')">
+                      <span>🚀 Launch ${t.name}</span>
+                    </button>
+                  </div>
+                `).join('')}
+              </div>
+
+              <div style="background:rgba(255,255,255,0.03); border:1px solid var(--border-subtle); border-radius:8px; padding:0.75rem 1rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+                <span style="font-size:12px; color:var(--text-muted);">
+                  Click any template above to review schema preview & overwrite settings before launching.
+                </span>
+                <span style="font-size:12px; font-family:var(--font-mono); color:var(--text-muted);">
+                  CLI: <code style="color:#60a5fa;">npx nodestack start --template ecommerce</code>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function openApplyTemplateConfirmModal(templateId) {
+      const templateMeta = {
+        ecommerce: {
+          name: 'E-Commerce Recipe',
+          icon: '🛒',
+          badge: '20 Items & SVG Images',
+          accent: '#3b82f6',
+          description: 'Complete online storefront architecture with products catalog, categories, customer orders, and verified customer reviews.',
+          collections: [
+            { name: 'products', type: 'base', count: 20, desc: 'name, slug, price, description, inStock, rating, category, images (custom SVGs)' },
+            { name: 'categories', type: 'base', count: 4, desc: 'title, slug, icon, active' },
+            { name: 'orders', type: 'base', count: 8, desc: 'customerName, customerEmail, totalAmount, status, items' },
+            { name: 'reviews', type: 'base', count: 15, desc: 'author, rating, comment, verifiedPurchase, product' },
+          ],
+          stats: '4 collections • 47 pre-seeded sample records • 20 vector SVG product images',
+        },
+        blog: {
+          name: 'Blog / Content Engine',
+          icon: '📝',
+          badge: 'Editorial Platform',
+          accent: '#10b981',
+          description: 'Modern publishing engine featuring rich markdown posts, author profiles with avatars, categorization tags, and reader comments.',
+          collections: [
+            { name: 'posts', type: 'base', count: 8, desc: 'title, slug, content (Markdown), published, author, tags, cover' },
+            { name: 'authors', type: 'auth', count: 4, desc: 'name, bio, role, avatar (custom SVG)' },
+            { name: 'tags', type: 'base', count: 6, desc: 'name, slug, color' },
+            { name: 'comments', type: 'base', count: 12, desc: 'authorName, content, post, approved' },
+          ],
+          stats: '4 collections • 30 pre-seeded sample records • 4 author profile SVG avatars',
+        },
+        crm: {
+          name: 'SaaS / CRM Pipeline',
+          icon: '👥',
+          badge: 'B2B Sales Pipeline',
+          accent: '#8b5cf6',
+          description: 'B2B customer relationship management pipeline with target companies, inbound leads, deal revenue stages, and sales team activities.',
+          collections: [
+            { name: 'companies', type: 'base', count: 6, desc: 'name, domain, size, industry, logo (custom SVG)' },
+            { name: 'leads', type: 'base', count: 10, desc: 'firstName, lastName, email, company, status, score' },
+            { name: 'deals', type: 'base', count: 8, desc: 'title, value, stage, company, probability' },
+            { name: 'activities', type: 'base', count: 14, desc: 'type, subject, notes, deal, dueDate, completed' },
+          ],
+          stats: '4 collections • 38 pre-seeded sample records • 6 company vector SVG logos',
+        },
+      };
+
+      const t = templateMeta[templateId] || templateMeta.ecommerce;
+      const existingMatches = state.collections.filter(c => t.collections.some(tc => tc.name === c.name));
+
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop">
+          <div class="modal" style="max-width: 580px;">
+            <div class="modal-header" style="border-bottom: 1px solid var(--border-subtle); padding: 1.25rem 1.5rem;">
+              <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; font-size: 20px;">
+                  ${t.icon}
+                </div>
+                <div>
+                  <h2 class="modal-title" style="font-size: 16px; margin: 0; color: #fff;">Confirm Template Launch: ${t.name}</h2>
+                  <span style="font-size: 11px; color: var(--text-muted);">${t.badge}</span>
+                </div>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+
+            <div class="modal-body" style="padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+              <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin: 0;">
+                ${t.description}
+              </p>
+
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+                <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em; margin-bottom: 0.6rem;">
+                  Collections to be created & pre-seeded:
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.45rem;">
+                  ${t.collections.map(c => `
+                    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); padding-bottom: 0.35rem;">
+                      <div>
+                        <strong style="color: #fff; font-family: var(--font-mono);">${c.name}</strong>
+                        <span style="color: var(--text-muted); font-size: 11px; margin-left: 6px;">(${c.desc})</span>
+                      </div>
+                      <span class="badge badge-get" style="font-size: 10px; flex-shrink: 0;">${c.count} records</span>
+                    </div>
+                  `).join('')}
+                </div>
+                <div style="margin-top: 0.6rem; font-size: 11px; color: #93c5fd;">
+                  ✨ ${t.stats}
+                </div>
+              </div>
+
+              ${existingMatches.length > 0 ? `
+                <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 0.75rem 1rem;">
+                  <div style="font-size: 12px; font-weight: 700; color: #f59e0b; margin-bottom: 0.25rem;">
+                    ⚠️ Existing Collections Detected
+                  </div>
+                  <div style="font-size: 12px; color: #cbd5e1; line-height: 1.4;">
+                    The following collection(s) already exist: <strong style="color:#fff;">${existingMatches.map(m => m.name).join(', ')}</strong>.
+                  </div>
+                </div>
+              ` : ''}
+
+              <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem;">
+                <label style="display: flex; align-items: flex-start; gap: 0.6rem; font-size: 12px; color: var(--text-main); cursor: pointer;">
+                  <input type="checkbox" id="confirm-template-overwrite" style="margin-top: 2px;">
+                  <div>
+                    <strong style="color: #fff;">Overwrite existing collections if they match</strong>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                      If checked, matching tables and their records will be overwritten with the template data.
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-subtle); display: flex; justify-content: flex-end; gap: 0.75rem;">
+              <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+              <button class="btn btn-primary" id="btn-confirm-apply-${templateId}" onclick="submitApplyTemplateConfirmed('${templateId}')" style="display: flex; align-items: center; gap: 6px;">
+                <span>Confirm & Launch 🚀</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function submitApplyTemplateConfirmed(templateId) {
+      const btn = document.getElementById(`btn-confirm-apply-${templateId}`);
+      const overwrite = document.getElementById('confirm-template-overwrite')?.checked ?? false;
+
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `
+          <div style="width:13px; height:13px; border:2px solid #ffffff; border-top-color:transparent; border-radius:50%; animation:spin 0.6s linear infinite; display:inline-block; margin-right:4px;"></div>
+          <span>Seeding Template...</span>
+        `;
+      }
+
+      try {
+        const res = await api('/api/templates/apply', {
+          method: 'POST',
+          body: JSON.stringify({
+            template: templateId,
+            overwrite: Boolean(overwrite),
+          }),
+        });
+
+        if (res.skipped) {
+          toast(res.message || `Template '${templateId}' is already applied.`, 'info');
+        } else {
+          toast(`✨ ${res.templateName} recipe installed! ${res.collections.length} collections, ${res.totalRecords} records seeded.`, 'success');
+        }
+
+        closeModal();
+        await loadCollections();
+
+        // Select the primary collection of the template
+        const primaryColMap = {
+          ecommerce: 'products',
+          blog: 'posts',
+          crm: 'deals',
+        };
+        const targetCol = primaryColMap[templateId] || res.collections[0];
+        if (targetCol && state.collections.some(c => c.name === targetCol)) {
+          selectCollection(targetCol);
+        } else {
+          selectNav('home');
+        }
+      } catch (err) {
+        toast(`Failed to apply template: ${err.message || String(err)}`, 'error');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<span>Confirm & Launch 🚀</span>`;
+        }
+      }
+    }
+
+    function applyTemplateFromUi(templateId) {
+      openApplyTemplateConfirmModal(templateId);
+    }
+
+    // Delete Collection Modal
+    function openDeleteCollectionModal(colName) {
+      const col = state.collections.find(c => c.name === colName) || { name: colName };
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop">
+          <div class="modal" style="max-width:440px;">
+            <div class="modal-header" style="border-bottom-color:rgba(239, 68, 68, 0.2);">
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                <span style="font-size:18px;">⚠️</span>
+                <h2 class="modal-title" style="color:#ef4444; font-size:16px;">Delete Collection</h2>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body" style="padding:1.25rem; display:flex; flex-direction:column; gap:1rem;">
+              <p style="font-size:13px; color:#cbd5e1; line-height:1.5; margin:0;">
+                Are you sure you want to permanently delete the collection <strong style="color:#fff; font-family:var(--font-mono);">${col.name}</strong>?
+              </p>
+              <div style="background:rgba(239, 68, 68, 0.08); border:1px solid rgba(239, 68, 68, 0.25); border-radius:6px; padding:0.75rem; font-size:12px; color:#fca5a5; line-height:1.4;">
+                This will drop the SQLite table <strong style="font-family:var(--font-mono);">${col.name}</strong>, remove all schema definitions, and permanently erase all stored records and file assets.
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" style="font-size:12px;">Type <strong>${col.name}</strong> to confirm:</label>
+                <input type="text" class="form-input" id="confirm-delete-col-input" placeholder="${col.name}" oninput="
+                  const btn = document.getElementById('btn-confirm-delete-col');
+                  if (btn) btn.disabled = (this.value.trim() !== '${col.name}');
+                " onkeydown="
+                  if (event.key === 'Enter' && this.value.trim() === '${col.name}') {
+                    submitDeleteCollection('${col.name}');
+                  }
+                " autofocus>
+              </div>
+            </div>
+            <div class="modal-footer" style="padding:0.75rem 1.25rem;">
+              <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+              <button class="btn btn-danger" id="btn-confirm-delete-col" disabled onclick="submitDeleteCollection('${col.name}')">
+                Delete Permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      setTimeout(() => {
+        document.getElementById('confirm-delete-col-input')?.focus();
+      }, 50);
+    }
+
+    async function submitDeleteCollection(colName) {
+      const btn = document.getElementById('btn-confirm-delete-col');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `
+          <div style="width:12px; height:12px; border:2px solid #ffffff; border-top-color:transparent; border-radius:50%; animation:spin 0.6s linear infinite; display:inline-block; margin-right:4px;"></div>
+          <span>Deleting...</span>
+        `;
+      }
+
+      try {
+        await api('/api/collections/' + encodeURIComponent(colName), {
+          method: 'DELETE',
+        });
+
+        toast(`Collection '${colName}' deleted successfully`, 'success');
+        closeModal();
+
+        if (state.activeCollection?.name === colName) {
+          state.activeCollection = null;
+        }
+
+        await loadCollections();
+        selectNav('home');
+      } catch (err) {
+        toast(`Failed to delete collection: ${err.message || String(err)}`, 'error');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = 'Delete Permanently';
+        }
+      }
+    }
+
+

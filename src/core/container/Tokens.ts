@@ -21,4 +21,6 @@ export const TOKENS = {
   MockDataService: Symbol('MockDataService'),
   SchemaInferenceService: Symbol('SchemaInferenceService'),
   ChaosMiddleware: Symbol('ChaosMiddleware'),
+  TemplateService: Symbol('TemplateService'),
+  TemplateController: Symbol('TemplateController'),
 } as const;

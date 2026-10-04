@@ -40,11 +40,37 @@
 
       <div class="sidebar-section">
         <span>Collections</span>
-        <div style="display: flex; gap: 4px;">
-          <button class="btn btn-secondary btn-sm" onclick="openImportJsonModal()" title="Paste JSON → Instant API (Schema Auto-Inference)" style="padding: 2px 7px; font-size: 11px;">Import JSON</button>
-          <button class="btn btn-secondary btn-sm" onclick="openNewCollectionModal()" style="padding: 2px 7px; font-size: 11px;">+ New</button>
+        <div class="dropdown-wrapper">
+          <button class="btn btn-secondary btn-sm" id="btn-collection-new-dropdown" onclick="toggleCollectionCreateMenu(event)" title="Create or import collection" style="padding: 2px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+            <span>+ New</span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </button>
+          <div class="dropdown-menu-popover" id="collection-create-menu" style="display: none;">
+            <button class="menu-popover-item" onclick="handleCollectionMenuAction('new')">
+              <span class="popover-icon">➕</span>
+              <div class="popover-text">
+                <div class="popover-title">New Collection</div>
+                <div class="popover-desc">Create blank schema from scratch</div>
+              </div>
+            </button>
+            <button class="menu-popover-item" onclick="handleCollectionMenuAction('templates')">
+              <span class="popover-icon">✨</span>
+              <div class="popover-text">
+                <div class="popover-title">Starter Templates</div>
+                <div class="popover-desc">E-Commerce, Blog, CRM recipes</div>
+              </div>
+            </button>
+            <button class="menu-popover-item" onclick="handleCollectionMenuAction('import')">
+              <span class="popover-icon">⚡</span>
+              <div class="popover-text">
+                <div class="popover-title">Import JSON</div>
+                <div class="popover-desc">Paste JSON → Instant API schema</div>
+              </div>
+            </button>
+          </div>
         </div>
       </div>
+
 
       <div class="collections-list" id="collections-list">
         <!-- Rendered dynamically -->

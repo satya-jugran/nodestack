@@ -23,6 +23,8 @@ export async function runCli(argv = process.argv): Promise<Command> {
     .option('--mock-fail-rate <rate>', 'Simulate random network drop rate between 0.0 and 1.0 (e.g. 0.2 for 20%)')
     .option('--mock-error <code>', 'Simulate HTTP error status code for network drops (e.g. 500 or 503)')
     .option('--mock-jitter <ms>', 'Simulate latency variance / jitter in milliseconds')
+    .option('-t, --template <name>', 'Pre-seed database with a starter template (ecommerce, blog, crm)')
+    .option('--overwrite', 'Overwrite existing collections if they exist when applying template', false)
     .action(async (options) => {
       let host = '0.0.0.0';
       let port = 8090;
@@ -46,6 +48,39 @@ export async function runCli(argv = process.argv): Promise<Command> {
         mockJitter: options.mockJitter !== undefined ? parseFloat(options.mockJitter) : undefined,
       });
 
+      // Apply starter template if specified
+      if (options.template) {
+        try {
+          const res = await app.templates.apply(options.template, {
+            overwrite: Boolean(options.overwrite),
+          });
+          if (res.skipped) {
+            console.log(
+              chalk.yellow(
+                `\n  ℹ Starter template '${res.templateName}' is already applied. (Use --overwrite to re-create)`
+              )
+            );
+          } else {
+            console.log(
+              chalk.green(
+                `\n  ✓ Starter template '${res.templateName}' applied successfully!`
+              )
+            );
+            console.log(
+              chalk.cyan(
+                `    • Collections: ${res.collections.join(', ')}\n` +
+                `    • Records: ${res.totalRecords} pre-seeded (${res.totalImages} images created)\n` +
+                `    • Duration: ${res.durationMs}ms`
+              )
+            );
+          }
+        } catch (err: any) {
+          console.error(
+            chalk.red(`\n  ✗ Failed to apply starter template '${options.template}': ${err.message}`)
+          );
+        }
+      }
+
       if (options.mockDelay || options.mockFailRate || options.mockError) {
         console.log(
           chalk.magenta(
@@ -65,6 +100,7 @@ export async function runCli(argv = process.argv): Promise<Command> {
 
       await app.start(port, host);
     });
+
 
   // Command: superuser create
   const superuserCmd = program.command('superuser').alias('admin').description('Superuser management');
@@ -232,8 +268,114 @@ export async function runCli(argv = process.argv): Promise<Command> {
       }
     });
 
+  // Command: template / recipe
+  program
+    .command('template [name]')
+    .alias('recipe')
+    .description('Inspect or apply starter templates (ecommerce, blog, crm)')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('-l, --list', 'List all available starter templates', false)
+    .option('--overwrite', 'Overwrite existing collections if they already exist', false)
+    .action(async (name, options) => {
+      const app = new NodeStack({ dataDir: options.dir });
+      try {
+        if (options.list || !name) {
+          const templates = app.templates.list();
+          console.log(chalk.bold.cyan('\n  Available NodeStack Starter Templates:\n'));
+          for (const t of templates) {
+            console.log(
+              `  ${t.icon}  ${chalk.bold.white(t.name)} ${chalk.dim(`(${t.id})`)} — ${chalk.yellow(t.badge)}`
+            );
+            console.log(`      ${chalk.gray(t.description)}`);
+            console.log(
+              `      ${chalk.cyan('Collections:')} ${t.collections.join(', ')}  |  ${chalk.cyan('Records:')} ~${t.stats.records} (${t.stats.images} images)\n`
+            );
+          }
+          console.log(
+            chalk.dim('  Launch instantly: npx nodestack start --template <name>\n' +
+                      '  Or apply offline: npx nodestack template <name>\n')
+          );
+          return;
+        }
+
+        const res = await app.templates.apply(name, {
+          overwrite: Boolean(options.overwrite),
+        });
+
+        if (res.skipped) {
+          console.log(
+            chalk.yellow(
+              `\nℹ Template '${res.templateName}' is already applied. Use --overwrite to re-create.\n`
+            )
+          );
+        } else {
+          console.log(
+            chalk.green(`\n✓ Template '${res.templateName}' applied successfully!\n`) +
+            chalk.cyan(
+              `  • Collections: ${res.collections.join(', ')}\n` +
+              `  • Seeded: ${res.totalRecords} records (${res.totalImages} images) in ${res.durationMs}ms\n`
+            )
+          );
+        }
+      } catch (err: any) {
+        console.error(chalk.red(`\n✗ Error: ${err.message}\n`));
+        process.exit(1);
+      } finally {
+        app.db.close();
+      }
+    });
+
+  // Command: collection / collections
+  program
+    .command('collection [action] [name]')
+    .alias('collections')
+    .description('Manage database collections (list, delete)')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .action(async (actionArg, nameArg, options) => {
+      const app = new NodeStack({ dataDir: options.dir });
+      try {
+        const action = actionArg;
+        const name = nameArg;
+
+        if (action === 'delete' || action === 'rm' || action === 'drop') {
+          if (!name) {
+            console.error(chalk.red('\n✗ Collection name is required: npx nodestack collection delete <name>\n'));
+            process.exit(1);
+          }
+          const col = app.schema.getCollectionOrThrow(name);
+          app.schema.deleteCollection(name);
+          await app.files.deleteCollectionFiles(col.id).catch(() => {});
+          console.log(chalk.green(`\n✓ Collection '${name}' and its SQLite table were successfully deleted!\n`));
+        } else {
+          // List collections
+          const collections = app.schema.getAllCollections();
+          console.log(chalk.bold.cyan('\n  Database Collections:\n'));
+          for (const c of collections) {
+            let recordCount = 0;
+            try {
+              const countRow = app.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM "${c.name}"`);
+              recordCount = countRow ? countRow.count : 0;
+            } catch {}
+            console.log(
+              `  • ${chalk.bold.white(c.name)} ${chalk.dim(`(${c.type})`)} — ${chalk.cyan(`${c.schema.length} fields`)}, ${chalk.yellow(`${recordCount} records`)}`
+            );
+          }
+          console.log(
+            chalk.dim('\n  Delete a collection with: npx nodestack collection delete <name>\n')
+          );
+        }
+      } catch (err: any) {
+        console.error(chalk.red(`\n✗ Error: ${err.message}\n`));
+        process.exit(1);
+      } finally {
+        app.db.close();
+      }
+    });
+
+
   return await program.parseAsync(argv);
 }
+
 
 if (require.main === module) {
   runCli();
