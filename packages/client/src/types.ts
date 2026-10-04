@@ -112,3 +112,47 @@ export interface ImportResult {
   failed: number;
   errors: Array<{ row: number; error: string }>;
 }
+
+export interface DemoCollectionSummary {
+  name: string;
+  type: string;
+  recordsCount: number;
+  schemaFieldsCount: number;
+}
+
+export interface DemoSnapshotMetadata {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  collections: DemoCollectionSummary[];
+  totalCollections: number;
+  totalRecords: number;
+  totalFiles: number;
+  storageSizeBytes: number;
+  dbSizeBytes: number;
+}
+
+export interface DemoSnapshotStatus {
+  hasSnapshot: boolean;
+  snapshot: DemoSnapshotMetadata | null;
+  liveStats?: {
+    totalCollections: number;
+    totalRecords: number;
+    totalFiles: number;
+    drift: {
+      collectionsDelta: number;
+      recordsDelta: number;
+      filesDelta: number;
+      isModified: boolean;
+    };
+  };
+}
+
+export interface DemoResetResult {
+  success: boolean;
+  message: string;
+  durationMs: number;
+  snapshot: DemoSnapshotMetadata;
+  restoredAt: string;
+}

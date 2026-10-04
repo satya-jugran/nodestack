@@ -88,3 +88,14 @@ export { TemplateService } from './templates/TemplateService';
 export { TemplateImageGenerator } from './templates/TemplateImageGenerator';
 export { STARTER_TEMPLATES, ecommerceTemplate, blogTemplate, crmTemplate } from './templates/definitions';
 export * from './templates/types';
+
+// Demo State Management ("Reset to Demo State")
+export {
+  DemoService,
+  DemoSnapshotOptions,
+  DemoCollectionSummary,
+  DemoSnapshotMetadata,
+  DemoSnapshotStatus,
+  DemoResetResult,
+} from './demo/DemoService';
+export { DemoController } from './http/controllers/DemoController';

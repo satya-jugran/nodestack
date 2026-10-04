@@ -43,6 +43,7 @@ export class AdminUIBundler {
         'schema.js',
         'records.js',
         'modals.js',
+        'demo.js',
         'analytics.js',
         'views.js',
         'app.js',

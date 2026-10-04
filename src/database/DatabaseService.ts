@@ -46,6 +46,25 @@ export class DatabaseService {
     return this.driver.transaction(fn);
   }
 
+  public checkpoint(): void {
+    try {
+      this.driver.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+    } catch {
+      // ignore
+    }
+  }
+
+  public reconnect(customDriver?: IDatabaseDriver): void {
+    try {
+      this.driver.close();
+    } catch {}
+    if (customDriver) {
+      this.driver = customDriver;
+    } else {
+      this.driver = new NodeSqliteDriver(this.config.dbPath);
+    }
+  }
+
   public close(): void {
     this.driver.close();
   }

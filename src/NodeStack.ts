@@ -32,6 +32,8 @@ import { AnalyticsController } from './http/controllers/AnalyticsController';
 import { AnalyticsService } from './analytics/AnalyticsService';
 import { TemplateService } from './templates/TemplateService';
 import { TemplateController } from './http/controllers/TemplateController';
+import { DemoService } from './demo/DemoService';
+import { DemoController } from './http/controllers/DemoController';
 import {
   HookHandler,
   RecordBeforeEventContext,
@@ -54,6 +56,7 @@ export class NodeStack {
   public readonly mockData: MockDataService;
   public readonly templates: TemplateService;
   public readonly auth: AuthService;
+  public readonly demo: DemoService;
   public readonly files: FileStorageService;
   public readonly realtime: RealtimeService;
   public readonly logs: LogService;
@@ -148,6 +151,17 @@ export class NodeStack {
     );
     this.container.bindInstance(TOKENS.TemplateService, this.templates);
 
+    // 13.6 Demo Service ("Reset to Demo State")
+    this.demo = new DemoService(
+      this.config,
+      this.db,
+      this.schema,
+      this.files,
+      this.eventBus,
+      this.realtime
+    );
+    this.container.bindInstance(TOKENS.DemoService, this.demo);
+
     // 14. Analytics Service
     this.analytics = new AnalyticsService(this.db, this.config, this.schema, this.realtime);
     this.container.bindInstance(TOKENS.AnalyticsService, this.analytics);
@@ -178,6 +192,8 @@ export class NodeStack {
     const analyticsCtrl = new AnalyticsController(this.analytics);
     const templateCtrl = new TemplateController(this.templates);
     this.container.bindInstance(TOKENS.TemplateController, templateCtrl);
+    const demoCtrl = new DemoController(this.demo);
+    this.container.bindInstance(TOKENS.DemoController, demoCtrl);
 
     // 18. HTTP Server
     this.server = new HttpServer(
@@ -196,7 +212,8 @@ export class NodeStack {
       this.docs,
       analyticsCtrl,
       this.chaos,
-      templateCtrl
+      templateCtrl,
+      demoCtrl
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
 
@@ -288,6 +305,16 @@ export class NodeStack {
 
   public onAfterServe(handler: HookHandler<ServeEventContext>): this {
     this.eventBus.onAfterServe(handler);
+    return this;
+  }
+
+  public onDemoSnapshot(handler: (metadata: any) => void | Promise<void>): this {
+    this.eventBus.on('demo:snapshot', handler);
+    return this;
+  }
+
+  public onDemoReset(handler: (result: any) => void | Promise<void>): this {
+    this.eventBus.on('demo:reset', handler);
     return this;
   }
 

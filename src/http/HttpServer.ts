@@ -14,6 +14,7 @@ import { LogController } from './controllers/LogController';
 import { HealthController } from './controllers/HealthController';
 import { AnalyticsController } from './controllers/AnalyticsController';
 import { TemplateController } from './controllers/TemplateController';
+import { DemoController } from './controllers/DemoController';
 import { AdminUIService } from '../admin/AdminUIService';
 import { DocsService } from '../admin/DocsService';
 import { TypeGenerator } from '../schema/TypeGenerator';
@@ -39,7 +40,8 @@ export class HttpServer {
     private docsService?: DocsService,
     analyticsControllerOrChaos?: AnalyticsController | ChaosMiddleware,
     chaosMiddleware?: ChaosMiddleware,
-    private templateController?: TemplateController
+    private templateController?: TemplateController,
+    private demoController?: DemoController
   ) {
 
     let analyticsController: AnalyticsController | undefined;
@@ -201,6 +203,22 @@ export class HttpServer {
       );
       app.post('/api/templates/:template/apply', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.templateController!.applyParam(req, reply)
+      );
+    }
+
+    // 3.8 Demo State Management ("Reset to Demo State")
+    if (this.demoController) {
+      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
+      const requireAdmin = this.authMiddleware.requireAdmin();
+      app.get('/api/demo/status', (req, reply) => this.demoController!.getStatus(req, reply));
+      app.post('/api/demo/snapshot', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.demoController!.createSnapshot(req, reply)
+      );
+      app.post('/api/demo/reset', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.demoController!.reset(req, reply)
+      );
+      app.delete('/api/demo/snapshot', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.demoController!.clearSnapshot(req, reply)
       );
     }
 

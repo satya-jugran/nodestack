@@ -372,6 +372,69 @@ export async function runCli(argv = process.argv): Promise<Command> {
       }
     });
 
+  // Command: demo (snapshot, reset, status, clear)
+  program
+    .command('demo [action]')
+    .alias('snapshot')
+    .description('Manage demo snapshots and 1-click restore ("Reset to Demo State")')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('-n, --name <name>', 'Custom label/name for the demo snapshot')
+    .action(async (actionArg, options) => {
+      const action = actionArg || 'status';
+      const app = new NodeStack({ dataDir: options.dir });
+      try {
+        if (action === 'snapshot' || action === 'freeze' || action === 'save') {
+          const snap = await app.demo.snapshot({ name: options.name });
+          console.log(chalk.green(`\n✓ Demo baseline state successfully frozen!\n`));
+          console.log(chalk.cyan(`  • Name: ${snap.name}`));
+          console.log(chalk.cyan(`  • Collections: ${snap.totalCollections}`));
+          console.log(chalk.cyan(`  • Records: ${snap.totalRecords}`));
+          console.log(chalk.cyan(`  • Uploaded Files: ${snap.totalFiles} (${snap.storageSizeBytes} bytes)\n`));
+          console.log(chalk.dim(`  Ready for presentations! Restore anytime with: npx nodestack demo reset\n`));
+        } else if (action === 'reset' || action === 'restore') {
+          const res = await app.demo.reset();
+          console.log(chalk.green(`\n✓ Successfully restored clean demo state in ${res.durationMs}ms!\n`));
+          console.log(chalk.cyan(`  • Baseline: '${res.snapshot.name}'`));
+          console.log(chalk.cyan(`  • Restored: ${res.snapshot.totalCollections} collections, ${res.snapshot.totalRecords} records\n`));
+        } else if (action === 'clear' || action === 'delete' || action === 'rm') {
+          await app.demo.clearSnapshot();
+          console.log(chalk.yellow(`\n✓ Demo snapshot cleared.\n`));
+        } else {
+          // Status
+          const status = app.demo.getStatus();
+          if (!status.hasSnapshot) {
+            console.log(chalk.yellow(`\nℹ No demo snapshot found.`));
+            console.log(chalk.dim(`  Freeze clean baseline with: npx nodestack demo snapshot\n`));
+          } else {
+            console.log(chalk.bold.cyan(`\n  📸 Active Demo Snapshot:`));
+            console.log(`  • Name: ${chalk.bold.white(status.snapshot!.name)}`);
+            console.log(`  • Created: ${chalk.gray(new Date(status.snapshot!.createdAt).toLocaleString())}`);
+            console.log(
+              `  • Baseline: ${chalk.yellow(status.snapshot!.totalCollections)} collections, ${chalk.yellow(
+                status.snapshot!.totalRecords
+              )} records, ${chalk.yellow(status.snapshot!.totalFiles)} files`
+            );
+            if (status.liveStats) {
+              const { drift } = status.liveStats;
+              if (drift.isModified) {
+                const recDiff = drift.recordsDelta >= 0 ? `+${drift.recordsDelta}` : `${drift.recordsDelta}`;
+                const colDiff = drift.collectionsDelta >= 0 ? `+${drift.collectionsDelta}` : `${drift.collectionsDelta}`;
+                console.log(chalk.magenta(`  • Live drift detected: ${recDiff} records, ${colDiff} collections since snapshot`));
+                console.log(chalk.green(`  ➜ Click "Reset Demo Data" in Admin UI or run: npx nodestack demo reset\n`));
+              } else {
+                console.log(chalk.green(`  • Status: Live data is pristine and matches demo baseline!\n`));
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error(chalk.red(`\n✗ Demo error: ${err.message}\n`));
+        process.exit(1);
+      } finally {
+        app.db.close();
+      }
+    });
+
 
   return await program.parseAsync(argv);
 }

@@ -330,6 +330,58 @@ Monitor system health, database load, and traffic in real time:
   client.setChaos({ delay: 1000, failRate: 0.2, errorStatus: 500 });
   ```
 
+### 13. "Reset to Demo State" & Snapshot Baseline (For Live Client Demos & Investor Pitches)
+
+When presenting a live client demo or investor pitch, you create, edit, and delete records to show off features. For the next demo, your data is messy and out of order.
+
+NodeStack includes a built-in **"Snapshot Demo State"** and **"Reset Demo Data"** feature:
+- **Freeze the clean state**: Compacts and snapshots the exact SQLite transactional database and uploaded files.
+- **Let prospects test freely**: Evaluators can modify rows, upload images, delete entries, and experiment with the app.
+- **1-Click instantaneous restore**: Click one button (or call the API/CLI) to restore the exact clean state in `<50ms` before the next presentation.
+
+#### Admin UI Controls
+- **Top Bar Widget**: Always-visible demo state indicator with `📸 Snapshot` and `↺ Reset Demo` buttons.
+- **Dashboard Overview**: Dedicated **Live Presentation & Demo Mode** card showing baseline snapshot info and real-time live drift detection (`⚠️ +7 records modified during demo`).
+- **Confirmation Modals**: Interactive previews of restored collections and records with instant UI refresh via Server-Sent Events (`DEMO_RESET`).
+
+#### CLI Commands
+```bash
+# Freeze current database and files as demo baseline
+npx nodestack demo snapshot -n "Investor Pitch V1"
+
+# Check demo baseline status & live drift
+npx nodestack demo status
+
+# 1-Click restore clean baseline before the next pitch
+npx nodestack demo reset
+
+# Clear demo snapshot
+npx nodestack demo clear
+```
+
+#### REST API Endpoints
+- `GET /api/demo/status` — Current snapshot metadata and live drift metrics
+- `POST /api/demo/snapshot` — Freezes clean demo state (Admin required)
+- `POST /api/demo/reset` — 1-click restore to clean demo state (Admin required)
+- `DELETE /api/demo/snapshot` — Clears the saved snapshot (Admin required)
+
+#### Client SDK (`nodestack-client`)
+```typescript
+import { NodeStackClient } from 'nodestack-client';
+
+const client = new NodeStackClient('http://localhost:8090');
+
+// Freeze baseline
+await client.demo.snapshot({ name: 'Clean Showcase State' });
+
+// Check drift status
+const status = await client.demo.getStatus();
+console.log(status.liveStats?.drift.isModified); // true/false
+
+// 1-Click reset from your own frontend demo app!
+await client.demo.reset();
+```
+
 ---
 
 ## 🛠️ CLI Reference
@@ -340,6 +392,10 @@ Monitor system health, database load, and traffic in real time:
 | `nodestack start -d ./data -h 0.0.0.0:8090` | Custom data directory and bind address |
 | `nodestack start --mock-delay 1500` | Start with global 1.5s simulated network latency |
 | `nodestack start --mock-fail-rate 0.2` | Start with 20% random network drop simulation |
+| `nodestack demo snapshot` | Freeze current state as demo baseline (alias: `freeze`) |
+| `nodestack demo reset` | Restore exact clean demo state (alias: `restore`) |
+| `nodestack demo status` | Inspect demo snapshot metadata & live record drift |
+| `nodestack demo clear` | Clear saved demo snapshot |
 | `nodestack superuser create` | Interactively create a superuser / admin account |
 | `nodestack superuser create <email> <password>` | Create a superuser non-interactively |
 | `nodestack typegen` | Generate TypeScript definitions to stdout (alias: `types`) |

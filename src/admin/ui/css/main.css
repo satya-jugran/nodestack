@@ -221,6 +221,26 @@
     .btn-danger:hover {
       background-color: rgba(239, 68, 68, 0.25);
     }
+    .btn-warning {
+      background-color: rgba(245, 158, 11, 0.15);
+      border-color: rgba(245, 158, 11, 0.35);
+      color: #fbbf24;
+    }
+    .btn-warning:hover {
+      background-color: rgba(245, 158, 11, 0.25);
+      border-color: rgba(245, 158, 11, 0.55);
+      color: #fef3c7;
+    }
+    .btn-emerald {
+      background-color: rgba(16, 185, 129, 0.15);
+      border-color: rgba(16, 185, 129, 0.35);
+      color: #34d399;
+    }
+    .btn-emerald:hover {
+      background-color: rgba(16, 185, 129, 0.25);
+      border-color: rgba(16, 185, 129, 0.55);
+      color: #a7f3d0;
+    }
     .btn-sm {
       padding: 0.35rem 0.65rem;
       font-size: 12px;

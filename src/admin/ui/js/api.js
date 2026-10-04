@@ -53,6 +53,22 @@
       es.addEventListener('NS_CONNECT', handleConnect);
       es.addEventListener('NB_CONNECT', handleConnect);
 
+      // Listen for system demo state reset
+      es.addEventListener('DEMO_RESET', () => {
+        toast('✨ Clean demo baseline restored!', 'success');
+        if (typeof fetchDemoStatus === 'function') {
+          fetchDemoStatus();
+        }
+        loadCollections().then(() => {
+          if (state.activeCollection) {
+            if (state.collectionTab === 'records') loadRecords();
+            else renderSchemaView();
+          } else if (state.activeNav === 'home') {
+            renderHomeView();
+          }
+        });
+      });
+
       // Listen for updates on any collection
       for (const col of state.collections) {
         es.addEventListener(col.name, (e) => {
@@ -88,6 +104,9 @@
 
       // 3. Load App
       await loadCollections();
+      if (typeof fetchDemoStatus === 'function') {
+        fetchDemoStatus();
+      }
       initRealtime();
       selectNav('home');
     }

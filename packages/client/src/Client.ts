@@ -6,6 +6,7 @@ import { FileService } from './services/FileService';
 import { RealtimeService } from './services/RealtimeService';
 import { AdminService } from './services/AdminService';
 import { CollectionService } from './services/CollectionService';
+import { DemoService } from './services/DemoService';
 import type {
   ClientOptions,
   SendOptions,
@@ -23,6 +24,7 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
   public readonly realtime: RealtimeService;
   public readonly admins: AdminService;
   public readonly collections: CollectionService;
+  public readonly demo: DemoService;
 
   private customFetch?: typeof fetch;
   private defaultHeaders: Record<string, string>;
@@ -42,6 +44,7 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
     this.realtime = new RealtimeService(this, options.EventSource);
     this.admins = new AdminService(this);
     this.collections = new CollectionService(this);
+    this.demo = new DemoService(this);
   }
 
   /**
