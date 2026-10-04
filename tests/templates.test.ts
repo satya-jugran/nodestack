@@ -465,6 +465,39 @@ describe('Starter Templates / Recipes Tests', () => {
       const data = await res.json();
       expect(data.message).toContain('Cannot delete system collection');
     });
+
+    it('should not drop collection or delete SQLite table if storage cleanup fails', async () => {
+      // Create a collection
+      app.schema.createCollection({
+        name: 'secure_docs',
+        type: 'base',
+        schema: [{ id: 'f_title', name: 'title', type: 'text' }],
+      });
+
+      // Mock deleteCollectionFiles to fail
+      const origDeleteFiles = app.files.deleteCollectionFiles;
+      (app.files as any).deleteCollectionFiles = async () => {
+        throw new Error('EPERM: operation not permitted');
+      };
+
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/collections/secure_docs`, {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${adminToken}`,
+          },
+        });
+        // Must fail with error
+        expect(res.status).toBe(500);
+
+        // Verify collection and table were NOT deleted
+        expect(app.schema.getCollection('secure_docs')).toBeDefined();
+        const records = app.db.all('SELECT * FROM "secure_docs"');
+        expect(records).toBeDefined();
+      } finally {
+        (app.files as any).deleteCollectionFiles = origDeleteFiles;
+      }
+    });
   });
 });
 

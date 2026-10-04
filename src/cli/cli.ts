@@ -343,8 +343,13 @@ export async function runCli(argv = process.argv): Promise<Command> {
             process.exit(1);
           }
           const col = app.schema.getCollectionOrThrow(name);
+          // Clean storage files before dropping the collection to prevent orphaned files
+          try {
+            await app.files.deleteCollectionFiles(col.id);
+          } catch (fileErr: any) {
+            throw new Error(`Failed to delete storage directory for collection '${name}': ${fileErr.message}. Aborting deletion to prevent orphaned data.`);
+          }
           app.schema.deleteCollection(name);
-          await app.files.deleteCollectionFiles(col.id).catch(() => {});
           console.log(chalk.green(`\n✓ Collection '${name}' and its SQLite table were successfully deleted!\n`));
         } else {
           // List collections

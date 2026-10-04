@@ -55,10 +55,11 @@ export class CollectionController extends BaseController {
       throw new AppError('Cannot delete system collection', 400);
     }
     const col = this.schemaService.getCollectionOrThrow(req.params.collection);
-    this.schemaService.deleteCollection(req.params.collection);
+    // Clean storage files before dropping the collection to prevent orphaned files
     if (this.fileStorageService) {
-      await this.fileStorageService.deleteCollectionFiles(col.id).catch(() => {});
+      await this.fileStorageService.deleteCollectionFiles(col.id);
     }
+    this.schemaService.deleteCollection(req.params.collection);
     this.noContent(reply);
   }
 
