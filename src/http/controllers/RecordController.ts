@@ -4,12 +4,14 @@ import { RecordService, QueryOptions } from '../../records/RecordService';
 import { CsvHelper } from '../../records/CsvHelper';
 import { FileStorageService } from '../../files/FileStorageService';
 import { SchemaService } from '../../schema/SchemaService';
+import { MockDataService, MockGenerateOptions } from '../../records/MockDataService';
 
 export class RecordController extends BaseController {
   constructor(
     private recordService: RecordService,
     private schemaService: SchemaService,
-    private fileStorageService: FileStorageService
+    private fileStorageService: FileStorageService,
+    private mockDataService?: MockDataService
   ) {
     super();
   }
@@ -209,5 +211,35 @@ export class RecordController extends BaseController {
     );
 
     this.ok(reply, result, 200);
+  }
+
+  public async generateMock(
+    req: FastifyRequest<{
+      Params: { collection: string };
+      Body: { count?: number; options?: MockGenerateOptions } | null;
+    }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    if (!this.mockDataService) {
+      return reply.status(500).send({ message: 'MockDataService is not initialized' });
+    }
+
+    const { collection } = req.params;
+    const body = (req.body as any) || {};
+    const count = typeof body.count === 'number' ? body.count : Number(body.count) || 25;
+    const options: MockGenerateOptions = {
+      count,
+      downloadFiles: body.options?.downloadFiles ?? body.downloadFiles ?? true,
+      autoSeedRelations: body.options?.autoSeedRelations ?? body.autoSeedRelations ?? true,
+    };
+
+    const result = await this.mockDataService.generate(
+      collection,
+      options,
+      req.auth,
+      req
+    );
+
+    this.ok(reply, result, 201);
   }
 }

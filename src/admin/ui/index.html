@@ -24,7 +24,7 @@
           </div>
           <span>NodeStack</span>
         </div>
-        <span class="version-tag">v1.0.0</span>
+        <span class="version-tag">v1.1.0</span>
       </div>
 
       <div style="padding: 0.75rem 1rem 0.25rem; display: flex; flex-direction: column; gap: 4px;">
@@ -36,12 +36,46 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
           <span>Analytics & Metrics</span>
         </div>
+        <div class="sidebar-nav-item" id="nav-snapshots" onclick="selectNav('snapshots')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+          <span>Snapshots</span>
+          <span id="sidebar-snapshot-dot" style="margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: #10b981; display: none;"></span>
+        </div>
       </div>
 
       <div class="sidebar-section">
         <span>Collections</span>
-        <button class="btn btn-secondary btn-sm" onclick="openNewCollectionModal()">+ New</button>
+        <div class="dropdown-wrapper">
+          <button class="btn btn-secondary btn-sm" id="btn-collection-new-dropdown" onclick="toggleCollectionCreateMenu(event)" title="Create or import collection" style="padding: 2px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+            <span>+ New</span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </button>
+          <div class="dropdown-menu-popover" id="collection-create-menu" style="display: none;">
+            <button class="menu-popover-item" onclick="handleCollectionMenuAction('new')">
+              <span class="popover-icon">➕</span>
+              <div class="popover-text">
+                <div class="popover-title">New Collection</div>
+                <div class="popover-desc">Create blank schema from scratch</div>
+              </div>
+            </button>
+            <button class="menu-popover-item" onclick="handleCollectionMenuAction('templates')">
+              <span class="popover-icon">✨</span>
+              <div class="popover-text">
+                <div class="popover-title">Starter Templates</div>
+                <div class="popover-desc">E-Commerce, Blog, CRM recipes</div>
+              </div>
+            </button>
+            <button class="menu-popover-item" onclick="handleCollectionMenuAction('import')">
+              <span class="popover-icon">⚡</span>
+              <div class="popover-text">
+                <div class="popover-title">Import JSON</div>
+                <div class="popover-desc">Paste JSON → Instant API schema</div>
+              </div>
+            </button>
+          </div>
+        </div>
       </div>
+
 
       <div class="collections-list" id="collections-list">
         <!-- Rendered dynamically -->
@@ -111,6 +145,7 @@
   <script src="./js/schema.js"></script>
   <script src="./js/records.js"></script>
   <script src="./js/modals.js"></script>
+  <script src="./js/demo.js"></script>
   <script src="./js/analytics.js"></script>
   <script src="./js/views.js"></script>
   <script src="./js/app.js"></script>

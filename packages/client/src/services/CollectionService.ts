@@ -52,4 +52,53 @@ export class CollectionService extends BaseService {
     });
     return true;
   }
+
+  /**
+   * Infers schema fields, field types, and sample records from raw JSON (object or array).
+   */
+  public async inferSchema(data: any): Promise<{
+    suggestedName?: string;
+    fields: any[];
+    recordCount: number;
+    sampleRecords: any[];
+  }> {
+    return this.send('/api/collections/infer-schema', {
+      method: 'POST',
+      body: { data },
+    });
+  }
+
+  /**
+   * "Paste JSON → Instant API": Infers field types, creates collection and SQLite columns,
+   * and populates all records within 1 second.
+   */
+  public async importJson(
+    name: string,
+    data: any,
+    options: {
+      type?: 'base' | 'auth';
+      schemaOverrides?: any[];
+      listRule?: string | null;
+      viewRule?: string | null;
+      createRule?: string | null;
+      updateRule?: string | null;
+      deleteRule?: string | null;
+    } = {}
+  ): Promise<{
+    success: boolean;
+    collection: any;
+    recordCount: number;
+    records: any[];
+    inferredFields: any[];
+    durationMs: number;
+  }> {
+    return this.send('/api/collections/import-json', {
+      method: 'POST',
+      body: {
+        name,
+        data,
+        ...options,
+      },
+    });
+  }
 }

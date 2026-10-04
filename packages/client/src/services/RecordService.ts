@@ -36,19 +36,37 @@ export class RecordService<T = RecordModel> extends BaseService {
   /**
    * Returns a paginated list of records matching the query options.
    */
+  public async getList(options?: QueryOptions): Promise<ListResult<T>>;
   public async getList(
-    page = 1,
+    page?: number,
+    perPage?: number,
+    options?: QueryOptions
+  ): Promise<ListResult<T>>;
+  public async getList(
+    pageOrOptions: number | QueryOptions = 1,
     perPage = 30,
     options: QueryOptions = {}
   ): Promise<ListResult<T>> {
+    let pageNum = 1;
+    let perPageNum = perPage;
+    let queryOpts: QueryOptions = options;
+
+    if (typeof pageOrOptions === 'object' && pageOrOptions !== null) {
+      queryOpts = pageOrOptions;
+      pageNum = typeof queryOpts.page === 'number' ? queryOpts.page : 1;
+      perPageNum = typeof queryOpts.perPage === 'number' ? queryOpts.perPage : 30;
+    } else if (typeof pageOrOptions === 'number') {
+      pageNum = pageOrOptions;
+    }
+
     return this.send<ListResult<T>>(
       `/api/collections/${encodeURIComponent(this.collectionName)}/records`,
       {
         method: 'GET',
         query: {
-          page,
-          perPage,
-          ...options,
+          page: pageNum,
+          perPage: perPageNum,
+          ...queryOpts,
         },
       }
     );

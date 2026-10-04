@@ -1,10 +1,17 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { SchemaService } from '../../schema/SchemaService';
+import { SchemaInferenceService, ImportJsonOptions } from '../../schema/SchemaInferenceService';
 import { CreateCollectionDto, UpdateCollectionDto } from '../../schema/models/Collection';
+import { FileStorageService } from '../../files/FileStorageService';
+import { AppError } from '../../core/errors/AppError';
 
 export class CollectionController extends BaseController {
-  constructor(private schemaService: SchemaService) {
+  constructor(
+    private schemaService: SchemaService,
+    private schemaInferenceService?: SchemaInferenceService,
+    private fileStorageService?: FileStorageService
+  ) {
     super();
   }
 
@@ -44,7 +51,45 @@ export class CollectionController extends BaseController {
     req: FastifyRequest<{ Params: { collection: string } }>,
     reply: FastifyReply
   ): Promise<void> {
+    if (req.params.collection.startsWith('_')) {
+      throw new AppError('Cannot delete system collection', 400);
+    }
+    const col = this.schemaService.getCollectionOrThrow(req.params.collection);
+    // Clean storage files before dropping the collection to prevent orphaned files
+    if (this.fileStorageService) {
+      try {
+        await this.fileStorageService.deleteCollectionFiles(col.id);
+      } catch (err: any) {
+        throw new AppError(
+          `Failed to delete storage files for collection '${req.params.collection}': ${err.message}. Aborting deletion to prevent orphaned data.`,
+          500
+        );
+      }
+    }
     this.schemaService.deleteCollection(req.params.collection);
     this.noContent(reply);
+  }
+
+
+  public async inferSchema(
+    req: FastifyRequest<{ Body: { data: any } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    if (!this.schemaInferenceService) {
+      throw new Error('SchemaInferenceService is not initialized');
+    }
+    const result = this.schemaInferenceService.inferSchema(req.body?.data);
+    this.ok(reply, result);
+  }
+
+  public async importJson(
+    req: FastifyRequest<{ Body: ImportJsonOptions }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    if (!this.schemaInferenceService) {
+      throw new Error('SchemaInferenceService is not initialized');
+    }
+    const result = await this.schemaInferenceService.importJson(req.body);
+    this.ok(reply, result, 201);
   }
 }

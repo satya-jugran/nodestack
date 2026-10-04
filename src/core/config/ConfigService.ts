@@ -9,6 +9,13 @@ export interface NodeStackConfigOptions {
   jwtSecret?: string;
   appName?: string;
   dev?: boolean;
+  chaosEnabled?: boolean;
+  maxMockDelayMs?: number;
+  mockDelay?: number | string;
+  mockFailRate?: number;
+  mockError?: number | string;
+  mockJitter?: number;
+  mockErrorMessage?: string;
 }
 
 // Deprecated alias for backwards compatibility
@@ -23,6 +30,13 @@ export class ConfigService {
   public readonly jwtSecret: string;
   public readonly appName: string;
   public readonly dev: boolean;
+  public readonly chaosEnabled: boolean;
+  public readonly maxMockDelayMs: number;
+  public readonly mockDelay?: number | string;
+  public readonly mockFailRate?: number;
+  public readonly mockError?: number | string;
+  public readonly mockJitter?: number;
+  public readonly mockErrorMessage?: string;
 
   constructor(options: NodeStackConfigOptions = {}) {
     this.dataDir = path.resolve(options.dataDir || process.env.NODESTACK_DATA_DIR || process.env.NODEBASE_DATA_DIR || './nodestack_data');
@@ -30,6 +44,33 @@ export class ConfigService {
     this.host = options.host || process.env.NODESTACK_HOST || process.env.NODEBASE_HOST || '0.0.0.0';
     this.appName = options.appName || 'NodeStack';
     this.dev = options.dev ?? process.env.NODE_ENV !== 'production';
+
+    // Chaos simulation feature flag (enabled by default in dev, gated in production)
+    const envChaos = process.env.NODESTACK_CHAOS_ENABLED || process.env.NODESTACK_ENABLE_CHAOS;
+    if (options.chaosEnabled !== undefined) {
+      this.chaosEnabled = options.chaosEnabled;
+    } else if (envChaos !== undefined) {
+      this.chaosEnabled = envChaos === 'true' || envChaos === '1';
+    } else {
+      this.chaosEnabled = this.dev && process.env.NODE_ENV !== 'production';
+    }
+
+    // Maximum mock delay clamping limit (default 15,000ms)
+    const envMaxDelay = process.env.NODESTACK_MAX_MOCK_DELAY || process.env.NODESTACK_MAX_DELAY;
+    this.maxMockDelayMs = options.maxMockDelayMs !== undefined
+      ? options.maxMockDelayMs
+      : (envMaxDelay ? Number(envMaxDelay) : 15000);
+
+    // Simulation / Chaos Configuration defaults
+    const envDelay = process.env.NODESTACK_MOCK_DELAY || process.env.NODESTACK_CHAOS_DELAY;
+    this.mockDelay = options.mockDelay !== undefined ? options.mockDelay : (envDelay ? (!isNaN(Number(envDelay)) ? Number(envDelay) : envDelay) : undefined);
+    const envFailRate = process.env.NODESTACK_MOCK_FAIL_RATE || process.env.NODESTACK_CHAOS_FAIL_RATE;
+    this.mockFailRate = options.mockFailRate !== undefined ? options.mockFailRate : (envFailRate ? Number(envFailRate) : undefined);
+    const envError = process.env.NODESTACK_MOCK_ERROR || process.env.NODESTACK_CHAOS_ERROR;
+    this.mockError = options.mockError !== undefined ? options.mockError : (envError ? (!isNaN(Number(envError)) ? Number(envError) : envError) : undefined);
+    const envJitter = process.env.NODESTACK_MOCK_JITTER || process.env.NODESTACK_CHAOS_JITTER;
+    this.mockJitter = options.mockJitter !== undefined ? options.mockJitter : (envJitter ? Number(envJitter) : undefined);
+    this.mockErrorMessage = options.mockErrorMessage;
 
     // Ensure storage and data directories exist
     this.storageDir = path.join(this.dataDir, 'storage');

@@ -153,6 +153,10 @@ export class SchemaService {
   }
 
   public deleteCollection(nameOrId: string): void {
+    if (nameOrId.startsWith('_')) {
+      throw new AppError('Cannot delete system collection', 400);
+    }
+
     const current = this.getCollectionOrThrow(nameOrId);
     if (current.system) {
       throw new AppError('Cannot delete system collection', 400);

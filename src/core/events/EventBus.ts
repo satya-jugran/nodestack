@@ -272,4 +272,23 @@ export class EventBus {
       }
     }
   }
+
+  // --- Generic Custom Events ---
+  private customEventHandlers = new Map<string, Array<(data?: any) => Promise<void> | void>>();
+
+  public on(event: string, handler: (data?: any) => Promise<void> | void): void {
+    if (!this.customEventHandlers.has(event)) {
+      this.customEventHandlers.set(event, []);
+    }
+    this.customEventHandlers.get(event)!.push(handler);
+  }
+
+  public async emit(event: string, data?: any): Promise<void> {
+    const handlers = this.customEventHandlers.get(event);
+    if (handlers) {
+      for (const handler of handlers) {
+        await handler(data);
+      }
+    }
+  }
 }

@@ -6,10 +6,12 @@ import { FileService } from './services/FileService';
 import { RealtimeService } from './services/RealtimeService';
 import { AdminService } from './services/AdminService';
 import { CollectionService } from './services/CollectionService';
+import { DemoService } from './services/DemoService';
 import type {
   ClientOptions,
   SendOptions,
   RecordModel,
+  ChaosOptions,
 } from './types';
 
 /**
@@ -22,10 +24,12 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
   public readonly realtime: RealtimeService;
   public readonly admins: AdminService;
   public readonly collections: CollectionService;
+  public readonly demo: DemoService;
 
   private customFetch?: typeof fetch;
   private defaultHeaders: Record<string, string>;
   private defaultTimeout: number;
+  private chaosOptions: ChaosOptions | null = null;
   private recordServices: Map<string, RecordService<any>> = new Map();
 
   constructor(baseUrl: string = '/', options: ClientOptions = {}) {
@@ -34,11 +38,28 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
     this.customFetch = options.fetch;
     this.defaultHeaders = options.headers || {};
     this.defaultTimeout = options.timeout || 120000; // 2 minutes default
+    this.chaosOptions = options.chaos ? { ...options.chaos } : null;
 
     this.files = new FileService(this);
     this.realtime = new RealtimeService(this, options.EventSource);
     this.admins = new AdminService(this);
     this.collections = new CollectionService(this);
+    this.demo = new DemoService(this);
+  }
+
+  /**
+   * Dynamically configure latency & chaos simulation options for all future requests.
+   * Pass null to disable client-side chaos injection.
+   */
+  public setChaos(options: ChaosOptions | null): void {
+    this.chaosOptions = options ? { ...options } : null;
+  }
+
+  /**
+   * Get active chaos simulation options.
+   */
+  public getChaos(): ChaosOptions | null {
+    return this.chaosOptions ? { ...this.chaosOptions } : null;
   }
 
   /**
@@ -96,6 +117,32 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
 
     if (this.authStore.token && !headers['Authorization'] && !headers['authorization']) {
       headers['Authorization'] = `Bearer ${this.authStore.token}`;
+    }
+
+    // 2b. Inject Latency & Chaos simulation headers
+    const effectiveChaos: ChaosOptions = {
+      ...(this.chaosOptions || {}),
+      ...(options.chaos || {}),
+      ...(options.mockDelay !== undefined ? { delay: options.mockDelay } : {}),
+      ...(options.mockError !== undefined ? { errorStatus: options.mockError } : {}),
+      ...(options.mockFailRate !== undefined ? { failRate: options.mockFailRate } : {}),
+      ...(options.mockJitter !== undefined ? { jitter: options.mockJitter } : {}),
+    };
+
+    if (effectiveChaos.delay !== undefined && !headers['x-mock-delay'] && !headers['mock-delay']) {
+      headers['x-mock-delay'] = String(effectiveChaos.delay);
+    }
+    if (effectiveChaos.errorStatus !== undefined && !headers['x-mock-error'] && !headers['mock-error']) {
+      headers['x-mock-error'] = String(effectiveChaos.errorStatus);
+    }
+    if (effectiveChaos.failRate !== undefined && !headers['x-mock-fail-rate'] && !headers['mock-fail-rate']) {
+      headers['x-mock-fail-rate'] = String(effectiveChaos.failRate);
+    }
+    if (effectiveChaos.jitter !== undefined && !headers['x-mock-jitter'] && !headers['mock-jitter']) {
+      headers['x-mock-jitter'] = String(effectiveChaos.jitter);
+    }
+    if (effectiveChaos.errorMessage && !headers['x-mock-error-message'] && !headers['mock-error-message']) {
+      headers['x-mock-error-message'] = String(effectiveChaos.errorMessage);
     }
 
     // 3. Serialize body

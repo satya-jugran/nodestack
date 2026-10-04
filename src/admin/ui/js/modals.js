@@ -259,6 +259,25 @@
               <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
             </div>
             <div class="modal-body">
+              <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 1.25rem;">
+                <div style="font-weight: 600; font-size: 11px; color: #93c5fd; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">Or Start Fast With:</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                  <button type="button" class="btn btn-secondary btn-sm" onclick="openTemplatesModal()" style="display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 7px 10px; border-color: rgba(147, 197, 253, 0.25); text-align: left;">
+                    <span style="font-size: 16px;">✨</span>
+                    <div>
+                      <div style="font-weight: 600; font-size: 12px; color: #fff;">Starter Templates</div>
+                      <div style="font-size: 10px; color: var(--text-muted);">E-Commerce, Blog, CRM</div>
+                    </div>
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" onclick="openImportJsonModal()" style="display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 7px 10px; border-color: rgba(147, 197, 253, 0.25); text-align: left;">
+                    <span style="font-size: 16px;">⚡</span>
+                    <div>
+                      <div style="font-weight: 600; font-size: 12px; color: #fff;">Paste JSON → Instant API</div>
+                      <div style="font-size: 10px; color: var(--text-muted);">Auto-infer schema in 1 second</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
               <div class="form-group">
                 <label class="form-label">Collection Name *</label>
                 <input type="text" class="form-input" id="new-col-name" placeholder="e.g. posts, products" required>
@@ -278,6 +297,452 @@
           </div>
         </div>
       `;
+    }
+
+    // ==========================================
+    // Paste JSON → Instant API (Schema Auto-Inference)
+    // ==========================================
+
+    let importJsonState = {
+      parsedRecords: [],
+      inferredFields: [],
+      suggestedName: '',
+      error: null,
+    };
+
+    function isClientDateString(val) {
+      if (typeof val !== 'string') return false;
+      const str = val.trim();
+      if (str.length < 8 || str.length > 35) return false;
+      if (/^\d+(\.\d+)?$/.test(str)) return false;
+      const dateRegex = /^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[T\s]\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?)?$/i;
+      if (!dateRegex.test(str)) return false;
+      return !isNaN(Date.parse(str));
+    }
+
+    function inferFieldTypeClient(values) {
+      const nonNull = values.filter((v) => v !== undefined && v !== null && v !== '');
+      if (nonNull.length === 0) return 'text';
+
+      if (nonNull.some((v) => typeof v === 'object')) return 'json';
+      if (nonNull.every((v) => typeof v === 'boolean' || v === 'true' || v === 'false')) return 'bool';
+      if (
+        nonNull.every(
+          (v) =>
+            typeof v === 'number' ||
+            (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()) && !/^0\d+/.test(v.trim()))
+        )
+      )
+        return 'number';
+      if (nonNull.every((v) => isClientDateString(v))) return 'date';
+      return 'text';
+    }
+
+    function sanitizeFieldNameClient(rawKey) {
+      let clean = rawKey
+        .trim()
+        .replace(/[^a-zA-Z0-9_]/g, '_')
+        .replace(/^_+/, '')
+        .replace(/_+$/, '');
+      if (!clean) clean = 'field';
+      if (/^[0-9]/.test(clean)) clean = `f_${clean}`;
+      return clean;
+    }
+
+    function openImportJsonModal() {
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+          <div class="modal modal-lg" style="max-width: 780px;">
+            <div class="modal-header">
+              <div style="display:flex; align-items:center; gap:0.6rem;">
+                <div style="width:32px; height:32px; border-radius:8px; background:rgba(59,130,246,0.15); display:flex; align-items:center; justify-content:center; color:#60a5fa; font-size:16px;">⚡</div>
+                <div>
+                  <h2 class="modal-title" style="display:flex; align-items:center; gap:8px;">
+                    Import from JSON
+                    <span class="badge badge-get" style="font-size:10px; font-weight:700;">INSTANT API</span>
+                  </h2>
+                  <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">
+                    Paste any raw JSON object or array. Field types & SQLite columns are auto-inferred in 1 second.
+                  </div>
+                </div>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+
+            <div class="modal-body" style="gap:1rem; max-height:75vh; overflow-y:auto;">
+              <!-- Collection Name Input -->
+              <div class="form-group" style="margin-bottom:0.25rem;">
+                <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
+                  <span>Collection Name *</span>
+                  <span id="name-feedback" style="font-size:11px; color:var(--text-muted);">Will create SQLite table and REST API</span>
+                </label>
+                <div style="position:relative;">
+                  <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:13px; color:var(--text-muted); font-family:monospace;">/api/collections/</span>
+                  <input type="text" class="form-input" id="import-json-name" placeholder="products" style="padding-left:145px; font-family:monospace; font-weight:600;" oninput="updateImportJsonPreview()">
+                </div>
+              </div>
+
+              <!-- Raw JSON Textarea -->
+              <div class="form-group" style="margin-bottom:0.25rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+                  <label class="form-label" style="margin:0;">Raw JSON Payload (Object or Array) *</label>
+                  <div style="display:flex; gap:6px;">
+                    <button class="btn btn-secondary btn-sm" style="font-size:11px; padding:2px 8px;" onclick="loadSampleJson()" title="Load realistic mock JSON">✨ Load Sample JSON</button>
+                    <button class="btn btn-secondary btn-sm" style="font-size:11px; padding:2px 8px;" onclick="pasteFromClipboard()" title="Paste from clipboard">📋 Paste</button>
+                    <button class="btn btn-secondary btn-sm" style="font-size:11px; padding:2px 8px;" onclick="clearJsonInput()">Clear</button>
+                  </div>
+                </div>
+                <textarea class="form-textarea" id="import-json-input" placeholder='Paste mock JSON from ChatGPT, Postman, or an API spec:&#10;[&#10;  {&#10;    "name": "Wireless Headphones",&#10;    "price": 149.99,&#10;    "inStock": true,&#10;    "releasedAt": "2026-03-15T09:30:00Z",&#10;    "features": { "bluetooth": 5.3, "anc": true }&#10;  }&#10;]' style="min-height:160px; font-family:\x27JetBrains Mono\x27, monospace; font-size:12px; line-height:1.45; tab-size:2;" oninput="onJsonInputChanged()"></textarea>
+              </div>
+
+              <!-- Live Auto-Inference Schema Preview -->
+              <div id="import-json-preview-container" style="background:var(--bg-input); border:1px solid var(--border-subtle); border-radius:8px; padding:0.85rem 1rem;">
+                <div id="import-json-preview-content">
+                  <div style="font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:8px;">
+                    <span>ℹ</span>
+                    <span>Paste raw JSON above to preview auto-inferred columns (text, number, bool, date, json).</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+              <div style="font-size:11px; color:var(--text-muted); display:flex; align-items:center; gap:4px;">
+                <span class="live-dot" style="width:6px; height:6px;"></span>
+                <span>Creates collection, SQLite columns & populates records in 1s</span>
+              </div>
+              <div style="display:flex; gap:0.5rem;">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" id="btn-submit-import-json" onclick="submitImportJson()">⚡ Create Collection & Import Records</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // If user had selected text or already typed something, re-trigger
+      importJsonState = { parsedRecords: [], inferredFields: [], suggestedName: '', error: null };
+    }
+
+    function loadSampleJson() {
+      const sample = [
+        {
+          name: 'Sony WH-1000XM5',
+          category: 'Audio',
+          price: 348.0,
+          inStock: true,
+          rating: 4.8,
+          releasedAt: '2026-01-20T10:00:00Z',
+          specs: { driver: '30mm', batteryHours: 30, anc: true },
+        },
+        {
+          name: 'Apple AirPods Max',
+          category: 'Audio',
+          price: 549.0,
+          inStock: true,
+          rating: 4.6,
+          releasedAt: '2025-11-15T08:00:00Z',
+          specs: { driver: '40mm', batteryHours: 20, anc: true },
+        },
+        {
+          name: 'Bose QuietComfort Ultra',
+          category: 'Audio',
+          price: 429.0,
+          inStock: false,
+          rating: 4.7,
+          releasedAt: '2026-02-10T12:00:00Z',
+          specs: { driver: '35mm', batteryHours: 24, spatialAudio: true },
+        },
+      ];
+
+      const nameInput = document.getElementById('import-json-name');
+      if (nameInput && !nameInput.value.trim()) {
+        nameInput.value = 'products';
+      }
+      const jsonInput = document.getElementById('import-json-input');
+      if (jsonInput) {
+        jsonInput.value = JSON.stringify(sample, null, 2);
+        onJsonInputChanged();
+      }
+    }
+
+    async function pasteFromClipboard() {
+      try {
+        const text = await navigator.clipboard.readText();
+        const jsonInput = document.getElementById('import-json-input');
+        if (jsonInput && text) {
+          jsonInput.value = text;
+          onJsonInputChanged();
+        }
+      } catch {
+        toast('Please paste using Ctrl+V or Cmd+V directly in the textarea', 'info');
+      }
+    }
+
+    function clearJsonInput() {
+      const jsonInput = document.getElementById('import-json-input');
+      if (jsonInput) {
+        jsonInput.value = '';
+        onJsonInputChanged();
+      }
+    }
+
+    function onJsonInputChanged() {
+      const text = document.getElementById('import-json-input')?.value.trim();
+      const previewContainer = document.getElementById('import-json-preview-content');
+      const nameInput = document.getElementById('import-json-name');
+
+      if (!text) {
+        importJsonState = { parsedRecords: [], inferredFields: [], suggestedName: '', error: null };
+        if (previewContainer) {
+          previewContainer.innerHTML = `
+            <div style="font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:8px;">
+              <span>ℹ</span>
+              <span>Paste raw JSON above to preview auto-inferred columns (text, number, bool, date, json).</span>
+            </div>
+          `;
+        }
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(text);
+        let records = [];
+        let suggestedName = '';
+
+        if (Array.isArray(parsed)) {
+          if (parsed.length === 0) throw new Error('Array must contain at least one item');
+          if (typeof parsed[0] !== 'object' || parsed[0] === null || Array.isArray(parsed[0])) {
+            throw new Error('Array items must be JSON objects, not primitives');
+          }
+          records = parsed;
+        } else if (typeof parsed === 'object' && parsed !== null) {
+          const wrapperCandidates = ['data', 'items', 'records', 'results', 'rows', 'list'];
+          for (const cand of wrapperCandidates) {
+            if (Array.isArray(parsed[cand]) && parsed[cand].length > 0 && typeof parsed[cand][0] === 'object') {
+              records = parsed[cand];
+              suggestedName = parsed.collection || parsed.name || '';
+              break;
+            }
+          }
+
+          if (records.length === 0) {
+            const arrayKeys = Object.keys(parsed).filter(
+              (k) => Array.isArray(parsed[k]) && parsed[k].length > 0 && typeof parsed[k][0] === 'object'
+            );
+            if (arrayKeys.length === 1) {
+              records = parsed[arrayKeys[0]];
+              suggestedName = arrayKeys[0].toLowerCase();
+            } else {
+              records = [parsed];
+            }
+          }
+        } else {
+          throw new Error('JSON payload must be an object or an array of objects');
+        }
+
+        if (suggestedName && nameInput && !nameInput.value.trim()) {
+          nameInput.value = suggestedName.replace(/[^a-zA-Z0-9_]/g, '_');
+        }
+
+        const rawKeys = [];
+        const seenKeys = new Set();
+        for (const rec of records) {
+          for (const k of Object.keys(rec)) {
+            if (!seenKeys.has(k)) {
+              seenKeys.add(k);
+              rawKeys.push(k);
+            }
+          }
+        }
+
+        const inferredFields = [];
+        const existingFieldNames = new Set(['id', 'created', 'updated']);
+
+        for (const k of rawKeys) {
+          const lower = k.toLowerCase().trim();
+          if (lower === 'id' || lower === 'created' || lower === 'updated') continue;
+
+          const clean = sanitizeFieldNameClient(k);
+          let finalName = clean;
+          let counter = 1;
+          while (existingFieldNames.has(finalName.toLowerCase())) {
+            counter++;
+            finalName = `${clean}_${counter}`;
+          }
+          existingFieldNames.add(finalName.toLowerCase());
+
+          const vals = [];
+          for (const rec of records) {
+            if (rec[k] !== undefined) vals.push(rec[k]);
+          }
+
+          const type = inferFieldTypeClient(vals);
+          const sampleVal = vals.length > 0 ? vals[0] : null;
+
+          inferredFields.push({
+            name: finalName,
+            originalKey: k,
+            type: type,
+            sample: sampleVal,
+          });
+        }
+
+        importJsonState = {
+          parsedRecords: records,
+          inferredFields: inferredFields,
+          suggestedName: suggestedName,
+          error: null,
+        };
+
+        renderInferredFieldsPreview();
+      } catch (e) {
+        importJsonState = { parsedRecords: [], inferredFields: [], suggestedName: '', error: e.message };
+        if (previewContainer) {
+          previewContainer.innerHTML = `
+            <div style="font-size:12px; color:var(--accent-danger); display:flex; align-items:center; gap:8px;">
+              <span>⚠</span>
+              <span>Invalid JSON: ${e.message}</span>
+            </div>
+          `;
+        }
+      }
+    }
+
+    function renderInferredFieldsPreview() {
+      const previewContainer = document.getElementById('import-json-preview-content');
+      if (!previewContainer) return;
+
+      const { parsedRecords, inferredFields } = importJsonState;
+      const colName = document.getElementById('import-json-name')?.value.trim() || 'my_collection';
+
+      const typeBadges = {
+        text: 'background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3);',
+        number: 'background:rgba(168,85,247,0.15); color:#c084fc; border:1px solid rgba(168,85,247,0.3);',
+        bool: 'background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3);',
+        date: 'background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3);',
+        json: 'background:rgba(236,72,153,0.15); color:#f472b6; border:1px solid rgba(236,72,153,0.3);',
+        email: 'background:rgba(20,184,166,0.15); color:#2dd4bf; border:1px solid rgba(20,184,166,0.3);',
+        url: 'background:rgba(99,102,241,0.15); color:#818cf8; border:1px solid rgba(99,102,241,0.3);',
+      };
+
+      previewContainer.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; border-bottom:1px solid var(--border-subtle); padding-bottom:0.5rem;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-weight:700; font-size:13px; color:#fff;">✓ ${parsedRecords.length} record${parsedRecords.length === 1 ? '' : 's'} detected</span>
+            <span class="badge badge-get" style="font-size:11px;">${inferredFields.length} columns inferred</span>
+          </div>
+          <span style="font-size:11px; color:var(--text-muted);">Instant SQLite columns</span>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:6px; max-height:180px; overflow-y:auto; margin-bottom:0.75rem; padding-right:4px;">
+          ${inferredFields.map((f, idx) => `
+            <div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg-card); padding:6px 10px; border-radius:6px; border:1px solid var(--border-subtle); font-size:12px;">
+              <div style="display:flex; align-items:center; gap:8px; min-width:140px;">
+                <span style="font-family:monospace; font-weight:600; color:#fff;">${f.name}</span>
+                ${f.originalKey !== f.name ? `<span style="font-size:10px; color:var(--text-muted); font-family:monospace;">(from "${f.originalKey}")</span>` : ''}
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <select class="form-select" id="field-type-override-${idx}" style="font-size:11px; padding:2px 6px; height:24px; border-radius:4px; font-family:monospace; ${typeBadges[f.type] || ''}" onchange="onFieldTypeOverrideChanged(${idx}, this.value)">
+                  <option value="text" ${f.type === 'text' ? 'selected' : ''}>text</option>
+                  <option value="number" ${f.type === 'number' ? 'selected' : ''}>number</option>
+                  <option value="bool" ${f.type === 'bool' ? 'selected' : ''}>bool</option>
+                  <option value="date" ${f.type === 'date' ? 'selected' : ''}>date</option>
+                  <option value="json" ${f.type === 'json' ? 'selected' : ''}>json</option>
+                  <option value="email" ${f.type === 'email' ? 'selected' : ''}>email</option>
+                  <option value="url" ${f.type === 'url' ? 'selected' : ''}>url</option>
+                </select>
+                <span style="color:var(--text-muted); font-size:11px; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:monospace;" title='${JSON.stringify(f.sample)}'>
+                  ${f.sample !== null && f.sample !== undefined ? (typeof f.sample === 'object' ? JSON.stringify(f.sample) : String(f.sample)) : '<null>'}
+                </span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(59,130,246,0.2); border-radius:6px; padding:6px 10px; font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <span style="color:#60a5fa; font-weight:600;">REST API ready:</span>
+            <code style="margin-left:6px; color:#fff;">GET /api/collections/${colName}/records</code>
+          </div>
+          <span style="font-size:10px; color:#34d399;">● Full CRUD + Realtime + Docs</span>
+        </div>
+      `;
+    }
+
+    function onFieldTypeOverrideChanged(idx, newType) {
+      if (importJsonState.inferredFields[idx]) {
+        importJsonState.inferredFields[idx].type = newType;
+        renderInferredFieldsPreview();
+      }
+    }
+
+    function updateImportJsonPreview() {
+      if (importJsonState.parsedRecords.length > 0) {
+        renderInferredFieldsPreview();
+      }
+    }
+
+    async function submitImportJson() {
+      const nameInput = document.getElementById('import-json-name');
+      const jsonInput = document.getElementById('import-json-input');
+      const submitBtn = document.getElementById('btn-submit-import-json');
+
+      const name = nameInput ? nameInput.value.trim() : '';
+      if (!name) {
+        toast('Please enter a collection name', 'error');
+        nameInput?.focus();
+        return;
+      }
+
+      if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+        toast('Collection name must only contain alphanumeric characters and underscores', 'error');
+        nameInput?.focus();
+        return;
+      }
+
+      const text = jsonInput ? jsonInput.value.trim() : '';
+      if (!text) {
+        toast('Please paste raw JSON payload', 'error');
+        jsonInput?.focus();
+        return;
+      }
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating API...';
+      }
+
+      try {
+        const schemaOverrides = (importJsonState.inferredFields || []).map((f) => ({
+          name: f.name,
+          type: f.type,
+        }));
+
+        const res = await api('/api/collections/import-json', {
+          method: 'POST',
+          body: JSON.stringify({
+            name,
+            data: text,
+            schemaOverrides,
+          }),
+        });
+
+        toast(
+          `Collection '${res.collection.name}' created with ${res.recordCount} records in ${res.durationMs}ms!`,
+          'success'
+        );
+        closeModal();
+        await loadCollections();
+        selectCollection(res.collection.name);
+      } catch (e) {
+        toast(e.message, 'error');
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = '⚡ Create Collection & Import Records';
+        }
+      }
     }
 
     async function submitNewCollection() {
@@ -921,3 +1386,606 @@
 
       toast(`Import finished: ${res.imported} records added to ${col.name}`, res.imported > 0 ? 'success' : 'error');
     }
+
+    // ==========================================
+    // 1-Click Generate Mock Data Modal (Faker Engine)
+    // ==========================================
+
+    let selectedMockCount = 50;
+
+    function getFieldMockDescription(f, col) {
+      const clean = f.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (f.type === 'email' || clean.includes('email') || clean.includes('mail')) {
+        return 'Realistic unique emails (e.g. sarah.jenkins@example.com)';
+      }
+      if (f.type === 'file') {
+        if (clean.includes('avatar') || clean.includes('photo') || clean.includes('profile')) {
+          return 'DiceBear / Unsplash avatar images (with SVG badge fallback)';
+        }
+        return 'Placeholder cover/product images with SVG metadata';
+      }
+      if (f.type === 'select') {
+        const vals = f.options?.values || ['draft', 'published', 'archived'];
+        return `Random distribution across options: [${vals.slice(0, 3).join(', ')}${vals.length > 3 ? '...' : ''}]`;
+      }
+      if (f.type === 'relation') {
+        const targetId = f.options?.collectionId || 'collection';
+        const targetCol = state.collections.find(c => c.id === targetId || c.name === targetId);
+        const colTitle = targetCol ? targetCol.name : targetId;
+        return `Auto-links to existing '${colTitle}' records (auto-seeds if empty)`;
+      }
+      if (f.type === 'number') {
+        if (clean.includes('price') || clean.includes('cost') || clean.includes('amount') || clean.includes('salary')) {
+          return 'Realistic currency figures (e.g. $19.99, $49.00, $129.50)';
+        }
+        if (clean === 'age') return 'Realistic human ages (18-70)';
+        if (clean.includes('rating') || clean.includes('score')) return 'Star ratings (3.5 - 5.0)';
+        return 'Random realistic numeric values';
+      }
+      if (f.type === 'bool') {
+        return 'Distributed booleans (true/false weighted for active/published)';
+      }
+      if (f.type === 'date') {
+        return 'Realistic ISO timestamps in recent past';
+      }
+      if (f.type === 'json') {
+        return 'Structured mock JSON (tags, settings, address)';
+      }
+      if (clean === 'name' || clean === 'fullname' || clean === 'author' || clean === 'customer') {
+        return 'Real human full names (e.g. Sarah Jenkins, Marcus Vance)';
+      }
+      if (clean === 'firstname') return 'First names (e.g. Sarah, Marcus)';
+      if (clean === 'lastname') return 'Last names (e.g. Jenkins, Vance)';
+      if (clean.includes('company') || clean.includes('org')) return 'Company names (e.g. Acme Corp, Nexus Digital)';
+      if (clean.includes('title') || clean.includes('headline')) return 'Article/Product titles';
+      if (clean.includes('bio') || clean.includes('desc') || clean.includes('about')) return 'Natural sentences and bios';
+      if (clean.includes('city')) return 'World cities (e.g. San Francisco, Tokyo)';
+      if (clean.includes('country')) return 'Country names (e.g. United States, Japan)';
+      if (clean.includes('street') || clean.includes('address')) return 'Realistic street addresses';
+      if (clean.includes('phone') || clean.includes('tel')) return 'International phone numbers';
+      return `Realistic synthetic ${f.name} values`;
+    }
+
+    function selectMockCount(count) {
+      selectedMockCount = count;
+      document.querySelectorAll('.count-pill').forEach(btn => {
+        if (parseInt(btn.getAttribute('data-count')) === count) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+      const input = document.getElementById('mock-custom-count');
+      if (input) input.value = count;
+      const submitBtn = document.getElementById('btn-submit-mock');
+      if (submitBtn) {
+        submitBtn.innerHTML = `<span>✨ Generate ${count} Records</span>`;
+      }
+    }
+
+    function onMockCustomCountChange(val) {
+      const parsed = Math.max(1, Math.min(500, parseInt(val) || 25));
+      selectedMockCount = parsed;
+      document.querySelectorAll('.count-pill').forEach(btn => {
+        if (parseInt(btn.getAttribute('data-count')) === parsed) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+      const submitBtn = document.getElementById('btn-submit-mock');
+      if (submitBtn) {
+        submitBtn.innerHTML = `<span>✨ Generate ${parsed} Records</span>`;
+      }
+    }
+
+    function openMockDataModal() {
+      const col = state.activeCollection;
+      if (!col) return;
+
+      selectedMockCount = 50;
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+          <div class="modal modal-lg">
+            <div class="modal-header">
+              <div style="display:flex; align-items:center; gap:0.75rem;">
+                <div style="width:36px; height:36px; border-radius:8px; background:rgba(59,130,246,0.15); color:#60a5fa; display:flex; align-items:center; justify-content:center; font-size:18px;">
+                  ✨
+                </div>
+                <div>
+                  <h2 class="modal-title" style="margin:0;">Generate Mock Data — ${col.name}</h2>
+                  <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">Built-in Faker Engine with intelligent schema type inspection</div>
+                </div>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+
+            <div class="modal-body" style="gap:1.25rem;">
+              <!-- Record Count Picker -->
+              <div>
+                <label class="form-label" style="margin-bottom:0.5rem; font-weight:600;">How many records would you like to generate?</label>
+                <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                  <button type="button" class="count-pill" data-count="10" onclick="selectMockCount(10)">10 records</button>
+                  <button type="button" class="count-pill" data-count="25" onclick="selectMockCount(25)">25 records</button>
+                  <button type="button" class="count-pill active" data-count="50" onclick="selectMockCount(50)">50 records</button>
+                  <button type="button" class="count-pill" data-count="100" onclick="selectMockCount(100)">100 records</button>
+                  
+                  <div style="display:flex; align-items:center; gap:6px; margin-left:auto;">
+                    <span style="font-size:12px; color:var(--text-muted);">Custom:</span>
+                    <input type="number" id="mock-custom-count" min="1" max="500" value="50" class="form-input" style="width:80px; padding:0.35rem 0.5rem; text-align:center;" oninput="onMockCustomCountChange(this.value)">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Schema Field Inspection Preview -->
+              <div>
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.5rem;">
+                  <label class="form-label" style="margin:0; font-weight:600;">Schema Field Inspection</label>
+                  <span style="font-size:11px; color:var(--text-muted);">${col.schema.length + (col.type === 'auth' ? 2 : 0)} fields detected</span>
+                </div>
+                <div class="mapping-table-container" style="max-height:220px; overflow-y:auto; border:1px solid var(--border-subtle); border-radius:6px;">
+                  <table class="mapping-table" style="width:100%; border-collapse:collapse; font-size:12px;">
+                    <thead>
+                      <tr style="background:var(--bg-input); text-align:left; border-bottom:1px solid var(--border-subtle);">
+                        <th style="padding:8px 12px; width:25%;">Field</th>
+                        <th style="padding:8px 12px; width:15%;">Type</th>
+                        <th style="padding:8px 12px; width:60%;">Simulated Content</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${col.type === 'auth' ? `
+                        <tr style="border-bottom:1px solid var(--border-subtle);">
+                          <td style="padding:8px 12px; font-weight:600;">email</td>
+                          <td style="padding:8px 12px;"><span class="badge">auth</span></td>
+                          <td style="padding:8px 12px; color:var(--text-muted);">Unique realistic emails (e.g. sarah.jenkins@example.com)</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid var(--border-subtle);">
+                          <td style="padding:8px 12px; font-weight:600;">password</td>
+                          <td style="padding:8px 12px;"><span class="badge">auth</span></td>
+                          <td style="padding:8px 12px; color:var(--text-muted);">Secure bcrypt-hashed credentials ("NodeStack2026!")</td>
+                        </tr>
+                      ` : ''}
+                      ${col.schema.map(f => `
+                        <tr style="border-bottom:1px solid var(--border-subtle);">
+                          <td style="padding:8px 12px; font-weight:600;">
+                            ${f.name} ${f.required ? '<span style="color:#f87171;">*</span>' : ''}
+                          </td>
+                          <td style="padding:8px 12px;">
+                            <span class="badge badge-${f.type}">${f.type}</span>
+                          </td>
+                          <td style="padding:8px 12px; color:var(--text-muted);">
+                            ${getFieldMockDescription(f, col)}
+                          </td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Options -->
+              <div style="background:var(--bg-input); padding:0.85rem 1rem; border-radius:6px; border:1px solid var(--border-subtle); display:flex; flex-direction:column; gap:0.6rem;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                  <input type="checkbox" id="mock-download-files" checked style="cursor:pointer;">
+                  <span>Auto-download realistic avatar / placeholder images (DiceBear / Unsplash)</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                  <input type="checkbox" id="mock-auto-seed-relations" checked style="cursor:pointer;">
+                  <span>Automatically seed empty referenced collections to satisfy relations</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="modal-footer">
+              <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+              <button class="btn btn-primary" id="btn-submit-mock" onclick="submitGenerateMockData()">
+                <span>✨ Generate ${selectedMockCount} Records</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function submitGenerateMockData() {
+      const col = state.activeCollection;
+      if (!col) return;
+
+      const submitBtn = document.getElementById('btn-submit-mock');
+      const downloadFiles = document.getElementById('mock-download-files')?.checked ?? true;
+      const autoSeedRelations = document.getElementById('mock-auto-seed-relations')?.checked ?? true;
+
+      const count = selectedMockCount || 50;
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `
+          <div style="width:14px; height:14px; border:2px solid #ffffff; border-top-color:transparent; border-radius:50%; animation:spin 0.6s linear infinite;"></div>
+          <span>Generating ${count} Records...</span>
+        `;
+      }
+
+      try {
+        const res = await api(`/api/collections/${col.name}/generate-mock`, {
+          method: 'POST',
+          body: JSON.stringify({
+            count,
+            options: {
+              downloadFiles,
+              autoSeedRelations,
+            },
+          }),
+        });
+
+        toast(`✨ Successfully generated ${res.count || count} realistic records!`, 'success');
+        closeModal();
+        await loadRecords();
+      } catch (err) {
+        toast(`Mock Generation Failed: ${err.message || String(err)}`, 'error');
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = `<span>✨ Generate ${count} Records</span>`;
+        }
+      }
+    }
+
+    // Starter Templates & Recipes Modal
+    function openTemplatesModal() {
+      const modal = document.getElementById('modal-root');
+      const templates = [
+        {
+          id: 'ecommerce',
+          name: 'E-Commerce',
+          icon: '🛒',
+          badge: '20 Items & Images',
+          accent: '#3b82f6',
+          description: 'Pre-seeded with 20 items & high-res SVG product images, categories, orders, and verified customer reviews.',
+          collections: ['products', 'categories', 'orders', 'reviews'],
+          stats: '4 collections • 48 records • 25 images'
+        },
+        {
+          id: 'blog',
+          name: 'Blog / Content',
+          icon: '📝',
+          badge: 'Editorial Engine',
+          accent: '#10b981',
+          description: 'Pre-seeded with technical markdown articles, author avatars, category tags, cover images, and discussions.',
+          collections: ['posts', 'authors', 'tags', 'comments'],
+          stats: '4 collections • 28 records • 12 images'
+        },
+        {
+          id: 'crm',
+          name: 'SaaS / CRM',
+          icon: '👥',
+          badge: 'Pipeline & Deals',
+          accent: '#8b5cf6',
+          description: 'Pre-seeded with B2B companies with logo marks, leads with scoring, pipeline deal stages, and activity logs.',
+          collections: ['companies', 'leads', 'deals', 'activities'],
+          stats: '4 collections • 26 records • 6 images'
+        }
+      ];
+
+      modal.innerHTML = `
+        <div class="modal-backdrop">
+          <div class="modal" style="max-width:820px; max-height:90vh; display:flex; flex-direction:column;">
+            <div class="modal-header" style="align-items:flex-start;">
+              <div>
+                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.25rem;">
+                  <h2 class="modal-title" style="font-size:20px;">Starter Templates & Recipes</h2>
+                  <span class="badge badge-get" style="font-size:11px;">1-Click Setup</span>
+                </div>
+                <p style="font-size:13px; color:var(--text-muted); margin:0;">
+                  Never start from an empty database. Choose a battle-tested template pre-seeded with schemas, relations, and realistic data with images.
+                </p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+            
+            <div class="modal-body" style="overflow-y:auto; padding:1.25rem; display:flex; flex-direction:column; gap:1.25rem;">
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:1rem;">
+                ${templates.map(t => `
+                  <div style="background:var(--bg-input); border:1px solid var(--border-subtle); border-radius:10px; padding:1.25rem; display:flex; flex-direction:column; justify-content:space-between; gap:1rem; position:relative; overflow:hidden; transition:all 0.2s ease;">
+                    <div style="position:absolute; top:0; left:0; right:0; height:4px; background:${t.accent};"></div>
+                    <div>
+                      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.6rem;">
+                        <span style="font-size:24px;">${t.icon}</span>
+                        <span class="badge" style="background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.15); font-size:11px; color:#fff;">${t.badge}</span>
+                      </div>
+                      <h3 style="font-size:16px; font-weight:700; margin-bottom:0.3rem; color:#fff;">${t.name}</h3>
+                      <p style="font-size:12px; color:var(--text-muted); line-height:1.4; margin-bottom:0.75rem;">${t.description}</p>
+                      
+                      <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:6px; padding:0.6rem; margin-bottom:0.5rem;">
+                        <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:0.4rem;">Collections included:</div>
+                        <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                          ${t.collections.map(c => `
+                            <span style="background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px; font-family:var(--font-mono); font-size:11px; color:#cbd5e1;">${c}</span>
+                          `).join('')}
+                        </div>
+                      </div>
+                      <div style="font-size:11px; color:var(--text-muted);">${t.stats}</div>
+                    </div>
+
+                    <button class="btn btn-primary" id="btn-apply-${t.id}" style="width:100%; display:flex; align-items:center; justify-content:center; gap:6px;" onclick="openApplyTemplateConfirmModal('${t.id}')">
+                      <span>🚀 Launch ${t.name}</span>
+                    </button>
+                  </div>
+                `).join('')}
+              </div>
+
+              <div style="background:rgba(255,255,255,0.03); border:1px solid var(--border-subtle); border-radius:8px; padding:0.75rem 1rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+                <span style="font-size:12px; color:var(--text-muted);">
+                  Click any template above to review schema preview & overwrite settings before launching.
+                </span>
+                <span style="font-size:12px; font-family:var(--font-mono); color:var(--text-muted);">
+                  CLI: <code style="color:#60a5fa;">npx nodestack start --template ecommerce</code>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function openApplyTemplateConfirmModal(templateId) {
+      const templateMeta = {
+        ecommerce: {
+          name: 'E-Commerce Recipe',
+          icon: '🛒',
+          badge: '20 Items & SVG Images',
+          accent: '#3b82f6',
+          description: 'Complete online storefront architecture with products catalog, categories, customer orders, and verified customer reviews.',
+          collections: [
+            { name: 'products', type: 'base', count: 20, desc: 'name, slug, price, description, inStock, rating, category, images (custom SVGs)' },
+            { name: 'categories', type: 'base', count: 4, desc: 'title, slug, icon, active' },
+            { name: 'orders', type: 'base', count: 8, desc: 'customerName, customerEmail, totalAmount, status, items' },
+            { name: 'reviews', type: 'base', count: 15, desc: 'author, rating, comment, verifiedPurchase, product' },
+          ],
+          stats: '4 collections • 47 pre-seeded sample records • 20 vector SVG product images',
+        },
+        blog: {
+          name: 'Blog / Content Engine',
+          icon: '📝',
+          badge: 'Editorial Platform',
+          accent: '#10b981',
+          description: 'Modern publishing engine featuring rich markdown posts, author profiles with avatars, categorization tags, and reader comments.',
+          collections: [
+            { name: 'posts', type: 'base', count: 8, desc: 'title, slug, content (Markdown), published, author, tags, cover' },
+            { name: 'authors', type: 'auth', count: 4, desc: 'name, bio, role, avatar (custom SVG)' },
+            { name: 'tags', type: 'base', count: 6, desc: 'name, slug, color' },
+            { name: 'comments', type: 'base', count: 12, desc: 'authorName, content, post, approved' },
+          ],
+          stats: '4 collections • 30 pre-seeded sample records • 4 author profile SVG avatars',
+        },
+        crm: {
+          name: 'SaaS / CRM Pipeline',
+          icon: '👥',
+          badge: 'B2B Sales Pipeline',
+          accent: '#8b5cf6',
+          description: 'B2B customer relationship management pipeline with target companies, inbound leads, deal revenue stages, and sales team activities.',
+          collections: [
+            { name: 'companies', type: 'base', count: 6, desc: 'name, domain, size, industry, logo (custom SVG)' },
+            { name: 'leads', type: 'base', count: 10, desc: 'firstName, lastName, email, company, status, score' },
+            { name: 'deals', type: 'base', count: 8, desc: 'title, value, stage, company, probability' },
+            { name: 'activities', type: 'base', count: 14, desc: 'type, subject, notes, deal, dueDate, completed' },
+          ],
+          stats: '4 collections • 38 pre-seeded sample records • 6 company vector SVG logos',
+        },
+      };
+
+      const t = templateMeta[templateId] || templateMeta.ecommerce;
+      const existingMatches = state.collections.filter(c => t.collections.some(tc => tc.name === c.name));
+
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop">
+          <div class="modal" style="max-width: 580px;">
+            <div class="modal-header" style="border-bottom: 1px solid var(--border-subtle); padding: 1.25rem 1.5rem;">
+              <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; font-size: 20px;">
+                  ${t.icon}
+                </div>
+                <div>
+                  <h2 class="modal-title" style="font-size: 16px; margin: 0; color: #fff;">Confirm Template Launch: ${t.name}</h2>
+                  <span style="font-size: 11px; color: var(--text-muted);">${t.badge}</span>
+                </div>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+
+            <div class="modal-body" style="padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+              <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin: 0;">
+                ${t.description}
+              </p>
+
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+                <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em; margin-bottom: 0.6rem;">
+                  Collections to be created & pre-seeded:
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.45rem;">
+                  ${t.collections.map(c => `
+                    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); padding-bottom: 0.35rem;">
+                      <div>
+                        <strong style="color: #fff; font-family: var(--font-mono);">${c.name}</strong>
+                        <span style="color: var(--text-muted); font-size: 11px; margin-left: 6px;">(${c.desc})</span>
+                      </div>
+                      <span class="badge badge-get" style="font-size: 10px; flex-shrink: 0;">${c.count} records</span>
+                    </div>
+                  `).join('')}
+                </div>
+                <div style="margin-top: 0.6rem; font-size: 11px; color: #93c5fd;">
+                  ✨ ${t.stats}
+                </div>
+              </div>
+
+              ${existingMatches.length > 0 ? `
+                <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 0.75rem 1rem;">
+                  <div style="font-size: 12px; font-weight: 700; color: #f59e0b; margin-bottom: 0.25rem;">
+                    ⚠️ Existing Collections Detected
+                  </div>
+                  <div style="font-size: 12px; color: #cbd5e1; line-height: 1.4;">
+                    The following collection(s) already exist: <strong style="color:#fff;">${existingMatches.map(m => m.name).join(', ')}</strong>.
+                  </div>
+                </div>
+              ` : ''}
+
+              <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem;">
+                <label style="display: flex; align-items: flex-start; gap: 0.6rem; font-size: 12px; color: var(--text-main); cursor: pointer;">
+                  <input type="checkbox" id="confirm-template-overwrite" style="margin-top: 2px;">
+                  <div>
+                    <strong style="color: #fff;">Overwrite existing collections if they match</strong>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                      If checked, matching tables and their records will be overwritten with the template data.
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-subtle); display: flex; justify-content: flex-end; gap: 0.75rem;">
+              <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+              <button class="btn btn-primary" id="btn-confirm-apply-${templateId}" onclick="submitApplyTemplateConfirmed('${templateId}')" style="display: flex; align-items: center; gap: 6px;">
+                <span>Confirm & Launch 🚀</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function submitApplyTemplateConfirmed(templateId) {
+      const btn = document.getElementById(`btn-confirm-apply-${templateId}`);
+      const overwrite = document.getElementById('confirm-template-overwrite')?.checked ?? false;
+
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `
+          <div style="width:13px; height:13px; border:2px solid #ffffff; border-top-color:transparent; border-radius:50%; animation:spin 0.6s linear infinite; display:inline-block; margin-right:4px;"></div>
+          <span>Seeding Template...</span>
+        `;
+      }
+
+      try {
+        const res = await api('/api/templates/apply', {
+          method: 'POST',
+          body: JSON.stringify({
+            template: templateId,
+            overwrite: Boolean(overwrite),
+          }),
+        });
+
+        if (res.skipped) {
+          toast(res.message || `Template '${templateId}' is already applied.`, 'info');
+        } else {
+          toast(`✨ ${res.templateName} recipe installed! ${res.collections.length} collections, ${res.totalRecords} records seeded.`, 'success');
+        }
+
+        closeModal();
+        await loadCollections();
+
+        // Select the primary collection of the template
+        const primaryColMap = {
+          ecommerce: 'products',
+          blog: 'posts',
+          crm: 'deals',
+        };
+        const targetCol = primaryColMap[templateId] || res.collections[0];
+        if (targetCol && state.collections.some(c => c.name === targetCol)) {
+          selectCollection(targetCol);
+        } else {
+          selectNav('home');
+        }
+      } catch (err) {
+        toast(`Failed to apply template: ${err.message || String(err)}`, 'error');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<span>Confirm & Launch 🚀</span>`;
+        }
+      }
+    }
+
+    function applyTemplateFromUi(templateId) {
+      openApplyTemplateConfirmModal(templateId);
+    }
+
+    // Delete Collection Modal
+    function openDeleteCollectionModal(colName) {
+      const col = state.collections.find(c => c.name === colName) || { name: colName };
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop">
+          <div class="modal" style="max-width:440px;">
+            <div class="modal-header" style="border-bottom-color:rgba(239, 68, 68, 0.2);">
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                <span style="font-size:18px;">⚠️</span>
+                <h2 class="modal-title" style="color:#ef4444; font-size:16px;">Delete Collection</h2>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body" style="padding:1.25rem; display:flex; flex-direction:column; gap:1rem;">
+              <p style="font-size:13px; color:#cbd5e1; line-height:1.5; margin:0;">
+                Are you sure you want to permanently delete the collection <strong style="color:#fff; font-family:var(--font-mono);">${col.name}</strong>?
+              </p>
+              <div style="background:rgba(239, 68, 68, 0.08); border:1px solid rgba(239, 68, 68, 0.25); border-radius:6px; padding:0.75rem; font-size:12px; color:#fca5a5; line-height:1.4;">
+                This will drop the SQLite table <strong style="font-family:var(--font-mono);">${col.name}</strong>, remove all schema definitions, and permanently erase all stored records and file assets.
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" style="font-size:12px;">Type <strong>${col.name}</strong> to confirm:</label>
+                <input type="text" class="form-input" id="confirm-delete-col-input" placeholder="${col.name}" oninput="
+                  const btn = document.getElementById('btn-confirm-delete-col');
+                  if (btn) btn.disabled = (this.value.trim() !== '${col.name}');
+                " onkeydown="
+                  if (event.key === 'Enter' && this.value.trim() === '${col.name}') {
+                    submitDeleteCollection('${col.name}');
+                  }
+                " autofocus>
+              </div>
+            </div>
+            <div class="modal-footer" style="padding:0.75rem 1.25rem;">
+              <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+              <button class="btn btn-danger" id="btn-confirm-delete-col" disabled onclick="submitDeleteCollection('${col.name}')">
+                Delete Permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      setTimeout(() => {
+        document.getElementById('confirm-delete-col-input')?.focus();
+      }, 50);
+    }
+
+    async function submitDeleteCollection(colName) {
+      const btn = document.getElementById('btn-confirm-delete-col');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `
+          <div style="width:12px; height:12px; border:2px solid #ffffff; border-top-color:transparent; border-radius:50%; animation:spin 0.6s linear infinite; display:inline-block; margin-right:4px;"></div>
+          <span>Deleting...</span>
+        `;
+      }
+
+      try {
+        await api('/api/collections/' + encodeURIComponent(colName), {
+          method: 'DELETE',
+        });
+
+        toast(`Collection '${colName}' deleted successfully`, 'success');
+        closeModal();
+
+        if (state.activeCollection?.name === colName) {
+          state.activeCollection = null;
+        }
+
+        await loadCollections();
+        selectNav('home');
+      } catch (err) {
+        toast(`Failed to delete collection: ${err.message || String(err)}`, 'error');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = 'Delete Permanently';
+        }
+      }
+    }
+
+

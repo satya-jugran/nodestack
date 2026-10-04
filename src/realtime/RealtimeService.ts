@@ -114,6 +114,17 @@ export class RealtimeService {
     }
   }
 
+  public broadcastSystemEvent(event: string, data: Record<string, any> = {}): void {
+    const payload = JSON.stringify(data);
+    for (const [, client] of this.clients) {
+      try {
+        client.reply.raw.write(`event: ${event}\ndata: ${payload}\n\n`);
+      } catch {
+        this.clients.delete(client.id);
+      }
+    }
+  }
+
   private pingAll(): void {
     for (const [id, client] of this.clients) {
       try {

@@ -24,6 +24,11 @@
             <span>Import CSV</span>
           </button>
 
+          <button class="btn btn-secondary btn-sm" onclick="openMockDataModal()" title="1-Click Generate Mock Data (Built-in Faker Engine)" style="border-color: rgba(96, 165, 250, 0.4); color: #93c5fd;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            <span>Generate Mock Data</span>
+          </button>
+
           <button class="btn btn-primary btn-sm" onclick="openNewRecordModal()">
             <span>+ New Record</span>
           </button>
@@ -89,7 +94,30 @@
       `;
 
       if (state.records.length === 0) {
-        tbContainer.innerHTML = `<tr><td colspan="${fields.length + 3}" style="text-align:center;padding:3rem;color:var(--text-muted);">No records found in this collection.</td></tr>`;
+        tbContainer.innerHTML = `
+          <tr>
+            <td colspan="${fields.length + 3}" style="text-align:center;padding:3.5rem 1rem;">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:0.75rem;">
+                <div style="width:44px; height:44px; border-radius:50%; background:rgba(59,130,246,0.12); color:#60a5fa; display:flex; align-items:center; justify-content:center; font-size:20px;">
+                  ✨
+                </div>
+                <div style="font-weight:600; font-size:15px; color:var(--text-main);">No records in '${col.name}' yet</div>
+                <div style="font-size:13px; color:var(--text-muted); max-width:380px; line-height:1.4;">
+                  Populate your collection in seconds with realistic human names, emails, prices, avatars, and linked relations.
+                </div>
+                <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+                  <button class="btn btn-primary btn-sm" onclick="openMockDataModal()">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                    <span>Generate Mock Data</span>
+                  </button>
+                  <button class="btn btn-secondary btn-sm" onclick="openNewRecordModal()">
+                    <span>+ New Record</span>
+                  </button>
+                </div>
+              </div>
+            </td>
+          </tr>
+        `;
         return;
       }
 

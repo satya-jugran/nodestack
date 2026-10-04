@@ -43,7 +43,7 @@ export class OpenApiGenerator {
     options: OpenApiGeneratorOptions = {}
   ): Record<string, any> {
     const title = options.title || 'NodeStack API';
-    const version = options.version || '1.0.0';
+    const version = options.version || '1.1.0';
     const description =
       options.description ||
       'Interactive OpenAPI 3.0 specification for NodeStack backend. Dynamically generated from collection schemas.';
@@ -107,7 +107,7 @@ export class OpenApiGenerator {
       type: 'object',
       properties: {
         status: { type: 'string', example: 'ok' },
-        version: { type: 'string', example: '1.0.0' },
+        version: { type: 'string', example: '1.1.0' },
         appName: { type: 'string', example: 'NodeStack' },
         uptime: { type: 'number', example: 123.45 },
         memory: { type: 'object', additionalProperties: true },
@@ -119,7 +119,7 @@ export class OpenApiGenerator {
       type: 'object',
       properties: {
         appName: { type: 'string', example: 'NodeStack' },
-        version: { type: 'string', example: '1.0.0' },
+        version: { type: 'string', example: '1.1.0' },
       },
       required: ['appName', 'version'],
     };
@@ -448,6 +448,24 @@ export class OpenApiGenerator {
             in: 'query',
             schema: { type: 'string' },
             description: 'Comma-separated field names to return.',
+          },
+          {
+            name: 'mock_delay',
+            in: 'query',
+            schema: { type: 'string', example: '1500' },
+            description: 'Simulate mobile/network latency in milliseconds (e.g. 1500 or 500-1500).',
+          },
+          {
+            name: 'mock_error',
+            in: 'query',
+            schema: { type: 'integer', example: 500 },
+            description: 'Simulate an HTTP error status code (e.g. 500, 503, 404).',
+          },
+          {
+            name: 'mock_fail_rate',
+            in: 'query',
+            schema: { type: 'number', example: 0.2 },
+            description: 'Simulate random network failure probability between 0.0 and 1.0 (e.g. 0.2 for 20% drops).',
           },
         ],
         responses: {
@@ -899,6 +917,104 @@ export class OpenApiGenerator {
           },
           '400': { description: 'Validation failed' },
           '401': { description: 'Unauthorized' },
+        },
+      },
+    };
+
+    paths['/api/collections/infer-schema'] = {
+      post: {
+        tags: ['Collections'],
+        summary: 'Infer schema from JSON',
+        description: 'Analyzes a raw JSON object or array and automatically infers field types (text, number, bool, date, json).',
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['data'],
+                properties: {
+                  data: {
+                    description: 'Raw JSON object or array of objects',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Inferred schema result',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    suggestedName: { type: 'string' },
+                    fields: { type: 'array', items: { $ref: '#/components/schemas/SchemaField' } },
+                    recordCount: { type: 'integer' },
+                    sampleRecords: { type: 'array', items: { type: 'object' } },
+                  },
+                },
+              },
+            },
+          },
+          '400': { description: 'Invalid JSON payload' },
+          '401': { description: 'Unauthorized' },
+        },
+      },
+    };
+
+    paths['/api/collections/import-json'] = {
+      post: {
+        tags: ['Collections'],
+        summary: 'Paste JSON → Instant API',
+        description: 'Infers schema, creates collection & SQLite columns, and populates records instantly in 1 second.',
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['name', 'data'],
+                properties: {
+                  name: { type: 'string', description: 'Name of the collection to create' },
+                  data: { description: 'Raw JSON object or array of objects to import' },
+                  type: { type: 'string', enum: ['base', 'auth'], default: 'base' },
+                  schemaOverrides: {
+                    type: 'array',
+                    items: { $ref: '#/components/schemas/SchemaField' },
+                    description: 'Optional schema field overrides',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '201': {
+            description: 'Collection created and records imported',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean' },
+                    collection: { $ref: '#/components/schemas/CollectionModel' },
+                    recordCount: { type: 'integer' },
+                    records: { type: 'array', items: { type: 'object' } },
+                    inferredFields: { type: 'array', items: { $ref: '#/components/schemas/SchemaField' } },
+                    durationMs: { type: 'number' },
+                  },
+                },
+              },
+            },
+          },
+          '400': { description: 'Validation failed or invalid JSON' },
+          '401': { description: 'Unauthorized' },
+          '409': { description: 'Collection already exists' },
         },
       },
     };

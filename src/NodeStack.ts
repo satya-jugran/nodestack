@@ -5,12 +5,14 @@ import { TOKENS } from './core/container/Tokens';
 import { ConfigService, NodeStackConfigOptions } from './core/config/ConfigService';
 import { DatabaseService } from './database/DatabaseService';
 import { SchemaService } from './schema/SchemaService';
+import { SchemaInferenceService } from './schema/SchemaInferenceService';
 import { TypeGenerator } from './schema/TypeGenerator';
 import { OpenApiGenerator } from './schema/OpenApiGenerator';
 import { DocsService } from './admin/DocsService';
 import { RuleEngine } from './rules/RuleEngine';
 import { AuthService } from './auth/AuthService';
 import { RecordService } from './records/RecordService';
+import { MockDataService } from './records/MockDataService';
 import { FileStorageService } from './files/FileStorageService';
 import { RealtimeService } from './realtime/RealtimeService';
 import { LogService } from './logger/LogService';
@@ -18,6 +20,7 @@ import { EventBus } from './core/events/EventBus';
 import { HttpServer } from './http/HttpServer';
 import { AdminUIService } from './admin/AdminUIService';
 import { AuthMiddleware } from './http/middleware/AuthMiddleware';
+import { ChaosMiddleware } from './http/middleware/ChaosMiddleware';
 import { AuthController } from './http/controllers/AuthController';
 import { CollectionController } from './http/controllers/CollectionController';
 import { RecordController } from './http/controllers/RecordController';
@@ -27,6 +30,11 @@ import { LogController } from './http/controllers/LogController';
 import { HealthController } from './http/controllers/HealthController';
 import { AnalyticsController } from './http/controllers/AnalyticsController';
 import { AnalyticsService } from './analytics/AnalyticsService';
+import { TemplateService } from './templates/TemplateService';
+import { TemplateController } from './http/controllers/TemplateController';
+import { DemoService } from './demo/DemoService';
+import { DemoController } from './http/controllers/DemoController';
+import { MaintenanceGate } from './core/maintenance/MaintenanceGate';
 import {
   HookHandler,
   RecordBeforeEventContext,
@@ -42,19 +50,27 @@ export interface NodeStackOptions extends NodeStackConfigOptions {
 export class NodeStack {
   public readonly container: Container;
   public readonly config: ConfigService;
+  public readonly maintenanceGate: MaintenanceGate;
   public readonly eventBus: EventBus;
   public readonly db: DatabaseService;
   public readonly schema: SchemaService;
   public readonly records: RecordService;
+  public readonly mockData: MockDataService;
+  public readonly templates: TemplateService;
   public readonly auth: AuthService;
+  public readonly demo: DemoService;
   public readonly files: FileStorageService;
   public readonly realtime: RealtimeService;
   public readonly logs: LogService;
   public readonly analytics: AnalyticsService;
+  public readonly schemaInference: SchemaInferenceService;
   public readonly typegen: TypeGenerator;
   public readonly openapi: OpenApiGenerator;
   public readonly docs: DocsService;
+  public readonly adminUi: AdminUIService;
+  public readonly chaos: ChaosMiddleware;
   public readonly server: HttpServer;
+
 
   constructor(options: NodeStackOptions = {}) {
     this.container = new Container();
@@ -62,6 +78,10 @@ export class NodeStack {
     // 1. Config Service
     this.config = new ConfigService(options);
     this.container.bindInstance(TOKENS.ConfigService, this.config);
+
+    // 1.5 Maintenance Gate (coordinates demo resets & system maintenance with HTTP requests)
+    this.maintenanceGate = new MaintenanceGate();
+    this.container.bindInstance(TOKENS.MaintenanceGate, this.maintenanceGate);
 
     // 2. Database Service
     this.db = new DatabaseService(this.config, options.customDriver);
@@ -117,29 +137,72 @@ export class NodeStack {
     );
     this.container.bindInstance(TOKENS.RecordService, this.records);
 
-    // 13. Analytics Service
+    // 13. Mock Data Service
+    this.mockData = new MockDataService(
+      this.db,
+      this.schema,
+      this.files,
+      this.eventBus,
+      this.realtime
+    );
+    this.container.bindInstance(TOKENS.MockDataService, this.mockData);
+
+    // 13.5 Starter Templates & Recipes Service
+    this.templates = new TemplateService(
+      this.db,
+      this.schema,
+      this.files,
+      this.eventBus,
+      this.realtime
+    );
+    this.container.bindInstance(TOKENS.TemplateService, this.templates);
+
+    // 13.6 Demo Service ("Reset to Demo State")
+    this.demo = new DemoService(
+      this.config,
+      this.db,
+      this.schema,
+      this.files,
+      this.eventBus,
+      this.realtime,
+      this.maintenanceGate
+    );
+    this.container.bindInstance(TOKENS.DemoService, this.demo);
+
+    // 14. Analytics Service
     this.analytics = new AnalyticsService(this.db, this.config, this.schema, this.realtime);
     this.container.bindInstance(TOKENS.AnalyticsService, this.analytics);
 
-    // 14. Admin UI & Docs Services
-    const adminUi = new AdminUIService();
-    this.container.bindInstance(TOKENS.AdminUIService, adminUi);
+    // 15. Admin UI & Docs Services
+    this.adminUi = new AdminUIService();
+    this.container.bindInstance(TOKENS.AdminUIService, this.adminUi);
 
     this.docs = new DocsService(this.openapi, this.config);
     this.container.bindInstance(TOKENS.DocsService, this.docs);
 
-    // 15. Controllers & Middleware
+    // 16. Schema Inference Service ("Paste JSON → Instant API")
+    this.schemaInference = new SchemaInferenceService(this.db, this.schema, this.realtime);
+    this.container.bindInstance(TOKENS.SchemaInferenceService, this.schemaInference);
+
+    // 17. Controllers & Middleware
+    this.chaos = new ChaosMiddleware(this.config);
+    this.container.bindInstance(TOKENS.ChaosMiddleware, this.chaos);
+
     const authMiddleware = new AuthMiddleware(this.auth);
     const authCtrl = new AuthController(this.auth);
-    const collectionCtrl = new CollectionController(this.schema);
-    const recordCtrl = new RecordController(this.records, this.schema, this.files);
+    const collectionCtrl = new CollectionController(this.schema, this.schemaInference, this.files);
+    const recordCtrl = new RecordController(this.records, this.schema, this.files, this.mockData);
     const fileCtrl = new FileController(this.files, this.schema, ruleEngine, this.db);
     const realtimeCtrl = new RealtimeController(this.realtime);
     const logCtrl = new LogController(this.logs);
     const healthCtrl = new HealthController(this.config);
     const analyticsCtrl = new AnalyticsController(this.analytics);
+    const templateCtrl = new TemplateController(this.templates);
+    this.container.bindInstance(TOKENS.TemplateController, templateCtrl);
+    const demoCtrl = new DemoController(this.demo);
+    this.container.bindInstance(TOKENS.DemoController, demoCtrl);
 
-    // 16. HTTP Server
+    // 18. HTTP Server
     this.server = new HttpServer(
       this.config,
       this.logs,
@@ -151,12 +214,17 @@ export class NodeStack {
       realtimeCtrl,
       logCtrl,
       healthCtrl,
-      adminUi,
+      this.adminUi,
       this.typegen,
       this.docs,
-      analyticsCtrl
+      analyticsCtrl,
+      this.chaos,
+      templateCtrl,
+      demoCtrl,
+      this.maintenanceGate
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
+
   }
 
   // --- Type & OpenAPI Generation ---
@@ -245,6 +313,16 @@ export class NodeStack {
 
   public onAfterServe(handler: HookHandler<ServeEventContext>): this {
     this.eventBus.onAfterServe(handler);
+    return this;
+  }
+
+  public onDemoSnapshot(handler: (metadata: any) => void | Promise<void>): this {
+    this.eventBus.on('demo:snapshot', handler);
+    return this;
+  }
+
+  public onDemoReset(handler: (result: any) => void | Promise<void>): this {
+    this.eventBus.on('demo:reset', handler);
     return this;
   }
 

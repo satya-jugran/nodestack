@@ -14,6 +14,11 @@
       realtimeEventSource: null,
       logs: [],
       activeRules: {},
+      demo: {
+        hasSnapshot: false,
+        snapshot: null,
+        liveStats: null,
+      },
     };
 
 

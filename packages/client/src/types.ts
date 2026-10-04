@@ -30,6 +30,14 @@ export interface ListResult<T = any> {
   items: T[];
 }
 
+export interface ChaosOptions {
+  delay?: number | string;
+  failRate?: number;
+  errorStatus?: number | string;
+  errorMessage?: string;
+  jitter?: number;
+}
+
 export interface QueryOptions {
   page?: number;
   perPage?: number;
@@ -37,6 +45,16 @@ export interface QueryOptions {
   filter?: string;
   expand?: string;
   fields?: string;
+  mock_delay?: number | string;
+  mock_error?: number | string;
+  mock_fail_rate?: number;
+  mock_jitter?: number;
+  mock_error_message?: string;
+  mockDelay?: number | string;
+  mockError?: number | string;
+  mockFailRate?: number;
+  mockJitter?: number;
+  mockErrorMessage?: string;
   [key: string]: any;
 }
 
@@ -66,6 +84,11 @@ export interface SendOptions extends Omit<RequestInit, 'body'> {
   body?: any;
   headers?: Record<string, string>;
   autoCancel?: boolean;
+  chaos?: ChaosOptions;
+  mockDelay?: number | string;
+  mockError?: number | string;
+  mockFailRate?: number;
+  mockJitter?: number;
 }
 
 export interface ClientOptions {
@@ -74,6 +97,7 @@ export interface ClientOptions {
   EventSource?: any;
   headers?: Record<string, string>;
   timeout?: number;
+  chaos?: ChaosOptions;
 }
 
 export interface ImportOptions {
@@ -87,4 +111,51 @@ export interface ImportResult {
   imported: number;
   failed: number;
   errors: Array<{ row: number; error: string }>;
+}
+
+export interface DemoCollectionSummary {
+  name: string;
+  type: string;
+  recordsCount: number;
+  schemaFieldsCount: number;
+}
+
+export interface DemoSnapshotMetadata {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  collections: DemoCollectionSummary[];
+  totalCollections: number;
+  totalRecords: number;
+  totalFiles: number;
+  storageSizeBytes: number;
+  dbSizeBytes: number;
+  contentHash?: string;
+}
+
+export interface DemoSnapshotStatus {
+  hasSnapshot: boolean;
+  snapshot: DemoSnapshotMetadata | null;
+  liveStats?: {
+    totalCollections: number;
+    totalRecords: number;
+    totalFiles: number;
+    contentHash?: string;
+    drift: {
+      collectionsDelta: number;
+      recordsDelta: number;
+      filesDelta: number;
+      contentChanged?: boolean;
+      isModified: boolean;
+    };
+  };
+}
+
+export interface DemoResetResult {
+  success: boolean;
+  message: string;
+  durationMs: number;
+  snapshot: DemoSnapshotMetadata;
+  restoredAt: string;
 }
