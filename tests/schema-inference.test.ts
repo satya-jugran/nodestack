@@ -565,6 +565,116 @@ describe('"Paste JSON → Instant API" (Schema Auto-Inference) Tests', () => {
 
       expect([401, 403]).toContain(res.statusCode);
     });
+
+    it('POST /api/collections/import-json should support type: "auth" and populate hashed credentials', async () => {
+      const res = await app.server.app.inject({
+        method: 'POST',
+        url: '/api/collections/import-json',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+        payload: {
+          name: 'imported_members',
+          type: 'auth',
+          data: [
+            {
+              id: 'user_alice',
+              email: 'alice@example.com',
+              name: 'Alice Cooper',
+              password: 'AlicePassword123!',
+              role: 'lead_engineer',
+            },
+            {
+              id: 'user_bob',
+              email: 'bob@example.com',
+              name: 'Bob Marley',
+              role: 'musician',
+            },
+          ],
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.collection.name).toBe('imported_members');
+      expect(json.collection.type).toBe('auth');
+      expect(json.recordCount).toBe(2);
+
+      // Verify sanitized output hides passwordHash and tokenKey
+      expect(json.records[0].email).toBe('alice@example.com');
+      expect(json.records[0].passwordHash).toBeUndefined();
+      expect(json.records[0].tokenKey).toBeUndefined();
+
+      // Verify SQLite row contains valid passwordHash and tokenKey
+      const rawAlice = app.db.get<any>('SELECT * FROM "imported_members" WHERE id = ?', ['user_alice']);
+      expect(rawAlice.email).toBe('alice@example.com');
+      expect(rawAlice.passwordHash).toBeDefined();
+      expect(rawAlice.passwordHash.startsWith('$2')).toBe(true);
+      expect(rawAlice.tokenKey).toBeDefined();
+
+      const rawBob = app.db.get<any>('SELECT * FROM "imported_members" WHERE id = ?', ['user_bob']);
+      expect(rawBob.email).toBe('bob@example.com');
+      expect(rawBob.passwordHash).toBeDefined();
+      expect(rawBob.passwordHash.startsWith('$2')).toBe(true);
+      expect(rawBob.tokenKey).toBeDefined();
+
+      // Verify Alice can authenticate using her imported credentials
+      const loginRes = await app.server.app.inject({
+        method: 'POST',
+        url: '/api/collections/imported_members/auth-with-password',
+        payload: {
+          email: 'alice@example.com',
+          password: 'AlicePassword123!',
+        },
+      });
+      expect(loginRes.statusCode).toBe(200);
+      const loginJson = JSON.parse(loginRes.body);
+      expect(loginJson.token).toBeDefined();
+      expect(loginJson.record.email).toBe('alice@example.com');
+      expect(loginJson.record.name).toBe('Alice Cooper');
+    });
+
+    it('POST /api/collections/import-json should reject auth import with missing email with 422', async () => {
+      const res = await app.server.app.inject({
+        method: 'POST',
+        url: '/api/collections/import-json',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+        payload: {
+          name: 'missing_email_auth',
+          type: 'auth',
+          data: [{ name: 'No Email User' }],
+        },
+      });
+
+      expect(res.statusCode).toBe(422);
+      const json = JSON.parse(res.body);
+      expect(json.message).toContain('email');
+    });
+
+    it('POST /api/collections/import-json should reject auth import with duplicate emails with 409', async () => {
+      const res = await app.server.app.inject({
+        method: 'POST',
+        url: '/api/collections/import-json',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+        payload: {
+          name: 'duplicate_email_auth',
+          type: 'auth',
+          data: [
+            { email: 'duplicate@example.com', name: 'User 1' },
+            { email: 'duplicate@example.com', name: 'User 2' },
+          ],
+        },
+      });
+
+      expect(res.statusCode).toBe(409);
+      const json = JSON.parse(res.body);
+      expect(json.message).toContain('Duplicate email');
+    });
   });
 
   // ==========================================

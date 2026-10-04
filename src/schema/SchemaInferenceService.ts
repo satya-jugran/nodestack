@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcryptjs';
 import { DatabaseService } from '../database/DatabaseService';
 import { SchemaService } from './SchemaService';
 import { RealtimeService } from '../realtime/RealtimeService';
@@ -288,7 +289,7 @@ export class SchemaInferenceService {
    * Automatically inspects JSON data (object or array) and infers field names and types
    * (text, number, bool, date, json).
    */
-  public inferSchema(data: any): InferredSchemaResult {
+  public inferSchema(data: any, collectionType?: CollectionType): InferredSchemaResult {
     const { records, suggestedName } = parsePayload(data);
 
     const rawKeys: string[] = [];
@@ -305,14 +306,24 @@ export class SchemaInferenceService {
       }
     }
 
+    const reservedSystemFields = new Set<string>(['id', 'created', 'updated']);
+    if (collectionType === 'auth') {
+      reservedSystemFields.add('email');
+      reservedSystemFields.add('emailvisibility');
+      reservedSystemFields.add('verified');
+      reservedSystemFields.add('password');
+      reservedSystemFields.add('passwordhash');
+      reservedSystemFields.add('tokenkey');
+    }
+
     const fields: SchemaField[] = [];
-    const existingFieldNames = new Set<string>(['id', 'created', 'updated']);
+    const existingFieldNames = new Set<string>(reservedSystemFields);
     const rawKeyToFieldMap: Record<string, string> = {};
 
     for (const rawKey of rawKeys) {
       const lower = rawKey.toLowerCase().trim();
       // Skip system fields in collection schema (they are managed automatically by SQLite/NodeStack)
-      if (lower === 'id' || lower === 'created' || lower === 'updated') {
+      if (reservedSystemFields.has(lower)) {
         rawKeyToFieldMap[rawKey] = lower;
         continue;
       }
@@ -372,14 +383,15 @@ export class SchemaInferenceService {
       throw new ConflictError(`Collection with name '${cleanName}' already exists`);
     }
 
+    const isAuth = options.type === 'auth';
     const startTime = Date.now();
 
     // 1. Infer schema and extract records
-    const inference = this.inferSchema(options.data);
+    const inference = this.inferSchema(options.data, options.type);
     let fields = inference.fields;
 
-    // Fallback if no user fields were inferred
-    if (fields.length === 0) {
+    // Fallback if no user fields were inferred for base collections
+    if (!isAuth && fields.length === 0) {
       fields.push({
         id: `f_${crypto.randomBytes(4).toString('hex')}`,
         name: 'title',
@@ -476,6 +488,7 @@ export class SchemaInferenceService {
     // 3. Prepare normalized records
     const now = new Date().toISOString();
     const preparedRows: Array<Record<string, any>> = [];
+    const seenEmails = new Set<string>();
 
     for (const raw of inference.records) {
       if (!isRecordObject(raw)) {
@@ -488,6 +501,44 @@ export class SchemaInferenceService {
         row.id = String(raw.id).trim();
       } else {
         row.id = `r_${crypto.randomBytes(6).toString('hex')}`;
+      }
+
+      // Auth system columns
+      if (isAuth) {
+        // 1. Email (required and unique)
+        const rawEmail = raw.email !== undefined ? raw.email : (raw as any).Email;
+        if (!rawEmail || typeof rawEmail !== 'string' || !rawEmail.trim().includes('@')) {
+          throw new ValidationError(
+            `Valid 'email' is required for every record when importing an auth collection (record id: ${row.id})`
+          );
+        }
+        const cleanEmail = rawEmail.trim().toLowerCase();
+        if (seenEmails.has(cleanEmail)) {
+          throw new ConflictError(`Duplicate email '${cleanEmail}' in auth import payload`);
+        }
+        seenEmails.add(cleanEmail);
+        row.email = cleanEmail;
+
+        // 2. Email visibility & verified status
+        row.emailVisibility = raw.emailVisibility ? 1 : 0;
+        row.verified = raw.verified !== undefined ? (raw.verified ? 1 : 0) : 0;
+
+        // 3. Password hash
+        if (raw.passwordHash && typeof raw.passwordHash === 'string') {
+          row.passwordHash = raw.passwordHash;
+        } else if (raw.password !== undefined && String(raw.password).length > 0) {
+          row.passwordHash = bcrypt.hashSync(String(raw.password), 10);
+        } else {
+          // Generate a secure random password hash if no password is provided
+          row.passwordHash = bcrypt.hashSync(crypto.randomBytes(12).toString('hex'), 10);
+        }
+
+        // 4. Token key
+        if (raw.tokenKey && typeof raw.tokenKey === 'string') {
+          row.tokenKey = raw.tokenKey;
+        } else {
+          row.tokenKey = crypto.randomBytes(16).toString('hex');
+        }
       }
 
       // Timestamps
@@ -536,7 +587,20 @@ export class SchemaInferenceService {
     });
 
     // 5. Populate records inside a high-speed SQLite transaction
-    const colNames = ['id', ...fields.map((f) => f.name), 'created', 'updated'];
+    const colNames = isAuth
+      ? [
+          'id',
+          'email',
+          'emailVisibility',
+          'verified',
+          'passwordHash',
+          'tokenKey',
+          ...fields.map((f) => f.name),
+          'created',
+          'updated',
+        ]
+      : ['id', ...fields.map((f) => f.name), 'created', 'updated'];
+
     const placeholders = colNames.map(() => '?').join(', ');
     const insertSql = `INSERT INTO "${cleanName}" (${colNames.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`;
     const insertStmt = this.db.prepare(insertSql);
@@ -561,7 +625,7 @@ export class SchemaInferenceService {
     const durationMs = Date.now() - startTime;
 
     // 6. Build sanitized response records
-    const sanitizedRecords = preparedRows.map((r) => this.sanitizeOutputRecord(r, fields));
+    const sanitizedRecords = preparedRows.map((r) => this.sanitizeOutputRecord(r, fields, isAuth));
 
     // 7. Realtime broadcast for newly populated collection
     if (this.realtime) {
@@ -599,7 +663,11 @@ export class SchemaInferenceService {
     }
   }
 
-  private sanitizeOutputRecord(raw: Record<string, any>, fields: SchemaField[]): Record<string, any> {
+  private sanitizeOutputRecord(
+    raw: Record<string, any>,
+    fields: SchemaField[],
+    isAuth = false
+  ): Record<string, any> {
     const clean = { ...raw };
     for (const f of fields) {
       if (f.type === 'bool' && clean[f.name] !== undefined && clean[f.name] !== null) {
@@ -612,6 +680,14 @@ export class SchemaInferenceService {
         }
       }
     }
+
+    if (isAuth) {
+      clean.emailVisibility = Boolean(clean.emailVisibility);
+      clean.verified = Boolean(clean.verified);
+      delete clean.passwordHash;
+      delete clean.tokenKey;
+    }
+
     return clean;
   }
 }
