@@ -180,11 +180,18 @@ export interface InferredSchemaResult {
   rawKeyToFieldMap: Record<string, string>;
 }
 
+export interface ImportSchemaOverride extends Partial<SchemaField> {
+  oldName?: string;
+  originalName?: string;
+  from?: string;
+  to?: string;
+}
+
 export interface ImportJsonOptions {
   name: string;
   data: any;
   type?: CollectionType;
-  schemaOverrides?: Partial<SchemaField>[];
+  schemaOverrides?: ImportSchemaOverride[];
   listRule?: string | null;
   viewRule?: string | null;
   createRule?: string | null;
@@ -252,9 +259,10 @@ export class SchemaInferenceService {
       }
 
       const inferredType = inferFieldType(values);
+      const fieldHash = crypto.createHash('sha256').update(cleanName.toLowerCase()).digest('hex').substring(0, 8);
 
       fields.push({
-        id: `f_${crypto.randomBytes(4).toString('hex')}`,
+        id: `f_${fieldHash}`,
         name: cleanName,
         type: inferredType,
         required: false,
@@ -314,12 +322,84 @@ export class SchemaInferenceService {
     // 2. Apply optional schema overrides from user/client
     if (options.schemaOverrides && Array.isArray(options.schemaOverrides)) {
       for (const override of options.schemaOverrides) {
-        const target = fields.find((f) => f.name === override.name || f.id === override.id);
-        if (target) {
-          if (override.type) target.type = override.type as FieldType;
-          if (override.name) target.name = override.name;
-          if (override.required !== undefined) target.required = Boolean(override.required);
-          if (override.unique !== undefined) target.unique = Boolean(override.unique);
+        let target = fields.find((f) => override.id && f.id === override.id);
+        if (!target && (override as any).oldName) {
+          target = fields.find((f) => f.name.toLowerCase() === String((override as any).oldName).toLowerCase());
+        }
+        if (!target && (override as any).originalName) {
+          target = fields.find((f) => f.name.toLowerCase() === String((override as any).originalName).toLowerCase());
+        }
+        if (!target && (override as any).from) {
+          target = fields.find((f) => f.name.toLowerCase() === String((override as any).from).toLowerCase());
+        }
+        if (!target && override.name) {
+          target = fields.find((f) => f.name.toLowerCase() === String(override.name).toLowerCase());
+        }
+
+        if (!target) {
+          throw new ValidationError(
+            `Schema override target '${override.name || override.id || (override as any).oldName || (override as any).originalName}' does not match any inferred field`
+          );
+        }
+
+        if (override.type) target.type = override.type as FieldType;
+        if (override.required !== undefined) target.required = Boolean(override.required);
+        if (override.unique !== undefined) target.unique = Boolean(override.unique);
+
+        const rawNewName = (override.name || (override as any).to || '').trim();
+        if (rawNewName && rawNewName !== target.name) {
+          const oldName = target.name;
+
+          // 1. Validate field name syntax
+          if (!/^[a-zA-Z0-9_]+$/.test(rawNewName)) {
+            throw new ValidationError(
+              `Field name '${rawNewName}' must only contain alphanumeric characters and underscores`
+            );
+          }
+          if (/^[0-9]/.test(rawNewName)) {
+            throw new ValidationError(`Field name '${rawNewName}' cannot start with a number`);
+          }
+
+          // 2. Validate against reserved system fields
+          const reserved = new Set(['id', 'created', 'updated']);
+          if (options.type === 'auth') {
+            reserved.add('email');
+            reserved.add('emailvisibility');
+            reserved.add('verified');
+            reserved.add('passwordhash');
+            reserved.add('tokenkey');
+          }
+          if (reserved.has(rawNewName.toLowerCase())) {
+            throw new ConflictError(`Field name '${rawNewName}' collides with reserved system field`);
+          }
+
+          // 3. Validate collisions with other fields in collection schema
+          const collision = fields.find(
+            (f) => f.id !== target.id && f.name.toLowerCase() === rawNewName.toLowerCase()
+          );
+          if (collision) {
+            throw new ConflictError(`Field name collision: field '${rawNewName}' already exists in schema`);
+          }
+
+          // 4. Update field name on target
+          target.name = rawNewName;
+
+          // 5. Preserve original-key mapping in rawKeyToFieldMap so imported values are preserved
+          for (const [rawK, mappedField] of Object.entries(inference.rawKeyToFieldMap)) {
+            if (mappedField.toLowerCase() === oldName.toLowerCase()) {
+              inference.rawKeyToFieldMap[rawK] = rawNewName;
+            }
+          }
+          inference.rawKeyToFieldMap[oldName] = rawNewName;
+          if ((override as any).oldName) {
+            inference.rawKeyToFieldMap[(override as any).oldName] = rawNewName;
+          }
+          if ((override as any).originalName) {
+            inference.rawKeyToFieldMap[(override as any).originalName] = rawNewName;
+          }
+          if ((override as any).from) {
+            inference.rawKeyToFieldMap[(override as any).from] = rawNewName;
+          }
         }
       }
     }
@@ -358,7 +438,7 @@ export class SchemaInferenceService {
         if (val === undefined) {
           // Check original mapped key
           for (const [rawK, cleanK] of Object.entries(inference.rawKeyToFieldMap)) {
-            if (cleanK === field.name && raw[rawK] !== undefined) {
+            if (cleanK.toLowerCase() === field.name.toLowerCase() && raw[rawK] !== undefined) {
               val = raw[rawK];
               break;
             }

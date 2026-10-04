@@ -307,6 +307,88 @@ describe('"Paste JSON → Instant API" (Schema Auto-Inference) Tests', () => {
       expect(statusField?.type).toBe('text');
     });
 
+    it('should preserve imported values when renaming fields via schemaOverrides (no nulls)', async () => {
+      const payload = [
+        { 'Full Name': 'Alice Wonderland', 'User Age': 28, raw_city: 'London' },
+        { 'Full Name': 'Bob Builder', 'User Age': 35, raw_city: 'Manchester' },
+      ];
+
+      // Preview inference to obtain field ID
+      const preview = app.schemaInference.inferSchema(payload);
+      const fullNameField = preview.fields.find((f) => f.name === 'Full_Name')!;
+
+      // Rename 'Full_Name' -> 'full_name' (by id) and 'User_Age' -> 'age' (by oldName)
+      const res = await app.schemaInference.importJson({
+        name: 'staff_members',
+        data: payload,
+        schemaOverrides: [
+          { id: fullNameField.id, name: 'full_name' },
+          { oldName: 'User_Age', name: 'age' },
+        ],
+      });
+
+      expect(res.recordCount).toBe(2);
+      expect(res.collection.schema.some((f) => f.name === 'full_name')).toBe(true);
+      expect(res.collection.schema.some((f) => f.name === 'age')).toBe(true);
+      expect(res.collection.schema.some((f) => f.name === 'Full_Name')).toBe(false);
+      expect(res.collection.schema.some((f) => f.name === 'User_Age')).toBe(false);
+
+      // Verify returned records contain actual values, NOT null!
+      expect(res.records[0].full_name).toBe('Alice Wonderland');
+      expect(res.records[0].age).toBe(28);
+      expect(res.records[1].full_name).toBe('Bob Builder');
+      expect(res.records[1].age).toBe(35);
+
+      // Verify in SQLite database directly
+      const rows = app.db.all<any>('SELECT "id", "full_name", "age", "raw_city" FROM "staff_members" ORDER BY "age" ASC');
+      expect(rows).toHaveLength(2);
+      expect(rows[0].full_name).toBe('Alice Wonderland');
+      expect(rows[0].age).toBe(28);
+      expect(rows[0].raw_city).toBe('London');
+      expect(rows[1].full_name).toBe('Bob Builder');
+      expect(rows[1].age).toBe(35);
+    });
+
+    it('should validate collisions and reserved system fields when overriding field names', async () => {
+      const payload = [{ title: 'Post 1', slug: 'post-1', summary: 'Intro' }];
+
+      // 1. Collision with reserved system field 'id'
+      await expect(
+        app.schemaInference.importJson({
+          name: 'invalid_sys_override',
+          data: payload,
+          schemaOverrides: [{ oldName: 'summary', name: 'id' }],
+        })
+      ).rejects.toThrow(/reserved system field/i);
+
+      // 2. Collision with reserved system field 'created'
+      await expect(
+        app.schemaInference.importJson({
+          name: 'invalid_sys_override_2',
+          data: payload,
+          schemaOverrides: [{ oldName: 'summary', name: 'created' }],
+        })
+      ).rejects.toThrow(/reserved system field/i);
+
+      // 3. Collision with another existing field in schema
+      await expect(
+        app.schemaInference.importJson({
+          name: 'collision_override',
+          data: payload,
+          schemaOverrides: [{ oldName: 'summary', name: 'title' }],
+        })
+      ).rejects.toThrow(/Field name collision: field 'title' already exists/i);
+
+      // 4. Invalid field name format (starts with number)
+      await expect(
+        app.schemaInference.importJson({
+          name: 'invalid_format_override',
+          data: payload,
+          schemaOverrides: [{ oldName: 'summary', name: '123_invalid' }],
+        })
+      ).rejects.toThrow(/cannot start with a number/i);
+    });
+
     it('should reject importing duplicate collection names with ConflictError (409)', async () => {
       await expect(
         app.schemaInference.importJson({
