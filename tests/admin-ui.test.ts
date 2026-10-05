@@ -46,6 +46,10 @@ describe('AdminUIBundler', () => {
     expect(bundled).toContain('function openRecordDrawer');
     expect(bundled).toContain('function closeRecordDrawer');
     expect(bundled).toContain('function renderDrawerContent');
+    expect(bundled).toContain('function handleHeaderSort');
+    expect(bundled).toContain('function handleRecordRowClick');
+    expect(bundled).toContain('function handleDrawerCopyId');
+    expect(bundled).toContain('function handleDrawerCopyJsonField');
     expect(bundled).toContain('search-bar-composite');
     expect(bundled).toContain('pagination-footer');
     expect(bundled).toContain('th-sortable');

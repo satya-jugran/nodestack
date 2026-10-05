@@ -205,7 +205,11 @@
             <div class="search-bar-composite" id="search-composite-box">
               <select id="records-search-field" class="search-field-select" onchange="handleSearchFieldChange(this.value)" title="Choose column to search">
                 <option value="_all" ${state.recordsSearchField === '_all' ? 'selected' : ''}>All Text Fields (${searchableFields.length}) ▾</option>
-                ${searchableFields.map(f => `<option value="${f.name}" ${state.recordsSearchField === f.name ? 'selected' : ''}>${f.name} (${f.type})</option>`).join('')}
+                ${searchableFields.map(f => {
+                  const safeName = escapeHtml(f.name);
+                  const safeType = escapeHtml(f.type);
+                  return `<option value="${safeName}" ${state.recordsSearchField === f.name ? 'selected' : ''}>${safeName} (${safeType})</option>`;
+                }).join('')}
                 <option value="id" ${state.recordsSearchField === 'id' ? 'selected' : ''}>id (system)</option>
               </select>
               <div class="search-input-wrapper">
@@ -279,15 +283,27 @@
       return /\.(jpe?g|png|gif|webp|svg)$/i.test(filename);
     }
 
+    function handleHeaderSort(thEl) {
+      if (!thEl) return;
+      const col = thEl.getAttribute('data-column');
+      if (col) {
+        toggleSort(col);
+      }
+    }
+
     function renderSortableTh(columnName, displayName) {
       const current = getCurrentSort();
       const isActive = current.field === columnName;
       const arrow = isActive ? (current.dir === 'asc' ? '↑' : '↓') : '<span class="sort-icon-ghost">↕</span>';
-      const activeClass = isActive ? `sort-active sort-${current.dir}` : '';
+      const activeClass = isActive ? `sort-active sort-${escapeHtml(current.dir)}` : '';
+      const safeCol = escapeHtml(columnName);
+      const safeDisplay = escapeHtml(displayName);
+      const nextOrder = isActive ? (current.dir === 'asc' ? 'Descending next' : 'Ascending next') : 'Ascending';
+      const safeTitle = escapeHtml(`Sort by ${displayName} (${nextOrder})`);
       return `
-        <th class="th-sortable ${activeClass}" onclick="toggleSort('${columnName}')" title="Sort by ${displayName} (${isActive ? (current.dir === 'asc' ? 'Descending next' : 'Ascending next') : 'Ascending'})">
+        <th class="th-sortable ${activeClass}" data-column="${safeCol}" onclick="handleHeaderSort(this)" title="${safeTitle}">
           <div class="th-content">
-            <span>${displayName}</span>
+            <span>${safeDisplay}</span>
             <span class="sort-icon">${arrow}</span>
           </div>
         </th>
@@ -366,9 +382,11 @@
         return;
       }
 
-      tbContainer.innerHTML = state.records.map(rec => `
-        <tr class="record-row ${state.selectedRecordId === rec.id ? 'row-selected' : ''}" data-id="${rec.id}" onclick="openRecordDrawer('${rec.id}')">
-          <td><span class="id-pill">${rec.id}</span></td>
+      tbContainer.innerHTML = state.records.map(rec => {
+        const safeRecId = escapeHtml(rec.id);
+        return `
+        <tr class="record-row ${state.selectedRecordId === rec.id ? 'row-selected' : ''}" data-id="${safeRecId}" onclick="handleRecordRowClick(this)">
+          <td><span class="id-pill">${safeRecId}</span></td>
           ${displayFields.map(f => {
             const schemaField = col.schema.find(sf => sf.name === f);
             const val = rec[f];
@@ -390,12 +408,13 @@
           <td style="color:var(--text-muted);font-size:12px;">${new Date(rec.created).toLocaleString()}</td>
           <td>
             <div style="display:flex; align-items:center; gap:4px;">
-              <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); editRecord('${rec.id}')" title="Edit record">Edit</button>
-              <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteRecord('${rec.id}')" title="Delete record">Delete</button>
+              <button class="btn btn-secondary btn-sm" data-id="${safeRecId}" onclick="handleTableEditRecord(event, this)" title="Edit record">Edit</button>
+              <button class="btn btn-danger btn-sm" data-id="${safeRecId}" onclick="handleTableDeleteRecord(event, this)" title="Delete record">Delete</button>
             </div>
           </td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
     }
 
     function updatePaginationControls() {
@@ -448,6 +467,14 @@
     // ==========================================
     // Slide-Over Record Detail Drawer
     // ==========================================
+
+    function handleRecordRowClick(trEl) {
+      if (!trEl) return;
+      const id = trEl.getAttribute('data-id');
+      if (id) {
+        openRecordDrawer(id);
+      }
+    }
 
     function openRecordDrawer(id) {
       const rec = state.records.find(r => r.id === id);
@@ -529,6 +556,8 @@
       const col = state.activeCollection;
       if (!col) return;
 
+      const safeRecId = escapeHtml(rec.id);
+
       panel.innerHTML = `
         <!-- Drawer Header -->
         <div class="drawer-header">
@@ -536,26 +565,26 @@
             <span style="font-size:18px;">📄</span>
             <span class="drawer-title">Record Details</span>
             <span class="badge badge-post">${escapeHtml(col.name)}</span>
-            <span class="id-pill" title="Record ID">${escapeHtml(rec.id)}</span>
+            <span class="id-pill" title="Record ID">${safeRecId}</span>
           </div>
           <button class="btn btn-secondary btn-sm" onclick="closeRecordDrawer()" title="Close drawer (Esc)">✕</button>
         </div>
 
         <!-- Quick Actions Bar -->
         <div class="drawer-quick-actions">
-          <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('${rec.id}', this, 'Copied ID!')" title="Copy Record ID to clipboard">
+          <button class="btn btn-secondary btn-sm" data-id="${safeRecId}" onclick="handleDrawerCopyId(this)" title="Copy Record ID to clipboard">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             <span>Copy ID</span>
           </button>
-          <button class="btn btn-primary btn-sm" onclick="editRecord('${rec.id}')" title="Edit this record">
+          <button class="btn btn-primary btn-sm" data-id="${safeRecId}" onclick="handleDrawerEditRecord(this)" title="Edit this record">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
             <span>Edit Record</span>
           </button>
-          <button class="btn btn-secondary btn-sm" onclick="copyRecordJson('${rec.id}', this)" title="Copy full record JSON">
+          <button class="btn btn-secondary btn-sm" data-id="${safeRecId}" onclick="handleDrawerCopyJson(this)" title="Copy full record JSON">
             <span style="color:#34d399; font-weight:bold; font-size:11px;">{ }</span>
             <span>Copy JSON</span>
           </button>
-          <button class="btn btn-danger btn-sm" onclick="drawerDeleteRecord('${rec.id}')" title="Delete record" style="margin-left:auto;">
+          <button class="btn btn-danger btn-sm" data-id="${safeRecId}" onclick="handleDrawerDeleteRecord(this)" title="Delete record" style="margin-left:auto;">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             <span>Delete</span>
           </button>
@@ -573,8 +602,8 @@
                   <span class="badge" style="background:rgba(255,255,255,0.06); color:var(--text-muted);">system</span>
                 </div>
                 <div class="drawer-field-value" style="display:flex; align-items:center; justify-content:space-between;">
-                  <span class="id-pill">${escapeHtml(rec.id)}</span>
-                  <button class="btn btn-secondary btn-sm" style="padding:2px 6px; font-size:11px;" onclick="copyToClipboard('${rec.id}', this, 'Copied ID!')">Copy</button>
+                  <span class="id-pill">${safeRecId}</span>
+                  <button class="btn btn-secondary btn-sm" style="padding:2px 6px; font-size:11px;" data-id="${safeRecId}" onclick="handleDrawerCopyId(this)">Copy</button>
                 </div>
               </div>
 
@@ -584,7 +613,7 @@
                   <span class="badge" style="background:rgba(255,255,255,0.06); color:var(--text-muted);">datetime</span>
                 </div>
                 <div class="drawer-field-value" style="font-size:12px; color:var(--text-muted);">
-                  ${new Date(rec.created).toLocaleString()} <span style="font-family:var(--font-mono); opacity:0.7;">(${rec.created})</span>
+                  ${new Date(rec.created).toLocaleString()} <span style="font-family:var(--font-mono); opacity:0.7;">(${escapeHtml(rec.created)})</span>
                 </div>
               </div>
 
@@ -595,7 +624,7 @@
                     <span class="badge" style="background:rgba(255,255,255,0.06); color:var(--text-muted);">datetime</span>
                   </div>
                   <div class="drawer-field-value" style="font-size:12px; color:var(--text-muted);">
-                    ${new Date(rec.updated).toLocaleString()} <span style="font-family:var(--font-mono); opacity:0.7;">(${rec.updated})</span>
+                    ${new Date(rec.updated).toLocaleString()} <span style="font-family:var(--font-mono); opacity:0.7;">(${escapeHtml(rec.updated)})</span>
                   </div>
                 </div>
               ` : ''}
@@ -608,7 +637,7 @@
                   </div>
                   <div class="drawer-field-value" style="display:flex; align-items:center; justify-content:space-between;">
                     <span style="font-family:var(--font-mono); color:#93c5fd;">${escapeHtml(rec.email || '—')}</span>
-                    <button class="btn btn-secondary btn-sm" style="padding:2px 6px; font-size:11px;" onclick="copyToClipboard('${rec.email || ''}', this, 'Copied email!')">Copy</button>
+                    <button class="btn btn-secondary btn-sm" style="padding:2px 6px; font-size:11px;" data-email="${escapeHtml(rec.email || '')}" onclick="handleDrawerCopyEmail(this)">Copy</button>
                   </div>
                 </div>
                 <div class="drawer-field-item">
@@ -644,8 +673,8 @@
                 return `
                   <div class="drawer-field-item">
                     <div class="drawer-field-header">
-                      <span class="drawer-field-name">${f.name}</span>
-                      <span class="badge badge-post">${f.type}</span>
+                      <span class="drawer-field-name">${escapeHtml(f.name)}</span>
+                      <span class="badge badge-post">${escapeHtml(f.type)}</span>
                     </div>
                     <div class="drawer-field-value">
                       ${renderDrawerFieldValue(col, rec, f, val)}
@@ -700,11 +729,13 @@
       if (field.type === 'json' || (typeof val === 'object' && val !== null)) {
         const jsonFormatted = JSON.stringify(val, null, 2);
         const keysCount = typeof val === 'object' && val !== null ? Object.keys(val).length : 0;
+        const safeRecId = escapeHtml(rec.id);
+        const safeFieldName = escapeHtml(field.name);
         return `
           <div class="drawer-json-container">
             <div class="drawer-json-bar">
               <span>JSON Object (${keysCount} ${keysCount === 1 ? 'key' : 'keys'})</span>
-              <button class="btn btn-secondary btn-sm" style="padding:2px 7px; font-size:11px;" onclick="copyJsonField('${rec.id}', '${field.name}', this)">Copy JSON</button>
+              <button class="btn btn-secondary btn-sm" style="padding:2px 7px; font-size:11px;" data-id="${safeRecId}" data-field="${safeFieldName}" onclick="handleDrawerCopyJsonField(this)">Copy JSON</button>
             </div>
             <pre class="drawer-json-pre"><code>${escapeHtml(jsonFormatted)}</code></pre>
           </div>
@@ -720,16 +751,76 @@
       }
 
       // Plain text or long text: display full inspection with copy button
+      const safeRecId = escapeHtml(rec.id);
+      const safeFieldName = escapeHtml(field.name);
       return `
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
           <div style="white-space:pre-wrap; word-break:break-word; font-size:13px; color:var(--text-main); flex:1; line-height:1.5;">${escapeHtml(String(val))}</div>
-          <button class="btn btn-secondary btn-sm" style="padding:2px 6px; font-size:11px; flex-shrink:0;" onclick="copyFieldValue('${rec.id}', '${field.name}', this)" title="Copy text value">Copy</button>
+          <button class="btn btn-secondary btn-sm" style="padding:2px 6px; font-size:11px; flex-shrink:0;" data-id="${safeRecId}" data-field="${safeFieldName}" onclick="handleDrawerCopyFieldValue(this)" title="Copy text value">Copy</button>
         </div>
       `;
     }
 
     function drawerDeleteRecord(id) {
       deleteRecord(id);
+    }
+
+    function handleTableEditRecord(e, btnEl) {
+      if (e) e.stopPropagation();
+      if (!btnEl) return;
+      const id = btnEl.getAttribute('data-id');
+      if (id) editRecord(id);
+    }
+
+    function handleTableDeleteRecord(e, btnEl) {
+      if (e) e.stopPropagation();
+      if (!btnEl) return;
+      const id = btnEl.getAttribute('data-id');
+      if (id) deleteRecord(id);
+    }
+
+    function handleDrawerCopyId(btnEl) {
+      if (!btnEl) return;
+      const id = btnEl.getAttribute('data-id');
+      if (id) copyToClipboard(id, btnEl, 'Copied ID!');
+    }
+
+    function handleDrawerEditRecord(btnEl) {
+      if (!btnEl) return;
+      const id = btnEl.getAttribute('data-id');
+      if (id) editRecord(id);
+    }
+
+    function handleDrawerCopyJson(btnEl) {
+      if (!btnEl) return;
+      const id = btnEl.getAttribute('data-id');
+      if (id) copyRecordJson(id, btnEl);
+    }
+
+    function handleDrawerDeleteRecord(btnEl) {
+      if (!btnEl) return;
+      const id = btnEl.getAttribute('data-id');
+      if (id) drawerDeleteRecord(id);
+    }
+
+    function handleDrawerCopyEmail(btnEl) {
+      if (!btnEl) return;
+      const email = btnEl.getAttribute('data-email');
+      copyToClipboard(email || '', btnEl, 'Copied email!');
+    }
+
+    function handleDrawerCopyJsonField(btnEl) {
+      if (!btnEl) return;
+      const id = btnEl.getAttribute('data-id');
+      const fieldName = btnEl.getAttribute('data-field');
+      if (id && fieldName) copyJsonField(id, fieldName, btnEl);
+    }
+
+    function handleDrawerCopyFieldValue(btnEl) {
+      if (!btnEl) return;
+      const id = btnEl.getAttribute('data-id');
+      const fieldName = btnEl.getAttribute('data-field');
+      if (id && fieldName) copyFieldValue(id, fieldName, btnEl);
     }
 
     function copyRecordJson(id, btnEl) {

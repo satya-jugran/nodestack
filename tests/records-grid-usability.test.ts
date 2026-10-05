@@ -235,5 +235,59 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
       expect(url).toContain('?token=tok%2B123%26secret%3Dtrue');
     });
   });
+
+  describe('Schema Field Injection Prevention (renderSortableTh & UI attributes)', () => {
+    it('should safely escape malicious schema field names in renderSortableTh data attribute and title', () => {
+      function escapeHtml(str: any): string {
+        return String(str ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function getCurrentSort() {
+        return { field: 'created', dir: 'desc' };
+      }
+
+      function renderSortableTh(columnName: string, displayName: string) {
+        const current = getCurrentSort();
+        const isActive = current.field === columnName;
+        const arrow = isActive ? (current.dir === 'asc' ? '↑' : '↓') : '<span class="sort-icon-ghost">↕</span>';
+        const activeClass = isActive ? `sort-active sort-${escapeHtml(current.dir)}` : '';
+        const safeCol = escapeHtml(columnName);
+        const safeDisplay = escapeHtml(displayName);
+        const nextOrder = isActive ? (current.dir === 'asc' ? 'Descending next' : 'Ascending next') : 'Ascending';
+        const safeTitle = escapeHtml(`Sort by ${displayName} (${nextOrder})`);
+        return `
+          <th class="th-sortable ${activeClass}" data-column="${safeCol}" onclick="handleHeaderSort(this)" title="${safeTitle}">
+            <div class="th-content">
+              <span>${safeDisplay}</span>
+              <span class="sort-icon">${arrow}</span>
+            </div>
+          </th>
+        `;
+      }
+
+      const maliciousField = 'field" onfocus="alert(1)" <script>test</script>';
+      const thHtml = renderSortableTh(maliciousField, maliciousField);
+
+      // Verify no unescaped script tag or unescaped quote breakout
+      expect(thHtml).not.toContain('<script>');
+      expect(thHtml).not.toContain('</script>');
+      expect(thHtml).not.toContain('field" onfocus=');
+
+      // Verify properly escaped data attribute
+      expect(thHtml).toContain('data-column="field&quot; onfocus=&quot;alert(1)&quot; &lt;script&gt;test&lt;/script&gt;"');
+
+      // Verify safe static onclick handler instead of embedding columnName in JS
+      expect(thHtml).toContain('onclick="handleHeaderSort(this)"');
+      expect(thHtml).not.toContain(`toggleSort('${maliciousField}')`);
+
+      // Verify escaped display text
+      expect(thHtml).toContain('&lt;script&gt;test&lt;/script&gt;');
+    });
+  });
 });
 
