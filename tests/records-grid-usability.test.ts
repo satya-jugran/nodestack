@@ -350,21 +350,22 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
         return { field: 'created', dir: 'desc' };
       }
 
-      function renderSortableTh(columnName: string, displayName: string) {
-        const current = getCurrentSort();
-        const isActive = current.field === columnName;
-        const arrow = isActive ? (current.dir === 'asc' ? '↑' : '↓') : '<span class="sort-icon-ghost">↕</span>';
-        const activeClass = isActive ? `sort-active sort-${escapeHtml(current.dir)}` : '';
+      function renderSortableTh(columnName: string, displayName: string, currentSort = getCurrentSort()) {
+        const isActive = currentSort.field === columnName;
+        const arrow = isActive ? (currentSort.dir === 'asc' ? '↑' : '↓') : '<span class="sort-icon-ghost">↕</span>';
+        const activeClass = isActive ? `sort-active sort-${escapeHtml(currentSort.dir)}` : '';
         const safeCol = escapeHtml(columnName);
         const safeDisplay = escapeHtml(displayName);
-        const nextOrder = isActive ? (current.dir === 'asc' ? 'Descending next' : 'Ascending next') : 'Ascending';
+        const nextOrder = isActive ? (currentSort.dir === 'asc' ? 'Descending next' : 'Ascending next') : 'Ascending';
         const safeTitle = escapeHtml(`Sort by ${displayName} (${nextOrder})`);
+        const ariaSort = isActive ? (currentSort.dir === 'asc' ? 'ascending' : 'descending') : 'none';
+
         return `
-          <th class="th-sortable ${activeClass}" data-column="${safeCol}" onclick="handleHeaderSort(this)" title="${safeTitle}">
-            <div class="th-content">
+          <th scope="col" class="th-sortable ${activeClass}" data-column="${safeCol}" aria-sort="${ariaSort}">
+            <button type="button" class="th-sort-btn" data-column="${safeCol}" onclick="handleHeaderSort(this)" title="${safeTitle}" aria-label="${safeTitle}">
               <span>${safeDisplay}</span>
-              <span class="sort-icon">${arrow}</span>
-            </div>
+              <span class="sort-icon" aria-hidden="true">${arrow}</span>
+            </button>
           </th>
         `;
       }
@@ -380,9 +381,17 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
       // Verify properly escaped data attribute
       expect(thHtml).toContain('data-column="field&quot; onfocus=&quot;alert(1)&quot; &lt;script&gt;test&lt;/script&gt;"');
 
-      // Verify safe static onclick handler instead of embedding columnName in JS
+      // Verify real button element inside th for keyboard accessibility
+      expect(thHtml).toContain('<button type="button" class="th-sort-btn"');
+      expect(thHtml).toContain('aria-sort="none"');
       expect(thHtml).toContain('onclick="handleHeaderSort(this)"');
       expect(thHtml).not.toContain(`toggleSort('${maliciousField}')`);
+
+      // Verify aria-sort reflects active ascending/descending states
+      const activeThAsc = renderSortableTh('title', 'Title', { field: 'title', dir: 'asc' });
+      expect(activeThAsc).toContain('aria-sort="ascending"');
+      const activeThDesc = renderSortableTh('title', 'Title', { field: 'title', dir: 'desc' });
+      expect(activeThDesc).toContain('aria-sort="descending"');
 
       // Verify escaped display text
       expect(thHtml).toContain('&lt;script&gt;test&lt;/script&gt;');

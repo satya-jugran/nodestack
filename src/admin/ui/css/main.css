@@ -796,23 +796,47 @@
 
     /* Interactive Sortable Headers */
     th.th-sortable {
-      cursor: pointer;
+      padding: 0;
       user-select: none;
       transition: background-color 0.15s ease, color 0.15s ease;
     }
-    th.th-sortable:hover {
-      background-color: #1c2230;
-      color: var(--text-main);
-    }
-    th.th-sortable .th-content {
+    .th-sort-btn {
+      all: unset;
+      box-sizing: border-box;
+      width: 100%;
+      height: 100%;
+      padding: 0.75rem 1rem;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      color: inherit;
+      background: transparent;
+      border: none;
+      text-align: left;
+      white-space: nowrap;
+      transition: background-color 0.15s ease, color 0.15s ease;
+    }
+    .th-sort-btn:focus-visible {
+      outline: 2px solid #60a5fa;
+      outline-offset: -2px;
+      background-color: rgba(59, 130, 246, 0.12);
+      border-radius: 3px;
+    }
+    th.th-sortable:hover .th-sort-btn {
+      background-color: #1c2230;
+      color: var(--text-main);
     }
     th.th-sortable.sort-active {
       color: #60a5fa;
       background-color: rgba(59, 130, 246, 0.1);
+    }
+    th.th-sortable.sort-active .th-sort-btn {
+      color: #60a5fa;
     }
     .sort-icon {
       display: inline-flex;

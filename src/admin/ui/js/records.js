@@ -294,9 +294,9 @@
       return /\.(jpe?g|png|gif|webp|svg)$/i.test(filename);
     }
 
-    function handleHeaderSort(thEl) {
-      if (!thEl) return;
-      const col = thEl.getAttribute('data-column');
+    function handleHeaderSort(el) {
+      if (!el) return;
+      const col = el.getAttribute('data-column') || el.closest('[data-column]')?.getAttribute('data-column');
       if (col) {
         toggleSort(col);
       }
@@ -311,12 +311,14 @@
       const safeDisplay = escapeHtml(displayName);
       const nextOrder = isActive ? (current.dir === 'asc' ? 'Descending next' : 'Ascending next') : 'Ascending';
       const safeTitle = escapeHtml(`Sort by ${displayName} (${nextOrder})`);
+      const ariaSort = isActive ? (current.dir === 'asc' ? 'ascending' : 'descending') : 'none';
+
       return `
-        <th class="th-sortable ${activeClass}" data-column="${safeCol}" onclick="handleHeaderSort(this)" title="${safeTitle}">
-          <div class="th-content">
+        <th scope="col" class="th-sortable ${activeClass}" data-column="${safeCol}" aria-sort="${ariaSort}">
+          <button type="button" class="th-sort-btn" data-column="${safeCol}" onclick="handleHeaderSort(this)" title="${safeTitle}" aria-label="${safeTitle}">
             <span>${safeDisplay}</span>
-            <span class="sort-icon">${arrow}</span>
-          </div>
+            <span class="sort-icon" aria-hidden="true">${arrow}</span>
+          </button>
         </th>
       `;
     }

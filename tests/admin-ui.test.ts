@@ -56,6 +56,8 @@ describe('AdminUIBundler', () => {
     expect(bundled).toContain('search-bar-composite');
     expect(bundled).toContain('pagination-footer');
     expect(bundled).toContain('th-sortable');
+    expect(bundled).toContain('th-sort-btn');
+    expect(bundled).toContain('aria-sort');
     expect(bundled).toContain('record-drawer');
   });
 
