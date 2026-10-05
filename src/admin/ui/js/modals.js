@@ -139,8 +139,8 @@
                     ${rec[f.name] ? `
                       <div style="margin-bottom:6px; display:flex; align-items:center; gap:8px;">
                         <span style="font-size:12px; color:var(--text-muted);">Current:</span>
-                        <a href="/api/files/${col.name}/${rec.id}/${rec[f.name]}?token=${state.token}" target="_blank" style="color:#60a5fa; font-family:var(--font-mono); font-size:12px; text-decoration:underline;">
-                          ${rec[f.name]}
+                        <a href="${escapeHtml(getRecordFileUrl(col.name, rec.id, rec[f.name]))}" target="_blank" style="color:#60a5fa; font-family:var(--font-mono); font-size:12px; text-decoration:underline;">
+                          ${escapeHtml(rec[f.name])}
                         </a>
                       </div>
                     ` : ''}

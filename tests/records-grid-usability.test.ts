@@ -206,4 +206,34 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
       expect(emails).toEqual(sortedEmails);
     });
   });
+
+  describe('File URL Component Encoding & Attribute Safety (getRecordFileUrl)', () => {
+    it('should encode reserved characters, quotes, and query components in getRecordFileUrl', () => {
+      // Simulate frontend getRecordFileUrl logic
+      const stateMock = { token: 'tok+123&secret=true' };
+      function getRecordFileUrl(colName: string, recId: string, filename: string) {
+        const encCol = encodeURIComponent(colName || '');
+        const encId = encodeURIComponent(recId || '');
+        const encFile = encodeURIComponent(filename || '').replace(/'/g, '%27');
+        const encToken = encodeURIComponent(stateMock.token || '');
+        return `/api/files/${encCol}/${encId}/${encFile}?token=${encToken}`;
+      }
+
+      // Test double quotes, script tags, spaces, and reserved chars in filename
+      const dangerousFilename = 'avatar" onload="alert(1)" \'test\' & #1?.png';
+      const url = getRecordFileUrl('user profiles', 'rec 001', dangerousFilename);
+
+      // Verify path segments and query are encoded
+      expect(url).toContain('/api/files/user%20profiles/rec%20001/');
+      expect(url).not.toContain('"');
+      expect(url).not.toContain("'");
+      expect(url).toContain('%22');
+      expect(url).toContain('%27');
+      expect(url).toContain('%26');
+      expect(url).toContain('%23');
+      expect(url).toContain('%3F');
+      expect(url).toContain('?token=tok%2B123%26secret%3Dtrue');
+    });
+  });
 });
+

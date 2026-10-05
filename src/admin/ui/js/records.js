@@ -268,7 +268,11 @@
     }
 
     function getRecordFileUrl(colName, recId, filename) {
-      return `/api/files/${colName}/${recId}/${filename}?token=${state.token}`;
+      const encCol = encodeURIComponent(colName || '');
+      const encId = encodeURIComponent(recId || '');
+      const encFile = encodeURIComponent(filename || '').replace(/'/g, '%27');
+      const encToken = encodeURIComponent(state.token || '');
+      return `/api/files/${encCol}/${encId}/${encFile}?token=${encToken}`;
     }
 
     function isImageFile(filename) {
@@ -372,11 +376,12 @@
             if (schemaField && schemaField.type === 'file') {
               const filename = String(val);
               const fileUrl = getRecordFileUrl(col.name, rec.id, filename);
+              const safeUrl = escapeHtml(fileUrl);
               const isImg = isImageFile(filename);
               if (isImg) {
-                return `<td><a href="${fileUrl}" target="_blank" onclick="event.stopPropagation()" style="display:inline-flex; align-items:center; gap:6px; color:#60a5fa; text-decoration:none;"><img src="${fileUrl}" style="width:24px; height:24px; object-fit:cover; border-radius:4px; border:1px solid var(--border-subtle);"/> <span style="font-family:var(--font-mono); font-size:12px;">${escapeHtml(filename)}</span></a></td>`;
+                return `<td><a href="${safeUrl}" target="_blank" onclick="event.stopPropagation()" style="display:inline-flex; align-items:center; gap:6px; color:#60a5fa; text-decoration:none;"><img src="${safeUrl}" style="width:24px; height:24px; object-fit:cover; border-radius:4px; border:1px solid var(--border-subtle);"/> <span style="font-family:var(--font-mono); font-size:12px;">${escapeHtml(filename)}</span></a></td>`;
               }
-              return `<td><a href="${fileUrl}" target="_blank" onclick="event.stopPropagation()" style="color:#60a5fa; text-decoration:underline; font-family:var(--font-mono); font-size:12px;">📎 ${escapeHtml(filename)}</a></td>`;
+              return `<td><a href="${safeUrl}" target="_blank" onclick="event.stopPropagation()" style="color:#60a5fa; text-decoration:underline; font-family:var(--font-mono); font-size:12px;">📎 ${escapeHtml(filename)}</a></td>`;
             }
             if (typeof val === 'boolean') return `<td><span class="badge ${val ? 'badge-get' : 'badge-delete'}">${val ? 'TRUE' : 'FALSE'}</span></td>`;
             if (typeof val === 'object') return `<td><code>${escapeHtml(JSON.stringify(val).slice(0, 30))}...</code></td>`;
@@ -662,15 +667,16 @@
       if (field.type === 'file') {
         const filename = String(val);
         const fileUrl = getRecordFileUrl(col.name, rec.id, filename);
+        const safeUrl = escapeHtml(fileUrl);
         const isImg = isImageFile(filename);
         if (isImg) {
           return `
             <div class="drawer-media-box">
-              <a href="${fileUrl}" target="_blank" title="Click to view full image">
-                <img src="${fileUrl}" class="drawer-media-img" alt="${escapeHtml(filename)}" />
+              <a href="${safeUrl}" target="_blank" title="Click to view full image">
+                <img src="${safeUrl}" class="drawer-media-img" alt="${escapeHtml(filename)}" />
               </a>
               <div style="display:flex; flex-direction:column; gap:4px; overflow:hidden;">
-                <a href="${fileUrl}" target="_blank" style="color:#60a5fa; font-family:var(--font-mono); font-size:12px; text-decoration:none; font-weight:600; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
+                <a href="${safeUrl}" target="_blank" style="color:#60a5fa; font-family:var(--font-mono); font-size:12px; text-decoration:none; font-weight:600; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
                   📎 ${escapeHtml(filename)}
                 </a>
                 <span style="font-size:11px; color:var(--text-muted);">Media Image • Click thumbnail to inspect</span>
@@ -682,7 +688,7 @@
           <div class="drawer-media-box">
             <span style="font-size:24px;">📄</span>
             <div style="display:flex; flex-direction:column; gap:4px; overflow:hidden;">
-              <a href="${fileUrl}" target="_blank" style="color:#60a5fa; font-family:var(--font-mono); font-size:12px; text-decoration:none; font-weight:600; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
+              <a href="${safeUrl}" target="_blank" style="color:#60a5fa; font-family:var(--font-mono); font-size:12px; text-decoration:none; font-weight:600; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
                 📎 ${escapeHtml(filename)}
               </a>
               <span style="font-size:11px; color:var(--text-muted);">File Attachment • Click to download</span>
