@@ -953,6 +953,13 @@
     .record-row.row-selected td {
       background-color: rgba(59, 130, 246, 0.09) !important;
     }
+    .record-row:focus-visible {
+      outline: 2px solid #60a5fa;
+      outline-offset: -2px;
+    }
+    .record-row:focus-visible td {
+      background-color: var(--bg-card-hover) !important;
+    }
 
     /* Slide-Over Drawer Backdrop */
     .drawer-backdrop {
@@ -989,6 +996,9 @@
     }
     .record-drawer.open {
       transform: translateX(0);
+    }
+    .record-drawer:focus {
+      outline: none;
     }
 
     .drawer-header {

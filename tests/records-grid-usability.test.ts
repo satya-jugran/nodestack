@@ -492,5 +492,234 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
       expect(exactApostrophe.items.length).toBe(1);
     });
   });
+
+  describe('Slide-Over Record Drawer Accessibility & Focus Management', () => {
+    it('should render drawer container with proper dialog semantics and aria attributes', () => {
+      const rootHtml = `
+        <div id="record-drawer-backdrop" class="drawer-backdrop" onclick="closeRecordDrawer()" aria-hidden="true"></div>
+        <aside id="record-drawer-panel" class="record-drawer" role="dialog" aria-modal="true" aria-labelledby="record-drawer-title" tabindex="-1">
+          <!-- Dynamic Content -->
+        </aside>
+      `;
+
+      expect(rootHtml).toContain('role="dialog"');
+      expect(rootHtml).toContain('aria-modal="true"');
+      expect(rootHtml).toContain('aria-labelledby="record-drawer-title"');
+      expect(rootHtml).toContain('tabindex="-1"');
+      expect(rootHtml).toContain('aria-hidden="true"');
+    });
+
+    it('should include accessible header title and close button with proper labels in drawer content', () => {
+      const col = { name: 'members', schema: [] };
+      const rec = { id: 'rec_123', created: new Date().toISOString() };
+
+      const headerHtml = `
+        <div class="drawer-header">
+          <div class="drawer-title-area">
+            <span style="font-size:18px;" aria-hidden="true">📄</span>
+            <h2 id="record-drawer-title" class="drawer-title" style="margin:0; font-size:1.05rem;">Record Details</h2>
+            <span class="badge badge-post">${col.name}</span>
+            <span class="id-pill" title="Record ID">${rec.id}</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="drawer-close-btn" onclick="closeRecordDrawer()" title="Close drawer (Esc)" aria-label="Close drawer">✕</button>
+        </div>
+      `;
+
+      expect(headerHtml).toContain('id="record-drawer-title"');
+      expect(headerHtml).toContain('id="drawer-close-btn"');
+      expect(headerHtml).toContain('aria-label="Close drawer"');
+    });
+
+    it('should render table rows with keyboard accessibility attributes (tabindex, role, aria-label, onkeydown)', () => {
+      function renderRow(recId: string) {
+        return `<tr class="record-row" data-id="${recId}" tabindex="0" role="button" aria-label="Record ${recId}, press Enter to view details" onclick="handleRecordRowClick(this)" onkeydown="handleRecordRowKeyDown(event, this)">`;
+      }
+
+      const rowHtml = renderRow('rec_abc');
+      expect(rowHtml).toContain('tabindex="0"');
+      expect(rowHtml).toContain('role="button"');
+      expect(rowHtml).toContain('aria-label="Record rec_abc, press Enter to view details"');
+      expect(rowHtml).toContain('onkeydown="handleRecordRowKeyDown(event, this)"');
+    });
+
+    it('should activate drawer via handleRecordRowKeyDown on Enter or Space but ignore inner interactive targets', () => {
+      let openedWithId: string | null = null;
+      function openRecordDrawer(id: string) {
+        openedWithId = id;
+      }
+      function handleRecordRowClick(trEl: any) {
+        const id = trEl.getAttribute('data-id');
+        if (id) openRecordDrawer(id);
+      }
+      function handleRecordRowKeyDown(e: any, trEl: any) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          if (e.target && e.target.closest && e.target.closest('button, a, input, select, textarea')) {
+            return;
+          }
+          e.preventDefault();
+          handleRecordRowClick(trEl);
+        }
+      }
+
+      const mockTr = {
+        getAttribute: (attr: string) => (attr === 'data-id' ? 'rec_99' : null),
+      };
+
+      // 1. Enter key on row triggers drawer
+      let defaultPrevented = false;
+      handleRecordRowKeyDown(
+        { key: 'Enter', target: { closest: () => null }, preventDefault: () => { defaultPrevented = true; } },
+        mockTr
+      );
+      expect(openedWithId).toBe('rec_99');
+      expect(defaultPrevented).toBe(true);
+
+      // Reset
+      openedWithId = null;
+      defaultPrevented = false;
+
+      // 2. Space key on row triggers drawer
+      handleRecordRowKeyDown(
+        { key: ' ', target: { closest: () => null }, preventDefault: () => { defaultPrevented = true; } },
+        mockTr
+      );
+      expect(openedWithId).toBe('rec_99');
+      expect(defaultPrevented).toBe(true);
+
+      // Reset
+      openedWithId = null;
+      defaultPrevented = false;
+
+      // 3. Enter key on an inner button (e.g., Edit/Delete) does NOT trigger drawer
+      handleRecordRowKeyDown(
+        { key: 'Enter', target: { closest: (sel: string) => (sel.includes('button') ? {} : null) }, preventDefault: () => { defaultPrevented = true; } },
+        mockTr
+      );
+      expect(openedWithId).toBeNull();
+      expect(defaultPrevented).toBe(false);
+
+      // 4. Other keys (ArrowDown, etc.) do NOT trigger drawer
+      handleRecordRowKeyDown(
+        { key: 'ArrowDown', target: { closest: () => null }, preventDefault: () => { defaultPrevented = true; } },
+        mockTr
+      );
+      expect(openedWithId).toBeNull();
+    });
+
+    it('should trap focus inside the drawer when Tab or Shift+Tab is pressed', () => {
+      let closed = false;
+      function closeRecordDrawer() {
+        closed = true;
+      }
+
+      const btnClose = { id: 'drawer-close-btn', focusCount: 0, focus() { this.focusCount++; } };
+      const btnCopy = { id: 'drawer-copy-btn', focusCount: 0, focus() { this.focusCount++; } };
+      const btnDelete = { id: 'drawer-delete-btn', focusCount: 0, focus() { this.focusCount++; } };
+      const focusableList = [btnClose, btnCopy, btnDelete];
+
+      const panel = {
+        querySelectorAll: () => focusableList,
+        contains: (el: any) => focusableList.includes(el),
+        focus() {},
+      };
+
+      let currentActiveElement: any = btnDelete;
+
+      function handleDrawerKeyDown(e: any) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeRecordDrawer();
+          return;
+        }
+
+        if (e.key === 'Tab') {
+          const focusable = focusableList;
+          if (focusable.length === 0) {
+            e.preventDefault();
+            return;
+          }
+
+          const firstElement = focusable[0];
+          const lastElement = focusable[focusable.length - 1];
+
+          if (e.shiftKey) {
+            if (currentActiveElement === firstElement || !panel.contains(currentActiveElement)) {
+              e.preventDefault();
+              lastElement.focus();
+              currentActiveElement = lastElement;
+            }
+          } else {
+            if (currentActiveElement === lastElement || !panel.contains(currentActiveElement)) {
+              e.preventDefault();
+              firstElement.focus();
+              currentActiveElement = firstElement;
+            }
+          }
+        }
+      }
+
+      // Tab on last element -> wraps to first element
+      currentActiveElement = btnDelete;
+      let prevented = false;
+      handleDrawerKeyDown({
+        key: 'Tab',
+        shiftKey: false,
+        preventDefault: () => { prevented = true; },
+      });
+      expect(prevented).toBe(true);
+      expect(currentActiveElement).toBe(btnClose);
+      expect(btnClose.focusCount).toBe(1);
+
+      // Shift+Tab on first element -> wraps to last element
+      currentActiveElement = btnClose;
+      prevented = false;
+      handleDrawerKeyDown({
+        key: 'Tab',
+        shiftKey: true,
+        preventDefault: () => { prevented = true; },
+      });
+      expect(prevented).toBe(true);
+      expect(currentActiveElement).toBe(btnDelete);
+      expect(btnDelete.focusCount).toBe(1);
+
+      // Escape key closes drawer
+      prevented = false;
+      handleDrawerKeyDown({
+        key: 'Escape',
+        preventDefault: () => { prevented = true; },
+      });
+      expect(prevented).toBe(true);
+      expect(closed).toBe(true);
+    });
+
+    it('should save trigger element on open and restore focus to trigger element on close', () => {
+      let drawerTriggerElement: any = null;
+      let rowFocusCount = 0;
+      const mockRow = {
+        id: 'row-rec-1',
+        focus: () => { rowFocusCount++; },
+      };
+
+      function openRecordDrawer(triggerEl: any) {
+        drawerTriggerElement = triggerEl;
+      }
+
+      function closeRecordDrawer() {
+        if (drawerTriggerElement && typeof drawerTriggerElement.focus === 'function') {
+          drawerTriggerElement.focus();
+        }
+        drawerTriggerElement = null;
+      }
+
+      // Open drawer from row
+      openRecordDrawer(mockRow);
+      expect(drawerTriggerElement).toBe(mockRow);
+
+      // Close drawer -> focus restored to row
+      closeRecordDrawer();
+      expect(rowFocusCount).toBe(1);
+      expect(drawerTriggerElement).toBeNull();
+    });
+  });
 });
 

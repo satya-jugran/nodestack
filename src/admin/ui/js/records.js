@@ -398,7 +398,7 @@
       tbContainer.innerHTML = state.records.map(rec => {
         const safeRecId = escapeHtml(rec.id);
         return `
-        <tr class="record-row ${state.selectedRecordId === rec.id ? 'row-selected' : ''}" data-id="${safeRecId}" onclick="handleRecordRowClick(this)">
+        <tr class="record-row ${state.selectedRecordId === rec.id ? 'row-selected' : ''}" data-id="${safeRecId}" tabindex="0" role="button" aria-label="Record ${safeRecId}, press Enter to view details" onclick="handleRecordRowClick(this)" onkeydown="handleRecordRowKeyDown(event, this)">
           <td><span class="id-pill">${safeRecId}</span></td>
           ${displayFields.map(f => {
             const schemaField = col.schema.find(sf => sf.name === f);
@@ -481,19 +481,40 @@
     // Slide-Over Record Detail Drawer
     // ==========================================
 
+    let drawerTriggerElement = null;
+
     function handleRecordRowClick(trEl) {
       if (!trEl) return;
       const id = trEl.getAttribute('data-id');
       if (id) {
-        openRecordDrawer(id);
+        openRecordDrawer(id, trEl);
       }
     }
 
-    function openRecordDrawer(id) {
+    function handleRecordRowKeyDown(e, trEl) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        if (e.target && e.target.closest && e.target.closest('button, a, input, select, textarea')) {
+          return;
+        }
+        e.preventDefault();
+        handleRecordRowClick(trEl);
+      }
+    }
+
+    function openRecordDrawer(id, triggerEl) {
       const rec = state.records.find(r => r.id === id);
       if (!rec) return;
 
       state.selectedRecordId = id;
+
+      // Store trigger element for focus restoration upon closing
+      if (triggerEl && typeof triggerEl.focus === 'function') {
+        drawerTriggerElement = triggerEl;
+      } else if (document.activeElement && typeof document.activeElement.focus === 'function' && document.activeElement !== document.body) {
+        drawerTriggerElement = document.activeElement;
+      } else {
+        drawerTriggerElement = document.querySelector(`#records-table tr.record-row[data-id="${id}"]`);
+      }
 
       // Update row selection style
       document.querySelectorAll('#records-table tr.record-row').forEach(tr => {
@@ -514,30 +535,82 @@
       }
 
       root.innerHTML = `
-        <div id="record-drawer-backdrop" class="drawer-backdrop" onclick="closeRecordDrawer()"></div>
-        <aside id="record-drawer-panel" class="record-drawer" aria-label="Record Details Drawer">
+        <div id="record-drawer-backdrop" class="drawer-backdrop" onclick="closeRecordDrawer()" aria-hidden="true"></div>
+        <aside id="record-drawer-panel" class="record-drawer" role="dialog" aria-modal="true" aria-labelledby="record-drawer-title" tabindex="-1">
           <!-- Dynamic Content -->
         </aside>
       `;
 
       renderDrawerContent(rec);
 
-      // Trigger slide-over animation smoothly
+      // Trigger slide-over animation smoothly and move focus into drawer
       requestAnimationFrame(() => {
         const backdrop = document.getElementById('record-drawer-backdrop');
         const panel = document.getElementById('record-drawer-panel');
         if (backdrop) backdrop.classList.add('open');
-        if (panel) panel.classList.add('open');
+        if (panel) {
+          panel.classList.add('open');
+          focusDrawerOnOpen();
+        }
       });
+      setTimeout(() => {
+        focusDrawerOnOpen();
+      }, 50);
 
-      // Escape key listener
+      // Escape key and Tab focus trap listener
       window.removeEventListener('keydown', handleDrawerKeyDown);
       window.addEventListener('keydown', handleDrawerKeyDown);
     }
 
+    function focusDrawerOnOpen() {
+      const panel = document.getElementById('record-drawer-panel');
+      if (!panel) return;
+      const closeBtn = document.getElementById('drawer-close-btn');
+      if (closeBtn && typeof closeBtn.focus === 'function') {
+        closeBtn.focus();
+      } else if (typeof panel.focus === 'function') {
+        panel.focus();
+      }
+    }
+
     function handleDrawerKeyDown(e) {
       if (e.key === 'Escape') {
+        e.preventDefault();
         closeRecordDrawer();
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        const panel = document.getElementById('record-drawer-panel');
+        if (!panel) return;
+
+        const focusableElements = panel.querySelectorAll(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        const focusable = Array.from(focusableElements).filter(el => {
+          return el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0 || el.style.display !== 'none';
+        });
+
+        if (focusable.length === 0) {
+          e.preventDefault();
+          if (typeof panel.focus === 'function') panel.focus();
+          return;
+        }
+
+        const firstElement = focusable[0];
+        const lastElement = focusable[focusable.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === firstElement || !panel.contains(document.activeElement)) {
+            e.preventDefault();
+            lastElement.focus();
+          }
+        } else {
+          if (document.activeElement === lastElement || !panel.contains(document.activeElement)) {
+            e.preventDefault();
+            firstElement.focus();
+          }
+        }
       }
     }
 
@@ -553,6 +626,14 @@
       if (panel) panel.classList.remove('open');
 
       window.removeEventListener('keydown', handleDrawerKeyDown);
+
+      // Restore focus to the trigger element that opened the drawer
+      if (drawerTriggerElement && typeof drawerTriggerElement.focus === 'function' && document.body.contains(drawerTriggerElement)) {
+        try {
+          drawerTriggerElement.focus();
+        } catch (_) {}
+      }
+      drawerTriggerElement = null;
 
       setTimeout(() => {
         const root = document.getElementById('drawer-root');
@@ -575,12 +656,12 @@
         <!-- Drawer Header -->
         <div class="drawer-header">
           <div class="drawer-title-area">
-            <span style="font-size:18px;">📄</span>
-            <span class="drawer-title">Record Details</span>
+            <span style="font-size:18px;" aria-hidden="true">📄</span>
+            <h2 id="record-drawer-title" class="drawer-title" style="margin:0; font-size:1.05rem;">Record Details</h2>
             <span class="badge badge-post">${escapeHtml(col.name)}</span>
             <span class="id-pill" title="Record ID">${safeRecId}</span>
           </div>
-          <button class="btn btn-secondary btn-sm" onclick="closeRecordDrawer()" title="Close drawer (Esc)">✕</button>
+          <button class="btn btn-secondary btn-sm" id="drawer-close-btn" onclick="closeRecordDrawer()" title="Close drawer (Esc)" aria-label="Close drawer">✕</button>
         </div>
 
         <!-- Quick Actions Bar -->

@@ -59,6 +59,13 @@ describe('AdminUIBundler', () => {
     expect(bundled).toContain('th-sort-btn');
     expect(bundled).toContain('aria-sort');
     expect(bundled).toContain('record-drawer');
+    expect(bundled).toContain('role="dialog"');
+    expect(bundled).toContain('aria-modal="true"');
+    expect(bundled).toContain('aria-labelledby="record-drawer-title"');
+    expect(bundled).toContain('id="drawer-close-btn"');
+    expect(bundled).toContain('function handleRecordRowKeyDown');
+    expect(bundled).toContain('function handleDrawerKeyDown');
+    expect(bundled).toContain('function focusDrawerOnOpen');
   });
 
   it('should return empty string if directory or index.html is missing', () => {
