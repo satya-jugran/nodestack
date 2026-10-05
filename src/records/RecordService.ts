@@ -85,6 +85,13 @@ export class RecordService {
     const offset = (page - 1) * perPage;
 
     const allowedFields = new Set(col.schema.map((f) => f.name));
+    if (col.type === 'auth') {
+      if (auth?.isAdmin) {
+        allowedFields.add('email');
+      }
+      allowedFields.add('emailVisibility');
+      allowedFields.add('verified');
+    }
     const { clause: whereClause, params: filterParams } = QueryFilterParser.parseFilter(
       options.filter,
       allowedFields
@@ -366,6 +373,13 @@ export class RecordService {
     }
 
     const allowedFields = new Set(col.schema.map((f) => f.name));
+    if (col.type === 'auth') {
+      if (auth?.isAdmin) {
+        allowedFields.add('email');
+      }
+      allowedFields.add('emailVisibility');
+      allowedFields.add('verified');
+    }
     const { clause: whereClause, params: filterParams } = QueryFilterParser.parseFilter(
       options.filter,
       allowedFields
