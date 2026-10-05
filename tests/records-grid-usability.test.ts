@@ -178,6 +178,71 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
       expect(page2.items[0].title).toBe('Charlie Chaplin');
       expect(page2.items[1].title).toBe('Diana Prince');
     });
+
+    it('should clamp page and reload when deleting final item on last page reduces totalPages', async () => {
+      // Create a collection with 3 items, perPage = 2 => 2 pages
+      app.schema.createCollection({
+        name: 'paged_items',
+        type: 'base',
+        schema: [
+          { id: 'f_name', name: 'name', type: 'text', required: true },
+        ],
+        listRule: '',
+        viewRule: '',
+        createRule: '',
+        updateRule: '',
+        deleteRule: '',
+      });
+
+      await app.records.create('paged_items', { name: 'Item 1' });
+      await app.records.create('paged_items', { name: 'Item 2' });
+      const i3 = await app.records.create('paged_items', { name: 'Item 3' });
+
+      // Page 2 initially exists and returns Item 3
+      const initialPage2 = await app.records.getList('paged_items', { page: 2, perPage: 2 });
+      expect(initialPage2.page).toBe(2);
+      expect(initialPage2.totalItems).toBe(3);
+      expect(initialPage2.totalPages).toBe(2);
+      expect(initialPage2.items.length).toBe(1);
+      const lastPageItem = initialPage2.items[0];
+
+      // Delete the only item on page 2
+      await app.records.delete('paged_items', lastPageItem.id);
+
+      // Now query page 2 again (simulating what happens if client requested page 2 before realizing it was deleted)
+      const outOfRangeRes = await app.records.getList('paged_items', { page: 2, perPage: 2 });
+      expect(outOfRangeRes.totalItems).toBe(2);
+      expect(outOfRangeRes.totalPages).toBe(1);
+      expect(outOfRangeRes.items.length).toBe(0);
+
+      // Simulate client loadRecords clamping logic:
+      let clientPage = 2;
+      const clientPerPage = 2;
+      const totalItems = outOfRangeRes.totalItems;
+      const totalPages = Math.max(1, outOfRangeRes.totalPages || Math.ceil(totalItems / clientPerPage));
+      let reloaded = false;
+
+      if (clientPage > totalPages) {
+        clientPage = totalPages;
+        reloaded = true;
+      }
+
+      expect(reloaded).toBe(true);
+      expect(clientPage).toBe(1);
+
+      // Reloading with clamped page yields the new last valid page items
+      const clampedRes = await app.records.getList('paged_items', { page: clientPage, perPage: 2 });
+      expect(clampedRes.page).toBe(1);
+      expect(clampedRes.items.length).toBe(2);
+
+      // Footer calculation verification: start must never exceed end or total
+      const total = clampedRes.totalItems;
+      const start = total === 0 ? 0 : Math.min((clientPage - 1) * clientPerPage + 1, total);
+      const end = Math.min(clientPage * clientPerPage, total);
+      expect(start).toBe(1);
+      expect(end).toBe(2);
+      expect(start <= end).toBe(true);
+    });
   });
 
   describe('Auth Collection Search & Sorting (email, verified)', () => {

@@ -251,9 +251,20 @@
         }
 
         const res = await api(`/api/collections/${state.activeCollection.name}/records?${queryParams}`);
+        const totalItems = res.totalItems || 0;
+        const totalPages = Math.max(1, res.totalPages || Math.ceil(totalItems / state.recordsPerPage));
+
+        // If deleting the final item on the last page reduces totalPages, the API returns
+        // an empty out-of-range page but recordsPage remains unchanged. Clamp and reload when
+        // the response shows that the current page no longer exists.
+        if (state.recordsPage > totalPages) {
+          state.recordsPage = totalPages;
+          return loadRecords();
+        }
+
         state.records = res.items || [];
-        state.recordsTotal = res.totalItems || 0;
-        state.recordsTotalPages = res.totalPages || Math.max(1, Math.ceil(state.recordsTotal / state.recordsPerPage));
+        state.recordsTotal = totalItems;
+        state.recordsTotalPages = totalPages;
 
         renderRecordsTable();
         updatePaginationControls();
@@ -427,7 +438,7 @@
       const page = state.recordsPage;
       const totalPages = Math.max(1, Math.ceil(total / perPage));
 
-      const start = total === 0 ? 0 : (page - 1) * perPage + 1;
+      const start = total === 0 ? 0 : Math.min((page - 1) * perPage + 1, total);
       const end = Math.min(page * perPage, total);
 
       if (paginationLabel) {
