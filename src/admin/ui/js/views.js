@@ -359,22 +359,23 @@
           else if (log.status >= 400) statusClass = 'badge-status-400';
 
           const methodClass = `badge-${log.method.toLowerCase()}`;
+          const safeUrl = escapeHtml(log.url);
 
           return `
             <tr>
-              <td><span class="badge ${statusClass}">${log.status}</span></td>
-              <td><span class="badge ${methodClass}">${log.method}</span></td>
+              <td><span class="badge ${statusClass}">${escapeHtml(log.status)}</span></td>
+              <td><span class="badge ${methodClass}">${escapeHtml(log.method)}</span></td>
               <td>
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-                  <code style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:280px;" title="${log.url}">${log.url}</code>
-                  <button class="btn btn-secondary btn-sm" style="padding:4px 6px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; border-radius:5px;" onclick="copyToClipboard('${log.url.replace(/'/g, "\\'")}', this)" title="Copy URL">
+                  <code style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:280px;" title="${safeUrl}">${safeUrl}</code>
+                  <button class="btn btn-secondary btn-sm" style="padding:4px 6px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; border-radius:5px;" data-url="${safeUrl}" onclick="copyToClipboard(this.getAttribute('data-url'), this)" title="Copy URL">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                   </button>
                 </div>
               </td>
               <td>${log.duration.toFixed(1)}ms</td>
               <td style="color:var(--text-muted);font-size:12px;">${new Date(log.created).toLocaleTimeString()}</td>
-              <td>${log.ip || '127.0.0.1'}</td>
+              <td>${escapeHtml(log.ip || '127.0.0.1')}</td>
             </tr>
           `;
         }).join('');

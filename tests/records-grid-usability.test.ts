@@ -288,6 +288,27 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
       // Verify escaped display text
       expect(thHtml).toContain('&lt;script&gt;test&lt;/script&gt;');
     });
+
+    it('should safely escape rec.email in data-email attribute and avoid inline JavaScript interpolation', () => {
+      function escapeHtml(str: any): string {
+        return String(str ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      const maliciousEmail = `attacker" onclick="alert('xss')"'@domain.com`;
+      const rec = { email: maliciousEmail };
+
+      const buttonHtml = `<button class="btn btn-secondary btn-sm" style="padding:2px 6px; font-size:11px;" data-email="${escapeHtml(rec.email || '')}" onclick="handleDrawerCopyEmail(this)">Copy</button>`;
+
+      expect(buttonHtml).not.toContain('attacker" onclick=');
+      expect(buttonHtml).not.toContain(`copyToClipboard('${maliciousEmail}'`);
+      expect(buttonHtml).toContain('data-email="attacker&quot; onclick=&quot;alert(&#39;xss&#39;)&quot;&#39;@domain.com"');
+      expect(buttonHtml).toContain('onclick="handleDrawerCopyEmail(this)"');
+    });
   });
 });
 
