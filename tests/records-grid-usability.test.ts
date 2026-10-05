@@ -70,6 +70,12 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
       bio: 'Hero saving the world',
       score: 100,
     });
+
+    // Seed distinct created timestamps so chronological sorting tests are deterministic
+    app.db.run(`UPDATE "members" SET created = '2026-01-01T10:00:00.000Z' WHERE title = 'Alice Wonder'`);
+    app.db.run(`UPDATE "members" SET created = '2026-01-02T10:00:00.000Z' WHERE title = 'Bob Builder'`);
+    app.db.run(`UPDATE "members" SET created = '2026-01-03T10:00:00.000Z' WHERE title = 'Charlie Chaplin'`);
+    app.db.run(`UPDATE "members" SET created = '2026-01-04T10:00:00.000Z' WHERE title = 'Diana Prince'`);
   });
 
   afterAll(async () => {
@@ -145,10 +151,26 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
 
     it('should sort by system created field (sort=created and sort=-created)', async () => {
       const resAsc = await app.records.getList('members', { sort: 'created' });
+      expect(resAsc.items.length).toBe(4);
+      // Assert that the returned timestamp sequence is sorted in ascending order
+      for (let i = 1; i < resAsc.items.length; i++) {
+        const prev = new Date(resAsc.items[i - 1].created).getTime();
+        const curr = new Date(resAsc.items[i].created).getTime();
+        expect(curr).toBeGreaterThan(prev);
+      }
       expect(resAsc.items[0].title).toBe('Alice Wonder');
+      expect(resAsc.items[resAsc.items.length - 1].title).toBe('Diana Prince');
 
       const resDesc = await app.records.getList('members', { sort: '-created' });
+      expect(resDesc.items.length).toBe(4);
+      // Assert that the returned timestamp sequence is sorted in descending order
+      for (let i = 1; i < resDesc.items.length; i++) {
+        const prev = new Date(resDesc.items[i - 1].created).getTime();
+        const curr = new Date(resDesc.items[i].created).getTime();
+        expect(curr).toBeLessThan(prev);
+      }
       expect(resDesc.items[0].title).toBe('Diana Prince');
+      expect(resDesc.items[resDesc.items.length - 1].title).toBe('Alice Wonder');
     });
   });
 
