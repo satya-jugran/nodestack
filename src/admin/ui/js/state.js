@@ -36,6 +36,51 @@
         .replace(/'/g, '&#39;');
     }
 
+    // Filter literal encoder/decoder (mirrors backend FilterCodec)
+    const FilterCodec = {
+      encode(val) {
+        if (val === null || val === undefined) return "''";
+        const str = String(val);
+        const escaped = str
+          .replace(/\\/g, '\\\\')
+          .replace(/'/g, "\\'")
+          .replace(/\n/g, '\\n')
+          .replace(/\r/g, '\\r')
+          .replace(/\t/g, '\\t');
+        return `'${escaped}'`;
+      },
+      decode(valStr) {
+        if (!valStr) return '';
+        const trimmed = String(valStr).trim();
+        if (
+          (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+          (trimmed.startsWith("'") && trimmed.endsWith("'"))
+        ) {
+          const inner = trimmed.slice(1, -1);
+          return inner.replace(/\\([\\'"nrt]|.)/gs, (_, char) => {
+            switch (char) {
+              case 'n': return '\n';
+              case 'r': return '\r';
+              case 't': return '\t';
+              case '\\': return '\\';
+              case "'": return "'";
+              case '"': return '"';
+              default: return char;
+            }
+          });
+        }
+        return trimmed;
+      }
+    };
+
+    function encodeFilterString(val) {
+      return FilterCodec.encode(val);
+    }
+
+    function decodeFilterString(valStr) {
+      return FilterCodec.decode(valStr);
+    }
+
     // Toast helper
     function toast(msg, type = 'success') {
       const container = document.getElementById('toast-container');

@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
+import { FilterCodec } from '../src/records/FilterCodec';
+import { QueryFilterParser } from '../src/records/QueryFilterParser';
 
 describe('Records Data Grid Usability (Backend & Service Integration)', () => {
   const testDir = path.resolve(__dirname, '../.test_records_grid_data');
@@ -340,6 +342,80 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
       expect(buttonHtml).not.toContain(`copyToClipboard('${maliciousEmail}'`);
       expect(buttonHtml).toContain('data-email="attacker&quot; onclick=&quot;alert(&#39;xss&#39;)&quot;&#39;@domain.com"');
       expect(buttonHtml).toContain('onclick="handleDrawerCopyEmail(this)"');
+    });
+  });
+
+  describe('Shared Filter Literal Codec & Apostrophe/Backslash Search (Regression Tests)', () => {
+    it('should roundtrip arbitrary string literals including apostrophes, backslashes, and quotes', () => {
+      const testCases = [
+        "O'Reilly",
+        "C:\\Users\\Default",
+        "nested 'single' and \"double\" quotes",
+        "path\\with\\multiple\\backslashes",
+        "apostrophe's and backslash\\ combo",
+        "line1\nline2\ttab",
+        "",
+        "simple_term",
+      ];
+
+      for (const raw of testCases) {
+        const encoded = FilterCodec.encode(raw);
+        expect(encoded.startsWith("'") && encoded.endsWith("'")).toBe(true);
+        const decoded = FilterCodec.decode(encoded);
+        expect(decoded).toBe(raw);
+      }
+    });
+
+    it('should properly unescape literal in QueryFilterParser and not include escape backslashes in query parameter', () => {
+      // Searching O'Reilly with filter title ~ 'O\'Reilly'
+      const parsedApostrophe = QueryFilterParser.parseFilter("title ~ 'O\\'Reilly'");
+      expect(parsedApostrophe.params).toEqual(["%O'Reilly%"]);
+
+      // Searching exact match title = 'O\'Reilly'
+      const parsedExact = QueryFilterParser.parseFilter("title = 'O\\'Reilly'");
+      expect(parsedExact.params).toEqual(["O'Reilly"]);
+
+      // Searching path with backslash: path ~ 'C:\\docs'
+      const parsedBackslash = QueryFilterParser.parseFilter("path ~ 'C:\\\\docs'");
+      expect(parsedBackslash.params).toEqual(["%C:\\docs%"]);
+    });
+
+    it('should match records containing apostrophes and backslashes in database queries', async () => {
+      // Create a collection for special character searches
+      app.schema.createCollection({
+        name: 'books',
+        type: 'base',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text', required: true },
+          { id: 'f_path', name: 'path', type: 'text', required: false },
+        ],
+        listRule: '',
+        viewRule: '',
+        createRule: '',
+        updateRule: '',
+        deleteRule: '',
+      });
+
+      await app.records.create('books', {
+        title: "O'Reilly Programming Guide",
+        path: "C:\\books\\library",
+      });
+
+      // 1. Search for O'Reilly using encoded literal
+      const searchApostropheFilter = `title ~ ${FilterCodec.encode("O'Reilly")}`;
+      const resApostrophe = await app.records.getList('books', { filter: searchApostropheFilter });
+      expect(resApostrophe.items.length).toBe(1);
+      expect(resApostrophe.items[0].title).toBe("O'Reilly Programming Guide");
+
+      // 2. Search for backslash path using encoded literal
+      const searchPathFilter = `path ~ ${FilterCodec.encode("C:\\books")}`;
+      const resPath = await app.records.getList('books', { filter: searchPathFilter });
+      expect(resPath.items.length).toBe(1);
+      expect(resPath.items[0].path).toBe("C:\\books\\library");
+
+      // 3. Exact match with apostrophe
+      const exactApostrophe = await app.records.getList('books', { filter: `title = ${FilterCodec.encode("O'Reilly Programming Guide")}` });
+      expect(exactApostrophe.items.length).toBe(1);
     });
   });
 });

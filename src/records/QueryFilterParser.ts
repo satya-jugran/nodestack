@@ -1,3 +1,5 @@
+import { FilterCodec } from './FilterCodec';
+
 export interface ParsedFilter {
   clause: string;
   params: any[];
@@ -9,6 +11,19 @@ export interface ParsedSort {
 }
 
 export class QueryFilterParser {
+  /**
+   * Encodes a string value into a filter literal with quotes and escaping.
+   */
+  public static encodeFilterString(val: string): string {
+    return FilterCodec.encode(val);
+  }
+
+  /**
+   * Decodes a filter string literal, unescaping backslash-escaped characters.
+   */
+  public static decodeFilterString(valStr: string): string {
+    return FilterCodec.decode(valStr);
+  }
   /**
    * Parses a sort string like "-created,title,+views" into SQL ORDER BY
    */
@@ -161,13 +176,21 @@ export class QueryFilterParser {
       (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
       (trimmed.startsWith("'") && trimmed.endsWith("'"))
     ) {
-      return trimmed.slice(1, -1);
+      return FilterCodec.decode(trimmed);
     }
     if (trimmed.toLowerCase() === 'true') return 1;
     if (trimmed.toLowerCase() === 'false') return 0;
     if (trimmed.toLowerCase() === 'null') return null;
     if (!isNaN(Number(trimmed)) && trimmed !== '') return Number(trimmed);
     return trimmed;
+  }
+
+  private static isCharEscaped(str: string, index: number): boolean {
+    let backslashCount = 0;
+    for (let i = index - 1; i >= 0 && str[i] === '\\'; i--) {
+      backslashCount++;
+    }
+    return backslashCount % 2 === 1;
   }
 
   private static splitTopLevel(str: string, delimiter: string): string[] {
@@ -179,7 +202,7 @@ export class QueryFilterParser {
 
     for (let i = 0; i < str.length; i++) {
       const char = str[i];
-      if ((char === '"' || char === "'") && (i === 0 || str[i - 1] !== '\\')) {
+      if ((char === '"' || char === "'") && !this.isCharEscaped(str, i)) {
         if (!inQuote) {
           inQuote = true;
           quoteChar = char;
@@ -212,7 +235,7 @@ export class QueryFilterParser {
 
     for (let i = 0; i < str.length; i++) {
       const char = str[i];
-      if ((char === '"' || char === "'") && (i === 0 || str[i - 1] !== '\\')) {
+      if ((char === '"' || char === "'") && !this.isCharEscaped(str, i)) {
         if (!inQuote) {
           inQuote = true;
           quoteChar = char;
@@ -240,10 +263,25 @@ export class QueryFilterParser {
 
   private static isFullyEnclosed(str: string): boolean {
     let depth = 0;
+    let inQuote = false;
+    let quoteChar = '';
+
     for (let i = 0; i < str.length; i++) {
-      if (str[i] === '(') depth++;
-      else if (str[i] === ')') depth--;
-      if (depth === 0 && i < str.length - 1) return false;
+      const char = str[i];
+      if ((char === '"' || char === "'") && !this.isCharEscaped(str, i)) {
+        if (!inQuote) {
+          inQuote = true;
+          quoteChar = char;
+        } else if (char === quoteChar) {
+          inQuote = false;
+        }
+      }
+
+      if (!inQuote) {
+        if (char === '(') depth++;
+        else if (char === ')') depth--;
+        if (depth === 0 && i < str.length - 1) return false;
+      }
     }
     return depth === 0;
   }

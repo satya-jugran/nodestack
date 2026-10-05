@@ -18,19 +18,19 @@
     function buildSearchFilter(term, field, col) {
       if (!term || !term.trim()) return '';
       const trimmed = term.trim();
-      const escaped = trimmed.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const encoded = encodeFilterString(trimmed);
       const searchable = getSearchableFields(col);
 
       if (field && field !== '_all') {
-        return `${field} ~ '${escaped}'`;
+        return `${field} ~ ${encoded}`;
       }
 
       if (searchable.length === 0) {
-        return `id ~ '${escaped}'`;
+        return `id ~ ${encoded}`;
       }
 
       // By default, search across all text/email/url fields using an || condition
-      return searchable.map(f => `${f.name} ~ '${escaped}'`).join(' || ');
+      return searchable.map(f => `${f.name} ~ ${encoded}`).join(' || ');
     }
 
     let searchDebounceTimer = null;

@@ -50,6 +50,9 @@ describe('AdminUIBundler', () => {
     expect(bundled).toContain('function handleRecordRowClick');
     expect(bundled).toContain('function handleDrawerCopyId');
     expect(bundled).toContain('function handleDrawerCopyJsonField');
+    expect(bundled).toContain('FilterCodec');
+    expect(bundled).toContain('function encodeFilterString');
+    expect(bundled).toContain('function decodeFilterString');
     expect(bundled).toContain('search-bar-composite');
     expect(bundled).toContain('pagination-footer');
     expect(bundled).toContain('th-sortable');
