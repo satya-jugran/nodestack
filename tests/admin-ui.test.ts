@@ -33,6 +33,23 @@ describe('AdminUIBundler', () => {
     expect(bundled).toContain('function renderSchemaView');
     expect(bundled).toContain('function openNewRecordModal');
     expect(bundled).toContain('function renderHomeView');
+
+    // Records Data Grid Usability enhancements
+    expect(bundled).toContain('id="drawer-root"');
+    expect(bundled).toContain('function updatePaginationControls');
+    expect(bundled).toContain('function changeRecordsPage');
+    expect(bundled).toContain('function changeRecordsPerPage');
+    expect(bundled).toContain('function goToRecordsPage');
+    expect(bundled).toContain('function buildSearchFilter');
+    expect(bundled).toContain('function handleSearchFieldChange');
+    expect(bundled).toContain('function toggleSort');
+    expect(bundled).toContain('function openRecordDrawer');
+    expect(bundled).toContain('function closeRecordDrawer');
+    expect(bundled).toContain('function renderDrawerContent');
+    expect(bundled).toContain('search-bar-composite');
+    expect(bundled).toContain('pagination-footer');
+    expect(bundled).toContain('th-sortable');
+    expect(bundled).toContain('record-drawer');
   });
 
   it('should return empty string if directory or index.html is missing', () => {

@@ -8,9 +8,13 @@
       collectionTab: 'records', // 'records' | 'schema'
       records: [],
       recordsPage: 1,
-      recordsPerPage: 30,
+      recordsPerPage: 25,
       recordsTotal: 0,
-      recordsFilter: '',
+      recordsTotalPages: 1,
+      recordsSort: '',
+      recordsSearchField: '_all',
+      recordsSearchTerm: '',
+      selectedRecordId: null,
       realtimeEventSource: null,
       logs: [],
       activeRules: {},
@@ -43,22 +47,22 @@
     }
 
     // Copy helper
-    function copyToClipboard(text, btnEl) {
+    function copyToClipboard(text, btnEl, successMsg = 'Copied to clipboard!') {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(() => {
-          toast('URL copied to clipboard!', 'success');
+          toast(successMsg, 'success');
           if (btnEl) {
             const orig = btnEl.innerHTML;
             btnEl.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>';
             setTimeout(() => { btnEl.innerHTML = orig; }, 1500);
           }
-        }).catch(() => fallbackCopy(text, btnEl));
+        }).catch(() => fallbackCopy(text, btnEl, successMsg));
       } else {
-        fallbackCopy(text, btnEl);
+        fallbackCopy(text, btnEl, successMsg);
       }
     }
 
-    function fallbackCopy(text, btnEl) {
+    function fallbackCopy(text, btnEl, successMsg = 'Copied to clipboard!') {
       const ta = document.createElement('textarea');
       ta.value = text;
       ta.style.position = 'fixed';
@@ -67,7 +71,7 @@
       ta.select();
       document.execCommand('copy');
       document.body.removeChild(ta);
-      toast('URL copied to clipboard!', 'success');
+      toast(successMsg, 'success');
       if (btnEl) {
         const orig = btnEl.innerHTML;
         btnEl.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>';

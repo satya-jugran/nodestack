@@ -242,6 +242,9 @@
           method: 'DELETE',
         });
         toast('Record deleted!', 'success');
+        if (typeof closeRecordDrawer === 'function' && state.selectedRecordId === id) {
+          closeRecordDrawer();
+        }
         loadRecords();
       } catch (e) {
         toast(e.message, 'error');

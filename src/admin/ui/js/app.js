@@ -122,6 +122,16 @@
     async function selectCollection(name) {
       state.activeNav = 'collection';
       state.activeCollection = state.collections.find(c => c.name === name);
+      // Reset collection-specific records state
+      state.recordsPage = 1;
+      state.recordsFilter = '';
+      state.recordsSearchTerm = '';
+      state.recordsSearchField = '_all';
+      state.recordsSort = '';
+      state.selectedRecordId = null;
+      if (typeof closeRecordDrawer === 'function') {
+        closeRecordDrawer();
+      }
       renderCollectionsList();
 
       document.getElementById('nav-home')?.classList.remove('active');
