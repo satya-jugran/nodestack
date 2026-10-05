@@ -205,6 +205,38 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
       const sortedEmails = [...emails].sort();
       expect(emails).toEqual(sortedEmails);
     });
+
+    it('should NOT allow non-admin requests to filter or sort by email on auth collection', async () => {
+      // Non-admin request (public / unauthenticated)
+      // When non-admin tries to filter by email, 'email' is omitted from allowedFields
+      const nonAdminSearch = await app.records.getList('users', { filter: "email ~ 'aaron'" });
+      // The filter on email is ignored by QueryFilterParser, so it does not narrow down exclusively to aaron
+      // and thus does NOT reveal whether hidden emails exist through item counts
+      expect(nonAdminSearch.totalItems).toBeGreaterThan(1);
+
+      // When non-admin tries to sort by email, it falls back to created DESC
+      const nonAdminSort = await app.records.getList('users', { sort: 'email' });
+      // Non-admin sanitized results have emails masked unless emailVisibility is true
+      expect(nonAdminSort.items.length).toBeGreaterThan(0);
+
+      // verified and emailVisibility remain queryable for non-admin requests
+      const verifiedFilter = await app.records.getList('users', { filter: 'verified = false' });
+      expect(verifiedFilter.items.every(u => u.verified === false)).toBe(true);
+    });
+
+    it('should allow admin to filter by email in exportRecords and disallow non-admin', async () => {
+      const adminAuth = { id: 'admin', isAdmin: true };
+      const adminExport = await app.records.exportRecords('users', 'json', { filter: "email ~ 'aaron'" }, adminAuth);
+      const parsedAdmin = JSON.parse(adminExport.data);
+      expect(parsedAdmin.length).toBe(1);
+      expect(parsedAdmin[0].email).toBe('aaron@company.io');
+
+      // Non-admin export
+      const nonAdminExport = await app.records.exportRecords('users', 'json', { filter: "email ~ 'aaron'" });
+      const parsedNonAdmin = JSON.parse(nonAdminExport.data);
+      // Filter on email ignored, exports all allowed users
+      expect(parsedNonAdmin.length).toBeGreaterThan(1);
+    });
   });
 
   describe('File URL Component Encoding & Attribute Safety (getRecordFileUrl)', () => {

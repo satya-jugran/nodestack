@@ -86,7 +86,9 @@ export class RecordService {
 
     const allowedFields = new Set(col.schema.map((f) => f.name));
     if (col.type === 'auth') {
-      allowedFields.add('email');
+      if (auth?.isAdmin) {
+        allowedFields.add('email');
+      }
       allowedFields.add('emailVisibility');
       allowedFields.add('verified');
     }
@@ -372,7 +374,9 @@ export class RecordService {
 
     const allowedFields = new Set(col.schema.map((f) => f.name));
     if (col.type === 'auth') {
-      allowedFields.add('email');
+      if (auth?.isAdmin) {
+        allowedFields.add('email');
+      }
       allowedFields.add('emailVisibility');
       allowedFields.add('verified');
     }
