@@ -326,6 +326,103 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
       // Filter on email ignored, exports all allowed users
       expect(parsedNonAdmin.length).toBeGreaterThan(1);
     });
+
+    it('should prevent hidden-email disclosure to non-admin callers on a public/listable auth collection with emailVisibility: false', async () => {
+      const adminAuth = { id: 'admin', isAdmin: true };
+
+      // Create a public/listable auth collection (open listRule and viewRule)
+      app.schema.createCollection({
+        name: 'public_members',
+        type: 'auth',
+        schema: [
+          { id: 'f_name', name: 'name', type: 'text', required: true },
+        ],
+        listRule: '',
+        viewRule: '',
+        createRule: '',
+        updateRule: '',
+        deleteRule: '',
+      });
+
+      // Seed members with hidden email (emailVisibility: false) and visible email (emailVisibility: true)
+      await app.records.create('public_members', {
+        email: 'secret_victim@classified.org',
+        password: 'password123',
+        name: 'Target Person',
+        emailVisibility: false,
+      });
+      await app.records.create('public_members', {
+        email: 'open_user@classified.org',
+        password: 'password123',
+        name: 'Public Person',
+        emailVisibility: true,
+      });
+      await app.records.create('public_members', {
+        email: 'hidden_stealth@other.com',
+        password: 'password123',
+        name: 'Stealth Person',
+        emailVisibility: false,
+      });
+
+      // 1. Non-admin listing: secret emails must be masked in sanitized response
+      const nonAdminList = await app.records.getList('public_members', {});
+      expect(nonAdminList.totalItems).toBe(3);
+      const targetUser = nonAdminList.items.find((u: any) => u.name === 'Target Person');
+      const publicUser = nonAdminList.items.find((u: any) => u.name === 'Public Person');
+      expect(targetUser?.email).toBeUndefined(); // Masked due to emailVisibility: false
+      expect(publicUser?.email).toBe('open_user@classified.org'); // Visible due to emailVisibility: true
+
+      // 2. Non-admin filtering by hidden email (exact match):
+      // The filter on 'email' must be rejected/ignored, returning all 3 records instead of 1.
+      // This prevents using result count as an oracle to discover if 'secret_victim@classified.org' exists.
+      const nonAdminFilterHidden = await app.records.getList('public_members', {
+        filter: "email = 'secret_victim@classified.org'",
+      });
+      expect(nonAdminFilterHidden.totalItems).toBe(3);
+      expect(nonAdminFilterHidden.items.length).toBe(3);
+
+      // 3. Non-admin filtering by non-existent email:
+      // Ignored just like existing email, yielding identical totalItems count (3)
+      const nonAdminFilterNonexistent = await app.records.getList('public_members', {
+        filter: "email = 'nonexistent_account@nowhere.com'",
+      });
+      expect(nonAdminFilterNonexistent.totalItems).toBe(3);
+      expect(nonAdminFilterNonexistent.totalItems).toBe(nonAdminFilterHidden.totalItems);
+
+      // 4. Non-admin filtering by hidden email with like (~):
+      const nonAdminLikeFilter = await app.records.getList('public_members', {
+        filter: "email ~ 'secret_victim'",
+      });
+      expect(nonAdminLikeFilter.totalItems).toBe(3);
+
+      // 5. Non-admin sorting by email:
+      // Sort on email is rejected and falls back to default created DESC
+      const nonAdminSort = await app.records.getList('public_members', { sort: 'email' });
+      expect(nonAdminSort.items.length).toBe(3);
+
+      // 6. Admin request can filter and sort by email, and sees unmasked email
+      const adminFilter = await app.records.getList(
+        'public_members',
+        { filter: "email = 'secret_victim@classified.org'" },
+        adminAuth
+      );
+      expect(adminFilter.totalItems).toBe(1);
+      expect(adminFilter.items[0].name).toBe('Target Person');
+      expect(adminFilter.items[0].email).toBe('secret_victim@classified.org');
+
+      // Admin sort by email
+      const adminSort = await app.records.getList('public_members', { sort: 'email' }, adminAuth);
+      const adminSortedEmails = adminSort.items.map((u: any) => u.email);
+      const expectedSorted = ['hidden_stealth@other.com', 'open_user@classified.org', 'secret_victim@classified.org'].sort();
+      expect(adminSortedEmails).toEqual(expectedSorted);
+
+      // 7. Non-admin CAN still filter by allowed fields like emailVisibility and verified
+      const nonAdminVisibilityFilter = await app.records.getList('public_members', {
+        filter: 'emailVisibility = false',
+      });
+      expect(nonAdminVisibilityFilter.totalItems).toBe(2);
+      expect(nonAdminVisibilityFilter.items.every((u: any) => u.emailVisibility === false)).toBe(true);
+    });
   });
 
   describe('File URL Component Encoding & Attribute Safety (getRecordFileUrl)', () => {
