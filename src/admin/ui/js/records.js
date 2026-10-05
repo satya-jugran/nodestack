@@ -544,7 +544,7 @@
       renderDrawerContent(rec);
 
       // Trigger slide-over animation smoothly and move focus into drawer
-      requestAnimationFrame(() => {
+      const triggerDrawerOpen = () => {
         const backdrop = document.getElementById('record-drawer-backdrop');
         const panel = document.getElementById('record-drawer-panel');
         if (backdrop) backdrop.classList.add('open');
@@ -552,7 +552,12 @@
           panel.classList.add('open');
           focusDrawerOnOpen();
         }
-      });
+      };
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(triggerDrawerOpen);
+      } else {
+        triggerDrawerOpen();
+      }
       setTimeout(() => {
         focusDrawerOnOpen();
       }, 50);

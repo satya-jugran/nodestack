@@ -24,6 +24,9 @@
         liveStats: null,
       },
     };
+    if (typeof window !== 'undefined') {
+      window.state = state;
+    }
 
 
     function escapeHtml(str) {
