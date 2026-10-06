@@ -401,28 +401,59 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(win.openNewCollectionModal).toHaveBeenCalled();
     });
 
-    it('should support arrow key navigation inside the command palette', () => {
+    it('should support arrow key and hover navigation inside the command palette with semantic ARIA updates', () => {
       const { win, doc } = createTestDOM();
 
       win.openCommandPalette();
       const input = doc.getElementById('command-palette-input') as HTMLInputElement;
+      const listbox = doc.getElementById('command-palette-results') as HTMLElement;
+
+      expect(input.getAttribute('role')).toBe('combobox');
+      expect(input.getAttribute('aria-autocomplete')).toBe('list');
+      expect(input.getAttribute('aria-expanded')).toBe('true');
+      expect(input.getAttribute('aria-haspopup')).toBe('listbox');
+      expect(input.getAttribute('aria-controls')).toBe('command-palette-results');
+      expect(input.getAttribute('aria-activedescendant')).toBe('command-palette-item-0');
+
+      expect(listbox.getAttribute('role')).toBe('listbox');
+      expect(listbox.getAttribute('aria-label')).toBe('Commands and collections');
 
       const items = doc.querySelectorAll('.command-palette-item');
       expect(items.length).toBeGreaterThan(2);
 
-      // Initially item 0 is selected
+      // Verify item roles and initial selection
+      expect(items[0].getAttribute('role')).toBe('option');
+      expect(items[0].getAttribute('id')).toBe('command-palette-item-0');
+      expect(items[0].getAttribute('aria-selected')).toBe('true');
       expect(items[0].classList.contains('selected')).toBe(true);
+
+      expect(items[1].getAttribute('role')).toBe('option');
+      expect(items[1].getAttribute('id')).toBe('command-palette-item-1');
+      expect(items[1].getAttribute('aria-selected')).toBe('false');
       expect(items[1].classList.contains('selected')).toBe(false);
 
       // Arrow Down moves to item 1
       input.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
       expect(items[0].classList.contains('selected')).toBe(false);
+      expect(items[0].getAttribute('aria-selected')).toBe('false');
       expect(items[1].classList.contains('selected')).toBe(true);
+      expect(items[1].getAttribute('aria-selected')).toBe('true');
+      expect(input.getAttribute('aria-activedescendant')).toBe('command-palette-item-1');
 
       // Arrow Up moves back to item 0
       input.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
       expect(items[0].classList.contains('selected')).toBe(true);
+      expect(items[0].getAttribute('aria-selected')).toBe('true');
       expect(items[1].classList.contains('selected')).toBe(false);
+      expect(items[1].getAttribute('aria-selected')).toBe('false');
+      expect(input.getAttribute('aria-activedescendant')).toBe('command-palette-item-0');
+
+      // Mouse hover on item 2 via setCommandPaletteActiveIndex
+      win.setCommandPaletteActiveIndex(2);
+      expect(items[2].classList.contains('selected')).toBe(true);
+      expect(items[2].getAttribute('aria-selected')).toBe('true');
+      expect(items[0].getAttribute('aria-selected')).toBe('false');
+      expect(input.getAttribute('aria-activedescendant')).toBe('command-palette-item-2');
     });
 
     it('should stop Escape propagation so pressing Escape in command palette closes only palette, not underlying record drawer', async () => {

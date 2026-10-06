@@ -627,14 +627,16 @@
       return items.map((item, idx) => `
         <div 
           class="command-palette-item ${idx === selectedIndex ? 'selected' : ''}" 
+          id="command-palette-item-${idx}"
           onclick="executeCommandPaletteItem(${idx})"
           onmouseenter="setCommandPaletteActiveIndex(${idx})"
           data-index="${idx}"
-          role="button"
+          role="option"
+          aria-selected="${idx === selectedIndex ? 'true' : 'false'}"
           tabindex="-1"
         >
           <div class="command-palette-item-left">
-            <div class="command-palette-item-icon">${item.icon || '⚡'}</div>
+            <div class="command-palette-item-icon" aria-hidden="true">${item.icon || '⚡'}</div>
             <div class="command-palette-item-text">
               <div class="command-palette-item-title">${escapeHtml(item.title)}</div>
               <div class="command-palette-item-desc">${escapeHtml(item.description)}</div>
@@ -655,7 +657,7 @@
         <div class="command-palette-backdrop" id="command-palette-backdrop" onclick="handleCommandPaletteBackdrop(event)" onkeydown="if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeCommandPalette();}">
           <div class="command-palette-modal" role="dialog" aria-modal="true" aria-label="Command Palette">
             <div class="command-palette-header">
-              <svg class="command-palette-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg class="command-palette-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <circle cx="11" cy="11" r="8"></circle>
                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
               </svg>
@@ -666,12 +668,18 @@
                 placeholder="Type a command or jump to... (e.g. users, metrics, export, new)" 
                 autocomplete="off" 
                 spellcheck="false"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded="${commandPaletteFilteredItems.length > 0 ? 'true' : 'false'}"
+                aria-haspopup="listbox"
+                aria-controls="command-palette-results"
+                ${commandPaletteFilteredItems.length > 0 ? 'aria-activedescendant="command-palette-item-0"' : ''}
                 oninput="handleCommandPaletteInput(this.value)"
                 onkeydown="handleCommandPaletteKeyDown(event)"
               />
-              <span class="command-palette-esc-badge" onclick="closeCommandPalette()">ESC</span>
+              <span class="command-palette-esc-badge" onclick="closeCommandPalette()" role="button" aria-label="Close command palette">ESC</span>
             </div>
-            <div class="command-palette-results" id="command-palette-results">
+            <div class="command-palette-results" id="command-palette-results" role="listbox" aria-label="Commands and collections">
               ${renderCommandPaletteResultsHtml(commandPaletteFilteredItems, 0)}
             </div>
             <div class="command-palette-footer">
@@ -716,8 +724,20 @@
       commandPaletteActiveIndex = 0;
       commandPaletteFilteredItems = filterCommandPaletteItems(val);
       const container = document.getElementById('command-palette-results');
+      const input = document.getElementById('command-palette-input');
+
       if (container) {
         container.innerHTML = renderCommandPaletteResultsHtml(commandPaletteFilteredItems, 0);
+      }
+
+      if (input) {
+        if (commandPaletteFilteredItems.length > 0) {
+          input.setAttribute('aria-expanded', 'true');
+          input.setAttribute('aria-activedescendant', 'command-palette-item-0');
+        } else {
+          input.setAttribute('aria-expanded', 'false');
+          input.removeAttribute('aria-activedescendant');
+        }
       }
     }
 
@@ -745,29 +765,57 @@
     }
 
     function updateCommandPaletteActiveItem() {
+      const input = document.getElementById('command-palette-input');
       const items = document.querySelectorAll('.command-palette-item');
+      let activeId = null;
+
       items.forEach((el, idx) => {
         if (idx === commandPaletteActiveIndex) {
           el.classList.add('selected');
+          el.setAttribute('aria-selected', 'true');
+          activeId = el.id;
           if (typeof el.scrollIntoView === 'function') {
             el.scrollIntoView({ block: 'nearest' });
           }
         } else {
           el.classList.remove('selected');
+          el.setAttribute('aria-selected', 'false');
         }
       });
+
+      if (input) {
+        if (activeId) {
+          input.setAttribute('aria-activedescendant', activeId);
+        } else {
+          input.removeAttribute('aria-activedescendant');
+        }
+      }
     }
 
     function setCommandPaletteActiveIndex(idx) {
       commandPaletteActiveIndex = idx;
+      const input = document.getElementById('command-palette-input');
       const items = document.querySelectorAll('.command-palette-item');
+      let activeId = null;
+
       items.forEach((el, i) => {
         if (i === idx) {
           el.classList.add('selected');
+          el.setAttribute('aria-selected', 'true');
+          activeId = el.id;
         } else {
           el.classList.remove('selected');
+          el.setAttribute('aria-selected', 'false');
         }
       });
+
+      if (input) {
+        if (activeId) {
+          input.setAttribute('aria-activedescendant', activeId);
+        } else {
+          input.removeAttribute('aria-activedescendant');
+        }
+      }
     }
 
     function executeCommandPaletteItem(index) {
