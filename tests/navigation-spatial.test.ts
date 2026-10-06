@@ -133,21 +133,33 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       const { win, doc } = createTestDOM();
 
       const userHeader = doc.querySelector('#group-user-collections .collection-group-header') as HTMLElement;
+      const systemHeader = doc.querySelector('#group-system-tables .collection-group-header') as HTMLElement;
       const userItemsBox = doc.getElementById('group-items-user') as HTMLElement;
+      const systemItemsBox = doc.getElementById('group-items-system') as HTMLElement;
+
       expect(userItemsBox.classList.contains('collapsed')).toBe(false);
+      expect(userHeader.getAttribute('aria-expanded')).toBe('true');
+      expect(userHeader.getAttribute('aria-controls')).toBe('group-items-user');
+
+      expect(systemItemsBox.classList.contains('collapsed')).toBe(false);
+      expect(systemHeader.getAttribute('aria-expanded')).toBe('true');
+      expect(systemHeader.getAttribute('aria-controls')).toBe('group-items-system');
 
       // Click to collapse
       userHeader.click();
       expect(win.state.collapsedSections.user).toBe(true);
       const userItemsBoxAfter = doc.getElementById('group-items-user') as HTMLElement;
+      const userHeaderAfter = doc.querySelector('#group-user-collections .collection-group-header') as HTMLElement;
       expect(userItemsBoxAfter.classList.contains('collapsed')).toBe(true);
+      expect(userHeaderAfter.getAttribute('aria-expanded')).toBe('false');
 
       // Click again to expand
-      const userHeaderAgain = doc.querySelector('#group-user-collections .collection-group-header') as HTMLElement;
-      userHeaderAgain.click();
+      userHeaderAfter.click();
       expect(win.state.collapsedSections.user).toBe(false);
       const userItemsBoxExpanded = doc.getElementById('group-items-user') as HTMLElement;
+      const userHeaderExpanded = doc.querySelector('#group-user-collections .collection-group-header') as HTMLElement;
       expect(userItemsBoxExpanded.classList.contains('collapsed')).toBe(false);
+      expect(userHeaderExpanded.getAttribute('aria-expanded')).toBe('true');
     });
 
     it('should fix active state bug: clicking a collection removes .active from Analytics and Snapshots tabs', async () => {
