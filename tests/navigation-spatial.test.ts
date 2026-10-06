@@ -412,5 +412,42 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(items[0].classList.contains('selected')).toBe(true);
       expect(items[1].classList.contains('selected')).toBe(false);
     });
+
+    it('should stop Escape propagation so pressing Escape in command palette closes only palette, not underlying record drawer', async () => {
+      const { win, doc } = createTestDOM();
+
+      // Open a collection and its records view
+      await win.selectCollection('products');
+      win.state.records = [{ id: 'prod_01', title: 'Test Product', created: '2026-01-01' }];
+      win.renderRecordsView();
+      win.renderRecordsTable();
+
+      // Open the record detail drawer (which attaches window-level Escape handler)
+      win.openRecordDrawer('prod_01');
+      expect(win.state.selectedRecordId).toBe('prod_01');
+      expect(doc.getElementById('record-drawer-panel')).not.toBeNull();
+
+      // Now open command palette over the drawer
+      win.openCommandPalette();
+      expect(doc.getElementById('command-palette-backdrop')).not.toBeNull();
+      const paletteInput = doc.getElementById('command-palette-input') as HTMLInputElement;
+
+      // Press Escape on the palette input
+      const escapeEvent = new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      paletteInput.dispatchEvent(escapeEvent);
+
+      // Command palette must be closed
+      expect(doc.getElementById('command-palette-backdrop')).toBeNull();
+
+      // Record drawer must STILL BE OPEN!
+      expect(win.state.selectedRecordId).toBe('prod_01');
+      expect(doc.getElementById('record-drawer-panel')).not.toBeNull();
+
+      // A subsequent Escape now closes the record drawer
+      win.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(win.state.selectedRecordId).toBeNull();
+      const panel = doc.getElementById('record-drawer-panel');
+      expect(panel?.classList.contains('open')).toBe(false);
+    });
   });
 });

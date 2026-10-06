@@ -652,7 +652,7 @@
       if (!root) return;
 
       root.innerHTML = `
-        <div class="command-palette-backdrop" id="command-palette-backdrop" onclick="handleCommandPaletteBackdrop(event)">
+        <div class="command-palette-backdrop" id="command-palette-backdrop" onclick="handleCommandPaletteBackdrop(event)" onkeydown="if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeCommandPalette();}">
           <div class="command-palette-modal" role="dialog" aria-modal="true" aria-label="Command Palette">
             <div class="command-palette-header">
               <svg class="command-palette-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -739,6 +739,7 @@
         executeCommandPaletteItem(commandPaletteActiveIndex);
       } else if (e.key === 'Escape') {
         e.preventDefault();
+        e.stopPropagation();
         closeCommandPalette();
       }
     }
@@ -793,7 +794,12 @@
         toggleCommandPalette();
       } else if (e.key === 'Escape') {
         closeCollectionCreateMenu();
-        closeCommandPalette();
+        const root = document.getElementById('command-palette-root');
+        if (root && root.innerHTML.trim().length > 0) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          closeCommandPalette();
+        }
       }
     });
 
