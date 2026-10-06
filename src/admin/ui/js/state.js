@@ -18,6 +18,11 @@
       realtimeEventSource: null,
       logs: [],
       activeRules: {},
+      collectionFilterTerm: '',
+      collapsedSections: {
+        user: false,
+        system: false,
+      },
       demo: {
         hasSnapshot: false,
         snapshot: null,

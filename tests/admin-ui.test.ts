@@ -67,6 +67,21 @@ describe('AdminUIBundler', () => {
     expect(bundled).toContain('function handleRecordRowKeyDown');
     expect(bundled).toContain('function handleDrawerKeyDown');
     expect(bundled).toContain('function focusDrawerOnOpen');
+
+    // Navigation, Spatial Awareness & Wayfinding enhancements
+    expect(bundled).toContain('id="sidebar-collection-filter"');
+    expect(bundled).toContain('id="collection-filter-input"');
+    expect(bundled).toContain('group-user-collections');
+    expect(bundled).toContain('group-system-tables');
+    expect(bundled).toContain('function handleCollectionFilterInput');
+    expect(bundled).toContain('function toggleCollectionSection');
+    expect(bundled).toContain('id="breadcrumb-nav"');
+    expect(bundled).toContain('id="breadcrumb-trail"');
+    expect(bundled).toContain('function updateBreadcrumbs');
+    expect(bundled).toContain('id="command-palette-root"');
+    expect(bundled).toContain('function openCommandPalette');
+    expect(bundled).toContain('function toggleCommandPalette');
+    expect(bundled).toContain('function filterCommandPaletteItems');
   });
 
   it('should return empty string if directory or index.html is missing', () => {

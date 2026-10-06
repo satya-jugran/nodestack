@@ -77,6 +77,32 @@
       </div>
 
 
+      <div class="sidebar-collection-filter" id="sidebar-collection-filter">
+        <div class="collection-filter-inner">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input 
+            type="text" 
+            id="collection-filter-input" 
+            class="collection-filter-input" 
+            placeholder="Filter collections..." 
+            oninput="handleCollectionFilterInput(this.value)" 
+            autocomplete="off" 
+            spellcheck="false"
+          >
+          <button 
+            type="button" 
+            id="collection-filter-clear-btn" 
+            class="filter-clear-btn" 
+            onclick="clearCollectionFilter()" 
+            title="Clear filter" 
+            style="display:none;"
+          >✕</button>
+        </div>
+      </div>
+
       <div class="collections-list" id="collections-list">
         <!-- Rendered dynamically -->
       </div>
@@ -107,15 +133,30 @@
       <!-- Top Bar -->
       <div class="top-bar">
         <div class="page-title-box">
-          <h1 class="page-title" id="view-title">Collections</h1>
+          <nav class="breadcrumb-nav" id="breadcrumb-nav" aria-label="Breadcrumb navigation">
+            <ol class="breadcrumb-trail" id="breadcrumb-trail">
+              <!-- Rendered dynamically -->
+            </ol>
+          </nav>
+          <h1 class="page-title" id="view-title" style="display:none;">Collections</h1>
           <span class="badge" id="view-badge" style="display:none;"></span>
-          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); margin-left: 1rem;">
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); margin-left: 0.5rem;">
             <span class="live-dot"></span>
             <span>Realtime Live</span>
           </div>
         </div>
-        <div class="top-actions" id="view-actions">
-          <!-- Dynamic Action Buttons -->
+        <div class="top-bar-right-group" style="display: flex; align-items: center; gap: 8px;">
+          <button class="command-palette-trigger-btn" id="btn-command-palette-trigger" onclick="openCommandPalette()" title="Open Command Palette (Ctrl+K or ⌘K)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <span>Jump to...</span>
+            <kbd class="palette-kbd">⌘K</kbd>
+          </button>
+          <div class="top-actions" id="view-actions">
+            <!-- Dynamic Action Buttons -->
+          </div>
         </div>
       </div>
 
@@ -140,6 +181,9 @@
 
   <!-- Slide-Over Drawer Container -->
   <div id="drawer-root"></div>
+
+  <!-- Command Palette Container -->
+  <div id="command-palette-root"></div>
 
 
   <script src="./js/state.js"></script>
