@@ -1,5 +1,6 @@
 export type RuleOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | '~';
 export type RuleMode = 'admin' | 'public' | 'auth' | 'custom';
+export type RuleOperation = 'list' | 'view' | 'create' | 'update' | 'delete';
 export type RuleJoinOp = '&&' | '||';
 
 export interface RuleClause {
@@ -406,8 +407,10 @@ export class RuleBuilder {
 
   /**
    * Get human-readable natural language summary translation for a rule mode.
+   * If an operation / action is provided, provides action-specific phrasing.
+   * If omitted, returns generic access/action wording.
    */
-  public static getSummary(mode: RuleMode, action?: string): string {
+  public static getSummary(mode: RuleMode, action?: RuleOperation | string): string {
     switch (mode) {
       case 'public':
         if (action === 'create') return 'Anyone can create records without authentication (unrestricted).';

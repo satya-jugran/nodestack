@@ -46,6 +46,7 @@ export {
   ParsedRule,
   RuleOperator,
   RuleMode,
+  RuleOperation,
   RuleJoinOp,
   SUPPORTED_OPERATORS,
   COMMON_AUTH_FIELDS,
