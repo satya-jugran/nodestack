@@ -449,3 +449,219 @@ describe('Records Data Grid DOM Interactions & Accessibility (Browser/DOM Enviro
   });
 });
 
+describe('Schema Designer & Visual Rules Builder (schema.js & rules.js)', () => {
+  function createSchemaAndRulesDOM(options: {
+    collection?: any;
+    collections?: any[];
+  } = {}) {
+    const uiDir = path.resolve(__dirname, '../src/admin/ui');
+    const bundledHtml = AdminUIBundler.bundle(uiDir);
+
+    const dom = new JSDOM(bundledHtml, {
+      url: 'http://localhost:8090/_/',
+      runScripts: 'dangerously',
+      beforeParse(window: any) {
+        window.fetch = vi.fn().mockImplementation(async () => ({
+          ok: true,
+          json: async () => ({ items: [], totalItems: 0 }),
+        }));
+      },
+    });
+
+    const win = dom.window as any;
+    const doc = win.document;
+
+    const collections = options.collections || [
+      { name: 'posts', id: 'col_posts', schema: [] },
+      { name: 'users', id: 'col_users', schema: [] },
+      { name: 'comments', id: 'col_comments', schema: [] },
+    ];
+
+    const col = options.collection || {
+      name: 'articles',
+      type: 'base',
+      schema: [
+        { id: 'f_title', name: 'title', type: 'text', required: true, unique: false },
+        { id: 'f_views', name: 'views', type: 'number', required: false, unique: false },
+        { id: 'f_author', name: 'author', type: 'relation', required: false, unique: false, options: { collectionId: 'users' } },
+        { id: 'f_status', name: 'status', type: 'select', required: false, unique: false, options: { values: ['draft', 'published'] } },
+      ],
+      listRule: '',
+      viewRule: '',
+      createRule: '@request.auth.id != ""',
+      updateRule: '@request.auth.id != ""',
+      deleteRule: null,
+    };
+
+    win.state.collections = collections;
+    win.state.activeCollection = col;
+
+    win.renderSchemaView();
+
+    return { dom, win, doc, col, collections };
+  }
+
+  describe('Field Type Badges & Targeted Configuration', () => {
+    it('should prefix field types with clear iconography in dropdown', () => {
+      const { doc } = createSchemaAndRulesDOM();
+      const typeSelects = doc.querySelectorAll('.field-type-select');
+      expect(typeSelects.length).toBe(4);
+
+      const firstSelect = typeSelects[0] as HTMLSelectElement;
+      const optionTexts = Array.from(firstSelect.options).map((opt) => opt.textContent);
+
+      expect(optionTexts).toContain('🔤 text');
+      expect(optionTexts).toContain('🔢 number');
+      expect(optionTexts).toContain('📧 email');
+      expect(optionTexts).toContain('📅 date');
+      expect(optionTexts).toContain('📎 file');
+      expect(optionTexts).toContain('🔗 relation');
+    });
+
+    it('should render field type badges with iconography on each field row', () => {
+      const { doc } = createSchemaAndRulesDOM();
+      const badges = doc.querySelectorAll('.field-type-badge');
+      expect(badges.length).toBe(4);
+
+      expect(badges[0].textContent).toContain('🔤');
+      expect(badges[1].textContent).toContain('🔢');
+      expect(badges[2].textContent).toContain('🔗');
+      expect(badges[3].textContent).toContain('📋');
+    });
+
+    it('should show target collection dropdown for relation type (Relates to: [posts ▾])', () => {
+      const { doc } = createSchemaAndRulesDOM();
+      const rows = doc.querySelectorAll('.schema-field-row');
+
+      // Row 2 is relation field ('author')
+      const relationRow = rows[2] as HTMLElement;
+      const relationConfig = relationRow.querySelector('.field-relation-config');
+      expect(relationConfig).not.toBeNull();
+      expect(relationConfig?.textContent).toContain('Relates to:');
+
+      const targetSelect = relationConfig?.querySelector('.field-relation-select') as HTMLSelectElement;
+      expect(targetSelect).not.toBeNull();
+      expect(targetSelect.value).toBe('users');
+
+      const targetOptions = Array.from(targetSelect.options).map((opt) => opt.value);
+      expect(targetOptions).toContain('posts');
+      expect(targetOptions).toContain('users');
+      expect(targetOptions).toContain('comments');
+    });
+
+    it('should show allowed options configuration for select type', () => {
+      const { doc } = createSchemaAndRulesDOM();
+      const rows = doc.querySelectorAll('.schema-field-row');
+
+      // Row 3 is select field ('status')
+      const selectRow = rows[3] as HTMLElement;
+      const selectConfig = selectRow.querySelector('.field-select-config');
+      expect(selectConfig).not.toBeNull();
+      expect(selectConfig?.textContent).toContain('Allowed options:');
+
+      const optionsInput = selectConfig?.querySelector('.field-select-values-input') as HTMLInputElement;
+      expect(optionsInput).not.toBeNull();
+      expect(optionsInput.value).toBe('draft, published');
+    });
+
+    it('should dynamically reveal target collection dropdown when switching type to relation', () => {
+      const { win, doc } = createSchemaAndRulesDOM();
+      const rows = doc.querySelectorAll('.schema-field-row');
+
+      // Row 0 is text field ('title') - initially no relation config
+      expect(rows[0].querySelector('.field-relation-config')).toBeNull();
+
+      // Switch row 0 to relation
+      const typeSelect = rows[0].querySelector('.field-type-select') as HTMLSelectElement;
+      typeSelect.value = 'relation';
+      typeSelect.dispatchEvent(new win.Event('change'));
+
+      const updatedRows = doc.querySelectorAll('.schema-field-row');
+      const relationConfig = updatedRows[0].querySelector('.field-relation-config');
+      expect(relationConfig).not.toBeNull();
+      expect(relationConfig?.textContent).toContain('Relates to:');
+    });
+
+    it('should provide reordering handles (⋮⋮ and up/down arrows) to rearrange columns', () => {
+      const { win, doc } = createSchemaAndRulesDOM();
+      const rows = doc.querySelectorAll('.schema-field-row');
+
+      // Verify drag handle ⋮⋮ and up/down buttons exist on rows
+      for (const row of rows) {
+        expect(row.querySelector('.field-drag-handle')?.textContent).toContain('⋮⋮');
+        expect(row.querySelector('.btn-field-up')).not.toBeNull();
+        expect(row.querySelector('.btn-field-down')).not.toBeNull();
+      }
+
+      // Initial column order: title (0), views (1), author (2), status (3)
+      expect(win.state.activeCollection.schema[0].name).toBe('title');
+      expect(win.state.activeCollection.schema[1].name).toBe('views');
+
+      // Click down button on first row (title)
+      const firstDownBtn = rows[0].querySelector('.btn-field-down') as HTMLButtonElement;
+      firstDownBtn.click();
+
+      // Order should now be: views (0), title (1)
+      expect(win.state.activeCollection.schema[0].name).toBe('views');
+      expect(win.state.activeCollection.schema[1].name).toBe('title');
+
+      // Click up button on second row (title)
+      const secondUpBtn = doc.querySelectorAll('.schema-field-row')[1].querySelector('.btn-field-up') as HTMLButtonElement;
+      secondUpBtn.click();
+
+      // Order restored: title (0), views (1)
+      expect(win.state.activeCollection.schema[0].name).toBe('title');
+      expect(win.state.activeCollection.schema[1].name).toBe('views');
+    });
+  });
+
+  describe('Natural-Language Rule Summaries', () => {
+    it('should display human-readable translation beneath active preset for Public, Auth, and Admin', () => {
+      const { doc } = createSchemaAndRulesDOM();
+
+      // listRule is '' -> Public
+      const listCard = doc.getElementById('rule-card-list');
+      expect(listCard).not.toBeNull();
+      expect(listCard?.textContent).toContain('Anyone can read this without authentication (unrestricted).');
+
+      // createRule is '@request.auth.id != ""' -> Auth
+      const createCard = doc.getElementById('rule-card-create');
+      expect(createCard).not.toBeNull();
+      expect(createCard?.textContent).toContain('Only logged-in users with a valid token can access.');
+
+      // deleteRule is null -> Admin
+      const deleteCard = doc.getElementById('rule-card-delete');
+      expect(deleteCard).not.toBeNull();
+      expect(deleteCard?.textContent).toContain('Restricted strictly to superuser admins.');
+    });
+
+    it('should update human-readable translation dynamically when switching presets', () => {
+      const { doc } = createSchemaAndRulesDOM();
+
+      // deleteRule starts as Admin
+      const deleteCard = doc.getElementById('rule-card-delete') as HTMLElement;
+      const summaryEl = deleteCard.querySelector('#rule-preset-summary-delete');
+      expect(summaryEl?.textContent).toContain('Restricted strictly to superuser admins.');
+
+      // Click Public preset button
+      const publicBtn = deleteCard.querySelector('button[onclick*="\'delete\', \'public\'"]') as HTMLButtonElement;
+      expect(publicBtn).not.toBeNull();
+      publicBtn.click();
+
+      // Translation updates to Public
+      const updatedDeleteCard = doc.getElementById('rule-card-delete') as HTMLElement;
+      const updatedSummary = updatedDeleteCard.querySelector('#rule-preset-summary-delete');
+      expect(updatedSummary?.textContent).toContain('Anyone can read this without authentication (unrestricted).');
+
+      // Click Auth preset button
+      const authBtn = updatedDeleteCard.querySelector('button[onclick*="\'delete\', \'auth\'"]') as HTMLButtonElement;
+      authBtn.click();
+
+      const authCard = doc.getElementById('rule-card-delete') as HTMLElement;
+      const authSummary = authCard.querySelector('#rule-preset-summary-delete');
+      expect(authSummary?.textContent).toContain('Only logged-in users with a valid token can access.');
+    });
+  });
+});
+
+

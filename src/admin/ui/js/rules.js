@@ -268,10 +268,26 @@
       `;
     }
 
+    function getRulePresetSummary(mode) {
+      switch (mode) {
+        case 'public':
+          return 'Anyone can read this without authentication (unrestricted).';
+        case 'auth':
+          return 'Only logged-in users with a valid token can access.';
+        case 'admin':
+          return 'Restricted strictly to superuser admins.';
+        case 'custom':
+          return 'Custom rule expression based on specified conditions.';
+        default:
+          return '';
+      }
+    }
+
     function renderRuleCardHtml(key, title, desc, col) {
       const r = state.activeRules[key];
       if (!r) return '';
       const currentVal = getEvaluatedRule(key);
+      const summaryText = getRulePresetSummary(r.mode);
 
       let badgeHtml = '';
       if (r.mode === 'admin') badgeHtml = '<span class="badge" style="background:rgba(239,68,68,0.18); color:#fca5a5;">🔒 Admin Only</span>';
@@ -291,11 +307,16 @@
             </div>
 
             <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
-              <div class="rule-presets">
-                <button type="button" class="rule-preset-btn ${r.mode === 'admin' ? 'active-admin' : ''}" onclick="setRulePreset('${key}', 'admin')">🔒 Admin</button>
-                <button type="button" class="rule-preset-btn ${r.mode === 'public' ? 'active-public' : ''}" onclick="setRulePreset('${key}', 'public')">🌐 Public</button>
-                <button type="button" class="rule-preset-btn ${r.mode === 'auth' ? 'active-auth' : ''}" onclick="setRulePreset('${key}', 'auth')">👤 Auth</button>
-                <button type="button" class="rule-preset-btn ${r.mode === 'custom' ? 'active-custom' : ''}" onclick="setRulePreset('${key}', 'custom')">⚙️ Custom</button>
+              <div class="rule-presets-wrapper" style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">
+                <div class="rule-presets">
+                  <button type="button" class="rule-preset-btn ${r.mode === 'admin' ? 'active-admin' : ''}" onclick="setRulePreset('${key}', 'admin')">🔒 Admin</button>
+                  <button type="button" class="rule-preset-btn ${r.mode === 'public' ? 'active-public' : ''}" onclick="setRulePreset('${key}', 'public')">🌐 Public</button>
+                  <button type="button" class="rule-preset-btn ${r.mode === 'auth' ? 'active-auth' : ''}" onclick="setRulePreset('${key}', 'auth')">👤 Auth</button>
+                  <button type="button" class="rule-preset-btn ${r.mode === 'custom' ? 'active-custom' : ''}" onclick="setRulePreset('${key}', 'custom')">⚙️ Custom</button>
+                </div>
+                <div class="rule-preset-summary" id="rule-preset-summary-${key}" style="font-size:11.5px; color:var(--text-muted); font-style:italic;">
+                  ${summaryText}
+                </div>
               </div>
 
               ${r.mode === 'custom' ? `
@@ -306,6 +327,13 @@
               ` : ''}
 
               <button type="button" class="btn btn-secondary btn-sm" style="padding:2px 7px; font-size:11px;" onclick="copyRuleToAll('${key}')" title="Copy this rule to all other endpoints">Copy to all</button>
+            </div>
+          </div>
+
+          <div class="rule-summary-banner-box" id="rule-summary-${key}" style="margin-bottom:0.6rem;">
+            <div class="rule-summary-text" style="font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:6px;">
+              <span style="font-size:13px;">💡</span>
+              <span><strong>Summary:</strong> ${summaryText}</span>
             </div>
           </div>
 
@@ -321,7 +349,7 @@
         return `
           <div class="rule-status-banner admin">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-            <div><strong>Admin Only:</strong> Blocked for normal API users. Only system administrators can perform this action (<code>rule = null</code>).</div>
+            <div><strong>Restricted strictly to superuser admins.</strong> Blocked for normal API users (<code>rule = null</code>).</div>
           </div>
         `;
       }
@@ -330,7 +358,7 @@
         return `
           <div class="rule-status-banner public">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-            <div><strong>Publicly Accessible:</strong> Anyone, including anonymous unauthenticated visitors, can perform this action (<code>rule = ""</code>).</div>
+            <div><strong>Anyone can read this without authentication (unrestricted).</strong> (<code>rule = ""</code>).</div>
           </div>
         `;
       }
@@ -339,7 +367,7 @@
         return `
           <div class="rule-status-banner auth">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-            <div><strong>Authenticated Users Only:</strong> Requires a valid bearer authentication token (<code>@request.auth.id != ""</code>).</div>
+            <div><strong>Only logged-in users with a valid token can access.</strong> Requires a valid bearer authentication token (<code>@request.auth.id != ""</code>).</div>
           </div>
         `;
       }

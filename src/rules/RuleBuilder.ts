@@ -403,4 +403,21 @@ export class RuleBuilder {
 
     return { valid: true };
   }
+
+  /**
+   * Get human-readable natural language summary translation for a rule mode.
+   */
+  public static getSummary(mode: RuleMode): string {
+    switch (mode) {
+      case 'public':
+        return 'Anyone can read this without authentication (unrestricted).';
+      case 'auth':
+        return 'Only logged-in users with a valid token can access.';
+      case 'admin':
+        return 'Restricted strictly to superuser admins.';
+      case 'custom':
+        return 'Custom rule expression based on specified conditions.';
+    }
+  }
 }
+

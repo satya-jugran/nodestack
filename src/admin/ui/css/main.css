@@ -1508,3 +1508,59 @@
       align-items: center;
       gap: 4px;
     }
+
+    /* Schema Designer */
+    .schema-field-row {
+      display: flex;
+      gap: 0.6rem;
+      align-items: center;
+      background: var(--bg-input);
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+    .schema-field-row:hover {
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+    .field-reorder-group {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .field-drag-handle {
+      cursor: grab;
+      user-select: none;
+      color: var(--text-muted);
+      font-size: 14px;
+      padding: 0 2px;
+    }
+    .field-drag-handle:active {
+      cursor: grabbing;
+    }
+    .field-reorder-buttons {
+      display: flex;
+      flex-direction: column;
+    }
+    .btn-field-reorder {
+      line-height: 1;
+      padding: 0 2px;
+      font-size: 9px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      transition: color 0.15s ease;
+    }
+    .btn-field-reorder:hover:not([disabled]) {
+      color: var(--text-main);
+    }
+    .field-type-badge {
+      font-size: 11px;
+      padding: 2px 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+    }
+

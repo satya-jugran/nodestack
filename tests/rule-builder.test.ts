@@ -201,6 +201,15 @@ describe('RuleBuilder', () => {
     });
   });
 
+  describe('getSummary()', () => {
+    it('should return natural language translations for all rule presets', () => {
+      expect(RuleBuilder.getSummary('public')).toBe('Anyone can read this without authentication (unrestricted).');
+      expect(RuleBuilder.getSummary('auth')).toBe('Only logged-in users with a valid token can access.');
+      expect(RuleBuilder.getSummary('admin')).toBe('Restricted strictly to superuser admins.');
+      expect(RuleBuilder.getSummary('custom')).toBe('Custom rule expression based on specified conditions.');
+    });
+  });
+
   describe('NodeStack Collection & Rule Enforcement', () => {
     it('should configure and enforce rules built with RuleBuilder in NodeStack', async () => {
       const { NodeStack } = await import('../src/NodeStack');
