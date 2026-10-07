@@ -644,6 +644,127 @@ describe('Schema Designer & Visual Rules Builder (schema.js & rules.js)', () => 
       expect(win.state.activeCollection.schema[0].name).toBe('title');
       expect(win.state.activeCollection.schema[1].name).toBe('views');
     });
+
+    it('should support drag-and-drop reordering with dataTransfer stub and ignore invalid/no-source drops', () => {
+      const { win, doc } = createSchemaAndRulesDOM();
+
+      // DataTransfer stub with event recording
+      function createDataTransferStub() {
+        const store: Record<string, string> = {};
+        return {
+          effectAllowed: 'none',
+          dropEffect: 'none',
+          setData: vi.fn((format: string, val: string) => {
+            store[format] = String(val);
+          }),
+          getData: vi.fn((format: string) => store[format] || ''),
+          clearData: vi.fn(() => {
+            for (const k of Object.keys(store)) delete store[k];
+          }),
+        };
+      }
+
+      function dispatchDragEvent(target: Element, type: string, dt?: any) {
+        const evt = new win.Event(type, { bubbles: true, cancelable: true });
+        if (dt !== undefined) {
+          Object.defineProperty(evt, 'dataTransfer', {
+            value: dt,
+            writable: true,
+            configurable: true,
+          });
+        }
+        target.dispatchEvent(evt);
+        return evt;
+      }
+
+      // Initial column order: ['title', 'views', 'author', 'status']
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual([
+        'title',
+        'views',
+        'author',
+        'status',
+      ]);
+
+      // 1. Drag start on row 0 (title)
+      const rows = doc.querySelectorAll('.schema-field-row');
+      const dt1 = createDataTransferStub();
+      dispatchDragEvent(rows[0], 'dragstart', dt1);
+      expect(dt1.effectAllowed).toBe('move');
+      expect(dt1.setData).toHaveBeenCalledWith('text/plain', '0');
+
+      // 2. Drag over row 2 (author)
+      const dragOverEvt = dispatchDragEvent(rows[2], 'dragover', dt1);
+      expect(dragOverEvt.defaultPrevented).toBe(true);
+      expect(dt1.dropEffect).toBe('move');
+
+      // 3. Drop on row 2 (author) -> moves index 0 to index 2
+      const dropEvt = dispatchDragEvent(rows[2], 'drop', dt1);
+      expect(dropEvt.defaultPrevented).toBe(true);
+
+      // Order should now be: ['views', 'author', 'title', 'status']
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual([
+        'views',
+        'author',
+        'title',
+        'status',
+      ]);
+
+      // Verify DOM rows reflect new order
+      let updatedRows = doc.querySelectorAll('.schema-field-row');
+      expect(
+        Array.from(updatedRows).map(
+          (r) => (r.querySelector('.field-name-input') as HTMLInputElement).value
+        )
+      ).toEqual(['views', 'author', 'title', 'status']);
+
+      // 4. Drag & drop carrying payload via dataTransfer directly (without prior in-memory dragstart)
+      const dt2 = createDataTransferStub();
+      dt2.setData('text/plain', '3'); // 'status' at index 3
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[0], 'drop', dt2); // drop on index 0
+
+      // Order should now be: ['status', 'views', 'author', 'title']
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual([
+        'status',
+        'views',
+        'author',
+        'title',
+      ]);
+
+      // 5. Drag start followed by dragend cleans up draggedFieldIdx
+      const dt3 = createDataTransferStub();
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[1], 'dragstart', dt3);
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[1], 'dragend');
+
+      // 6. Invalid / No-source drop assertions: schema order must NOT mutate
+      const validOrder = ['status', 'views', 'author', 'title'];
+
+      // (a) Empty dataTransfer / no source
+      const emptyDt = createDataTransferStub();
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[1], 'drop', emptyDt);
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual(validOrder);
+
+      // (b) Non-numeric / invalid string payload
+      const invalidDt = createDataTransferStub();
+      invalidDt.setData('text/plain', 'not-a-number');
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[2], 'drop', invalidDt);
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual(validOrder);
+
+      // (c) Dropping onto itself (sourceIdx === targetIdx)
+      const sameTargetDt = createDataTransferStub();
+      sameTargetDt.setData('text/plain', '1');
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[1], 'drop', sameTargetDt);
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual(validOrder);
+
+      // (d) Out-of-bounds source index
+      const outOfBoundsDt = createDataTransferStub();
+      outOfBoundsDt.setData('text/plain', '99');
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[0], 'drop', outOfBoundsDt);
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual(validOrder);
+
+      // (e) Event with missing / null dataTransfer
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[1], 'drop', undefined);
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual(validOrder);
+    });
   });
 
   describe('Natural-Language Rule Summaries', () => {

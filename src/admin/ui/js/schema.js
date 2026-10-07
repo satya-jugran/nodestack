@@ -31,9 +31,15 @@
       }
     }
 
+    function handleFieldDragEnd(event) {
+      draggedFieldIdx = null;
+    }
+
     function handleFieldDrop(event, targetIdx) {
       event.preventDefault();
-      const sourceIdx = draggedFieldIdx !== null ? draggedFieldIdx : parseInt(event.dataTransfer?.getData('text/plain'), 10);
+      const rawData = event.dataTransfer?.getData ? event.dataTransfer.getData('text/plain') : null;
+      const parsedDataIdx = rawData ? parseInt(rawData, 10) : NaN;
+      const sourceIdx = draggedFieldIdx !== null ? draggedFieldIdx : parsedDataIdx;
       draggedFieldIdx = null;
       if (!isNaN(sourceIdx) && sourceIdx !== targetIdx) {
         moveField(sourceIdx, targetIdx);
@@ -171,7 +177,7 @@
         }
 
         return `
-          <div class="schema-field-row" style="display:flex; gap:0.6rem; align-items:center; background:var(--bg-input); padding:0.5rem 0.75rem; border-radius:6px; flex-wrap:wrap;" data-index="${idx}" draggable="true" ondragstart="handleFieldDragStart(event, ${idx})" ondragover="handleFieldDragOver(event)" ondrop="handleFieldDrop(event, ${idx})">
+          <div class="schema-field-row" style="display:flex; gap:0.6rem; align-items:center; background:var(--bg-input); padding:0.5rem 0.75rem; border-radius:6px; flex-wrap:wrap;" data-index="${idx}" draggable="true" ondragstart="handleFieldDragStart(event, ${idx})" ondragover="handleFieldDragOver(event)" ondragend="handleFieldDragEnd(event)" ondrop="handleFieldDrop(event, ${idx})">
             <div class="field-reorder-group" style="display:flex; align-items:center; gap:2px;">
               <span class="field-drag-handle" title="Drag to reorder" style="cursor:grab; user-select:none; color:var(--text-muted); font-size:14px; padding:0 2px;">⋮⋮</span>
               <div class="field-reorder-buttons" style="display:flex; flex-direction:column;">
