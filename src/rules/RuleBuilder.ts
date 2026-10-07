@@ -1,5 +1,6 @@
 export type RuleOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | '~';
 export type RuleMode = 'admin' | 'public' | 'auth' | 'custom';
+export type RuleOperation = 'list' | 'view' | 'create' | 'update' | 'delete';
 export type RuleJoinOp = '&&' | '||';
 
 export interface RuleClause {
@@ -403,4 +404,27 @@ export class RuleBuilder {
 
     return { valid: true };
   }
+
+  /**
+   * Get human-readable natural language summary translation for a rule mode.
+   * If an operation / action is provided, provides action-specific phrasing.
+   * If omitted, returns generic access/action wording.
+   */
+  public static getSummary(mode: RuleMode, action?: RuleOperation | string): string {
+    switch (mode) {
+      case 'public':
+        if (action === 'create') return 'Anyone can create records without authentication (unrestricted).';
+        if (action === 'update') return 'Anyone can update records without authentication (unrestricted).';
+        if (action === 'delete') return 'Anyone can delete records without authentication (unrestricted).';
+        if (action === 'list' || action === 'view') return 'Anyone can read this without authentication (unrestricted).';
+        return 'Anyone can perform this action without authentication (unrestricted).';
+      case 'auth':
+        return 'Only logged-in users with a valid token can access.';
+      case 'admin':
+        return 'Restricted strictly to superuser admins.';
+      case 'custom':
+        return 'Custom rule expression based on specified conditions.';
+    }
+  }
 }
+

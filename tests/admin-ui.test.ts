@@ -449,3 +449,401 @@ describe('Records Data Grid DOM Interactions & Accessibility (Browser/DOM Enviro
   });
 });
 
+describe('Schema Designer & Visual Rules Builder (schema.js & rules.js)', () => {
+  function createSchemaAndRulesDOM(options: {
+    collection?: any;
+    collections?: any[];
+  } = {}) {
+    const uiDir = path.resolve(__dirname, '../src/admin/ui');
+    const bundledHtml = AdminUIBundler.bundle(uiDir);
+
+    const dom = new JSDOM(bundledHtml, {
+      url: 'http://localhost:8090/_/',
+      runScripts: 'dangerously',
+      beforeParse(window: any) {
+        window.fetch = vi.fn().mockImplementation(async () => ({
+          ok: true,
+          json: async () => ({ items: [], totalItems: 0 }),
+        }));
+      },
+    });
+
+    const win = dom.window as any;
+    const doc = win.document;
+
+    const collections = options.collections || [
+      { name: 'posts', id: 'col_posts', schema: [] },
+      { name: 'users', id: 'col_users', schema: [] },
+      { name: 'comments', id: 'col_comments', schema: [] },
+    ];
+
+    const col = options.collection || {
+      name: 'articles',
+      type: 'base',
+      schema: [
+        { id: 'f_title', name: 'title', type: 'text', required: true, unique: false },
+        { id: 'f_views', name: 'views', type: 'number', required: false, unique: false },
+        { id: 'f_author', name: 'author', type: 'relation', required: false, unique: false, options: { collectionId: 'col_users' } },
+        { id: 'f_status', name: 'status', type: 'select', required: false, unique: false, options: { values: ['draft', 'published'] } },
+      ],
+      listRule: '',
+      viewRule: '',
+      createRule: '@request.auth.id != ""',
+      updateRule: '@request.auth.id != ""',
+      deleteRule: null,
+    };
+
+    win.state.collections = collections;
+    win.state.activeCollection = col;
+
+    win.renderSchemaView();
+
+    return { dom, win, doc, col, collections };
+  }
+
+  describe('Field Type Badges & Targeted Configuration', () => {
+    it('should prefix field types with clear iconography in dropdown', () => {
+      const { doc } = createSchemaAndRulesDOM();
+      const typeSelects = doc.querySelectorAll('.field-type-select');
+      expect(typeSelects.length).toBe(4);
+
+      const firstSelect = typeSelects[0] as HTMLSelectElement;
+      const optionTexts = Array.from(firstSelect.options).map((opt) => opt.textContent);
+
+      expect(optionTexts).toContain('🔤 text');
+      expect(optionTexts).toContain('🔢 number');
+      expect(optionTexts).toContain('📧 email');
+      expect(optionTexts).toContain('📅 date');
+      expect(optionTexts).toContain('📎 file');
+      expect(optionTexts).toContain('🔗 relation');
+    });
+
+    it('should render field type badges with iconography on each field row', () => {
+      const { doc } = createSchemaAndRulesDOM();
+      const badges = doc.querySelectorAll('.field-type-badge');
+      expect(badges.length).toBe(4);
+
+      expect(badges[0].textContent).toContain('🔤');
+      expect(badges[1].textContent).toContain('🔢');
+      expect(badges[2].textContent).toContain('🔗');
+      expect(badges[3].textContent).toContain('📋');
+    });
+
+    it('should show target collection dropdown for relation type with collection ID values and collection name labels', () => {
+      const { doc } = createSchemaAndRulesDOM();
+      const rows = doc.querySelectorAll('.schema-field-row');
+
+      // Row 2 is relation field ('author') with target collectionId: 'col_users'
+      const relationRow = rows[2] as HTMLElement;
+      const relationConfig = relationRow.querySelector('.field-relation-config');
+      expect(relationConfig).not.toBeNull();
+      expect(relationConfig?.textContent).toContain('Relates to:');
+
+      const targetSelect = relationConfig?.querySelector('.field-relation-select') as HTMLSelectElement;
+      expect(targetSelect).not.toBeNull();
+      expect(targetSelect.value).toBe('col_users');
+
+      // Uses collection ID as option values and collection name as option labels
+      const optionValues = Array.from(targetSelect.options).map((opt) => opt.value);
+      const optionLabels = Array.from(targetSelect.options).map((opt) => opt.textContent);
+      expect(optionValues).toEqual(['col_posts', 'col_users', 'col_comments']);
+      expect(optionLabels).toEqual(['posts', 'users', 'comments']);
+      expect(targetSelect.options.length).toBe(3);
+    });
+
+    it('should maintain relation resolution when a target collection is renamed', () => {
+      const { win, doc } = createSchemaAndRulesDOM();
+
+      // Existing relation field has stable ID 'col_users'
+      win.state.activeCollection.schema[2].options.collectionId = 'col_users';
+
+      // Rename target collection 'users' -> 'members' (same stable ID 'col_users')
+      win.state.collections = [
+        { name: 'posts', id: 'col_posts', schema: [] },
+        { name: 'members', id: 'col_users', schema: [] },
+        { name: 'comments', id: 'col_comments', schema: [] },
+      ];
+
+      win.renderFieldRows(win.state.activeCollection.schema);
+
+      const relationSelect = doc.querySelectorAll('.schema-field-row')[2].querySelector('.field-relation-select') as HTMLSelectElement;
+      expect(relationSelect.value).toBe('col_users');
+
+      const selectedOption = relationSelect.options[relationSelect.selectedIndex];
+      // Label reflects new name 'members' without breaking ID reference or showing raw ID
+      expect(selectedOption.textContent).toBe('members');
+      expect(selectedOption.value).toBe('col_users');
+    });
+
+    it('should show allowed options configuration for select type', () => {
+      const { doc } = createSchemaAndRulesDOM();
+      const rows = doc.querySelectorAll('.schema-field-row');
+
+      // Row 3 is select field ('status')
+      const selectRow = rows[3] as HTMLElement;
+      const selectConfig = selectRow.querySelector('.field-select-config');
+      expect(selectConfig).not.toBeNull();
+      expect(selectConfig?.textContent).toContain('Allowed options:');
+
+      const optionsInput = selectConfig?.querySelector('.field-select-values-input') as HTMLInputElement;
+      expect(optionsInput).not.toBeNull();
+      expect(optionsInput.value).toBe('draft, published');
+    });
+
+    it('should dynamically reveal target collection dropdown when switching type to relation', () => {
+      const { win, doc } = createSchemaAndRulesDOM();
+      const rows = doc.querySelectorAll('.schema-field-row');
+
+      // Row 0 is text field ('title') - initially no relation config
+      expect(rows[0].querySelector('.field-relation-config')).toBeNull();
+
+      // Switch row 0 to relation
+      const typeSelect = rows[0].querySelector('.field-type-select') as HTMLSelectElement;
+      typeSelect.value = 'relation';
+      typeSelect.dispatchEvent(new win.Event('change'));
+
+      const updatedRows = doc.querySelectorAll('.schema-field-row');
+      const relationConfig = updatedRows[0].querySelector('.field-relation-config');
+      expect(relationConfig).not.toBeNull();
+      expect(relationConfig?.textContent).toContain('Relates to:');
+
+      const relationSelect = relationConfig?.querySelector('.field-relation-select') as HTMLSelectElement;
+      expect(relationSelect).not.toBeNull();
+      // Should default to a stable collection ID
+      expect(relationSelect.value).toBe('col_posts');
+    });
+
+    it('should provide reordering handles (⋮⋮ and up/down arrows) to rearrange columns', () => {
+      const { win, doc } = createSchemaAndRulesDOM();
+      const rows = doc.querySelectorAll('.schema-field-row');
+
+      // Verify drag handle ⋮⋮ and up/down buttons exist on rows
+      for (const row of rows) {
+        expect(row.querySelector('.field-drag-handle')?.textContent).toContain('⋮⋮');
+        expect(row.querySelector('.btn-field-up')).not.toBeNull();
+        expect(row.querySelector('.btn-field-down')).not.toBeNull();
+      }
+
+      // Initial column order: title (0), views (1), author (2), status (3)
+      expect(win.state.activeCollection.schema[0].name).toBe('title');
+      expect(win.state.activeCollection.schema[1].name).toBe('views');
+
+      // Click down button on first row (title)
+      const firstDownBtn = rows[0].querySelector('.btn-field-down') as HTMLButtonElement;
+      firstDownBtn.click();
+
+      // Order should now be: views (0), title (1)
+      expect(win.state.activeCollection.schema[0].name).toBe('views');
+      expect(win.state.activeCollection.schema[1].name).toBe('title');
+
+      // Click up button on second row (title)
+      const secondUpBtn = doc.querySelectorAll('.schema-field-row')[1].querySelector('.btn-field-up') as HTMLButtonElement;
+      secondUpBtn.click();
+
+      // Order restored: title (0), views (1)
+      expect(win.state.activeCollection.schema[0].name).toBe('title');
+      expect(win.state.activeCollection.schema[1].name).toBe('views');
+    });
+
+    it('should support drag-and-drop reordering with dataTransfer stub and ignore invalid/no-source drops', () => {
+      const { win, doc } = createSchemaAndRulesDOM();
+
+      // DataTransfer stub with event recording
+      function createDataTransferStub() {
+        const store: Record<string, string> = {};
+        return {
+          effectAllowed: 'none',
+          dropEffect: 'none',
+          setData: vi.fn((format: string, val: string) => {
+            store[format] = String(val);
+          }),
+          getData: vi.fn((format: string) => store[format] || ''),
+          clearData: vi.fn(() => {
+            for (const k of Object.keys(store)) delete store[k];
+          }),
+        };
+      }
+
+      function dispatchDragEvent(target: Element, type: string, dt?: any) {
+        const evt = new win.Event(type, { bubbles: true, cancelable: true });
+        if (dt !== undefined) {
+          Object.defineProperty(evt, 'dataTransfer', {
+            value: dt,
+            writable: true,
+            configurable: true,
+          });
+        }
+        target.dispatchEvent(evt);
+        return evt;
+      }
+
+      // Initial column order: ['title', 'views', 'author', 'status']
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual([
+        'title',
+        'views',
+        'author',
+        'status',
+      ]);
+
+      // 1. Drag start on row 0 (title)
+      const rows = doc.querySelectorAll('.schema-field-row');
+      const dt1 = createDataTransferStub();
+      dispatchDragEvent(rows[0], 'dragstart', dt1);
+      expect(dt1.effectAllowed).toBe('move');
+      expect(dt1.setData).toHaveBeenCalledWith('text/plain', '0');
+
+      // 2. Drag over row 2 (author)
+      const dragOverEvt = dispatchDragEvent(rows[2], 'dragover', dt1);
+      expect(dragOverEvt.defaultPrevented).toBe(true);
+      expect(dt1.dropEffect).toBe('move');
+
+      // 3. Drop on row 2 (author) -> moves index 0 to index 2
+      const dropEvt = dispatchDragEvent(rows[2], 'drop', dt1);
+      expect(dropEvt.defaultPrevented).toBe(true);
+
+      // Order should now be: ['views', 'author', 'title', 'status']
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual([
+        'views',
+        'author',
+        'title',
+        'status',
+      ]);
+
+      // Verify DOM rows reflect new order
+      let updatedRows = doc.querySelectorAll('.schema-field-row');
+      expect(
+        Array.from(updatedRows).map(
+          (r) => (r.querySelector('.field-name-input') as HTMLInputElement).value
+        )
+      ).toEqual(['views', 'author', 'title', 'status']);
+
+      // 4. Drag & drop carrying payload via dataTransfer directly (without prior in-memory dragstart)
+      const dt2 = createDataTransferStub();
+      dt2.setData('text/plain', '3'); // 'status' at index 3
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[0], 'drop', dt2); // drop on index 0
+
+      // Order should now be: ['status', 'views', 'author', 'title']
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual([
+        'status',
+        'views',
+        'author',
+        'title',
+      ]);
+
+      // 5. Drag start followed by dragend cleans up draggedFieldIdx
+      const dt3 = createDataTransferStub();
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[1], 'dragstart', dt3);
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[1], 'dragend');
+
+      // 6. Invalid / No-source drop assertions: schema order must NOT mutate
+      const validOrder = ['status', 'views', 'author', 'title'];
+
+      // (a) Empty dataTransfer / no source
+      const emptyDt = createDataTransferStub();
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[1], 'drop', emptyDt);
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual(validOrder);
+
+      // (b) Non-numeric / invalid string payload
+      const invalidDt = createDataTransferStub();
+      invalidDt.setData('text/plain', 'not-a-number');
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[2], 'drop', invalidDt);
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual(validOrder);
+
+      // (c) Dropping onto itself (sourceIdx === targetIdx)
+      const sameTargetDt = createDataTransferStub();
+      sameTargetDt.setData('text/plain', '1');
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[1], 'drop', sameTargetDt);
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual(validOrder);
+
+      // (d) Out-of-bounds source index
+      const outOfBoundsDt = createDataTransferStub();
+      outOfBoundsDt.setData('text/plain', '99');
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[0], 'drop', outOfBoundsDt);
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual(validOrder);
+
+      // (e) Event with missing / null dataTransfer
+      dispatchDragEvent(doc.querySelectorAll('.schema-field-row')[1], 'drop', undefined);
+      expect(win.state.activeCollection.schema.map((f: any) => f.name)).toEqual(validOrder);
+    });
+  });
+
+  describe('Natural-Language Rule Summaries', () => {
+    it('should display human-readable translation beneath active preset for Public, Auth, and Admin', () => {
+      const { doc } = createSchemaAndRulesDOM();
+
+      // listRule is '' -> Public
+      const listCard = doc.getElementById('rule-card-list');
+      expect(listCard).not.toBeNull();
+      expect(listCard?.textContent).toContain('Anyone can read this without authentication (unrestricted).');
+
+      // createRule is '@request.auth.id != ""' -> Auth
+      const createCard = doc.getElementById('rule-card-create');
+      expect(createCard).not.toBeNull();
+      expect(createCard?.textContent).toContain('Only logged-in users with a valid token can access.');
+
+      // deleteRule is null -> Admin
+      const deleteCard = doc.getElementById('rule-card-delete');
+      expect(deleteCard).not.toBeNull();
+      expect(deleteCard?.textContent).toContain('Restricted strictly to superuser admins.');
+    });
+
+    it('should update human-readable translation dynamically when switching presets', () => {
+      const { doc } = createSchemaAndRulesDOM();
+
+      // deleteRule starts as Admin
+      const deleteCard = doc.getElementById('rule-card-delete') as HTMLElement;
+      const summaryEl = deleteCard.querySelector('#rule-preset-summary-delete');
+      expect(summaryEl?.textContent).toContain('Restricted strictly to superuser admins.');
+
+      // Click Public preset button
+      const publicBtn = deleteCard.querySelector('button[onclick*="\'delete\', \'public\'"]') as HTMLButtonElement;
+      expect(publicBtn).not.toBeNull();
+      publicBtn.click();
+
+      // Translation updates to Public with action-aware wording on delete card
+      const updatedDeleteCard = doc.getElementById('rule-card-delete') as HTMLElement;
+      const updatedSummary = updatedDeleteCard.querySelector('#rule-preset-summary-delete');
+      expect(updatedSummary?.textContent).toContain('Anyone can delete records without authentication (unrestricted).');
+
+      // Banner on delete card also uses action-aware wording
+      const bannerEl = updatedDeleteCard.querySelector('.rule-status-banner.public');
+      expect(bannerEl?.textContent).toContain('Anyone can delete records without authentication (unrestricted).');
+
+      // Click Auth preset button
+      const authBtn = updatedDeleteCard.querySelector('button[onclick*="\'delete\', \'auth\'"]') as HTMLButtonElement;
+      authBtn.click();
+
+      const authCard = doc.getElementById('rule-card-delete') as HTMLElement;
+      const authSummary = authCard.querySelector('#rule-preset-summary-delete');
+      expect(authSummary?.textContent).toContain('Only logged-in users with a valid token can access.');
+    });
+
+    it('should use action-aware wording across create, update, and delete rule cards', () => {
+      const { win, doc } = createSchemaAndRulesDOM();
+
+      // Create card set to Public
+      win.setRulePreset('create', 'public');
+      const createCard = doc.getElementById('rule-card-create');
+      expect(createCard?.textContent).toContain('Anyone can create records without authentication (unrestricted).');
+      expect(createCard?.querySelector('.rule-status-banner.public')?.textContent).toContain('Anyone can create records without authentication (unrestricted).');
+
+      // Update card set to Public
+      win.setRulePreset('update', 'public');
+      const updateCard = doc.getElementById('rule-card-update');
+      expect(updateCard?.textContent).toContain('Anyone can update records without authentication (unrestricted).');
+      expect(updateCard?.querySelector('.rule-status-banner.public')?.textContent).toContain('Anyone can update records without authentication (unrestricted).');
+
+      // Delete card set to Public
+      win.setRulePreset('delete', 'public');
+      const deleteCard = doc.getElementById('rule-card-delete');
+      expect(deleteCard?.textContent).toContain('Anyone can delete records without authentication (unrestricted).');
+      expect(deleteCard?.querySelector('.rule-status-banner.public')?.textContent).toContain('Anyone can delete records without authentication (unrestricted).');
+
+      // List & View cards use read wording
+      const listCard = doc.getElementById('rule-card-list');
+      expect(listCard?.textContent).toContain('Anyone can read this without authentication (unrestricted).');
+    });
+  });
+});
+
+
