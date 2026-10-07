@@ -133,7 +133,8 @@
     function renderFieldRows(fields) {
       const container = document.getElementById('schema-fields-container');
       if (!container) return;
-      const collections = (state.collections || []).map(c => c.name);
+
+      const collections = state.collections || [];
 
       container.innerHTML = fields.map((f, idx) => {
         const isRelation = f.type === 'relation';
@@ -143,20 +144,14 @@
         // Target collection configuration for relation type
         let relationConfigHtml = '';
         if (isRelation) {
-          let targetOptions = [...collections];
           const selectedTarget = f.options?.collectionId || '';
-          if (selectedTarget && !targetOptions.includes(selectedTarget)) {
-            targetOptions.push(selectedTarget);
-          }
-          if (targetOptions.length === 0) {
-            targetOptions.push('posts');
-          }
+
           relationConfigHtml = `
             <div class="field-target-config field-relation-config" style="display:flex; align-items:center; gap:0.35rem; font-size:12px; color:var(--text-muted); flex:2; min-width:180px;">
               <span style="white-space:nowrap; font-weight:500;">Relates to:</span>
               <select class="form-select field-relation-select" style="flex:1; min-width:110px; font-size:12px;" onchange="updateFieldOption(${idx}, 'collectionId', this.value)">
-                ${targetOptions.map(name => `
-                  <option value="${escapeHtml(name)}" ${selectedTarget === name ? 'selected' : ''}>${escapeHtml(name)}</option>
+                ${collections.map(c => `
+                  <option value="${escapeHtml(c.id)}" ${selectedTarget === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>
                 `).join('')}
               </select>
             </div>
@@ -234,8 +229,9 @@
         f.options = f.options || {};
         if (val === 'relation') {
           if (!f.options.collectionId) {
-            const otherCols = (state.collections || []).filter(c => c.name !== state.activeCollection?.name);
-            f.options.collectionId = otherCols.length > 0 ? otherCols[0].name : (state.collections?.[0]?.name || 'posts');
+            const otherCols = (state.collections || []).filter(c => c.id !== state.activeCollection?.id);
+            const targetCol = otherCols.length > 0 ? otherCols[0] : state.collections?.[0];
+            f.options.collectionId = targetCol ? targetCol.id : '';
           }
         } else if (val === 'select') {
           if (!f.options.values) {

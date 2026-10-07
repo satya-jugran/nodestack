@@ -483,7 +483,7 @@ describe('Schema Designer & Visual Rules Builder (schema.js & rules.js)', () => 
       schema: [
         { id: 'f_title', name: 'title', type: 'text', required: true, unique: false },
         { id: 'f_views', name: 'views', type: 'number', required: false, unique: false },
-        { id: 'f_author', name: 'author', type: 'relation', required: false, unique: false, options: { collectionId: 'users' } },
+        { id: 'f_author', name: 'author', type: 'relation', required: false, unique: false, options: { collectionId: 'col_users' } },
         { id: 'f_status', name: 'status', type: 'select', required: false, unique: false, options: { values: ['draft', 'published'] } },
       ],
       listRule: '',
@@ -529,11 +529,11 @@ describe('Schema Designer & Visual Rules Builder (schema.js & rules.js)', () => 
       expect(badges[3].textContent).toContain('📋');
     });
 
-    it('should show target collection dropdown for relation type (Relates to: [posts ▾])', () => {
+    it('should show target collection dropdown for relation type with collection ID values and collection name labels', () => {
       const { doc } = createSchemaAndRulesDOM();
       const rows = doc.querySelectorAll('.schema-field-row');
 
-      // Row 2 is relation field ('author')
+      // Row 2 is relation field ('author') with target collectionId: 'col_users'
       const relationRow = rows[2] as HTMLElement;
       const relationConfig = relationRow.querySelector('.field-relation-config');
       expect(relationConfig).not.toBeNull();
@@ -541,12 +541,38 @@ describe('Schema Designer & Visual Rules Builder (schema.js & rules.js)', () => 
 
       const targetSelect = relationConfig?.querySelector('.field-relation-select') as HTMLSelectElement;
       expect(targetSelect).not.toBeNull();
-      expect(targetSelect.value).toBe('users');
+      expect(targetSelect.value).toBe('col_users');
 
-      const targetOptions = Array.from(targetSelect.options).map((opt) => opt.value);
-      expect(targetOptions).toContain('posts');
-      expect(targetOptions).toContain('users');
-      expect(targetOptions).toContain('comments');
+      // Uses collection ID as option values and collection name as option labels
+      const optionValues = Array.from(targetSelect.options).map((opt) => opt.value);
+      const optionLabels = Array.from(targetSelect.options).map((opt) => opt.textContent);
+      expect(optionValues).toEqual(['col_posts', 'col_users', 'col_comments']);
+      expect(optionLabels).toEqual(['posts', 'users', 'comments']);
+      expect(targetSelect.options.length).toBe(3);
+    });
+
+    it('should maintain relation resolution when a target collection is renamed', () => {
+      const { win, doc } = createSchemaAndRulesDOM();
+
+      // Existing relation field has stable ID 'col_users'
+      win.state.activeCollection.schema[2].options.collectionId = 'col_users';
+
+      // Rename target collection 'users' -> 'members' (same stable ID 'col_users')
+      win.state.collections = [
+        { name: 'posts', id: 'col_posts', schema: [] },
+        { name: 'members', id: 'col_users', schema: [] },
+        { name: 'comments', id: 'col_comments', schema: [] },
+      ];
+
+      win.renderFieldRows(win.state.activeCollection.schema);
+
+      const relationSelect = doc.querySelectorAll('.schema-field-row')[2].querySelector('.field-relation-select') as HTMLSelectElement;
+      expect(relationSelect.value).toBe('col_users');
+
+      const selectedOption = relationSelect.options[relationSelect.selectedIndex];
+      // Label reflects new name 'members' without breaking ID reference or showing raw ID
+      expect(selectedOption.textContent).toBe('members');
+      expect(selectedOption.value).toBe('col_users');
     });
 
     it('should show allowed options configuration for select type', () => {
@@ -580,6 +606,11 @@ describe('Schema Designer & Visual Rules Builder (schema.js & rules.js)', () => 
       const relationConfig = updatedRows[0].querySelector('.field-relation-config');
       expect(relationConfig).not.toBeNull();
       expect(relationConfig?.textContent).toContain('Relates to:');
+
+      const relationSelect = relationConfig?.querySelector('.field-relation-select') as HTMLSelectElement;
+      expect(relationSelect).not.toBeNull();
+      // Should default to a stable collection ID
+      expect(relationSelect.value).toBe('col_posts');
     });
 
     it('should provide reordering handles (⋮⋮ and up/down arrows) to rearrange columns', () => {
