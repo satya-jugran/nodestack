@@ -648,10 +648,14 @@ describe('Schema Designer & Visual Rules Builder (schema.js & rules.js)', () => 
       expect(publicBtn).not.toBeNull();
       publicBtn.click();
 
-      // Translation updates to Public
+      // Translation updates to Public with action-aware wording on delete card
       const updatedDeleteCard = doc.getElementById('rule-card-delete') as HTMLElement;
       const updatedSummary = updatedDeleteCard.querySelector('#rule-preset-summary-delete');
-      expect(updatedSummary?.textContent).toContain('Anyone can read this without authentication (unrestricted).');
+      expect(updatedSummary?.textContent).toContain('Anyone can delete records without authentication (unrestricted).');
+
+      // Banner on delete card also uses action-aware wording
+      const bannerEl = updatedDeleteCard.querySelector('.rule-status-banner.public');
+      expect(bannerEl?.textContent).toContain('Anyone can delete records without authentication (unrestricted).');
 
       // Click Auth preset button
       const authBtn = updatedDeleteCard.querySelector('button[onclick*="\'delete\', \'auth\'"]') as HTMLButtonElement;
@@ -660,6 +664,32 @@ describe('Schema Designer & Visual Rules Builder (schema.js & rules.js)', () => 
       const authCard = doc.getElementById('rule-card-delete') as HTMLElement;
       const authSummary = authCard.querySelector('#rule-preset-summary-delete');
       expect(authSummary?.textContent).toContain('Only logged-in users with a valid token can access.');
+    });
+
+    it('should use action-aware wording across create, update, and delete rule cards', () => {
+      const { win, doc } = createSchemaAndRulesDOM();
+
+      // Create card set to Public
+      win.setRulePreset('create', 'public');
+      const createCard = doc.getElementById('rule-card-create');
+      expect(createCard?.textContent).toContain('Anyone can create records without authentication (unrestricted).');
+      expect(createCard?.querySelector('.rule-status-banner.public')?.textContent).toContain('Anyone can create records without authentication (unrestricted).');
+
+      // Update card set to Public
+      win.setRulePreset('update', 'public');
+      const updateCard = doc.getElementById('rule-card-update');
+      expect(updateCard?.textContent).toContain('Anyone can update records without authentication (unrestricted).');
+      expect(updateCard?.querySelector('.rule-status-banner.public')?.textContent).toContain('Anyone can update records without authentication (unrestricted).');
+
+      // Delete card set to Public
+      win.setRulePreset('delete', 'public');
+      const deleteCard = doc.getElementById('rule-card-delete');
+      expect(deleteCard?.textContent).toContain('Anyone can delete records without authentication (unrestricted).');
+      expect(deleteCard?.querySelector('.rule-status-banner.public')?.textContent).toContain('Anyone can delete records without authentication (unrestricted).');
+
+      // List & View cards use read wording
+      const listCard = doc.getElementById('rule-card-list');
+      expect(listCard?.textContent).toContain('Anyone can read this without authentication (unrestricted).');
     });
   });
 });

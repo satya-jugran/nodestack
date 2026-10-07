@@ -407,10 +407,14 @@ export class RuleBuilder {
   /**
    * Get human-readable natural language summary translation for a rule mode.
    */
-  public static getSummary(mode: RuleMode): string {
+  public static getSummary(mode: RuleMode, action?: string): string {
     switch (mode) {
       case 'public':
-        return 'Anyone can read this without authentication (unrestricted).';
+        if (action === 'create') return 'Anyone can create records without authentication (unrestricted).';
+        if (action === 'update') return 'Anyone can update records without authentication (unrestricted).';
+        if (action === 'delete') return 'Anyone can delete records without authentication (unrestricted).';
+        if (action === 'list' || action === 'view') return 'Anyone can read this without authentication (unrestricted).';
+        return 'Anyone can perform this action without authentication (unrestricted).';
       case 'auth':
         return 'Only logged-in users with a valid token can access.';
       case 'admin':

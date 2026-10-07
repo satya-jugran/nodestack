@@ -268,10 +268,14 @@
       `;
     }
 
-    function getRulePresetSummary(mode) {
+    function getRulePresetSummary(mode, action) {
       switch (mode) {
         case 'public':
-          return 'Anyone can read this without authentication (unrestricted).';
+          if (action === 'create') return 'Anyone can create records without authentication (unrestricted).';
+          if (action === 'update') return 'Anyone can update records without authentication (unrestricted).';
+          if (action === 'delete') return 'Anyone can delete records without authentication (unrestricted).';
+          if (action === 'list' || action === 'view') return 'Anyone can read this without authentication (unrestricted).';
+          return 'Anyone can perform this action without authentication (unrestricted).';
         case 'auth':
           return 'Only logged-in users with a valid token can access.';
         case 'admin':
@@ -287,7 +291,7 @@
       const r = state.activeRules[key];
       if (!r) return '';
       const currentVal = getEvaluatedRule(key);
-      const summaryText = getRulePresetSummary(r.mode);
+      const summaryText = getRulePresetSummary(r.mode, key);
 
       let badgeHtml = '';
       if (r.mode === 'admin') badgeHtml = '<span class="badge" style="background:rgba(239,68,68,0.18); color:#fca5a5;">🔒 Admin Only</span>';
@@ -355,10 +359,11 @@
       }
 
       if (r.mode === 'public') {
+        const publicSummary = getRulePresetSummary('public', key);
         return `
           <div class="rule-status-banner public">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-            <div><strong>Anyone can read this without authentication (unrestricted).</strong> (<code>rule = ""</code>).</div>
+            <div><strong>${publicSummary}</strong> (<code>rule = ""</code>).</div>
           </div>
         `;
       }

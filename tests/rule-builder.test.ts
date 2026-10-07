@@ -202,8 +202,13 @@ describe('RuleBuilder', () => {
   });
 
   describe('getSummary()', () => {
-    it('should return natural language translations for all rule presets', () => {
-      expect(RuleBuilder.getSummary('public')).toBe('Anyone can read this without authentication (unrestricted).');
+    it('should return natural language translations for all rule presets with action awareness', () => {
+      expect(RuleBuilder.getSummary('public')).toBe('Anyone can perform this action without authentication (unrestricted).');
+      expect(RuleBuilder.getSummary('public', 'list')).toBe('Anyone can read this without authentication (unrestricted).');
+      expect(RuleBuilder.getSummary('public', 'view')).toBe('Anyone can read this without authentication (unrestricted).');
+      expect(RuleBuilder.getSummary('public', 'create')).toBe('Anyone can create records without authentication (unrestricted).');
+      expect(RuleBuilder.getSummary('public', 'update')).toBe('Anyone can update records without authentication (unrestricted).');
+      expect(RuleBuilder.getSummary('public', 'delete')).toBe('Anyone can delete records without authentication (unrestricted).');
       expect(RuleBuilder.getSummary('auth')).toBe('Only logged-in users with a valid token can access.');
       expect(RuleBuilder.getSummary('admin')).toBe('Restricted strictly to superuser admins.');
       expect(RuleBuilder.getSummary('custom')).toBe('Custom rule expression based on specified conditions.');
