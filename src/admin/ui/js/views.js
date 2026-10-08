@@ -37,8 +37,8 @@
 
           <!-- Zone 1 (Vitals Strip): High-Density 4-KPI Row + Integrated Telemetry Bar -->
           <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden;">
-            <!-- Top: 4 Horizontal KPI Metrics (Full width row) -->
-            <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; padding: 0.85rem 1.15rem;">
+            <!-- Top: 4 Horizontal KPI Metrics (Responsive auto-fitting row) -->
+            <div class="home-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 0.75rem; padding: 0.85rem 1.15rem;">
               <!-- KPI 1: Collections -->
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem;">
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.35rem;">
@@ -181,7 +181,7 @@
           </div>
 
           <!-- Zone 3 (Accelerators & Tools): Side-by-Side Starter Templates & Developer Tools -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 1rem;">
+          <div class="home-tools-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 1rem;">
             <!-- Left: Starter Accelerators & Schema Recipes -->
             <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.1rem 1.25rem; display: flex; flex-direction: column; justify-content: space-between; gap: 0.85rem;">
               <div>
@@ -200,7 +200,7 @@
                 </p>
               </div>
 
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.6rem;">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr)); gap: 0.6rem;">
                 <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('ecommerce')" style="border-color: rgba(59, 130, 246, 0.35); font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Preview & install E-Commerce recipe">
                   <span>🛒</span><span>E-Commerce</span>
                 </button>
