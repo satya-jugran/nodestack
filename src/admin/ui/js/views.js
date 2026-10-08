@@ -3,155 +3,115 @@
       const main = document.getElementById('main-body');
       const collectionsCount = state.collections.length;
       main.innerHTML = `
-        <div style="max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem; padding: 1.25rem 0;">
+        <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
           
-          <!-- 1. Header Status Bar -->
-          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.85rem;">
-            <div style="width: 40px; height: 40px; border-radius: 10px; background: #0c0e14; border: 1px solid rgba(59, 130, 246, 0.4); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-              <img src="/_/icon.svg" width="26" height="26" alt="NodeStack" style="display: block;" />
-            </div>
-            <div>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-weight: 800; font-size: 16px; color: #fff; letter-spacing: -0.02em;">NodeStack Core</span>
-                <span class="version-tag" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd; font-size: 11px;">v1.1.0</span>
-                <span class="badge badge-get" style="font-size: 11px; display: inline-flex; align-items: center; gap: 5px;">
-                  <span class="live-dot" style="width: 6px; height: 6px;"></span>
-                  <span>Server Online</span>
-                </span>
+          <!-- Consolidated Header & Presentation Status Bar -->
+          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 0.85rem 1.25rem; display: flex; flex-direction: column; gap: 0.65rem;">
+            <!-- Core Header Status Line -->
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+              <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <div style="width: 34px; height: 34px; border-radius: 8px; background: #0c0e14; border: 1px solid rgba(59, 130, 246, 0.4); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                  <img src="/_/icon.svg" width="22" height="22" alt="NodeStack" style="display: block;" />
+                </div>
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-weight: 800; font-size: 15px; color: #fff; letter-spacing: -0.02em;">NodeStack Core</span>
+                    <span class="version-tag" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd; font-size: 10.5px;">v1.1.0</span>
+                    <span class="badge badge-get" style="font-size: 10.5px; display: inline-flex; align-items: center; gap: 5px;">
+                      <span class="live-dot" style="width: 6px; height: 6px;"></span>
+                      <span>Server Online</span>
+                    </span>
+                  </div>
+                  <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 1px;">
+                    Embedded SQLite Backend Stack • WAL Mode • Realtime SSE • End-to-End Type Safety
+                  </div>
+                </div>
               </div>
-              <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-                Embedded SQLite Backend Stack • WAL Mode • Realtime SSE • End-to-End Type Safety
-              </div>
-            </div>
-          </div>
-
-          <!-- 2. Operational KPI Metric Cards Row -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
-            <!-- KPI 1: Collections -->
-            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.1rem 1.25rem;">
-              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.5rem;">
-                <span style="font-size: 14px;">📦</span>
-                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Collections</span>
-              </div>
-              <div style="font-size: 22px; font-weight: 800; color: #fff;" id="home-stat-collections">${collectionsCount}</div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Registered database tables</div>
             </div>
 
-            <!-- KPI 2: Active Records -->
-            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.1rem 1.25rem;">
-              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.5rem;">
-                <span style="font-size: 14px;">📝</span>
-                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Total Records</span>
-              </div>
-              <div style="font-size: 22px; font-weight: 800; color: #60a5fa;" id="home-stat-records">--</div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Active rows across tables</div>
-            </div>
-
-            <!-- KPI 3: Storage Size -->
-            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.1rem 1.25rem;">
-              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.5rem;">
-                <span style="font-size: 14px;">💾</span>
-                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Database Storage</span>
-              </div>
-              <div style="font-size: 22px; font-weight: 800; color: #34d399;" id="home-stat-size">--</div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">data.db + WAL journal</div>
-            </div>
-
-            <!-- KPI 4: Realtime Clients -->
-            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.1rem 1.25rem;">
-              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.5rem;">
-                <span style="font-size: 14px;">⚡</span>
-                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Realtime Streams</span>
-              </div>
-              <div style="font-size: 22px; font-weight: 800; color: #c084fc;" id="home-stat-realtime">--</div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Connected SSE clients</div>
+            <!-- Demo State Notification Bar (populated dynamically by demo.js) -->
+            <div id="demo-state-home-card" style="border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 0.55rem;">
+              <!-- Populated dynamically by demo.js -->
             </div>
           </div>
 
-          <!-- 3. System & Traffic Snapshot (Placed ABOVE Quick Accelerator Bar) -->
-          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
-            <div style="display: flex; align-items: center; justify-content: space-between;">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 16px;">📊</span>
-                <h3 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0;">System & Traffic Snapshot</h3>
-                <span class="badge badge-status-200" style="font-size: 10px;">24h Telemetry</span>
-              </div>
-              <button class="btn btn-secondary btn-sm" onclick="selectNav('analytics')" style="padding: 3px 9px; font-size: 11px;">
-                Open Full Metrics ➔
-              </button>
-            </div>
-
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.75rem;">
-              <!-- 24h Requests -->
-              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.75rem 1rem;">
-                <div style="font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">24h API Requests</div>
-                <div style="font-size: 18px; font-weight: 800; color: #fff; margin-top: 4px;" id="home-snap-requests">--</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Incoming HTTP traffic</div>
-              </div>
-
-              <!-- Avg Latency -->
-              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.75rem 1rem;">
-                <div style="font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Avg Latency</div>
-                <div style="font-size: 18px; font-weight: 800; color: #60a5fa; margin-top: 4px;" id="home-snap-latency">--</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Sub-millisecond SQLite</div>
-              </div>
-
-              <!-- Error Rate -->
-              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.75rem 1rem;">
-                <div style="font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Error Rate</div>
-                <div style="font-size: 18px; font-weight: 800; color: #34d399; margin-top: 4px;" id="home-snap-errors">--</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">4xx & 5xx HTTP codes</div>
-              </div>
-
-              <!-- Peak Throughput -->
-              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.75rem 1rem;">
-                <div style="font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Peak Volume</div>
-                <div style="font-size: 18px; font-weight: 800; color: #c084fc; margin-top: 4px;" id="home-snap-peak">--</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Max requests / hour</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 3.5 Quick Accelerator Bar (Confirmation modal on click) -->
-          <div style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(139, 92, 246, 0.06) 100%); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 10px; padding: 0.85rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-            <div style="display: flex; align-items: center; gap: 0.6rem;">
-              <span style="font-size: 16px;">⚡</span>
-              <span style="font-size: 12.5px; font-weight: 700; color: #fff;">1-Click Starter Accelerators:</span>
-              <span style="font-size: 12px; color: var(--text-muted);">Launch pre-seeded schemas with confirmation</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-              <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('ecommerce')" style="border-color: rgba(59, 130, 246, 0.35); font-size: 11.5px; padding: 4px 10px;" title="Preview & install E-Commerce recipe">
-                🛒 E-Commerce
-              </button>
-              <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('blog')" style="border-color: rgba(16, 185, 129, 0.35); font-size: 11.5px; padding: 4px 10px;" title="Preview & install Blog recipe">
-                📝 Blog / Content
-              </button>
-              <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('crm')" style="border-color: rgba(139, 92, 246, 0.35); font-size: 11.5px; padding: 4px 10px;" title="Preview & install CRM recipe">
-                👥 SaaS / CRM
-              </button>
-              <button class="btn btn-secondary btn-sm" onclick="openImportJsonModal()" style="border-color: rgba(245, 158, 11, 0.35); font-size: 11.5px; padding: 4px 10px;" title="Paste JSON → Auto-infer schema">
-                ⚡ Import JSON
-              </button>
-              <button class="btn btn-secondary btn-sm" onclick="openTemplatesModal()" style="font-size: 11.5px; padding: 4px 9px;" title="Browse all template recipes">
-                All ➔
-              </button>
-            </div>
-          </div>
-
-          <!-- 4. Live Presentation & Demo State Manager -->
-          <div id="demo-state-home-card" style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(16, 185, 129, 0.06) 100%); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 10px; padding: 0.85rem 1.25rem; display: flex; flex-direction: column; gap: 0.9rem;">
-            <!-- Populated dynamically by demo.js -->
-          </div>
-
-          <!-- 5. Active Database Collections Table (Centerpiece) -->
+          <!-- Zone 1 (Vitals Strip): High-Density 4-KPI Row + Integrated Telemetry Bar -->
           <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden;">
-            <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between;">
+            <!-- Top: 4 Horizontal KPI Metrics (Responsive auto-fitting row) -->
+            <div class="home-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 0.75rem; padding: 0.85rem 1.15rem;">
+              <!-- KPI 1: Collections -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem;">
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.35rem;">
+                  <span style="font-size: 13px;">📦</span>
+                  <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Collections</span>
+                </div>
+                <div style="font-size: 22px; font-weight: 800; color: #fff;" id="home-stat-collections">${collectionsCount}</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Registered tables</div>
+              </div>
+
+              <!-- KPI 2: Active Records -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem;">
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.35rem;">
+                  <span style="font-size: 13px;">📝</span>
+                  <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Total Records</span>
+                </div>
+                <div style="font-size: 22px; font-weight: 800; color: #60a5fa;" id="home-stat-records">--</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Active database rows</div>
+              </div>
+
+              <!-- KPI 3: Storage Size -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem;">
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.35rem;">
+                  <span style="font-size: 13px;">💾</span>
+                  <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Storage Size</span>
+                </div>
+                <div style="font-size: 22px; font-weight: 800; color: #34d399;" id="home-stat-size">--</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">data.db + WAL journal</div>
+              </div>
+
+              <!-- KPI 4: Realtime Streams -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem;">
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.35rem;">
+                  <span style="font-size: 13px;">⚡</span>
+                  <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Realtime Streams</span>
+                </div>
+                <div style="font-size: 22px; font-weight: 800; color: #c084fc;" id="home-stat-realtime">--</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Connected SSE clients</div>
+              </div>
+            </div>
+
+            <!-- Bottom: Integrated 24h Telemetry Strip -->
+            <div style="background: rgba(0, 0, 0, 0.25); border-top: 1px solid var(--border-subtle); padding: 0.65rem 1.15rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+              <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 13px;">📊</span>
+                  <span style="font-size: 11px; font-weight: 700; color: #fff; text-transform: uppercase; letter-spacing: 0.04em;">24h Telemetry</span>
+                  <span class="badge badge-status-200" style="font-size: 9.5px; padding: 1px 5px;">Live</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; font-size: 12px; color: var(--text-muted);">
+                  <span>Requests: <strong id="home-snap-requests" style="color: #fff; font-family: var(--font-mono); font-weight: 700;">--</strong></span>
+                  <span>Latency: <strong id="home-snap-latency" style="color: #60a5fa; font-family: var(--font-mono); font-weight: 700;">--</strong></span>
+                  <span>Error Rate: <strong id="home-snap-errors" style="color: #34d399; font-family: var(--font-mono); font-weight: 700;">--</strong></span>
+                  <span>Peak: <strong id="home-snap-peak" style="color: #c084fc; font-family: var(--font-mono); font-weight: 700;">--</strong></span>
+                </div>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="selectNav('analytics')" style="padding: 2px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="Open in-depth analytics">
+                <span>Full Metrics</span><span>➔</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Zone 2 (Workspace Centerpiece): Active Collections Table -->
+          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
+            <div style="padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="font-size: 16px;">📂</span>
                 <h3 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0;">Database Collections</h3>
                 <span class="badge badge-post" style="font-size: 11px;">${collectionsCount} Active</span>
               </div>
-              <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ Create Collection</button>
+              <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()" style="display: inline-flex; align-items: center; gap: 5px; font-weight: 600;">
+                <span>+</span><span>New Collection</span>
+              </button>
             </div>
 
             ${collectionsCount === 0 ? `
@@ -220,39 +180,85 @@
             `}
           </div>
 
-          <!-- 6. Developer Quick Tools -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem;">
-            <!-- TypeScript TypeGen -->
-            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.15rem 1.25rem; display: flex; flex-direction: column; justify-content: space-between; gap: 0.85rem;">
+          <!-- Zone 3 (Accelerators & Tools): Side-by-Side Starter Templates & Developer Tools -->
+          <div class="home-tools-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 1rem;">
+            <!-- Left: Starter Accelerators & Schema Recipes -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.1rem 1.25rem; display: flex; flex-direction: column; justify-content: space-between; gap: 0.85rem;">
               <div>
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
-                  <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Type Safety</span>
-                  <span class="badge badge-get" style="font-size: 10px;">types.d.ts</span>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                  <div style="display: flex; align-items: center; gap: 7px;">
+                    <span style="font-size: 15px;">⚡</span>
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Starter Accelerators</span>
+                  </div>
+                  <button class="btn btn-secondary btn-sm" onclick="openTemplatesModal()" style="font-size: 11px; padding: 2px 8px;" title="Browse all template recipes">
+                    All Recipes ➔
+                  </button>
                 </div>
-                <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 0.25rem;">TypeScript TypeGen</h4>
-                <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4; margin: 0;">Auto-generated TypeScript definitions for full type safety across frontend and server clients.</p>
+                <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 0.2rem;">1-Click Schema Templates</h4>
+                <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4; margin: 0;">
+                  Launch pre-seeded schemas with confirmation or auto-infer structures from JSON payload.
+                </p>
               </div>
-              <div style="display: flex; gap: 0.5rem;">
-                <button class="btn btn-secondary btn-sm" style="flex: 1;" onclick="window.open('/_/types.d.ts', '_blank')">View types.d.ts</button>
-                <button class="btn btn-primary btn-sm" style="flex: 1;" onclick="copyToClipboard('npx nodestack typegen > nodestack-types.ts', this)">Copy CLI</button>
+
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr)); gap: 0.6rem;">
+                <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('ecommerce')" style="border-color: rgba(59, 130, 246, 0.35); font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Preview & install E-Commerce recipe">
+                  <span>🛒</span><span>E-Commerce</span>
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('blog')" style="border-color: rgba(16, 185, 129, 0.35); font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Preview & install Blog recipe">
+                  <span>📝</span><span>Blog / CMS</span>
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('crm')" style="border-color: rgba(139, 92, 246, 0.35); font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Preview & install CRM recipe">
+                  <span>👥</span><span>SaaS / CRM</span>
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="openImportJsonModal()" style="border-color: rgba(245, 158, 11, 0.35); font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Paste JSON → Auto-infer schema">
+                  <span>⚡</span><span>Import JSON</span>
+                </button>
               </div>
             </div>
 
-            <!-- REST & Realtime Base Endpoints -->
-            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.15rem 1.25rem; display: flex; flex-direction: column; justify-content: space-between; gap: 0.85rem;">
+            <!-- Right: Developer Quick Tools (TypeGen & Base Endpoints) -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.1rem 1.25rem; display: flex; flex-direction: column; justify-content: space-between; gap: 0.85rem;">
               <div>
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
-                  <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">API Connection</span>
-                  <span class="badge badge-post" style="font-size: 10px;">HTTP + SSE</span>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                  <div style="display: flex; align-items: center; gap: 7px;">
+                    <span style="font-size: 15px;">🛠️</span>
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Developer Quick Tools</span>
+                  </div>
+                  <span class="badge badge-get" style="font-size: 10px;">SDK & API</span>
                 </div>
-                <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 0.25rem;">REST & Realtime Base URL</h4>
-                <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; font-family: var(--font-mono); font-size: 11px; color: #93c5fd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px;">
-                  ${window.location.origin}/api
-                </div>
+                <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 0.2rem;">TypeGen & API Endpoints</h4>
+                <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4; margin: 0;">
+                  End-to-end type generation and connection URLs for client applications.
+                </p>
               </div>
-              <div style="display: flex; gap: 0.5rem;">
-                <button class="btn btn-secondary btn-sm" style="flex: 1;" onclick="copyToClipboard('${window.location.origin}/api', this)">Copy API URL</button>
-                <button class="btn btn-secondary btn-sm" style="flex: 1;" onclick="copyToClipboard('${window.location.origin}/api/realtime', this)">Copy SSE URL</button>
+
+              <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+                <!-- Tool Row 1: TypeGen -->
+                <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.65rem 0.9rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 12.5px; font-weight: 700; color: #fff;">TypeScript TypeGen</span>
+                    <span class="badge badge-get" style="font-size: 10px; padding: 1px 6px;">types.d.ts</span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <button class="btn btn-secondary btn-sm" style="padding: 3px 9px; font-size: 11.5px;" onclick="window.open('/_/types.d.ts', '_blank')" title="View types.d.ts">View types.d.ts</button>
+                    <button class="btn btn-primary btn-sm" style="padding: 3px 9px; font-size: 11.5px;" onclick="copyToClipboard('npx nodestack typegen > nodestack-types.ts', this)" title="Copy CLI command">Copy CLI</button>
+                  </div>
+                </div>
+
+                <!-- Tool Row 2: API Endpoints -->
+                <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.65rem 0.9rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                  <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
+                    <span style="font-size: 12.5px; font-weight: 700; color: #fff; white-space: nowrap;">API Base</span>
+                    <span class="badge badge-post" style="font-size: 10px; padding: 1px 6px; white-space: nowrap;">REST + SSE</span>
+                    <code style="background: rgba(0,0,0,0.3); padding: 2px 8px; border-radius: 4px; font-family: var(--font-mono); font-size: 11px; color: #93c5fd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${window.location.origin}/api">
+                      ${window.location.origin}/api
+                    </code>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                    <button class="btn btn-secondary btn-sm" style="padding: 3px 9px; font-size: 11.5px;" onclick="copyToClipboard('${window.location.origin}/api', this)" title="Copy REST API URL">Copy API</button>
+                    <button class="btn btn-secondary btn-sm" style="padding: 3px 9px; font-size: 11.5px;" onclick="copyToClipboard('${window.location.origin}/api/realtime', this)" title="Copy SSE Realtime URL">Copy SSE</button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
