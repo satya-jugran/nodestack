@@ -32,15 +32,13 @@ app.use(resendPlugin({
 }));
 
 // In your application hooks or custom route handlers:
-app.on('afterCreate', async ({ record, collection }) => {
-  if (collection === 'users') {
-    const resend = app.container.get<ResendEmailService>(Symbol.for('ResendEmailService'));
-    await resend.sendEmail({
-      to: record.email,
-      subject: 'Welcome to NodeStack!',
-      html: '<h1>Welcome aboard!</h1><p>Your account is ready.</p>',
-    });
-  }
+app.onRecordAfterCreate('users', async ({ record }) => {
+  const resend = app.container.get<ResendEmailService>(Symbol.for('ResendEmailService'));
+  await resend.sendEmail({
+    to: record.email,
+    subject: 'Welcome to NodeStack!',
+    html: '<h1>Welcome aboard!</h1><p>Your account is ready.</p>',
+  });
 });
 
 await app.start(3000);

@@ -32,8 +32,8 @@ app.use(stripePlugin({
 }));
 
 // Listen to Stripe webhook events anywhere in your application
-app.on('stripe:webhook', async (event) => {
-  console.log('Stripe event received:', event.data.type);
+app.eventBus.on('stripe:webhook', async (event: any) => {
+  console.log('Stripe event received:', event.type);
 });
 
 await app.start(3000);
