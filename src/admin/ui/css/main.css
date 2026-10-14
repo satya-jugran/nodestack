@@ -636,6 +636,111 @@
       border-color: var(--accent-primary);
     }
 
+    /* iOS / macOS Style Toggle Switch */
+    .toggle-control-wrapper {
+      display: flex;
+      align-items: center;
+      padding: 4px 0;
+    }
+    .toggle-switch {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .toggle-checkbox {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+      margin: 0;
+      pointer-events: none;
+    }
+    .toggle-slider {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      background-color: rgba(255, 255, 255, 0.18);
+      border: 1px solid var(--border-subtle);
+      border-radius: 9999px;
+      transition: background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+      flex-shrink: 0;
+    }
+    .toggle-slider::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+      background-color: #ffffff;
+      border-radius: 50%;
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+    }
+    .toggle-checkbox:checked + .toggle-slider {
+      background-color: #34c759;
+      border-color: #34c759;
+    }
+    .toggle-checkbox:checked + .toggle-slider::after {
+      transform: translateX(20px);
+    }
+    .toggle-checkbox:focus-visible + .toggle-slider,
+    .toggle-switch:focus-within .toggle-slider {
+      outline: 2px solid var(--accent-primary);
+      outline-offset: 2px;
+    }
+    .toggle-state-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-main);
+      min-width: 36px;
+    }
+
+    /* JSON Editing & Validation */
+    .json-field-container {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .json-field-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .json-textarea {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.45;
+      tab-size: 2;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .json-syntax-error {
+      color: var(--accent-danger);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      margin-top: 4px;
+    }
+    .input-invalid,
+    .form-input.input-invalid,
+    .form-textarea.input-invalid {
+      border-color: var(--accent-danger) !important;
+      box-shadow: 0 0 0 1px var(--accent-danger) !important;
+    }
+    .input-valid,
+    .form-input.input-valid,
+    .form-textarea.input-valid {
+      border-color: rgba(16, 185, 129, 0.6);
+    }
+
+    /* Datetime-local native dark mode */
+    input[type="datetime-local"].form-input {
+      color-scheme: dark;
+    }
+
     /* Badges */
     .badge {
       display: inline-flex;

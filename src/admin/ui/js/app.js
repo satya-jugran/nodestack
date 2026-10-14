@@ -847,6 +847,16 @@
           e.preventDefault();
           e.stopImmediatePropagation();
           closeCommandPalette();
+          return;
+        }
+        const modalRoot = document.getElementById('modal-root');
+        if (modalRoot && modalRoot.innerHTML.trim().length > 0) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          if (typeof closeModal === 'function') {
+            closeModal();
+          }
+          return;
         }
       }
     });

@@ -1,6 +1,231 @@
 // Modals & Data Import Wizard
     function closeModal() {
-      document.getElementById('modal-root').innerHTML = '';
+      const modalRoot = document.getElementById('modal-root');
+      if (modalRoot) {
+        modalRoot.innerHTML = '';
+      }
+    }
+
+    // ==========================================
+    // Form & Modal Micro-Interactions Helpers
+    // ==========================================
+
+    // Interactive Toggle Switch Helper (iOS/macOS Style)
+    function handleToggleChange(inputEl, labelId) {
+      if (!inputEl) return;
+      const isChecked = Boolean(inputEl.checked);
+      inputEl.setAttribute('aria-checked', isChecked ? 'true' : 'false');
+      inputEl.value = isChecked ? 'true' : 'false';
+      if (labelId) {
+        const lbl = document.getElementById(labelId);
+        if (lbl) {
+          lbl.textContent = isChecked ? 'True' : 'False';
+        }
+      }
+    }
+
+    // JSON Editing: Real-time Syntax Validation
+    function validateJsonField(el) {
+      if (typeof el === 'string') el = document.getElementById(el);
+      if (!el) return true;
+
+      const errorId = el.id ? `${el.id}-error` : null;
+      let errorEl = errorId ? document.getElementById(errorId) : null;
+      const raw = el.value.trim();
+
+      if (!raw) {
+        el.classList.remove('input-invalid');
+        el.classList.remove('input-valid');
+        el.style.borderColor = '';
+        el.style.boxShadow = '';
+        if (errorEl) {
+          errorEl.textContent = '';
+          errorEl.style.display = 'none';
+        }
+        return true;
+      }
+
+      try {
+        JSON.parse(raw);
+        el.classList.remove('input-invalid');
+        el.classList.add('input-valid');
+        el.style.borderColor = 'var(--accent-success, #10b981)';
+        el.style.boxShadow = '';
+        if (errorEl) {
+          errorEl.textContent = '';
+          errorEl.style.display = 'none';
+        }
+        return true;
+      } catch (err) {
+        el.classList.remove('input-valid');
+        el.classList.add('input-invalid');
+        el.style.borderColor = 'var(--accent-danger, #ef4444)';
+        el.style.boxShadow = '0 0 0 1px var(--accent-danger, #ef4444)';
+        if (errorEl) {
+          errorEl.textContent = 'Invalid JSON: ' + err.message;
+          errorEl.style.display = 'block';
+        }
+        return false;
+      }
+    }
+
+    // JSON Editing: Format / Prettify
+    function formatJsonField(fieldId) {
+      const el = typeof fieldId === 'string' ? document.getElementById(fieldId) : fieldId;
+      if (!el) return;
+      const raw = el.value.trim();
+      if (!raw) return;
+
+      try {
+        const parsed = JSON.parse(raw);
+        el.value = JSON.stringify(parsed, null, 2);
+        validateJsonField(el);
+        if (typeof toast === 'function') {
+          toast('JSON formatted successfully', 'success');
+        }
+      } catch (err) {
+        validateJsonField(el);
+        if (typeof toast === 'function') {
+          toast('Invalid JSON: ' + err.message, 'error');
+        }
+      }
+    }
+
+    // Format ISO / Timestamp values for <input type="datetime-local">
+    function formatForDatetimeLocal(val) {
+      if (!val) return '';
+      try {
+        const d = new Date(val);
+        if (isNaN(d.getTime())) {
+          if (typeof val === 'string') return val.replace(' ', 'T').slice(0, 16);
+          return '';
+        }
+        const pad = (n) => String(n).padStart(2, '0');
+        const yyyy = d.getFullYear();
+        const mm = pad(d.getMonth() + 1);
+        const dd = pad(d.getDate());
+        const hh = pad(d.getHours());
+        const min = pad(d.getMinutes());
+        return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+      } catch {
+        return '';
+      }
+    }
+
+    // Keyboard Ergonomics: Autofocus first editable field
+    function focusFirstModalField(container) {
+      const root = container || document.getElementById('modal-root');
+      if (!root) return;
+
+      const findAndFocus = () => {
+        const candidates = root.querySelectorAll(
+          'input:not([type="hidden"]):not([disabled]):not([readonly]), ' +
+          'textarea:not([disabled]):not([readonly]), ' +
+          'select:not([disabled]):not([readonly])'
+        );
+
+        for (const el of candidates) {
+          const style = typeof window !== 'undefined' && window.getComputedStyle ? window.getComputedStyle(el) : null;
+          if (style && (style.display === 'none' || style.visibility === 'hidden')) {
+            continue;
+          }
+          if (typeof el.focus === 'function') {
+            el.focus();
+            return el;
+          }
+        }
+
+        if (candidates.length > 0 && typeof candidates[0].focus === 'function') {
+          candidates[0].focus();
+          return candidates[0];
+        }
+      };
+
+      findAndFocus();
+      if (typeof requestAnimationFrame !== 'undefined') {
+        requestAnimationFrame(findAndFocus);
+      } else if (typeof setTimeout !== 'undefined') {
+        setTimeout(findAndFocus, 20);
+      }
+    }
+
+    // Keyboard Ergonomics: Submit active modal form
+    function submitActiveModal() {
+      const modalRoot = document.getElementById('modal-root');
+      if (!modalRoot || modalRoot.children.length === 0 || !modalRoot.innerHTML.trim()) return;
+
+      // Real-time pre-submission check: if active modal has JSON fields, validate syntax
+      const jsonFields = modalRoot.querySelectorAll('.json-textarea, textarea[id^="field-"]');
+      for (const jf of jsonFields) {
+        if (!validateJsonField(jf)) {
+          jf.focus();
+          if (typeof toast === 'function') {
+            toast('Please fix invalid JSON syntax before submitting', 'error');
+          }
+          return;
+        }
+      }
+
+      // Prioritize primary / danger action buttons that are not disabled
+      const submitBtn = modalRoot.querySelector(
+        '.modal-footer .btn-primary:not([disabled]), ' +
+        '.modal-footer .btn-danger:not([disabled]), ' +
+        '#btn-submit-import-json:not([disabled]), ' +
+        '#btn-execute-import:not([disabled]), ' +
+        '#btn-submit-mock-data:not([disabled]), ' +
+        '#btn-confirm-apply-template:not([disabled]), ' +
+        '#btn-confirm-delete-col:not([disabled]), ' +
+        '.modal .btn-primary:not([disabled])'
+      );
+
+      if (submitBtn) {
+        submitBtn.click();
+        return;
+      }
+
+      const form = modalRoot.querySelector('form');
+      if (form) {
+        if (typeof form.requestSubmit === 'function') {
+          form.requestSubmit();
+        } else {
+          form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        }
+      }
+    }
+
+    // Keyboard Ergonomics: Global Escape & Ctrl+Enter / Cmd+Enter keydown handler
+    function handleModalKeyDown(e) {
+      const modalRoot = document.getElementById('modal-root');
+      const hasModal = modalRoot && modalRoot.children.length > 0 && modalRoot.innerHTML.trim().length > 0;
+      if (!hasModal) return;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeModal();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        submitActiveModal();
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        const target = e.target;
+        if (target && target.tagName === 'INPUT' && target.type !== 'checkbox' && target.type !== 'radio' && target.type !== 'button' && target.type !== 'submit') {
+          e.preventDefault();
+          submitActiveModal();
+          return;
+        }
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('keydown', handleModalKeyDown);
+      window.addEventListener('keydown', handleModalKeyDown);
     }
 
     // Export Handler
@@ -9,7 +234,7 @@
       const col = state.activeCollection;
       const modal = document.getElementById('modal-root');
       modal.innerHTML = `
-        <div class="modal-backdrop">
+        <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
           <div class="modal">
             <div class="modal-header">
               <h2 class="modal-title">Create Record — ${col.name}</h2>
@@ -28,20 +253,34 @@
               ` : ''}
               ${col.schema.map(f => `
                 <div class="form-group">
-                  <label class="form-label">${f.name} (${f.type}) ${f.required ? '*' : ''}</label>
-                  ${f.type === 'file' ? `
-                    <input type="file" class="form-input" id="field-${f.name}" ${f.required ? 'required' : ''}>
-                  ` : f.type === 'bool' ? `
-                    <select class="form-select" id="field-${f.name}">
-                      <option value="false">False</option>
-                      <option value="true">True</option>
-                    </select>
-                  ` : f.type === 'json' ? `
-                    <textarea class="form-textarea" id="field-${f.name}" placeholder="{}"></textarea>
-                  ` : f.type === 'number' ? `
-                    <input type="number" class="form-input" id="field-${f.name}">
+                  ${f.type === 'json' ? `
+                    <div class="json-field-container">
+                      <div class="json-field-header">
+                        <label class="form-label" style="margin:0;">${f.name} (${f.type}) ${f.required ? '*' : ''}</label>
+                        <button type="button" class="btn btn-secondary btn-sm btn-format-json" style="font-size:11px; padding:2px 8px; line-height:1.4;" onclick="formatJsonField('field-${f.name}')" title="Format / Prettify JSON syntax">Format / Prettify</button>
+                      </div>
+                      <textarea class="form-textarea json-textarea" id="field-${f.name}" placeholder="{}" oninput="validateJsonField(this)" onblur="validateJsonField(this)"></textarea>
+                      <div id="field-${f.name}-error" class="json-syntax-error" style="display:none;"></div>
+                    </div>
                   ` : `
-                    <input type="text" class="form-input" id="field-${f.name}">
+                    <label class="form-label">${f.name} (${f.type}) ${f.required ? '*' : ''}</label>
+                    ${f.type === 'file' ? `
+                      <input type="file" class="form-input" id="field-${f.name}" ${f.required ? 'required' : ''}>
+                    ` : f.type === 'bool' ? `
+                      <div class="toggle-control-wrapper">
+                        <label class="toggle-switch" for="field-${f.name}">
+                          <input type="checkbox" class="toggle-checkbox" id="field-${f.name}" role="switch" aria-checked="false" value="false" onchange="handleToggleChange(this, 'field-${f.name}-label')">
+                          <span class="toggle-slider"></span>
+                          <span class="toggle-state-label" id="field-${f.name}-label">False</span>
+                        </label>
+                      </div>
+                    ` : f.type === 'date' ? `
+                      <input type="datetime-local" class="form-input" id="field-${f.name}" ${f.required ? 'required' : ''}>
+                    ` : f.type === 'number' ? `
+                      <input type="number" class="form-input" id="field-${f.name}">
+                    ` : `
+                      <input type="text" class="form-input" id="field-${f.name}">
+                    `}
                   `}
                 </div>
               `).join('')}
@@ -53,10 +292,24 @@
           </div>
         </div>
       `;
+      focusFirstModalField(modal);
     }
 
     async function submitNewRecord() {
       const col = state.activeCollection;
+
+      // Real-time pre-submission check: validate JSON fields before submitting
+      for (const f of col.schema) {
+        if (f.type === 'json') {
+          const el = document.getElementById(`field-${f.name}`);
+          if (el && !validateJsonField(el)) {
+            el.focus();
+            toast(`Invalid JSON in field '${f.name}'. Please correct syntax before submitting.`, 'error');
+            return;
+          }
+        }
+      }
+
       const hasFileInput = col.schema.some(f => f.type === 'file');
 
       let body;
@@ -75,9 +328,19 @@
               formData.append(f.name, el.files[0]);
             }
           } else if (f.type === 'bool') {
-            formData.append(f.name, el.value === 'true' ? 'true' : 'false');
+            const isChecked = el.type === 'checkbox' ? el.checked : el.value === 'true';
+            formData.append(f.name, isChecked ? 'true' : 'false');
+          } else if (f.type === 'date') {
+            if (el.value) {
+              const parsedDate = new Date(el.value);
+              formData.append(f.name, !isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : el.value);
+            }
           } else if (f.type === 'number') {
             if (el.value !== '') formData.append(f.name, el.value);
+          } else if (f.type === 'json') {
+            if (el.value.trim() !== '') {
+              formData.append(f.name, el.value.trim());
+            }
           } else {
             formData.append(f.name, el.value);
           }
@@ -94,9 +357,27 @@
           const el = document.getElementById(`field-${f.name}`);
           if (!el) continue;
           if (f.type === 'bool') {
-            data[f.name] = el.value === 'true';
+            const isChecked = el.type === 'checkbox' ? el.checked : el.value === 'true';
+            data[f.name] = isChecked;
+          } else if (f.type === 'date') {
+            if (el.value) {
+              const parsedDate = new Date(el.value);
+              data[f.name] = !isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : el.value;
+            } else {
+              data[f.name] = null;
+            }
           } else if (f.type === 'number') {
             data[f.name] = el.value !== '' ? Number(el.value) : null;
+          } else if (f.type === 'json') {
+            if (el.value.trim() !== '') {
+              try {
+                data[f.name] = JSON.parse(el.value.trim());
+              } catch {
+                data[f.name] = el.value.trim();
+              }
+            } else {
+              data[f.name] = null;
+            }
           } else {
             data[f.name] = el.value;
           }
@@ -125,7 +406,7 @@
       const col = state.activeCollection;
       const modal = document.getElementById('modal-root');
       modal.innerHTML = `
-        <div class="modal-backdrop">
+        <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
           <div class="modal">
             <div class="modal-header">
               <h2 class="modal-title">Edit Record — ${id}</h2>
@@ -134,29 +415,43 @@
             <div class="modal-body">
               ${col.schema.map(f => `
                 <div class="form-group">
-                  <label class="form-label">${f.name} (${f.type})</label>
-                  ${f.type === 'file' ? `
-                    ${rec[f.name] ? `
-                      <div style="margin-bottom:6px; display:flex; align-items:center; gap:8px;">
-                        <span style="font-size:12px; color:var(--text-muted);">Current:</span>
-                        <a href="${escapeHtml(getRecordFileUrl(col.name, rec.id, rec[f.name]))}" target="_blank" style="color:#60a5fa; font-family:var(--font-mono); font-size:12px; text-decoration:underline;">
-                          ${escapeHtml(rec[f.name])}
-                        </a>
+                  ${f.type === 'json' ? `
+                    <div class="json-field-container">
+                      <div class="json-field-header">
+                        <label class="form-label" style="margin:0;">${f.name} (${f.type})</label>
+                        <button type="button" class="btn btn-secondary btn-sm btn-format-json" style="font-size:11px; padding:2px 8px; line-height:1.4;" onclick="formatJsonField('field-edit-${f.name}')" title="Format / Prettify JSON syntax">Format / Prettify</button>
                       </div>
-                    ` : ''}
-                    <input type="file" class="form-input" id="field-edit-${f.name}">
-                    <small style="color:var(--text-muted); font-size:11px;">Select a file to replace the existing one</small>
-                  ` : f.type === 'bool' ? `
-                    <select class="form-select" id="field-edit-${f.name}">
-                      <option value="false" ${!rec[f.name] ? 'selected' : ''}>False</option>
-                      <option value="true" ${rec[f.name] ? 'selected' : ''}>True</option>
-                    </select>
-                  ` : f.type === 'json' ? `
-                    <textarea class="form-textarea" id="field-edit-${f.name}">${typeof rec[f.name] === 'object' ? JSON.stringify(rec[f.name], null, 2) : rec[f.name] || ''}</textarea>
-                  ` : f.type === 'number' ? `
-                    <input type="number" class="form-input" id="field-edit-${f.name}" value="${rec[f.name] ?? ''}">
+                      <textarea class="form-textarea json-textarea" id="field-edit-${f.name}" oninput="validateJsonField(this)" onblur="validateJsonField(this)">${typeof rec[f.name] === 'object' && rec[f.name] !== null ? JSON.stringify(rec[f.name], null, 2) : rec[f.name] || ''}</textarea>
+                      <div id="field-edit-${f.name}-error" class="json-syntax-error" style="display:none;"></div>
+                    </div>
                   ` : `
-                    <input type="text" class="form-input" id="field-edit-${f.name}" value="${rec[f.name] ?? ''}">
+                    <label class="form-label">${f.name} (${f.type})</label>
+                    ${f.type === 'file' ? `
+                      ${rec[f.name] ? `
+                        <div style="margin-bottom:6px; display:flex; align-items:center; gap:8px;">
+                          <span style="font-size:12px; color:var(--text-muted);">Current:</span>
+                          <a href="${escapeHtml(getRecordFileUrl(col.name, rec.id, rec[f.name]))}" target="_blank" style="color:#60a5fa; font-family:var(--font-mono); font-size:12px; text-decoration:underline;">
+                            ${escapeHtml(rec[f.name])}
+                          </a>
+                        </div>
+                      ` : ''}
+                      <input type="file" class="form-input" id="field-edit-${f.name}">
+                      <small style="color:var(--text-muted); font-size:11px;">Select a file to replace the existing one</small>
+                    ` : f.type === 'bool' ? `
+                      <div class="toggle-control-wrapper">
+                        <label class="toggle-switch" for="field-edit-${f.name}">
+                          <input type="checkbox" class="toggle-checkbox" id="field-edit-${f.name}" role="switch" aria-checked="${rec[f.name] ? 'true' : 'false'}" value="${rec[f.name] ? 'true' : 'false'}" ${rec[f.name] ? 'checked' : ''} onchange="handleToggleChange(this, 'field-edit-${f.name}-label')">
+                          <span class="toggle-slider"></span>
+                          <span class="toggle-state-label" id="field-edit-${f.name}-label">${rec[f.name] ? 'True' : 'False'}</span>
+                        </label>
+                      </div>
+                    ` : f.type === 'date' ? `
+                      <input type="datetime-local" class="form-input" id="field-edit-${f.name}" value="${formatForDatetimeLocal(rec[f.name])}">
+                    ` : f.type === 'number' ? `
+                      <input type="number" class="form-input" id="field-edit-${f.name}" value="${rec[f.name] ?? ''}">
+                    ` : `
+                      <input type="text" class="form-input" id="field-edit-${f.name}" value="${rec[f.name] ?? ''}">
+                    `}
                   `}
                 </div>
               `).join('')}
@@ -168,10 +463,24 @@
           </div>
         </div>
       `;
+      focusFirstModalField(modal);
     }
 
     async function submitEditRecord(id) {
       const col = state.activeCollection;
+
+      // Real-time pre-submission check: validate JSON fields before submitting
+      for (const f of col.schema) {
+        if (f.type === 'json') {
+          const el = document.getElementById(`field-edit-${f.name}`);
+          if (el && !validateJsonField(el)) {
+            el.focus();
+            toast(`Invalid JSON in field '${f.name}'. Please correct syntax before submitting.`, 'error');
+            return;
+          }
+        }
+      }
+
       let hasNewFile = false;
       for (const f of col.schema) {
         if (f.type === 'file') {
@@ -194,9 +503,19 @@
               formData.append(f.name, el.files[0]);
             }
           } else if (f.type === 'bool') {
-            formData.append(f.name, el.value === 'true' ? 'true' : 'false');
+            const isChecked = el.type === 'checkbox' ? el.checked : el.value === 'true';
+            formData.append(f.name, isChecked ? 'true' : 'false');
+          } else if (f.type === 'date') {
+            if (el.value) {
+              const parsedDate = new Date(el.value);
+              formData.append(f.name, !isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : el.value);
+            }
           } else if (f.type === 'number') {
             if (el.value !== '') formData.append(f.name, el.value);
+          } else if (f.type === 'json') {
+            if (el.value.trim() !== '') {
+              formData.append(f.name, el.value.trim());
+            }
           } else {
             formData.append(f.name, el.value);
           }
@@ -212,9 +531,27 @@
             continue;
           }
           if (f.type === 'bool') {
-            data[f.name] = el.value === 'true';
+            const isChecked = el.type === 'checkbox' ? el.checked : el.value === 'true';
+            data[f.name] = isChecked;
+          } else if (f.type === 'date') {
+            if (el.value) {
+              const parsedDate = new Date(el.value);
+              data[f.name] = !isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : el.value;
+            } else {
+              data[f.name] = null;
+            }
           } else if (f.type === 'number') {
             data[f.name] = el.value !== '' ? Number(el.value) : null;
+          } else if (f.type === 'json') {
+            if (el.value.trim() !== '') {
+              try {
+                data[f.name] = JSON.parse(el.value.trim());
+              } catch {
+                data[f.name] = el.value.trim();
+              }
+            } else {
+              data[f.name] = null;
+            }
           } else {
             data[f.name] = el.value;
           }
@@ -255,7 +592,7 @@
     function openNewCollectionModal() {
       const modal = document.getElementById('modal-root');
       modal.innerHTML = `
-        <div class="modal-backdrop">
+        <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
           <div class="modal">
             <div class="modal-header">
               <h2 class="modal-title">Create Collection</h2>
@@ -300,6 +637,7 @@
           </div>
         </div>
       `;
+      focusFirstModalField(modal);
     }
 
     // ==========================================
@@ -391,6 +729,7 @@
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
                   <label class="form-label" style="margin:0;">Raw JSON Payload (Object or Array) *</label>
                   <div style="display:flex; gap:6px;">
+                    <button type="button" class="btn btn-secondary btn-sm" style="font-size:11px; padding:2px 8px;" onclick="formatJsonField('import-json-input')" title="Format / Prettify JSON">Format / Prettify</button>
                     <button class="btn btn-secondary btn-sm" style="font-size:11px; padding:2px 8px;" onclick="loadSampleJson()" title="Load realistic mock JSON">✨ Load Sample JSON</button>
                     <button class="btn btn-secondary btn-sm" style="font-size:11px; padding:2px 8px;" onclick="pasteFromClipboard()" title="Paste from clipboard">📋 Paste</button>
                     <button class="btn btn-secondary btn-sm" style="font-size:11px; padding:2px 8px;" onclick="clearJsonInput()">Clear</button>
@@ -426,6 +765,7 @@
 
       // If user had selected text or already typed something, re-trigger
       importJsonState = { parsedRecords: [], inferredFields: [], suggestedName: '', error: null };
+      focusFirstModalField(modal);
     }
 
     function loadSampleJson() {
@@ -492,11 +832,17 @@
     }
 
     function onJsonInputChanged() {
-      const text = document.getElementById('import-json-input')?.value.trim();
+      const jsonInput = document.getElementById('import-json-input');
+      const text = jsonInput?.value.trim();
       const previewContainer = document.getElementById('import-json-preview-content');
       const nameInput = document.getElementById('import-json-name');
 
       if (!text) {
+        if (jsonInput) {
+          jsonInput.classList.remove('input-invalid');
+          jsonInput.style.borderColor = '';
+          jsonInput.style.boxShadow = '';
+        }
         importJsonState = { parsedRecords: [], inferredFields: [], suggestedName: '', error: null };
         if (previewContainer) {
           previewContainer.innerHTML = `
@@ -511,6 +857,11 @@
 
       try {
         const parsed = JSON.parse(text);
+        if (jsonInput) {
+          jsonInput.classList.remove('input-invalid');
+          jsonInput.style.borderColor = '';
+          jsonInput.style.boxShadow = '';
+        }
         let records = [];
         let suggestedName = '';
 
@@ -601,6 +952,11 @@
 
         renderInferredFieldsPreview();
       } catch (e) {
+        if (jsonInput) {
+          jsonInput.classList.add('input-invalid');
+          jsonInput.style.borderColor = 'var(--accent-danger)';
+          jsonInput.style.boxShadow = '0 0 0 1px var(--accent-danger)';
+        }
         importJsonState = { parsedRecords: [], inferredFields: [], suggestedName: '', error: e.message };
         if (previewContainer) {
           previewContainer.innerHTML = `
@@ -1029,6 +1385,7 @@
           </div>
         </div>
       `;
+      focusFirstModalField(modal);
     }
 
     function togglePasteArea() {
@@ -1229,6 +1586,7 @@
       `;
 
       renderLivePreview();
+      focusFirstModalField(modal);
     }
 
     function updateColumnMapping(csvHeader, targetField) {
@@ -1589,6 +1947,7 @@
           </div>
         </div>
       `;
+      focusFirstModalField(modal);
     }
 
     async function submitGenerateMockData() {
@@ -1670,7 +2029,7 @@
       ];
 
       modal.innerHTML = `
-        <div class="modal-backdrop">
+        <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
           <div class="modal" style="max-width:820px; max-height:90vh; display:flex; flex-direction:column;">
             <div class="modal-header" style="align-items:flex-start;">
               <div>
@@ -1728,6 +2087,7 @@
           </div>
         </div>
       `;
+      focusFirstModalField(modal);
     }
 
     function openApplyTemplateConfirmModal(templateId) {
@@ -1781,7 +2141,7 @@
 
       const modal = document.getElementById('modal-root');
       modal.innerHTML = `
-        <div class="modal-backdrop">
+        <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
           <div class="modal" style="max-width: 580px;">
             <div class="modal-header" style="border-bottom: 1px solid var(--border-subtle); padding: 1.25rem 1.5rem;">
               <div style="display: flex; align-items: center; gap: 0.75rem;">
@@ -1854,6 +2214,7 @@
           </div>
         </div>
       `;
+      focusFirstModalField(modal);
     }
 
     async function submitApplyTemplateConfirmed(templateId) {
@@ -1916,7 +2277,7 @@
       const col = state.collections.find(c => c.name === colName) || { name: colName };
       const modal = document.getElementById('modal-root');
       modal.innerHTML = `
-        <div class="modal-backdrop">
+        <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
           <div class="modal" style="max-width:440px;">
             <div class="modal-header" style="border-bottom-color:rgba(239, 68, 68, 0.2);">
               <div style="display:flex; align-items:center; gap:0.5rem;">
@@ -1953,9 +2314,7 @@
           </div>
         </div>
       `;
-      setTimeout(() => {
-        document.getElementById('confirm-delete-col-input')?.focus();
-      }, 50);
+      focusFirstModalField(modal);
     }
 
     async function submitDeleteCollection(colName) {
@@ -1989,6 +2348,32 @@
           btn.innerHTML = 'Delete Permanently';
         }
       }
+    }
+
+    // Expose helpers on window for browser event handlers & tests
+    if (typeof window !== 'undefined') {
+      window.closeModal = closeModal;
+      window.openNewRecordModal = openNewRecordModal;
+      window.submitNewRecord = submitNewRecord;
+      window.editRecord = editRecord;
+      window.submitEditRecord = submitEditRecord;
+      window.deleteRecord = deleteRecord;
+      window.openNewCollectionModal = openNewCollectionModal;
+      window.openImportJsonModal = openImportJsonModal;
+      window.submitNewCollection = submitNewCollection;
+      window.openImportModal = openImportModal;
+      window.openMockDataModal = openMockDataModal;
+      window.openTemplatesModal = openTemplatesModal;
+      window.openApplyTemplateConfirmModal = openApplyTemplateConfirmModal;
+      window.openDeleteCollectionModal = openDeleteCollectionModal;
+      window.submitDeleteCollection = submitDeleteCollection;
+      window.handleToggleChange = handleToggleChange;
+      window.validateJsonField = validateJsonField;
+      window.formatJsonField = formatJsonField;
+      window.formatForDatetimeLocal = formatForDatetimeLocal;
+      window.focusFirstModalField = focusFirstModalField;
+      window.submitActiveModal = submitActiveModal;
+      window.handleModalKeyDown = handleModalKeyDown;
     }
 
 
