@@ -90,6 +90,38 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       }).toThrow(/requires dependent plugin "non-existent-base-plugin"/);
     });
 
+    it('should reject duplicate plugin registrations and prevent duplicate side effects or leaked instances', () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8103 });
+
+      const pluginA: INodeStackPlugin = {
+        name: 'my-singleton-plugin',
+        version: '1.0.0',
+      };
+
+      app.use(pluginA);
+      expect(app.hasPlugin('my-singleton-plugin')).toBe(true);
+
+      // Re-registering same plugin instance must throw
+      expect(() => {
+        app.use(pluginA);
+      }).toThrow(/Plugin "my-singleton-plugin" is already registered/);
+
+      // Registering a different plugin with same name must throw
+      expect(() => {
+        app.use({
+          name: 'my-singleton-plugin',
+          version: '2.0.0',
+        });
+      }).toThrow(/Plugin "my-singleton-plugin" is already registered/);
+
+      // Registering the same function plugin twice must throw
+      const fnPlugin = (ctx: NodeStackPluginContext) => {};
+      app.use(fnPlugin);
+      expect(() => {
+        app.use(fnPlugin);
+      }).toThrow(/already registered/);
+    });
+
     it('should execute asynchronous plugin init before app.start() serves traffic', async () => {
       app = new NodeStack({ dataDir: testDataDir, port: 8104 });
 

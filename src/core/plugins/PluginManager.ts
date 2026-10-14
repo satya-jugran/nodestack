@@ -16,6 +16,7 @@ export class PluginManager {
   private plugins = new Map<string, RegisteredPluginRecord>();
   private pendingInits: Promise<void>[] = [];
   private anonymousCounter = 1;
+  private registeredFunctions = new Set<Function>();
 
   constructor(
     private readonly app: NodeStack,
@@ -29,6 +30,9 @@ export class PluginManager {
     // 1. Normalize plugin
     let plugin: INodeStackPlugin;
     if (typeof pluginOrFn === 'function') {
+      if (this.registeredFunctions.has(pluginOrFn)) {
+        throw new Error('[PluginManager] This plugin function is already registered.');
+      }
       const fnName = pluginOrFn.name || `plugin_${this.anonymousCounter++}`;
       plugin = {
         name: fnName,
@@ -42,7 +46,18 @@ export class PluginManager {
       throw new Error('[PluginManager] Invalid plugin provided: must have a valid name');
     }
 
-    // 2. Validate dependencies
+    // 2. Check duplicate registration
+    if (this.plugins.has(plugin.name)) {
+      throw new Error(
+        `[PluginManager] Plugin "${plugin.name}" is already registered. Duplicate plugin registrations are not permitted.`
+      );
+    }
+
+    if (typeof pluginOrFn === 'function') {
+      this.registeredFunctions.add(pluginOrFn);
+    }
+
+    // 3. Validate dependencies
     if (plugin.dependencies && plugin.dependencies.length > 0) {
       for (const dep of plugin.dependencies) {
         if (!this.plugins.has(dep)) {
@@ -51,11 +66,6 @@ export class PluginManager {
           );
         }
       }
-    }
-
-    // 3. Check duplicate registration
-    if (this.plugins.has(plugin.name)) {
-      console.warn(`[PluginManager] Warning: Plugin "${plugin.name}" is already registered. Overwriting registration.`);
     }
 
     // 4. Build Plugin Context
@@ -331,5 +341,6 @@ export class PluginManager {
     }
     this.plugins.clear();
     this.pendingInits = [];
+    this.registeredFunctions.clear();
   }
 }
