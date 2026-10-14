@@ -8,6 +8,22 @@ export interface StripePluginOptions {
   currency?: string;
   customersCollection?: string;
   paymentsCollection?: string;
+  /** Optional custom base endpoint (defaults to https://api.stripe.com) */
+  endpoint?: string;
+  /** Custom fetch implementation (defaults to globalThis.fetch) */
+  fetch?: typeof fetch;
+  /** Run in dry-run mode without making outbound network calls */
+  dryRun?: boolean;
+}
+
+export interface StripeCheckoutSessionResult {
+  id: string;
+  url: string;
+  amount: number;
+  currency: string;
+  customerEmail: string;
+  status?: string;
+  livemode?: boolean;
 }
 
 export class StripeService {
@@ -17,21 +33,96 @@ export class StripeService {
     return this.options.secretKey.startsWith('sk_test_');
   }
 
-  public createCheckoutSession(params: {
+  public getBaseUrl(): string {
+    if (this.options.endpoint) {
+      return this.options.endpoint.replace(/\/+$/, '');
+    }
+    return 'https://api.stripe.com';
+  }
+
+  public async createCheckoutSession(params: {
     email: string;
     amount: number;
     currency?: string;
     customerId?: string;
     successUrl?: string;
     cancelUrl?: string;
-  }) {
-    const id = `cs_test_${crypto.randomBytes(12).toString('hex')}`;
+    productName?: string;
+  }): Promise<StripeCheckoutSessionResult> {
+    const currency = (params.currency || this.options.currency || 'usd').toLowerCase();
+    const isTest = this.isTestMode();
+
+    if (this.options.dryRun) {
+      const prefix = isTest ? 'cs_test_' : 'cs_live_';
+      const id = `${prefix}${crypto.randomBytes(12).toString('hex')}`;
+      return {
+        id,
+        url: `https://checkout.stripe.com/pay/${id}`,
+        amount: params.amount,
+        currency,
+        customerEmail: params.email,
+        status: 'open',
+        livemode: !isTest,
+      };
+    }
+
+    const fetchFn = this.options.fetch || globalThis.fetch;
+    if (!fetchFn) {
+      throw new Error('[StripeService] Global fetch is not available');
+    }
+
+    const url = `${this.getBaseUrl()}/v1/checkout/sessions`;
+
+    // Stripe API uses application/x-www-form-urlencoded
+    const form = new URLSearchParams();
+    form.append('mode', 'payment');
+    form.append(
+      'success_url',
+      params.successUrl || 'https://localhost:3000/success?session_id={CHECKOUT_SESSION_ID}'
+    );
+    form.append('cancel_url', params.cancelUrl || 'https://localhost:3000/cancel');
+    if (params.email) {
+      form.append('customer_email', params.email);
+    }
+    if (params.customerId) {
+      form.append('customer', params.customerId);
+    }
+    form.append('line_items[0][price_data][currency]', currency);
+    form.append('line_items[0][price_data][unit_amount]', String(Math.round(params.amount)));
+    form.append(
+      'line_items[0][price_data][product_data][name]',
+      params.productName || 'Payment'
+    );
+    form.append('line_items[0][quantity]', '1');
+
+    const res = await fetchFn(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.options.secretKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      const errMsg =
+        errData?.error?.message || (await res.text().catch(() => '')) || res.statusText;
+      const error: any = new Error(`Stripe API error (${res.status}): ${errMsg}`);
+      error.status = res.status;
+      error.response = errData;
+      throw error;
+    }
+
+    const data: any = await res.json();
     return {
-      id,
-      url: `https://checkout.stripe.com/pay/${id}`,
-      amount: params.amount,
-      currency: params.currency || this.options.currency || 'usd',
-      customerEmail: params.email,
+      id: data.id,
+      url: data.url || `https://checkout.stripe.com/pay/${data.id}`,
+      amount: typeof data.amount_total === 'number' ? data.amount_total : params.amount,
+      currency: data.currency || currency,
+      customerEmail: data.customer_email || params.email,
+      status: data.status || 'open',
+      livemode: Boolean(data.livemode),
     };
   }
 }
@@ -154,8 +245,19 @@ export function stripePlugin(options: StripePluginOptions): INodeStackPlugin {
             message: 'email and amount are required to create a checkout session',
           });
         }
-        const session = stripeService.createCheckoutSession(body);
-        return reply.status(201).send(session);
+        try {
+          const session = await stripeService.createCheckoutSession(body);
+          return reply.status(201).send(session);
+        } catch (err: any) {
+          const statusCode =
+            typeof err.status === 'number' && err.status >= 400 && err.status < 600
+              ? err.status
+              : 502;
+          return reply.status(statusCode).send({
+            statusCode,
+            message: err.message || 'Failed to create Stripe checkout session',
+          });
+        }
       });
 
       ctx.registerRoute('POST', '/api/stripe/webhook', async (req: FastifyRequest, reply: FastifyReply) => {

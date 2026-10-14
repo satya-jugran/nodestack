@@ -17,12 +17,26 @@ export interface StripePluginOptions {
   currency?: string;
   customersCollection?: string;
   paymentsCollection?: string;
+  endpoint?: string;
+  fetch?: typeof fetch;
+  dryRun?: boolean;
+}
+
+export interface StripeCheckoutSessionResult {
+  id: string;
+  url: string;
+  amount: number;
+  currency: string;
+  customerEmail: string;
+  status?: string;
+  livemode?: boolean;
 }
 
 export declare class StripeService {
   readonly options: StripePluginOptions;
   constructor(options: StripePluginOptions);
   isTestMode(): boolean;
+  getBaseUrl(): string;
   createCheckoutSession(params: {
     email: string;
     amount: number;
@@ -30,13 +44,8 @@ export declare class StripeService {
     customerId?: string;
     successUrl?: string;
     cancelUrl?: string;
-  }): {
-    id: string;
-    url: string;
-    amount: number;
-    currency: string;
-    customerEmail: string;
-  };
+    productName?: string;
+  }): Promise<StripeCheckoutSessionResult>;
 }
 
 export declare function stripePlugin(options: StripePluginOptions): INodeStackPlugin;

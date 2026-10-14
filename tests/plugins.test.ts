@@ -8,6 +8,7 @@ import {
   TOKENS,
   AdminUIService,
   stripePlugin,
+  StripeService,
   s3StoragePlugin,
   S3StorageService,
   resendPlugin,
@@ -512,10 +513,58 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
     it('should register Stripe collections, webhook handler, and checkout session endpoint', async () => {
       app = new NodeStack({ dataDir: testDataDir, port: 8114 });
 
+      const capturedStripeRequests: Array<{ url: string; method: string; headers: any; body: string }> = [];
+      let shouldStripeFail = false;
+
+      const mockStripeFetch = vi.fn().mockImplementation(async (url: string, init: any) => {
+        capturedStripeRequests.push({
+          url,
+          method: init.method,
+          headers: init.headers,
+          body: init.body,
+        });
+
+        if (shouldStripeFail) {
+          return {
+            ok: false,
+            status: 400,
+            statusText: 'Bad Request',
+            json: async () => ({
+              error: {
+                message: 'Invalid currency: xyz',
+                type: 'invalid_request_error',
+              },
+            }),
+            text: async () => '',
+          };
+        }
+
+        const isLive = init.headers['Authorization']?.includes('sk_live_');
+        const id = isLive ? 'cs_live_real_live_session_12345' : 'cs_test_real_test_session_12345';
+
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            id,
+            object: 'checkout.session',
+            url: `https://checkout.stripe.com/c/pay/${id}`,
+            amount_total: 4900,
+            currency: 'usd',
+            customer_email: 'buyer@example.com',
+            status: 'open',
+            livemode: isLive,
+          }),
+          text: async () => '',
+        };
+      });
+
       app.use(
         stripePlugin({
           secretKey: 'sk_test_mock_1234567890abcdef',
           currency: 'usd',
+          fetch: mockStripeFetch as any,
         })
       );
 
@@ -536,7 +585,7 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
         customersCollection: '_stripe_customers',
       });
 
-      // Test checkout session creation
+      // 1. Test checkout session creation via Stripe API (test mode)
       const resCheckout = await app.server.inject({
         method: 'POST',
         url: '/api/stripe/checkout-session',
@@ -547,8 +596,45 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       });
       expect(resCheckout.statusCode).toBe(201);
       const checkoutData = resCheckout.json();
-      expect(checkoutData.id).toMatch(/^cs_test_/);
-      expect(checkoutData.url).toContain('https://checkout.stripe.com/pay/');
+      expect(checkoutData.id).toBe('cs_test_real_test_session_12345');
+      expect(checkoutData.url).toContain('https://checkout.stripe.com/c/pay/cs_test_real_test_session_12345');
+      expect(checkoutData.amount).toBe(4900);
+      expect(checkoutData.livemode).toBe(false);
+
+      // Verify outbound HTTP request sent to Stripe API
+      expect(capturedStripeRequests.length).toBe(1);
+      expect(capturedStripeRequests[0].url).toBe('https://api.stripe.com/v1/checkout/sessions');
+      expect(capturedStripeRequests[0].method).toBe('POST');
+      expect(capturedStripeRequests[0].headers['Authorization']).toBe('Bearer sk_test_mock_1234567890abcdef');
+      expect(capturedStripeRequests[0].headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+      expect(capturedStripeRequests[0].body).toContain('customer_email=buyer%40example.com');
+      expect(capturedStripeRequests[0].body).toContain('line_items%5B0%5D%5Bprice_data%5D%5Bunit_amount%5D=4900');
+
+      // 2. Verify live-mode key produces live session (cs_live_)
+      const liveInstance = new StripeService({
+        secretKey: 'sk_live_production_key_12345',
+        fetch: mockStripeFetch as any,
+      });
+      expect(liveInstance.isTestMode()).toBe(false);
+      const liveSession = await liveInstance.createCheckoutSession({
+        email: 'vip@example.com',
+        amount: 9900,
+      });
+      expect(liveSession.id).toMatch(/^cs_live_/);
+      expect(liveSession.livemode).toBe(true);
+
+      // 3. Verify Stripe API error response handling
+      shouldStripeFail = true;
+      const resError = await app.server.inject({
+        method: 'POST',
+        url: '/api/stripe/checkout-session',
+        payload: {
+          email: 'error@example.com',
+          amount: 100,
+        },
+      });
+      expect(resError.statusCode).toBe(400);
+      expect(resError.json().message).toContain('Invalid currency: xyz');
 
       // Test Stripe webhook endpoint
       let webhookEventReceived: any = null;
