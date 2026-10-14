@@ -8,6 +8,7 @@ import {
   PluginMetadata,
   RegisteredPluginRecord,
   HttpMethod,
+  PluginRouteOptions,
 } from './types';
 import type { NodeStack } from '../../NodeStack';
 
@@ -67,30 +68,41 @@ export class PluginManager {
       schema: this.app.schema,
       eventBus: this.app.eventBus,
       adminUi: this.app.adminUi,
+      auth: {
+        requireAdmin: () => this.app.authMiddleware.requireAdmin(),
+        requireAdminOrInitial: () => this.app.authMiddleware.requireAdminOrInitialSetup(),
+        requireAuth: () => this.app.authMiddleware.requireAuth(),
+      },
       router: {
-        get: (path: string, handler: RouteHandlerMethod) => this.app.server.app.get(path, handler),
-        post: (path: string, handler: RouteHandlerMethod) => this.app.server.app.post(path, handler),
-        patch: (path: string, handler: RouteHandlerMethod) => this.app.server.app.patch(path, handler),
-        delete: (path: string, handler: RouteHandlerMethod) => this.app.server.app.delete(path, handler),
-        put: (path: string, handler: RouteHandlerMethod) => this.app.server.app.put(path, handler),
+        get: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) =>
+          this.app.server.app.get(path, this.resolveRouteOptions(options), handler),
+        post: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) =>
+          this.app.server.app.post(path, this.resolveRouteOptions(options), handler),
+        patch: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) =>
+          this.app.server.app.patch(path, this.resolveRouteOptions(options), handler),
+        delete: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) =>
+          this.app.server.app.delete(path, this.resolveRouteOptions(options), handler),
+        put: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) =>
+          this.app.server.app.put(path, this.resolveRouteOptions(options), handler),
         raw: this.app.server.app,
       },
       registerRoute: (
         method: HttpMethod,
         path: string,
         handler: RouteHandlerMethod,
-        options: any = {}
+        options: PluginRouteOptions = {}
       ) => {
         const fastify = this.app.server.app;
+        const resolvedOptions = this.resolveRouteOptions(options);
         const m = method.toLowerCase();
         if (typeof (fastify as any)[m] === 'function') {
-          (fastify as any)[m](path, options, handler);
+          (fastify as any)[m](path, resolvedOptions, handler);
         } else {
           fastify.route({
             method: method as any,
             url: path,
             handler,
-            ...options,
+            ...resolvedOptions,
           });
         }
       },
@@ -152,7 +164,11 @@ export class PluginManager {
 
     if (plugin.routes && Array.isArray(plugin.routes)) {
       for (const route of plugin.routes) {
-        context.registerRoute(route.method, route.path, route.handler, route.options);
+        const routeOpts: PluginRouteOptions = { ...(route.options || {}) };
+        if (route.auth && !routeOpts.auth) {
+          routeOpts.auth = route.auth;
+        }
+        context.registerRoute(route.method, route.path, route.handler, routeOpts);
       }
     }
 
@@ -267,6 +283,37 @@ export class PluginManager {
       version: r.plugin.version,
       description: r.plugin.description,
     }));
+  }
+
+  /**
+   * Resolve authentication policy into Fastify preHandler middleware
+   */
+  private resolveRouteOptions(rawOptions?: PluginRouteOptions): any {
+    const options: any = { ...(rawOptions || {}) };
+    const authPolicy = options.auth || (options.requireAdmin ? 'admin' : undefined);
+
+    let authPreHandler: any = null;
+    if (authPolicy === 'admin') {
+      authPreHandler = this.app.authMiddleware.requireAdmin();
+    } else if (authPolicy === 'adminOrInitial') {
+      authPreHandler = this.app.authMiddleware.requireAdminOrInitialSetup();
+    } else if (authPolicy === 'auth' || authPolicy === 'user') {
+      authPreHandler = this.app.authMiddleware.requireAuth();
+    }
+
+    if (authPreHandler) {
+      if (options.preHandler) {
+        const existing = Array.isArray(options.preHandler) ? options.preHandler : [options.preHandler];
+        options.preHandler = [authPreHandler, ...existing];
+      } else {
+        options.preHandler = authPreHandler;
+      }
+    }
+
+    delete options.auth;
+    delete options.requireAdmin;
+
+    return options;
   }
 
   /**

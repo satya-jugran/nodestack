@@ -59,5 +59,17 @@ export class AuthMiddleware {
       }
     };
   }
+
+  public requireAuth() {
+    return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+      await this.handle(req, reply);
+      if (!req.auth) {
+        reply.status(401).send({
+          statusCode: 401,
+          message: 'Authentication required to access this resource',
+        });
+      }
+    };
+  }
 }
 

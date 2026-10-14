@@ -8,6 +8,8 @@ export interface AlgoliaPluginOptions {
   indexPrefix?: string;
   collections: string[];
   collectionName?: string;
+  /** Authentication policy for reindex endpoint: 'admin' (default), 'adminOrInitial', 'user', or 'public' */
+  authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
 }
 
 export class AlgoliaSyncService {
@@ -114,26 +116,31 @@ export function algoliaPlugin(options: AlgoliaPluginOptions): INodeStackPlugin {
         });
       });
 
-      ctx.registerRoute('POST', '/api/algolia/reindex', async (req: FastifyRequest, reply: FastifyReply) => {
-        const body = (req.body as any) || {};
-        const col = body.collection;
-        if (!col || !targetCollections.includes(col)) {
-          return reply.status(400).send({
-            statusCode: 400,
-            message: `collection must be one of: ${targetCollections.join(', ')}`,
+      ctx.registerRoute(
+        'POST',
+        '/api/algolia/reindex',
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const body = (req.body as any) || {};
+          const col = body.collection;
+          if (!col || !targetCollections.includes(col)) {
+            return reply.status(400).send({
+              statusCode: 400,
+              message: `collection must be one of: ${targetCollections.join(', ')}`,
+            });
+          }
+
+          const countResult = ctx.app.db.get<any>(`SELECT COUNT(*) as cnt FROM "${col}"`);
+          const total = countResult?.cnt || 0;
+
+          return reply.status(200).send({
+            success: true,
+            collection: col,
+            indexName: algoliaService.getIndexName(col),
+            recordsQueued: total,
           });
-        }
-
-        const countResult = ctx.app.db.get<any>(`SELECT COUNT(*) as cnt FROM "${col}"`);
-        const total = countResult?.cnt || 0;
-
-        return reply.status(200).send({
-          success: true,
-          collection: col,
-          indexName: algoliaService.getIndexName(col),
-          recordsQueued: total,
-        });
-      });
+        },
+        { auth: options.authPolicy || 'admin' }
+      );
     },
   };
 }

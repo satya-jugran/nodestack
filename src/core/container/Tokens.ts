@@ -27,4 +27,5 @@ export const TOKENS = {
   DemoController: Symbol('DemoController'),
   MaintenanceGate: Symbol('MaintenanceGate'),
   PluginRegistry: Symbol('PluginRegistry'),
+  AuthMiddleware: Symbol('AuthMiddleware'),
 } as const;

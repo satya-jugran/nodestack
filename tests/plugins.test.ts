@@ -185,6 +185,106 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ ping: 'pong' });
     });
+
+    it('should support route authentication policies ({ auth: "admin" }, { auth: "user" }, and context.auth helpers)', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8107 });
+
+      // Create an admin
+      await app.auth.createAdmin('admin@nodestack.io', 'Password123!');
+      const { token: adminToken } = await app.auth.authenticateAdmin('admin@nodestack.io', 'Password123!');
+
+      // Create a regular user
+      const user = await app.records.create('users', {
+        email: 'user@nodestack.io',
+        password: 'Password123!',
+      });
+      const userAuth = await app.auth.authenticateRecord('users', 'user@nodestack.io', 'Password123!');
+      const userToken = userAuth.token;
+
+      const authRoutePlugin: INodeStackPlugin = {
+        name: 'auth-route-plugin',
+        routes: [
+          {
+            method: 'GET',
+            path: '/api/test/admin-only-declarative',
+            auth: 'admin',
+            handler: async (_req, reply) => reply.send({ secret: 'admin-data' }),
+          },
+        ],
+        register(ctx) {
+          ctx.registerRoute('POST', '/api/test/admin-only', async (_req, reply) => {
+            return reply.send({ ok: true, adminSecret: 42 });
+          }, { auth: 'admin' });
+
+          ctx.registerRoute('GET', '/api/test/user-only', async (req, reply) => {
+            return reply.send({ ok: true, userId: (req as any).auth?.id });
+          }, { auth: 'user' });
+
+          ctx.registerRoute('GET', '/api/test/context-prehandler', async (_req, reply) => {
+            return reply.send({ ok: true });
+          }, { preHandler: ctx.auth.requireAdmin() });
+        },
+      };
+
+      app.use(authRoutePlugin);
+
+      // 1. Admin route rejects unauthenticated request
+      const resUnauth = await app.server.inject({ method: 'POST', url: '/api/test/admin-only' });
+      expect(resUnauth.statusCode).toBe(403);
+
+      // 2. Admin route rejects regular user request
+      const resUserOnAdmin = await app.server.inject({
+        method: 'POST',
+        url: '/api/test/admin-only',
+        headers: { authorization: `Bearer ${userToken}` },
+      });
+      expect(resUserOnAdmin.statusCode).toBe(403);
+
+      // 3. Admin route accepts admin token
+      const resAdminSuccess = await app.server.inject({
+        method: 'POST',
+        url: '/api/test/admin-only',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(resAdminSuccess.statusCode).toBe(200);
+      expect(resAdminSuccess.json()).toEqual({ ok: true, adminSecret: 42 });
+
+      // 4. Declarative admin route works
+      const resDeclUnauth = await app.server.inject({ method: 'GET', url: '/api/test/admin-only-declarative' });
+      expect(resDeclUnauth.statusCode).toBe(403);
+
+      const resDeclSuccess = await app.server.inject({
+        method: 'GET',
+        url: '/api/test/admin-only-declarative',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(resDeclSuccess.statusCode).toBe(200);
+      expect(resDeclSuccess.json()).toEqual({ secret: 'admin-data' });
+
+      // 5. User route rejects unauthenticated request
+      const resUserUnauth = await app.server.inject({ method: 'GET', url: '/api/test/user-only' });
+      expect(resUserUnauth.statusCode).toBe(401);
+
+      // 6. User route accepts user token
+      const resUserSuccess = await app.server.inject({
+        method: 'GET',
+        url: '/api/test/user-only',
+        headers: { authorization: `Bearer ${userToken}` },
+      });
+      expect(resUserSuccess.statusCode).toBe(200);
+      expect(resUserSuccess.json().userId).toBe(user.id);
+
+      // 7. Context prehandler helper works
+      const resHelperUnauth = await app.server.inject({ method: 'GET', url: '/api/test/context-prehandler' });
+      expect(resHelperUnauth.statusCode).toBe(403);
+
+      const resHelperSuccess = await app.server.inject({
+        method: 'GET',
+        url: '/api/test/context-prehandler',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(resHelperSuccess.statusCode).toBe(200);
+    });
   });
 
   describe('3. Lifecycle Hooks Registration via Plugins', () => {
@@ -511,10 +611,23 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
         connected: true,
       });
 
-      // Test presigned URL generation
+      // Verify unauthenticated request is rejected with 403
+      const resUnauth = await app.server.inject({
+        method: 'POST',
+        url: '/api/s3/sign-upload-url',
+        payload: { filename: 'avatar.png' },
+      });
+      expect(resUnauth.statusCode).toBe(403);
+
+      // Authenticate admin
+      await app.auth.createAdmin('admin@nodestack.io', 'Password123!');
+      const { token: adminToken } = await app.auth.authenticateAdmin('admin@nodestack.io', 'Password123!');
+
+      // Test presigned URL generation with admin auth
       const resSign = await app.server.inject({
         method: 'POST',
         url: '/api/s3/sign-upload-url',
+        headers: { authorization: `Bearer ${adminToken}` },
         payload: {
           filename: 'avatar.png',
           mimeType: 'image/png',
@@ -551,9 +664,25 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
         emailSentEvent = data;
       });
 
+      // Verify unauthenticated send request is rejected with 403
+      const resUnauth = await app.server.inject({
+        method: 'POST',
+        url: '/api/resend/send',
+        payload: {
+          to: 'customer@example.com',
+          subject: 'Welcome to NodeStack!',
+        },
+      });
+      expect(resUnauth.statusCode).toBe(403);
+
+      // Authenticate admin
+      await app.auth.createAdmin('admin@nodestack.io', 'Password123!');
+      const { token: adminToken } = await app.auth.authenticateAdmin('admin@nodestack.io', 'Password123!');
+
       const res = await app.server.inject({
         method: 'POST',
         url: '/api/resend/send',
+        headers: { authorization: `Bearer ${adminToken}` },
         payload: {
           to: 'customer@example.com',
           subject: 'Welcome to NodeStack!',
@@ -652,10 +781,23 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(queue.items[0].objectId).toBe(product.id);
       expect(queue.items[0].operation).toBe('save');
 
-      // Test reindex endpoint
+      // Verify unauthenticated reindex request is rejected with 403
+      const resUnauth = await app.server.inject({
+        method: 'POST',
+        url: '/api/algolia/reindex',
+        payload: { collection: 'products' },
+      });
+      expect(resUnauth.statusCode).toBe(403);
+
+      // Authenticate admin
+      await app.auth.createAdmin('admin@nodestack.io', 'Password123!');
+      const { token: adminToken } = await app.auth.authenticateAdmin('admin@nodestack.io', 'Password123!');
+
+      // Test reindex endpoint with admin auth
       const resReindex = await app.server.inject({
         method: 'POST',
         url: '/api/algolia/reindex',
+        headers: { authorization: `Bearer ${adminToken}` },
         payload: { collection: 'products' },
       });
       expect(resReindex.statusCode).toBe(200);

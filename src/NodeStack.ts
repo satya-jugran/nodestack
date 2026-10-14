@@ -71,6 +71,7 @@ export class NodeStack {
   public readonly docs: DocsService;
   public readonly adminUi: AdminUIService;
   public readonly chaos: ChaosMiddleware;
+  public readonly authMiddleware: AuthMiddleware;
   public readonly server: HttpServer;
   public readonly pluginManager: PluginManager;
 
@@ -190,7 +191,8 @@ export class NodeStack {
     this.chaos = new ChaosMiddleware(this.config);
     this.container.bindInstance(TOKENS.ChaosMiddleware, this.chaos);
 
-    const authMiddleware = new AuthMiddleware(this.auth);
+    this.authMiddleware = new AuthMiddleware(this.auth);
+    this.container.bindInstance(TOKENS.AuthMiddleware, this.authMiddleware);
     const authCtrl = new AuthController(this.auth);
     const collectionCtrl = new CollectionController(this.schema, this.schemaInference, this.files);
     const recordCtrl = new RecordController(this.records, this.schema, this.files, this.mockData);
@@ -208,7 +210,7 @@ export class NodeStack {
     this.server = new HttpServer(
       this.config,
       this.logs,
-      authMiddleware,
+      this.authMiddleware,
       authCtrl,
       collectionCtrl,
       recordCtrl,

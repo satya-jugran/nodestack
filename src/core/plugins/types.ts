@@ -39,11 +39,22 @@ export interface AdminNavItem {
   action?: string;
 }
 
+export type PluginAuthPolicy = 'admin' | 'adminOrInitial' | 'auth' | 'user' | 'public';
+
+export interface PluginRouteOptions {
+  auth?: PluginAuthPolicy;
+  requireAdmin?: boolean;
+  preHandler?: any;
+  schema?: any;
+  [key: string]: any;
+}
+
 export interface PluginRouteDefinition {
   method: HttpMethod;
   path: string;
   handler: RouteHandlerMethod;
-  options?: any;
+  auth?: PluginAuthPolicy;
+  options?: PluginRouteOptions;
 }
 
 export interface PluginMetadata {
@@ -71,22 +82,28 @@ export interface NodeStackPluginContext {
   eventBus: EventBus;
   /** Admin UI & Embedded Dashboard Service */
   adminUi: AdminUIService;
+  /** Auth prehandlers and policy helpers for securing plugin routes */
+  auth: {
+    requireAdmin: () => (req: any, reply: any) => Promise<void>;
+    requireAdminOrInitial: () => (req: any, reply: any) => Promise<void>;
+    requireAuth: () => (req: any, reply: any) => Promise<void>;
+  };
   /** Expressive router helper */
   router: {
-    get: (path: string, handler: RouteHandlerMethod) => void;
-    post: (path: string, handler: RouteHandlerMethod) => void;
-    patch: (path: string, handler: RouteHandlerMethod) => void;
-    delete: (path: string, handler: RouteHandlerMethod) => void;
-    put: (path: string, handler: RouteHandlerMethod) => void;
+    get: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
+    post: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
+    patch: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
+    delete: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
+    put: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
     raw: FastifyInstance;
   };
 
-  /** Register a custom route with Fastify */
+  /** Register a custom route with Fastify and optional auth policy */
   registerRoute: (
     method: HttpMethod,
     path: string,
     handler: RouteHandlerMethod,
-    options?: any
+    options?: PluginRouteOptions
   ) => void;
 
   /** Register lifecycle hooks (beforeCreate, afterCreate, beforeUpdate, afterUpdate, beforeDelete, afterDelete, beforeServe, afterServe, or custom) */

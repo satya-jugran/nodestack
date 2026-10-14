@@ -56,6 +56,7 @@ export interface S3StoragePluginOptions {
   secretAccessKey?: string;
   forcePathStyle?: boolean;
   collectionName?: string;
+  authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
 }
 
 export declare class S3StorageService {
@@ -85,6 +86,7 @@ export interface ResendPluginOptions {
   apiKey: string;
   from?: string;
   collectionName?: string;
+  authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
 }
 
 export declare class ResendEmailService {
@@ -154,6 +156,7 @@ export interface AlgoliaPluginOptions {
   indexPrefix?: string;
   collections: string[];
   collectionName?: string;
+  authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
 }
 
 export declare class AlgoliaSyncService {

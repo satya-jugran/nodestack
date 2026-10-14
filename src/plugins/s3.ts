@@ -10,6 +10,8 @@ export interface S3StoragePluginOptions {
   secretAccessKey?: string;
   forcePathStyle?: boolean;
   collectionName?: string;
+  /** Authentication policy for presigned upload URLs: 'admin' (default), 'adminOrInitial', 'user', or 'public' */
+  authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
 }
 
 export class S3StorageService {
@@ -135,27 +137,32 @@ export function s3StoragePlugin(options: S3StoragePluginOptions): INodeStackPlug
         });
       });
 
-      ctx.registerRoute('POST', '/api/s3/sign-upload-url', async (req: FastifyRequest, reply: FastifyReply) => {
-        const body = (req.body as any) || {};
-        const filename = body.filename || `file_${Date.now()}.bin`;
-        const mimeType = body.mimeType || 'application/octet-stream';
+      ctx.registerRoute(
+        'POST',
+        '/api/s3/sign-upload-url',
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const body = (req.body as any) || {};
+          const filename = body.filename || `file_${Date.now()}.bin`;
+          const mimeType = body.mimeType || 'application/octet-stream';
 
-        const presigned = s3Service.getPresignedUploadUrl(filename, mimeType);
+          const presigned = s3Service.getPresignedUploadUrl(filename, mimeType);
 
-        // Record entry in system collection
-        try {
-          await ctx.app.records.create(collectionName, {
-            key: presigned.key,
-            bucket: options.bucket,
-            mimeType,
-            url: `${s3Service.getBucketEndpoint()}/${presigned.key}`,
-          });
-        } catch (e: any) {
-          // ignore duplicate or non-fatal
-        }
+          // Record entry in system collection
+          try {
+            await ctx.app.records.create(collectionName, {
+              key: presigned.key,
+              bucket: options.bucket,
+              mimeType,
+              url: `${s3Service.getBucketEndpoint()}/${presigned.key}`,
+            });
+          } catch (e: any) {
+            // ignore duplicate or non-fatal
+          }
 
-        return reply.status(200).send(presigned);
-      });
+          return reply.status(200).send(presigned);
+        },
+        { auth: options.authPolicy || 'admin' }
+      );
     },
   };
 }

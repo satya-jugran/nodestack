@@ -6,6 +6,8 @@ export interface ResendPluginOptions {
   apiKey: string;
   from?: string;
   collectionName?: string;
+  /** Authentication policy for send endpoint: 'admin' (default), 'adminOrInitial', 'user', or 'public' */
+  authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
 }
 
 export class ResendEmailService {
@@ -85,33 +87,38 @@ export function resendPlugin(options: ResendPluginOptions): INodeStackPlugin {
         });
       });
 
-      ctx.registerRoute('POST', '/api/resend/send', async (req: FastifyRequest, reply: FastifyReply) => {
-        const body = (req.body as any) || {};
-        if (!body.to || !body.subject) {
-          return reply.status(400).send({
-            statusCode: 400,
-            message: 'to and subject are required to send an email',
-          });
-        }
+      ctx.registerRoute(
+        'POST',
+        '/api/resend/send',
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const body = (req.body as any) || {};
+          if (!body.to || !body.subject) {
+            return reply.status(400).send({
+              statusCode: 400,
+              message: 'to and subject are required to send an email',
+            });
+          }
 
-        const sent = await emailService.sendEmail(body);
+          const sent = await emailService.sendEmail(body);
 
-        try {
-          await ctx.app.records.create(collectionName, {
-            to: sent.to,
-            from: sent.from,
-            subject: sent.subject,
-            status: sent.status,
-            messageId: sent.id,
-          });
-        } catch (e: any) {
-          // non-fatal
-        }
+          try {
+            await ctx.app.records.create(collectionName, {
+              to: sent.to,
+              from: sent.from,
+              subject: sent.subject,
+              status: sent.status,
+              messageId: sent.id,
+            });
+          } catch (e: any) {
+            // non-fatal
+          }
 
-        await ctx.eventBus.emit('email:sent', sent);
+          await ctx.eventBus.emit('email:sent', sent);
 
-        return reply.status(200).send(sent);
-      });
+          return reply.status(200).send(sent);
+        },
+        { auth: options.authPolicy || 'admin' }
+      );
     },
   };
 }
