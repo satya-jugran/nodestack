@@ -928,6 +928,42 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       const customParsed = new URL(customSign.uploadUrl);
       expect(customParsed.searchParams.get('X-Amz-Credential')).toContain('MINIO_ACCESS_KEY');
       expect(customParsed.searchParams.get('X-Amz-Signature')).toMatch(/^[0-9a-f]{64}$/);
+
+      // Verify forcePathStyle in getBucketEndpoint() & getObjectUrl()
+      expect(customService.getBucketEndpoint()).toBe('http://localhost:9000/minio-bucket');
+      expect(customService.getObjectUrl('test-doc.pdf')).toBe('http://localhost:9000/minio-bucket/test-doc.pdf');
+
+      // (a) Custom endpoint with default (omitted) forcePathStyle defaults to path-style for compatibility
+      const defaultMinioService = new S3StorageService({
+        bucket: 'minio-bucket',
+        region: 'us-east-1',
+        endpoint: 'http://localhost:9000',
+      });
+      expect(defaultMinioService.getBucketEndpoint()).toBe('http://localhost:9000/minio-bucket');
+
+      // (b) Custom endpoint with explicit forcePathStyle: false builds virtual-hosted URL
+      const vhostService = new S3StorageService({
+        bucket: 'minio-bucket',
+        region: 'us-east-1',
+        endpoint: 'http://localhost:9000',
+        forcePathStyle: false,
+      });
+      expect(vhostService.getBucketEndpoint()).toBe('http://minio-bucket.localhost:9000');
+
+      // (c) AWS provider with forcePathStyle: true builds path-style URL
+      const awsPathStyleService = new S3StorageService({
+        bucket: 'my-aws-bucket',
+        region: 'eu-central-1',
+        forcePathStyle: true,
+      });
+      expect(awsPathStyleService.getBucketEndpoint()).toBe('https://s3.eu-central-1.amazonaws.com/my-aws-bucket');
+
+      // (d) AWS provider with default/false forcePathStyle builds virtual-hosted URL
+      const awsVhostService = new S3StorageService({
+        bucket: 'my-aws-bucket',
+        region: 'eu-central-1',
+      });
+      expect(awsVhostService.getBucketEndpoint()).toBe('https://my-aws-bucket.s3.eu-central-1.amazonaws.com');
     });
   });
 

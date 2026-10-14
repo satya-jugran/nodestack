@@ -18,22 +18,34 @@ export class S3StorageService {
   constructor(public readonly options: S3StoragePluginOptions) {}
 
   public getBucketEndpoint(): string {
+    const isPathStyle =
+      this.options.forcePathStyle !== undefined
+        ? this.options.forcePathStyle
+        : Boolean(this.options.endpoint);
+
     if (this.options.endpoint) {
       const endpoint = this.options.endpoint.replace(/\/+$/, '');
-      if (this.options.forcePathStyle) {
+      if (isPathStyle) {
         return `${endpoint}/${this.options.bucket}`;
       }
       try {
         const u = new URL(endpoint);
-        return `${u.protocol}//${this.options.bucket}.${u.host}${u.pathname}`.replace(/\/+$/, '');
+        const basePath = u.pathname.replace(/\/+$/, '');
+        return `${u.protocol}//${this.options.bucket}.${u.host}${basePath}`;
       } catch {
         return `${endpoint}/${this.options.bucket}`;
       }
     }
-    if (this.options.forcePathStyle) {
+
+    if (isPathStyle) {
       return `https://s3.${this.options.region}.amazonaws.com/${this.options.bucket}`;
     }
     return `https://${this.options.bucket}.s3.${this.options.region}.amazonaws.com`;
+  }
+
+  public getObjectUrl(key: string): string {
+    const cleanKey = key.replace(/^\/+/, '');
+    return `${this.getBucketEndpoint()}/${cleanKey}`;
   }
 
   public getPresignedUploadUrl(
@@ -281,7 +293,7 @@ export function s3StoragePlugin(options: S3StoragePluginOptions): INodeStackPlug
               key: presigned.key,
               bucket: options.bucket,
               mimeType,
-              url: `${s3Service.getBucketEndpoint()}/${presigned.key}`,
+              url: s3Service.getObjectUrl(presigned.key),
             });
           } catch (e: any) {
             // ignore duplicate or non-fatal
