@@ -1,0 +1,46 @@
+{
+  "name": "@nodestackapp/plugin-webhooks",
+  "version": "1.1.0",
+  "description": "Official Discord & Slack realtime mutation webhooks plugin for NodeStack",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "nodestack": "^1.1.0"
+  },
+  "peerDependenciesMeta": {
+    "nodestack": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/satya-jugran/nodebase.git",
+    "directory": "packages/plugins/webhooks"
+  },
+  "keywords": [
+    "nodestack",
+    "plugin",
+    "webhooks",
+    "discord",
+    "slack",
+    "realtime",
+    "notifications"
+  ],
+  "author": "",
+  "license": "MIT"
+}

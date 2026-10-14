@@ -2,11 +2,14 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AdminUIBundler } from './AdminUIBundler';
+import { AdminNavItem, PluginMetadata } from '../core/plugins/types';
 
 export class AdminUIService {
   private adminHtml: string;
   private iconSvg: string;
   private uiDir: string;
+  private navItems: AdminNavItem[] = [];
+  private plugins: PluginMetadata[] = [];
 
   constructor() {
     this.uiDir = path.join(__dirname, 'ui');
@@ -33,12 +36,64 @@ export class AdminUIService {
     }
   }
 
+  public registerNavItem(item: AdminNavItem): void {
+    const idx = this.navItems.findIndex((i) => i.id === item.id);
+    if (idx >= 0) {
+      this.navItems[idx] = item;
+    } else {
+      this.navItems.push(item);
+    }
+  }
+
+  public getNavItems(): AdminNavItem[] {
+    return [...this.navItems];
+  }
+
+  public registerPluginMeta(meta: PluginMetadata): void {
+    if (!this.plugins.some((p) => p.name === meta.name)) {
+      this.plugins.push(meta);
+    }
+  }
+
+  public getPluginsMeta(): PluginMetadata[] {
+    return [...this.plugins];
+  }
+
+  /**
+   * Serialize data for safe embedding inside an HTML <script> block.
+   * Escapes '<', '>', '&', and Unicode line separators to prevent script tag breakouts and XSS.
+   */
+  public static serializeForScript(data: any): string {
+    return JSON.stringify(data)
+      .replace(/</g, '\\u003c')
+      .replace(/>/g, '\\u003e')
+      .replace(/&/g, '\\u0026')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029');
+  }
+
   public getHtml(): string {
+    let baseHtml: string;
     if (process.env.NODE_ENV !== 'production') {
       const live = AdminUIBundler.bundle(this.uiDir);
-      if (live) return live;
+      baseHtml = live || this.adminHtml;
+    } else {
+      baseHtml = this.adminHtml;
     }
-    return this.adminHtml;
+
+    if (this.navItems.length > 0 || this.plugins.length > 0) {
+      const injection = `
+  <script>
+    window.__NODESTACK_PLUGINS__ = ${AdminUIService.serializeForScript(this.plugins)};
+    window.__NODESTACK_NAV_ITEMS__ = ${AdminUIService.serializeForScript(this.navItems)};
+  </script>`;
+      if (baseHtml.includes('</head>')) {
+        return baseHtml.replace('</head>', `${injection}\n</head>`);
+      }
+      return baseHtml + injection;
+    }
+
+    return baseHtml;
   }
 
   public registerRoutes(server: FastifyInstance): void {
@@ -76,6 +131,18 @@ export class AdminUIService {
 
     server.get('/_', async (_req: FastifyRequest, reply: FastifyReply) => {
       reply.redirect('/_/');
+    });
+
+    // Plugin & Admin UI Extensions API
+    server.get('/api/admin/nav-items', async (_req: FastifyRequest, reply: FastifyReply) => {
+      return reply.send({ items: this.getNavItems() });
+    });
+
+    server.get('/api/plugins', async (_req: FastifyRequest, reply: FastifyReply) => {
+      return reply.send({
+        plugins: this.getPluginsMeta(),
+        navItems: this.getNavItems(),
+      });
     });
   }
 

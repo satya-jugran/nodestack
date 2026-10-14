@@ -107,6 +107,17 @@
       if (typeof fetchDemoStatus === 'function') {
         fetchDemoStatus();
       }
+      if (typeof renderPluginNavItems === 'function') {
+        renderPluginNavItems();
+      }
+      if (!state.pluginNavItems || state.pluginNavItems.length === 0) {
+        fetch('/api/plugins').then(r => r.ok ? r.json() : null).then(data => {
+          if (data?.navItems && data.navItems.length > 0) {
+            state.pluginNavItems = data.navItems;
+            if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
+          }
+        }).catch(() => {});
+      }
       initRealtime();
       selectNav('home');
     }
