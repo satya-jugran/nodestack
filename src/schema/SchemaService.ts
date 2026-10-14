@@ -35,7 +35,8 @@ export class SchemaService {
     if (!cleanName || !/^[a-zA-Z0-9_]+$/.test(cleanName)) {
       throw new AppError('Collection name must only contain alphanumeric characters and underscores', 400);
     }
-    if (cleanName.startsWith('_')) {
+    const isSystem = Boolean(dto.system);
+    if (!isSystem && cleanName.startsWith('_')) {
       throw new AppError('Custom collection names cannot start with underscore (_)', 400);
     }
 
@@ -62,11 +63,12 @@ export class SchemaService {
       this.db.prepare(`
         INSERT INTO _collections (
           id, name, type, system, schema, indexes, listRule, viewRule, createRule, updateRule, deleteRule, options, created, updated
-        ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         cleanName,
         type,
+        isSystem ? 1 : 0,
         JSON.stringify(schema),
         JSON.stringify(indexes),
         dto.listRule !== undefined ? dto.listRule : null,
@@ -80,6 +82,39 @@ export class SchemaService {
       );
 
       return this.getCollectionOrThrow(id);
+    });
+  }
+
+  /**
+   * Register or idempotent ensure a system collection (used by plugins & system modules).
+   * Does not throw ConflictError if already created; syncs any newly declared fields.
+   */
+  public registerSystemCollection(dto: CreateCollectionDto): CollectionModel {
+    const cleanName = dto.name.trim().toLowerCase();
+    if (!cleanName || !/^[a-zA-Z0-9_]+$/.test(cleanName)) {
+      throw new AppError('Collection name must only contain alphanumeric characters and underscores', 400);
+    }
+
+    const existing = this.getCollection(cleanName);
+    if (existing) {
+      if (dto.schema && dto.schema.length > 0) {
+        return this.updateCollection(existing.id, {
+          schema: dto.schema,
+          indexes: dto.indexes,
+          options: dto.options,
+        });
+      }
+      return existing;
+    }
+
+    return this.createCollection({
+      listRule: '',
+      viewRule: '',
+      createRule: '',
+      updateRule: '',
+      deleteRule: '',
+      ...dto,
+      system: true,
     });
   }
 

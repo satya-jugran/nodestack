@@ -1,0 +1,39 @@
+{
+  "name": "@nodestackapp/plugin-s3",
+  "version": "1.1.0",
+  "description": "Official S3 cloud storage plugin alias for NodeStack",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "nodestack": "^1.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/satya-jugran/nodebase.git",
+    "directory": "packages/plugins/s3"
+  },
+  "keywords": [
+    "nodestack",
+    "plugin",
+    "s3",
+    "storage",
+    "cloud-storage"
+  ],
+  "author": "",
+  "license": "MIT"
+}

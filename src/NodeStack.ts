@@ -35,6 +35,8 @@ import { TemplateController } from './http/controllers/TemplateController';
 import { DemoService } from './demo/DemoService';
 import { DemoController } from './http/controllers/DemoController';
 import { MaintenanceGate } from './core/maintenance/MaintenanceGate';
+import { PluginManager } from './core/plugins/PluginManager';
+import { INodeStackPlugin, NodeStackPlugin } from './core/plugins/types';
 import {
   HookHandler,
   RecordBeforeEventContext,
@@ -70,7 +72,7 @@ export class NodeStack {
   public readonly adminUi: AdminUIService;
   public readonly chaos: ChaosMiddleware;
   public readonly server: HttpServer;
-
+  public readonly pluginManager: PluginManager;
 
   constructor(options: NodeStackOptions = {}) {
     this.container = new Container();
@@ -225,6 +227,27 @@ export class NodeStack {
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
 
+    // 19. Plugin Manager
+    this.pluginManager = new PluginManager(this, this.container);
+    this.container.bindInstance(TOKENS.PluginRegistry, this.pluginManager);
+  }
+
+  // --- Formal Plugin Architecture (app.use) ---
+  public use(plugin: NodeStackPlugin): this {
+    this.pluginManager.use(plugin);
+    return this;
+  }
+
+  public async initPlugins(): Promise<void> {
+    await this.pluginManager.ensureInitialized();
+  }
+
+  public hasPlugin(name: string): boolean {
+    return this.pluginManager.hasPlugin(name);
+  }
+
+  public getPlugin<T extends INodeStackPlugin = INodeStackPlugin>(name: string): T | undefined {
+    return this.pluginManager.getPlugin<T>(name);
   }
 
   // --- Type & OpenAPI Generation ---
@@ -328,6 +351,9 @@ export class NodeStack {
 
   // --- Start & Stop Application ---
   public async start(port = this.config.port, host = this.config.host): Promise<string> {
+    // 1. Ensure all plugins have completed asynchronous initialization
+    await this.pluginManager.ensureInitialized();
+
     const serveContext: ServeEventContext = {
       server: this.server.app,
       port,
@@ -346,6 +372,7 @@ export class NodeStack {
   }
 
   public async stop(): Promise<void> {
+    await this.pluginManager.dispose();
     this.realtime.dispose();
     await this.server.close();
     this.db.close();

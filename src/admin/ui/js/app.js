@@ -5,6 +5,12 @@
       for (const id of navIds) {
         document.getElementById(id)?.classList.remove('active');
       }
+      if (state.pluginNavItems && Array.isArray(state.pluginNavItems)) {
+        for (const item of state.pluginNavItems) {
+          document.getElementById('nav-' + item.id)?.classList.remove('active');
+        }
+      }
+      document.querySelectorAll('.sidebar-nav-item.active').forEach(el => el.classList.remove('active'));
     }
 
     async function selectNav(nav) {
@@ -68,9 +74,121 @@
         document.getElementById('view-title').textContent = 'System & Settings';
         document.getElementById('view-actions').innerHTML = '';
         renderSettingsView();
+      } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === nav)) {
+        const pluginItem = state.pluginNavItems.find(p => p.id === nav);
+        renderPluginView(pluginItem);
       }
 
       updateBreadcrumbs();
+    }
+
+    function renderPluginNavItems() {
+      const group = document.getElementById('sidebar-plugins-group');
+      const container = document.getElementById('sidebar-plugin-items');
+      if (!group || !container) return;
+
+      const items = state.pluginNavItems || [];
+      if (items.length === 0) {
+        group.style.display = 'none';
+        return;
+      }
+
+      group.style.display = 'flex';
+      container.innerHTML = items.map(item => {
+        const isActive = state.activeNav === item.id;
+        const iconHtml = item.icon || `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`;
+        const badgeClass = item.badgeVariant ? 'badge-' + item.badgeVariant : 'badge-get';
+        const badgeHtml = item.badge ? `<span class="badge ${badgeClass}" style="margin-left:auto; font-size:10px; padding:1px 5px;">${escapeHtml(item.badge)}</span>` : '';
+
+        if (item.path && (item.target === '_blank' || item.path.startsWith('http'))) {
+          return `
+            <a href="${escapeHtml(item.path)}" target="${item.target || '_blank'}" class="sidebar-nav-item" id="nav-${escapeHtml(item.id)}" style="text-decoration:none; color:inherit;">
+              ${iconHtml}
+              <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">${escapeHtml(item.title)}</span>
+              ${badgeHtml || '<span style="margin-left:auto; font-size:11px; opacity:0.6;">↗</span>'}
+            </a>
+          `;
+        }
+
+        return `
+          <div class="sidebar-nav-item ${isActive ? 'active' : ''}" id="nav-${escapeHtml(item.id)}" onclick="selectNav('${escapeHtml(item.id)}')">
+            ${iconHtml}
+            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">${escapeHtml(item.title)}</span>
+            ${badgeHtml}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderPluginView(item) {
+      document.getElementById('view-title').textContent = item.title;
+      document.getElementById('view-title').style.display = 'inline-block';
+      const badgeEl = document.getElementById('view-badge');
+      if (item.badge) {
+        badgeEl.textContent = item.badge;
+        badgeEl.className = 'badge ' + (item.badgeVariant ? 'badge-' + item.badgeVariant : 'badge-get');
+        badgeEl.style.display = 'inline-block';
+      } else {
+        badgeEl.style.display = 'none';
+      }
+
+      document.getElementById('view-actions').innerHTML = `
+        <button class="btn btn-secondary btn-sm" onclick="selectNav('home')">← Overview</button>
+      `;
+
+      const main = document.getElementById('main-body');
+      if (!main) return;
+
+      if (typeof item.view === 'string') {
+        main.innerHTML = item.view;
+        return;
+      }
+
+      if (item.view && typeof item.view === 'object' && item.view.html) {
+        main.innerHTML = item.view.html;
+        return;
+      }
+
+      const title = (item.view && typeof item.view === 'object' && item.view.title) ? item.view.title : item.title;
+      const desc = (item.view && typeof item.view === 'object' && item.view.description) ? item.view.description : 'Configured via NodeStack formal plugin architecture.';
+
+      main.innerHTML = `
+        <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
+          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+              <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <div style="width: 40px; height: 40px; border-radius: 10px; background: #0c0e14; border: 1px solid rgba(59, 130, 246, 0.4); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                  <span style="font-size: 20px;">🧩</span>
+                </div>
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-weight: 800; font-size: 16px; color: #fff;">${escapeHtml(title)}</span>
+                    ${item.badge ? `<span class="badge ${item.badgeVariant ? 'badge-' + item.badgeVariant : 'badge-get'}">${escapeHtml(item.badge)}</span>` : ''}
+                  </div>
+                  <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                    ${escapeHtml(desc)}
+                  </div>
+                </div>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="selectNav('home')">Back to Overview</button>
+            </div>
+            
+            <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1rem;">
+              <div style="font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.05em;">Plugin Status & Integration</div>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
+                <div style="background: rgba(0,0,0,0.2); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                  <div style="font-size: 11px; color: var(--text-muted);">Plugin ID</div>
+                  <div style="font-size: 13px; font-weight: 600; color: #60a5fa; font-family: monospace;">${escapeHtml(item.id)}</div>
+                </div>
+                <div style="background: rgba(0,0,0,0.2); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                  <div style="font-size: 11px; color: var(--text-muted);">Lifecycle State</div>
+                  <div style="font-size: 13px; font-weight: 600; color: #34d399;">Active & Mounted</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
     }
 
     async function loadCollections() {
@@ -78,6 +196,7 @@
         const res = await api('/api/collections');
         state.collections = res.items || [];
         renderCollectionsList();
+        renderPluginNavItems();
       } catch (e) {
         toast(e.message, 'error');
       }
@@ -308,6 +427,10 @@
         crumbs.push({ label: 'Traffic & Logs', active: true });
       } else if (state.activeNav === 'settings') {
         crumbs.push({ label: 'System & Settings', active: true });
+      } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === state.activeNav)) {
+        const item = state.pluginNavItems.find(p => p.id === state.activeNav);
+        crumbs.push({ label: 'Plugins', clickable: true, action: () => selectNav('home') });
+        crumbs.push({ label: item.title, active: true });
       }
 
       trail.innerHTML = crumbs.map((crumb, idx) => {
@@ -447,6 +570,22 @@
         keywords: ['settings', 'system', 'config', 'configuration'],
         action: () => selectNav('settings')
       });
+
+      // 2.5 Plugin navigation items
+      if (state.pluginNavItems && state.pluginNavItems.length > 0) {
+        for (const p of state.pluginNavItems) {
+          items.push({
+            id: 'plugin-' + p.id,
+            title: p.title,
+            description: (p.view && typeof p.view === 'object' && p.view.description) ? p.view.description : `Plugin extension: ${p.title}`,
+            category: 'Plugins',
+            badge: p.badge || 'PLUGIN',
+            icon: '🧩',
+            keywords: [p.id, p.title.toLowerCase(), 'plugin', 'extension'],
+            action: () => selectNav(p.id)
+          });
+        }
+      }
 
       // 3. Actions: Export
       if (state.activeCollection) {
@@ -881,6 +1020,8 @@
       window.handleCommandPaletteInput = handleCommandPaletteInput;
       window.handleCommandPaletteKeyDown = handleCommandPaletteKeyDown;
       window.setCommandPaletteActiveIndex = setCommandPaletteActiveIndex;
+      window.renderPluginNavItems = renderPluginNavItems;
+      window.renderPluginView = renderPluginView;
     }
 
 // Run on startup

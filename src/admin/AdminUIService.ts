@@ -2,11 +2,14 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AdminUIBundler } from './AdminUIBundler';
+import { AdminNavItem, PluginMetadata } from '../core/plugins/types';
 
 export class AdminUIService {
   private adminHtml: string;
   private iconSvg: string;
   private uiDir: string;
+  private navItems: AdminNavItem[] = [];
+  private plugins: PluginMetadata[] = [];
 
   constructor() {
     this.uiDir = path.join(__dirname, 'ui');
@@ -33,12 +36,51 @@ export class AdminUIService {
     }
   }
 
+  public registerNavItem(item: AdminNavItem): void {
+    const idx = this.navItems.findIndex((i) => i.id === item.id);
+    if (idx >= 0) {
+      this.navItems[idx] = item;
+    } else {
+      this.navItems.push(item);
+    }
+  }
+
+  public getNavItems(): AdminNavItem[] {
+    return [...this.navItems];
+  }
+
+  public registerPluginMeta(meta: PluginMetadata): void {
+    if (!this.plugins.some((p) => p.name === meta.name)) {
+      this.plugins.push(meta);
+    }
+  }
+
+  public getPluginsMeta(): PluginMetadata[] {
+    return [...this.plugins];
+  }
+
   public getHtml(): string {
+    let baseHtml: string;
     if (process.env.NODE_ENV !== 'production') {
       const live = AdminUIBundler.bundle(this.uiDir);
-      if (live) return live;
+      baseHtml = live || this.adminHtml;
+    } else {
+      baseHtml = this.adminHtml;
     }
-    return this.adminHtml;
+
+    if (this.navItems.length > 0 || this.plugins.length > 0) {
+      const injection = `
+  <script>
+    window.__NODESTACK_PLUGINS__ = ${JSON.stringify(this.plugins)};
+    window.__NODESTACK_NAV_ITEMS__ = ${JSON.stringify(this.navItems)};
+  </script>`;
+      if (baseHtml.includes('</head>')) {
+        return baseHtml.replace('</head>', `${injection}\n</head>`);
+      }
+      return baseHtml + injection;
+    }
+
+    return baseHtml;
   }
 
   public registerRoutes(server: FastifyInstance): void {
@@ -76,6 +118,18 @@ export class AdminUIService {
 
     server.get('/_', async (_req: FastifyRequest, reply: FastifyReply) => {
       reply.redirect('/_/');
+    });
+
+    // Plugin & Admin UI Extensions API
+    server.get('/api/admin/nav-items', async (_req: FastifyRequest, reply: FastifyReply) => {
+      return reply.send({ items: this.getNavItems() });
+    });
+
+    server.get('/api/plugins', async (_req: FastifyRequest, reply: FastifyReply) => {
+      return reply.send({
+        plugins: this.getPluginsMeta(),
+        navItems: this.getNavItems(),
+      });
     });
   }
 

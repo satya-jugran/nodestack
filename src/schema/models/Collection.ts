@@ -23,6 +23,7 @@ export interface CreateCollectionDto {
   id?: string;
   name: string;
   type?: CollectionType;
+  system?: boolean;
   schema?: SchemaField[];
   indexes?: string[];
   listRule?: string | null;

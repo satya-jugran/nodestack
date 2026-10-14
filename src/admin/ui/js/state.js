@@ -28,6 +28,8 @@
         snapshot: null,
         liveStats: null,
       },
+      pluginNavItems: typeof window !== 'undefined' && Array.isArray(window.__NODESTACK_NAV_ITEMS__) ? window.__NODESTACK_NAV_ITEMS__ : [],
+      plugins: typeof window !== 'undefined' && Array.isArray(window.__NODESTACK_PLUGINS__) ? window.__NODESTACK_PLUGINS__ : [],
     };
     if (typeof window !== 'undefined') {
       window.state = state;

@@ -100,3 +100,9 @@ export {
   DemoResetResult,
 } from './demo/DemoService';
 export { DemoController } from './http/controllers/DemoController';
+
+// Formal Plugin Architecture (nodestack.use(plugin))
+export { PluginManager } from './core/plugins/PluginManager';
+export * from './core/plugins/types';
+export * from './plugins';
+
