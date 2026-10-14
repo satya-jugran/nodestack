@@ -157,6 +157,17 @@ export interface AlgoliaPluginOptions {
   collections: string[];
   collectionName?: string;
   authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
+  endpoint?: string;
+  fetch?: typeof fetch;
+  dryRun?: boolean;
+  autoProcessIntervalMs?: number;
+}
+
+export interface AlgoliaOperationResult {
+  success: boolean;
+  taskId?: number | string;
+  objectID?: string;
+  error?: string;
 }
 
 export declare class AlgoliaSyncService {
@@ -166,15 +177,21 @@ export declare class AlgoliaSyncService {
     collection: string;
     objectId: string;
     timestamp: string;
+    status: 'synced' | 'failed' | 'queued';
+    taskId?: string | number;
+    error?: string;
   }>;
   constructor(options: AlgoliaPluginOptions);
   getIndexName(collection: string): string;
-  recordSync(action: 'save' | 'delete', collection: string, objectId: string): {
-    action: 'delete' | 'save';
-    collection: string;
-    objectId: string;
-    timestamp: string;
-  };
+  getBaseUrl(): string;
+  getHeaders(): Record<string, string>;
+  request<T = any>(path: string, method?: string, body?: any): Promise<T>;
+  saveObject(indexName: string, objectId: string, record: Record<string, any>): Promise<AlgoliaOperationResult>;
+  deleteObject(indexName: string, objectId: string): Promise<AlgoliaOperationResult>;
+  batch(indexName: string, requests: Array<{ action: 'updateObject' | 'addObject' | 'deleteObject'; body?: any; objectID?: string }>): Promise<{ success: boolean; taskId?: any; processed: number; error?: string }>;
+  recordSync(action: 'save' | 'delete', collection: string, objectId: string, status?: 'synced' | 'failed' | 'queued', details?: { taskId?: string | number; error?: string }): any;
+  submitMutation(action: 'save' | 'delete', collection: string, objectId: string, record?: Record<string, any>): Promise<AlgoliaOperationResult>;
+  processQueue(app: any, limit?: number): Promise<{ processed: number; succeeded: number; failed: number }>;
 }
 
 export declare function algoliaPlugin(options: AlgoliaPluginOptions): INodeStackPlugin;

@@ -760,11 +760,29 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
         createRule: '',
       });
 
+      const capturedRequests: Array<{ url: string; method: string; headers: any; body: any }> = [];
+      const mockFetch = vi.fn().mockImplementation(async (url: string, init: any) => {
+        capturedRequests.push({
+          url,
+          method: init.method,
+          headers: init.headers,
+          body: init.body ? JSON.parse(init.body) : undefined,
+        });
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({ taskID: 98765, objectID: 'mock' }),
+          text: async () => '',
+        };
+      });
+
       app.use(
         algoliaPlugin({
           appId: 'ALGOLIA_APP_ID',
           apiKey: 'ALGOLIA_API_KEY',
           collections: ['products'],
+          fetch: mockFetch as any,
         })
       );
 
@@ -775,13 +793,25 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
         price: 129,
       });
 
+      // 1. Verify mutation hook called Algolia client with apiKey and payload
+      expect(capturedRequests.length).toBe(1);
+      expect(capturedRequests[0].url).toContain('ALGOLIA_APP_ID-dsn.algolia.net/1/indexes/nodestack_products');
+      expect(capturedRequests[0].method).toBe('PUT');
+      expect(capturedRequests[0].headers['X-Algolia-Application-Id']).toBe('ALGOLIA_APP_ID');
+      expect(capturedRequests[0].headers['X-Algolia-API-Key']).toBe('ALGOLIA_API_KEY');
+      expect(capturedRequests[0].body.name).toBe('Mechanical Keyboard RGB');
+      expect(capturedRequests[0].body.objectID).toBe(product.id);
+
+      // 2. Verify durable queue record created and marked synced
       const queue = await app.records.getList('_algolia_sync_queue');
       expect(queue.items.length).toBe(1);
       expect(queue.items[0].collection).toBe('products');
       expect(queue.items[0].objectId).toBe(product.id);
       expect(queue.items[0].operation).toBe('save');
+      expect(queue.items[0].status).toBe('synced');
+      expect(queue.items[0].taskId).toBe('98765');
 
-      // Verify unauthenticated reindex request is rejected with 403
+      // 3. Verify unauthenticated reindex request is rejected with 403
       const resUnauth = await app.server.inject({
         method: 'POST',
         url: '/api/algolia/reindex',
@@ -793,7 +823,7 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       await app.auth.createAdmin('admin@nodestack.io', 'Password123!');
       const { token: adminToken } = await app.auth.authenticateAdmin('admin@nodestack.io', 'Password123!');
 
-      // Test reindex endpoint with admin auth
+      // 4. Test reindex endpoint with admin auth - verifies batch submission to Algolia
       const resReindex = await app.server.inject({
         method: 'POST',
         url: '/api/algolia/reindex',
@@ -802,6 +832,24 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       });
       expect(resReindex.statusCode).toBe(200);
       expect(resReindex.json().recordsQueued).toBe(1);
+      expect(resReindex.json().recordsSynced).toBe(1);
+
+      // Verify Algolia batch endpoint was invoked
+      expect(capturedRequests.length).toBe(2);
+      expect(capturedRequests[1].url).toContain('ALGOLIA_APP_ID-dsn.algolia.net/1/indexes/nodestack_products/batch');
+      expect(capturedRequests[1].method).toBe('POST');
+      expect(capturedRequests[1].headers['X-Algolia-API-Key']).toBe('ALGOLIA_API_KEY');
+      expect(capturedRequests[1].body.requests[0].action).toBe('updateObject');
+      expect(capturedRequests[1].body.requests[0].body.name).toBe('Mechanical Keyboard RGB');
+
+      // 5. Test durable queue consumer / process-queue endpoint
+      const resProcess = await app.server.inject({
+        method: 'POST',
+        url: '/api/algolia/process-queue',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(resProcess.statusCode).toBe(200);
+      expect(resProcess.json().success).toBe(true);
     });
   });
 
