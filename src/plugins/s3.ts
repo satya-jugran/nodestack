@@ -19,17 +19,141 @@ export class S3StorageService {
 
   public getBucketEndpoint(): string {
     if (this.options.endpoint) {
-      return this.options.endpoint;
+      const endpoint = this.options.endpoint.replace(/\/+$/, '');
+      if (this.options.forcePathStyle) {
+        return `${endpoint}/${this.options.bucket}`;
+      }
+      try {
+        const u = new URL(endpoint);
+        return `${u.protocol}//${this.options.bucket}.${u.host}${u.pathname}`.replace(/\/+$/, '');
+      } catch {
+        return `${endpoint}/${this.options.bucket}`;
+      }
+    }
+    if (this.options.forcePathStyle) {
+      return `https://s3.${this.options.region}.amazonaws.com/${this.options.bucket}`;
     }
     return `https://${this.options.bucket}.s3.${this.options.region}.amazonaws.com`;
   }
 
-  public getPresignedUploadUrl(filename: string, mimeType?: string) {
+  public getPresignedUploadUrl(
+    filename: string,
+    mimeType?: string,
+    options?: {
+      expiresIn?: number;
+      method?: 'PUT' | 'GET';
+      key?: string;
+    }
+  ) {
     const ext = filename.includes('.') ? filename.substring(filename.lastIndexOf('.')) : '';
     const safeBase = filename.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
-    const key = `uploads/${Date.now()}_${safeBase}_${crypto.randomBytes(4).toString('hex')}${ext}`;
-    const baseEndpoint = this.getBucketEndpoint();
-    const uploadUrl = `${baseEndpoint}/${key}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=3600`;
+    const key =
+      options?.key ||
+      `uploads/${Date.now()}_${safeBase}_${crypto.randomBytes(4).toString('hex')}${ext}`;
+
+    const accessKeyId =
+      this.options.accessKeyId || process.env.AWS_ACCESS_KEY_ID || 'AKIAIOSFODNN7EXAMPLE';
+    const secretAccessKey =
+      this.options.secretAccessKey ||
+      process.env.AWS_SECRET_ACCESS_KEY ||
+      'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+    const region = this.options.region || 'us-east-1';
+    const expiresIn = options?.expiresIn || 3600;
+    const method = options?.method || 'PUT';
+
+    // Format ISO8601 basic timestamps for SigV4
+    const now = new Date();
+    const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+    const dateStamp = amzDate.substring(0, 8);
+
+    // Resolve host & canonical URI path based on endpoint and path-style
+    let protocol = 'https:';
+    let host = '';
+    let canonicalUri = '';
+
+    if (this.options.endpoint) {
+      const u = new URL(this.options.endpoint);
+      protocol = u.protocol;
+      const isPathStyle = this.options.forcePathStyle ?? true;
+
+      if (isPathStyle) {
+        host = u.host;
+        const basePath = u.pathname.replace(/\/+$/, '');
+        canonicalUri = `${basePath}/${encodeURIComponent(this.options.bucket)}/${key
+          .split('/')
+          .map(encodeURIComponent)
+          .join('/')}`;
+      } else {
+        host = `${this.options.bucket}.${u.host}`;
+        const basePath = u.pathname.replace(/\/+$/, '');
+        canonicalUri = `${basePath}/${key.split('/').map(encodeURIComponent).join('/')}`;
+      }
+    } else {
+      const isPathStyle = this.options.forcePathStyle ?? false;
+      if (isPathStyle) {
+        host = `s3.${region}.amazonaws.com`;
+        canonicalUri = `/${encodeURIComponent(this.options.bucket)}/${key
+          .split('/')
+          .map(encodeURIComponent)
+          .join('/')}`;
+      } else {
+        host = `${this.options.bucket}.s3.${region}.amazonaws.com`;
+        canonicalUri = `/${key.split('/').map(encodeURIComponent).join('/')}`;
+      }
+    }
+
+    if (!canonicalUri.startsWith('/')) {
+      canonicalUri = '/' + canonicalUri;
+    }
+
+    // Query parameters for SigV4 query-string authentication (sorted alphabetically)
+    const credentialScope = `${dateStamp}/${region}/s3/aws4_request`;
+    const queryParams: Record<string, string> = {
+      'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+      'X-Amz-Credential': `${accessKeyId}/${credentialScope}`,
+      'X-Amz-Date': amzDate,
+      'X-Amz-Expires': String(expiresIn),
+      'X-Amz-SignedHeaders': 'host',
+    };
+
+    const canonicalQueryString = Object.keys(queryParams)
+      .sort()
+      .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(queryParams[k])}`)
+      .join('&');
+
+    const canonicalHeaders = `host:${host}\n`;
+    const signedHeaders = 'host';
+    const payloadHash = 'UNSIGNED-PAYLOAD';
+
+    // Canonical request
+    const canonicalRequest = [
+      method,
+      canonicalUri,
+      canonicalQueryString,
+      canonicalHeaders,
+      signedHeaders,
+      payloadHash,
+    ].join('\n');
+
+    const hashedCanonicalRequest = crypto.createHash('sha256').update(canonicalRequest).digest('hex');
+
+    // String to sign
+    const stringToSign = [
+      'AWS4-HMAC-SHA256',
+      amzDate,
+      credentialScope,
+      hashedCanonicalRequest,
+    ].join('\n');
+
+    // SigV4 signing key calculation
+    const kDate = crypto.createHmac('sha256', 'AWS4' + secretAccessKey).update(dateStamp).digest();
+    const kRegion = crypto.createHmac('sha256', kDate).update(region).digest();
+    const kService = crypto.createHmac('sha256', kRegion).update('s3').digest();
+    const signingKey = crypto.createHmac('sha256', kService).update('aws4_request').digest();
+
+    const signature = crypto.createHmac('sha256', signingKey).update(stringToSign).digest('hex');
+
+    const uploadUrl = `${protocol}//${host}${canonicalUri}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
 
     return {
       key,
@@ -37,6 +161,7 @@ export class S3StorageService {
       bucket: this.options.bucket,
       region: this.options.region,
       mimeType: mimeType || 'application/octet-stream',
+      expiresIn,
     };
   }
 }
@@ -145,7 +270,10 @@ export function s3StoragePlugin(options: S3StoragePluginOptions): INodeStackPlug
           const filename = body.filename || `file_${Date.now()}.bin`;
           const mimeType = body.mimeType || 'application/octet-stream';
 
-          const presigned = s3Service.getPresignedUploadUrl(filename, mimeType);
+          const presigned = s3Service.getPresignedUploadUrl(filename, mimeType, {
+            expiresIn: body.expiresIn ? Number(body.expiresIn) : undefined,
+            key: body.key,
+          });
 
           // Record entry in system collection
           try {

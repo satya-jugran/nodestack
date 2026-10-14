@@ -9,6 +9,7 @@ import {
   AdminUIService,
   stripePlugin,
   s3StoragePlugin,
+  S3StorageService,
   resendPlugin,
   webhookPlugin,
   algoliaPlugin,
@@ -643,6 +644,39 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       const uploads = await app.records.getList('_s3_uploads');
       expect(uploads.items.length).toBe(1);
       expect(uploads.items[0].bucket).toBe('nodestack-assets-bucket');
+
+      // Verify SigV4 parameters in presigned upload URL
+      const parsedUrl = new URL(signData.uploadUrl);
+      expect(parsedUrl.searchParams.get('X-Amz-Algorithm')).toBe('AWS4-HMAC-SHA256');
+      expect(parsedUrl.searchParams.get('X-Amz-Credential')).toContain('/us-east-1/s3/aws4_request');
+      expect(parsedUrl.searchParams.get('X-Amz-Date')).toMatch(/^\d{8}T\d{6}Z$/);
+      expect(parsedUrl.searchParams.get('X-Amz-Expires')).toBe('3600');
+      expect(parsedUrl.searchParams.get('X-Amz-SignedHeaders')).toBe('host');
+      expect(parsedUrl.searchParams.get('X-Amz-Signature')).toMatch(/^[0-9a-f]{64}$/);
+
+      // Verify custom endpoint & forcePathStyle presigning (e.g. MinIO / LocalStack)
+      const customS3 = s3StoragePlugin({
+        bucket: 'minio-bucket',
+        region: 'us-east-1',
+        endpoint: 'http://localhost:9000',
+        accessKeyId: 'MINIO_ACCESS_KEY',
+        secretAccessKey: 'MINIO_SECRET_KEY',
+        forcePathStyle: true,
+      });
+      const customPresigned = (customS3 as any).register ? undefined : null;
+      const customService = new S3StorageService({
+        bucket: 'minio-bucket',
+        region: 'us-east-1',
+        endpoint: 'http://localhost:9000',
+        accessKeyId: 'MINIO_ACCESS_KEY',
+        secretAccessKey: 'MINIO_SECRET_KEY',
+        forcePathStyle: true,
+      });
+      const customSign = customService.getPresignedUploadUrl('test-doc.pdf', 'application/pdf');
+      expect(customSign.uploadUrl).toContain('http://localhost:9000/minio-bucket/uploads/');
+      const customParsed = new URL(customSign.uploadUrl);
+      expect(customParsed.searchParams.get('X-Amz-Credential')).toContain('MINIO_ACCESS_KEY');
+      expect(customParsed.searchParams.get('X-Amz-Signature')).toMatch(/^[0-9a-f]{64}$/);
     });
   });
 

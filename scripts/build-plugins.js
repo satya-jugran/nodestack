@@ -63,12 +63,21 @@ export declare class S3StorageService {
   readonly options: S3StoragePluginOptions;
   constructor(options: S3StoragePluginOptions);
   getBucketEndpoint(): string;
-  getPresignedUploadUrl(filename: string, mimeType?: string): {
+  getPresignedUploadUrl(
+    filename: string,
+    mimeType?: string,
+    options?: {
+      expiresIn?: number;
+      method?: 'PUT' | 'GET';
+      key?: string;
+    }
+  ): {
     key: string;
     uploadUrl: string;
     bucket: string;
     region: string;
     mimeType: string;
+    expiresIn: number;
   };
 }
 
