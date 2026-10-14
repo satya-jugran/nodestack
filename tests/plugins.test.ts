@@ -6,6 +6,7 @@ import {
   INodeStackPlugin,
   NodeStackPluginContext,
   TOKENS,
+  AdminUIService,
   stripePlugin,
   s3StoragePlugin,
   resendPlugin,
@@ -795,6 +796,34 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       } finally {
         dom.window.close();
       }
+    });
+
+    it('should safely serialize plugin data and prevent </script> tag breakouts and XSS in getHtml()', () => {
+      const adminUi = new AdminUIService();
+      adminUi.registerPluginMeta({
+        name: 'malicious-plugin',
+        description: '</script><script>alert("xss")</script>',
+      });
+      adminUi.registerNavItem({
+        id: 'exploit',
+        title: '<img src=x onerror=alert(1)> & "quotes"',
+      });
+
+      const html = adminUi.getHtml();
+      // Ensure raw </script> is never present inside the injected JSON payload
+      expect(html).not.toContain('</script><script>alert("xss")</script>');
+      expect(html).toContain('\\u003c/script\\u003e\\u003cscript\\u003ealert(\\"xss\\")\\u003c/script\\u003e');
+      expect(html).toContain('\\u0026');
+
+      // Test serializeForScript helper directly
+      const serialized = AdminUIService.serializeForScript({
+        desc: '</script><script>alert(1)</script>',
+        icon: '<svg>&</svg>',
+      });
+      expect(serialized).not.toContain('</script>');
+      expect(serialized).not.toContain('<svg>');
+      expect(serialized).toContain('\\u003c/script\\u003e');
+      expect(serialized).toContain('\\u0026');
     });
   });
 });
