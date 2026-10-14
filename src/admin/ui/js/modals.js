@@ -332,13 +332,13 @@
             if (el.value) {
               const parsedDate = new Date(el.value);
               formData.append(f.name, !isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : el.value);
+            } else {
+              formData.append(f.name, '');
             }
           } else if (f.type === 'number') {
-            if (el.value !== '') formData.append(f.name, el.value);
+            formData.append(f.name, el.value);
           } else if (f.type === 'json') {
-            if (el.value.trim() !== '') {
-              formData.append(f.name, el.value.trim());
-            }
+            formData.append(f.name, el.value.trim());
           } else {
             formData.append(f.name, el.value);
           }
@@ -507,13 +507,13 @@
             if (el.value) {
               const parsedDate = new Date(el.value);
               formData.append(f.name, !isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : el.value);
+            } else {
+              formData.append(f.name, '');
             }
           } else if (f.type === 'number') {
-            if (el.value !== '') formData.append(f.name, el.value);
+            formData.append(f.name, el.value);
           } else if (f.type === 'json') {
-            if (el.value.trim() !== '') {
-              formData.append(f.name, el.value.trim());
-            }
+            formData.append(f.name, el.value.trim());
           } else {
             formData.append(f.name, el.value);
           }

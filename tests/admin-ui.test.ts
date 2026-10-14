@@ -1090,6 +1090,157 @@ describe('Form & Modal Micro-Interactions (modals.js)', () => {
         })
       );
     });
+
+    it('should append empty string for cleared date, json, and number fields when editing record with a file', async () => {
+      const fileTestCollection = {
+        name: 'documents',
+        type: 'base',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text' },
+          { id: 'f_attachment', name: 'attachment', type: 'file' },
+          { id: 'f_published', name: 'published', type: 'bool' },
+          { id: 'f_metadata', name: 'metadata', type: 'json' },
+          { id: 'f_published_at', name: 'published_at', type: 'date' },
+          { id: 'f_view_count', name: 'view_count', type: 'number' },
+        ],
+      };
+      const fileTestRecords = [
+        {
+          id: 'doc_01',
+          title: 'Original Doc',
+          attachment: 'doc_01.pdf',
+          published: true,
+          metadata: { key: 'val' },
+          published_at: '2026-10-14T12:00:00.000Z',
+          view_count: 42,
+          created: '2026-01-01T10:00:00.000Z',
+          updated: '2026-01-01T10:00:00.000Z',
+        },
+      ];
+
+      const { win, doc } = createModalTestDOM();
+      win.state.activeCollection = fileTestCollection;
+      win.state.records = [...fileTestRecords];
+
+      win.editRecord('doc_01');
+
+      // Provide a new file to trigger multipart/form-data
+      const fileInput = doc.getElementById('field-edit-attachment') as HTMLInputElement;
+      const fakeFile = new win.File(['sample'], 'sample.pdf', { type: 'application/pdf' });
+      Object.defineProperty(fileInput, 'files', { value: [fakeFile], writable: true });
+
+      // Clear date, json, and number
+      const dateInput = doc.getElementById('field-edit-published_at') as HTMLInputElement;
+      dateInput.value = '';
+
+      const jsonInput = doc.getElementById('field-edit-metadata') as HTMLTextAreaElement;
+      jsonInput.value = '   ';
+
+      const numInput = doc.getElementById('field-edit-view_count') as HTMLInputElement;
+      numInput.value = '';
+
+      win.api.mockClear();
+      await win.submitEditRecord('doc_01');
+
+      expect(win.api).toHaveBeenCalledWith(
+        '/api/collections/documents/records/doc_01',
+        expect.objectContaining({
+          method: 'PATCH',
+        })
+      );
+
+      const callArgs = win.api.mock.calls[0];
+      const formData = callArgs[1].body;
+      expect(formData).toBeDefined();
+      expect(formData.get('published_at')).toBe('');
+      expect(formData.get('metadata')).toBe('');
+      expect(formData.get('view_count')).toBe('');
+      expect(formData.get('attachment')).toBeTruthy();
+      expect((formData.get('attachment') as any).name).toBe('sample.pdf');
+    });
+
+    it('should convert non-empty date to ISO string and trim non-empty JSON in multipart edit', async () => {
+      const fileTestCollection = {
+        name: 'documents',
+        type: 'base',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text' },
+          { id: 'f_attachment', name: 'attachment', type: 'file' },
+          { id: 'f_published_at', name: 'published_at', type: 'date' },
+          { id: 'f_metadata', name: 'metadata', type: 'json' },
+        ],
+      };
+      const fileTestRecords = [
+        {
+          id: 'doc_01',
+          title: 'Original Doc',
+          attachment: 'doc_01.pdf',
+          published_at: '2026-10-14T12:00:00.000Z',
+          metadata: { key: 'val' },
+          created: '2026-01-01T10:00:00.000Z',
+          updated: '2026-01-01T10:00:00.000Z',
+        },
+      ];
+
+      const { win, doc } = createModalTestDOM();
+      win.state.activeCollection = fileTestCollection;
+      win.state.records = [...fileTestRecords];
+
+      win.editRecord('doc_01');
+
+      const fileInput = doc.getElementById('field-edit-attachment') as HTMLInputElement;
+      const fakeFile = new win.Blob(['sample'], { type: 'application/pdf' });
+      Object.defineProperty(fileInput, 'files', { value: [fakeFile], writable: true });
+
+      const dateInput = doc.getElementById('field-edit-published_at') as HTMLInputElement;
+      dateInput.value = '2026-11-20T09:45';
+
+      const jsonInput = doc.getElementById('field-edit-metadata') as HTMLTextAreaElement;
+      jsonInput.value = '  {"valid": true}  ';
+
+      win.api.mockClear();
+      await win.submitEditRecord('doc_01');
+
+      const callArgs = win.api.mock.calls[0];
+      const formData = callArgs[1].body;
+      expect(formData.get('published_at')).toBe(new Date('2026-11-20T09:45').toISOString());
+      expect(formData.get('metadata')).toBe('{"valid": true}');
+    });
+
+    it('should append empty string for empty date, json, and number in multipart create', async () => {
+      const fileTestCollection = {
+        name: 'documents',
+        type: 'base',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text' },
+          { id: 'f_attachment', name: 'attachment', type: 'file' },
+          { id: 'f_metadata', name: 'metadata', type: 'json' },
+          { id: 'f_published_at', name: 'published_at', type: 'date' },
+          { id: 'f_view_count', name: 'view_count', type: 'number' },
+        ],
+      };
+
+      const { win, doc } = createModalTestDOM();
+      win.state.activeCollection = fileTestCollection;
+
+      win.openNewRecordModal();
+
+      const fileInput = doc.getElementById('field-attachment') as HTMLInputElement;
+      const fakeFile = new win.Blob(['sample'], { type: 'application/pdf' });
+      Object.defineProperty(fileInput, 'files', { value: [fakeFile], writable: true });
+
+      const titleInput = doc.getElementById('field-title') as HTMLInputElement;
+      titleInput.value = 'New Document';
+
+      win.api.mockClear();
+      await win.submitNewRecord();
+
+      const callArgs = win.api.mock.calls[0];
+      const formData = callArgs[1].body;
+      expect(formData.get('published_at')).toBe('');
+      expect(formData.get('metadata')).toBe('');
+      expect(formData.get('view_count')).toBe('');
+    });
   });
 
   describe('Keyboard Ergonomics', () => {
