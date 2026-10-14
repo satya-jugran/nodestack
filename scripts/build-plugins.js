@@ -46,6 +46,17 @@ export declare class StripeService {
     cancelUrl?: string;
     productName?: string;
   }): Promise<StripeCheckoutSessionResult>;
+  verifyWebhookSignature(
+    rawBody: string | Buffer,
+    signatureHeader: string,
+    secret?: string,
+    toleranceSeconds?: number
+  ): boolean;
+  generateWebhookSignature(
+    rawBody: string | Buffer,
+    secret?: string,
+    timestamp?: number
+  ): string;
 }
 
 export declare function stripePlugin(options: StripePluginOptions): INodeStackPlugin;

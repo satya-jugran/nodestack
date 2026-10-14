@@ -669,6 +669,94 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(payments.items.length).toBe(1);
       expect(payments.items[0].amount).toBe(4900);
       expect(payments.items[0].status).toBe('succeeded');
+
+      // 4. Verify webhookSecret signature enforcement:
+      // Configure Stripe plugin with a webhookSecret
+      const securedApp = new NodeStack({ dataDir: path.resolve(testDataDir, 'secured_stripe'), port: 8125 });
+      const webhookSecret = 'whsec_test_secret_for_signature_verification_123';
+      const securedStripePlugin = stripePlugin({
+        secretKey: 'sk_test_mock_1234567890abcdef',
+        webhookSecret,
+        fetch: mockStripeFetch as any,
+      });
+      securedApp.use(securedStripePlugin);
+
+      const securedStripeService = new StripeService({
+        secretKey: 'sk_test_mock_1234567890abcdef',
+        webhookSecret,
+      });
+
+      let securedWebhookReceived = false;
+      securedApp.eventBus.on('stripe:webhook', () => {
+        securedWebhookReceived = true;
+      });
+
+      const webhookPayloadObj = {
+        type: 'payment_intent.succeeded',
+        data: {
+          object: {
+            id: 'pi_test_forged_attempt',
+            amount: 7500,
+            currency: 'usd',
+            customer: 'cus_forged',
+          },
+        },
+      };
+      const rawPayload = JSON.stringify(webhookPayloadObj);
+
+      // (a) Missing signature header -> 400
+      const resMissingSig = await securedApp.server.inject({
+        method: 'POST',
+        url: '/api/stripe/webhook',
+        headers: { 'content-type': 'application/json' },
+        payload: rawPayload,
+      });
+      expect(resMissingSig.statusCode).toBe(400);
+      expect(resMissingSig.json().message).toContain('Missing stripe-signature header');
+      expect(securedWebhookReceived).toBe(false);
+
+      // (b) Invalid signature -> 400
+      const resBadSig = await securedApp.server.inject({
+        method: 'POST',
+        url: '/api/stripe/webhook',
+        headers: {
+          'content-type': 'application/json',
+          'stripe-signature': `t=${Math.floor(Date.now() / 1000)},v1=bad_forged_hex_signature_abcdef`,
+        },
+        payload: rawPayload,
+      });
+      expect(resBadSig.statusCode).toBe(400);
+      expect(resBadSig.json().message).toContain('Invalid stripe webhook signature');
+      expect(securedWebhookReceived).toBe(false);
+
+      // Verify forged payment was NOT recorded
+      const forgedPayments = await securedApp.records.getList('_stripe_payments', {
+        filter: 'paymentIntentId = "pi_test_forged_attempt"',
+      });
+      expect(forgedPayments.items.length).toBe(0);
+
+      // (c) Valid signature -> 200 & recorded
+      const validSignature = securedStripeService.generateWebhookSignature(rawPayload, webhookSecret);
+      const resValidSig = await securedApp.server.inject({
+        method: 'POST',
+        url: '/api/stripe/webhook',
+        headers: {
+          'content-type': 'application/json',
+          'stripe-signature': validSignature,
+        },
+        payload: rawPayload,
+      });
+      expect(resValidSig.statusCode).toBe(200);
+      expect(resValidSig.json()).toEqual({ received: true, event: 'payment_intent.succeeded' });
+      expect(securedWebhookReceived).toBe(true);
+
+      const verifiedPayments = await securedApp.records.getList('_stripe_payments', {
+        filter: 'paymentIntentId = "pi_test_forged_attempt"',
+      });
+      expect(verifiedPayments.items.length).toBe(1);
+      expect(verifiedPayments.items[0].amount).toBe(7500);
+
+      await securedApp.stop();
     });
   });
 

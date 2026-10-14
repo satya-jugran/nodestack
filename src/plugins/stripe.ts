@@ -125,6 +125,90 @@ export class StripeService {
       livemode: Boolean(data.livemode),
     };
   }
+
+  public verifyWebhookSignature(
+    rawBody: string | Buffer,
+    signatureHeader: string,
+    secret?: string,
+    toleranceSeconds: number = 300
+  ): boolean {
+    const webhookSecret = secret || this.options.webhookSecret;
+    if (!webhookSecret || !signatureHeader) {
+      return false;
+    }
+
+    const parts = signatureHeader.split(',');
+    let timestamp: number | null = null;
+    const signatures: string[] = [];
+
+    for (const part of parts) {
+      const idx = part.indexOf('=');
+      if (idx === -1) continue;
+      const key = part.slice(0, idx).trim();
+      const val = part.slice(idx + 1).trim();
+
+      if (key === 't') {
+        timestamp = parseInt(val, 10);
+      } else if (key === 'v1' && val) {
+        signatures.push(val);
+      }
+    }
+
+    if (!timestamp || signatures.length === 0 || isNaN(timestamp)) {
+      return false;
+    }
+
+    if (toleranceSeconds > 0) {
+      const now = Math.floor(Date.now() / 1000);
+      if (Math.abs(now - timestamp) > toleranceSeconds) {
+        return false;
+      }
+    }
+
+    const bodyStr = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
+    const signedPayload = `${timestamp}.${bodyStr}`;
+
+    const expectedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(signedPayload, 'utf8')
+      .digest('hex');
+
+    const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+
+    for (const sig of signatures) {
+      const sigBuffer = Buffer.from(sig, 'utf8');
+      if (
+        sigBuffer.length === expectedBuffer.length &&
+        crypto.timingSafeEqual(sigBuffer, expectedBuffer)
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  public generateWebhookSignature(
+    rawBody: string | Buffer,
+    secret?: string,
+    timestamp?: number
+  ): string {
+    const webhookSecret = secret || this.options.webhookSecret;
+    if (!webhookSecret) {
+      throw new Error('[StripeService] webhookSecret is required to generate a signature');
+    }
+
+    const t = timestamp || Math.floor(Date.now() / 1000);
+    const bodyStr = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
+    const signedPayload = `${t}.${bodyStr}`;
+
+    const signature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(signedPayload, 'utf8')
+      .digest('hex');
+
+    return `t=${t},v1=${signature}`;
+  }
 }
 
 export function stripePlugin(options: StripePluginOptions): INodeStackPlugin {
@@ -260,32 +344,71 @@ export function stripePlugin(options: StripePluginOptions): INodeStackPlugin {
         }
       });
 
-      ctx.registerRoute('POST', '/api/stripe/webhook', async (req: FastifyRequest, reply: FastifyReply) => {
-        const payload = (req.body as any) || {};
-        const eventType = payload.type || 'payment_intent.succeeded';
-        const dataObject = payload.data?.object || payload;
-
-        // Auto-record payment if payment_intent
-        if (eventType === 'payment_intent.succeeded' || eventType === 'checkout.session.completed') {
-          const piId = dataObject.id || `pi_${crypto.randomBytes(8).toString('hex')}`;
-          try {
-            await ctx.app.records.create(paymentsCol, {
-              paymentIntentId: piId,
-              customerId: dataObject.customer || '',
-              amount: dataObject.amount || 0,
-              currency: dataObject.currency || options.currency || 'usd',
-              status: 'succeeded',
-            });
-          } catch (e: any) {
-            // Already recorded or validation notice
-          }
+      const captureRawBody = async (req: any, _reply: any, payload: any) => {
+        let data = '';
+        for await (const chunk of payload) {
+          data += chunk;
         }
+        req.rawBody = data;
+        const { Readable } = await import('stream');
+        return Readable.from([data]);
+      };
 
-        // Trigger custom EventBus event for developers to subscribe
-        await ctx.eventBus.emit('stripe:webhook', { type: eventType, data: dataObject });
+      ctx.registerRoute(
+        'POST',
+        '/api/stripe/webhook',
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const webhookSecret = options.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET;
 
-        return reply.send({ received: true, event: eventType });
-      });
+          if (webhookSecret) {
+            const sigHeader = (req.headers['stripe-signature'] as string) || '';
+            if (!sigHeader) {
+              return reply.status(400).send({
+                statusCode: 400,
+                message: 'Missing stripe-signature header',
+              });
+            }
+
+            const rawBody =
+              (req as any).rawBody ||
+              (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
+
+            const isValid = stripeService.verifyWebhookSignature(rawBody, sigHeader, webhookSecret);
+            if (!isValid) {
+              return reply.status(400).send({
+                statusCode: 400,
+                message: 'Invalid stripe webhook signature',
+              });
+            }
+          }
+
+          const payload = (req.body as any) || {};
+          const eventType = payload.type || 'payment_intent.succeeded';
+          const dataObject = payload.data?.object || payload;
+
+          // Auto-record payment if payment_intent
+          if (eventType === 'payment_intent.succeeded' || eventType === 'checkout.session.completed') {
+            const piId = dataObject.id || `pi_${crypto.randomBytes(8).toString('hex')}`;
+            try {
+              await ctx.app.records.create(paymentsCol, {
+                paymentIntentId: piId,
+                customerId: dataObject.customer || '',
+                amount: dataObject.amount || 0,
+                currency: dataObject.currency || options.currency || 'usd',
+                status: 'succeeded',
+              });
+            } catch (e: any) {
+              // Already recorded or validation notice
+            }
+          }
+
+          // Trigger custom EventBus event for developers to subscribe
+          await ctx.eventBus.emit('stripe:webhook', { type: eventType, data: dataObject });
+
+          return reply.send({ received: true, event: eventType });
+        },
+        { preParsing: captureRawBody }
+      );
     },
   };
 }
