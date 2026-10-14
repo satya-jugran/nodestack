@@ -82,6 +82,21 @@ describe('AdminUIBundler', () => {
     expect(bundled).toContain('function openCommandPalette');
     expect(bundled).toContain('function toggleCommandPalette');
     expect(bundled).toContain('function filterCommandPaletteItems');
+
+    // Form & Modal Micro-Interactions enhancements
+    expect(bundled).toContain('function handleToggleChange');
+    expect(bundled).toContain('function validateJsonField');
+    expect(bundled).toContain('function formatJsonField');
+    expect(bundled).toContain('function formatForDatetimeLocal');
+    expect(bundled).toContain('function focusFirstModalField');
+    expect(bundled).toContain('function submitActiveModal');
+    expect(bundled).toContain('function handleModalKeyDown');
+    expect(bundled).toContain('toggle-switch');
+    expect(bundled).toContain('toggle-checkbox');
+    expect(bundled).toContain('toggle-slider');
+    expect(bundled).toContain('btn-format-json');
+    expect(bundled).toContain('json-syntax-error');
+    expect(bundled).toContain('input-invalid');
   });
 
   it('should return empty string if directory or index.html is missing', () => {
@@ -842,6 +857,524 @@ describe('Schema Designer & Visual Rules Builder (schema.js & rules.js)', () => 
       // List & View cards use read wording
       const listCard = doc.getElementById('rule-card-list');
       expect(listCard?.textContent).toContain('Anyone can read this without authentication (unrestricted).');
+    });
+  });
+});
+
+describe('Form & Modal Micro-Interactions (modals.js)', () => {
+  const testCollection = {
+    name: 'articles',
+    type: 'base',
+    schema: [
+      { id: 'f_title', name: 'title', type: 'text' },
+      { id: 'f_published', name: 'published', type: 'bool' },
+      { id: 'f_metadata', name: 'metadata', type: 'json' },
+      { id: 'f_published_at', name: 'published_at', type: 'date' },
+    ],
+  };
+
+  const testRecords = [
+    {
+      id: 'rec_01',
+      title: 'First Article',
+      published: true,
+      metadata: { priority: 1, tags: ['news'] },
+      published_at: '2026-10-14T12:00:00.000Z',
+      created: '2026-01-01T10:00:00.000Z',
+      updated: '2026-01-01T10:00:00.000Z',
+    },
+    {
+      id: 'rec_02',
+      title: 'Second Article',
+      published: false,
+      metadata: null,
+      published_at: null,
+      created: '2026-01-02T10:00:00.000Z',
+      updated: '2026-01-02T10:00:00.000Z',
+    },
+  ];
+
+  function createModalTestDOM() {
+    const uiDir = path.resolve(__dirname, '../src/admin/ui');
+    const bundledHtml = AdminUIBundler.bundle(uiDir);
+
+    const dom = new JSDOM(bundledHtml, {
+      url: 'http://localhost:8090/_/',
+      runScripts: 'dangerously',
+      beforeParse(window: any) {
+        window.fetch = vi.fn().mockImplementation(async () => ({
+          ok: true,
+          json: async () => ({ items: [], totalItems: 0 }),
+        }));
+      },
+    });
+
+    const win = dom.window as any;
+    const doc = win.document;
+
+    win.api = vi.fn().mockImplementation(async () => ({
+      items: [],
+      totalItems: 0,
+      totalPages: 1,
+    }));
+    win.toast = vi.fn();
+
+    win.state.activeCollection = testCollection;
+    win.state.records = [...testRecords];
+
+    return { dom, win, doc };
+  }
+
+  describe('Modern Form Controls — Booleans', () => {
+    it('should replace dropdown <select> with interactive iOS/macOS toggle switch in create modal', () => {
+      const { win, doc } = createModalTestDOM();
+      win.openNewRecordModal();
+
+      // <select> should NOT exist for boolean field
+      const selectEl = doc.getElementById('field-published');
+      expect(selectEl).not.toBeNull();
+      expect(selectEl?.tagName).toBe('INPUT');
+      expect(selectEl?.getAttribute('type')).toBe('checkbox');
+      expect(selectEl?.getAttribute('role')).toBe('switch');
+      expect(selectEl?.getAttribute('aria-checked')).toBe('false');
+
+      // Toggle switch slider & label
+      const switchWrapper = selectEl?.closest('.toggle-switch');
+      expect(switchWrapper).not.toBeNull();
+      const slider = switchWrapper?.querySelector('.toggle-slider');
+      expect(slider).not.toBeNull();
+      const label = doc.getElementById('field-published-label');
+      expect(label?.textContent).toBe('False');
+
+      // Interactive toggle: change updates state and label
+      (selectEl as HTMLInputElement).checked = true;
+      selectEl?.dispatchEvent(new win.Event('change'));
+      expect(selectEl?.getAttribute('aria-checked')).toBe('true');
+      expect(label?.textContent).toBe('True');
+    });
+
+    it('should render toggle switch with correct initial state in edit modal', () => {
+      const { win, doc } = createModalTestDOM();
+      // rec_01 has published: true
+      win.editRecord('rec_01');
+
+      const editInput = doc.getElementById('field-edit-published') as HTMLInputElement;
+      expect(editInput).not.toBeNull();
+      expect(editInput.type).toBe('checkbox');
+      expect(editInput.checked).toBe(true);
+      expect(editInput.getAttribute('aria-checked')).toBe('true');
+      const label = doc.getElementById('field-edit-published-label');
+      expect(label?.textContent).toBe('True');
+
+      // Toggle to false
+      editInput.checked = false;
+      editInput.dispatchEvent(new win.Event('change'));
+      expect(editInput.getAttribute('aria-checked')).toBe('false');
+      expect(label?.textContent).toBe('False');
+    });
+
+    it('should submit boolean values correctly from toggle switch', async () => {
+      const { win, doc } = createModalTestDOM();
+      win.openNewRecordModal();
+
+      const titleInput = doc.getElementById('field-title') as HTMLInputElement;
+      titleInput.value = 'New Article';
+
+      const toggle = doc.getElementById('field-published') as HTMLInputElement;
+      toggle.checked = true;
+      toggle.dispatchEvent(new win.Event('change'));
+
+      await win.submitNewRecord();
+
+      expect(win.api).toHaveBeenCalledWith(
+        '/api/collections/articles/records',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"published":true'),
+        })
+      );
+    });
+  });
+
+  describe('Modern Form Controls — JSON Editing', () => {
+    it('should provide Format / Prettify button and format valid JSON', () => {
+      const { win, doc } = createModalTestDOM();
+      win.openNewRecordModal();
+
+      const textarea = doc.getElementById('field-metadata') as HTMLTextAreaElement;
+      expect(textarea).not.toBeNull();
+
+      // Find Format / Prettify button
+      const formatBtn = textarea.closest('.json-field-container')?.querySelector('.btn-format-json') as HTMLButtonElement;
+      expect(formatBtn).not.toBeNull();
+      expect(formatBtn.textContent).toContain('Format / Prettify');
+
+      // Set minified JSON
+      textarea.value = '{"title":"Test","count":10,"items":[1,2,3]}';
+      formatBtn.click();
+
+      // Should be formatted with 2 spaces
+      const expected = JSON.stringify({ title: 'Test', count: 10, items: [1, 2, 3] }, null, 2);
+      expect(textarea.value).toBe(expected);
+      expect(textarea.classList.contains('input-invalid')).toBe(false);
+    });
+
+    it('should perform real-time syntax validation on invalid JSON and highlight with red border', () => {
+      const { win, doc } = createModalTestDOM();
+      win.openNewRecordModal();
+
+      const textarea = doc.getElementById('field-metadata') as HTMLTextAreaElement;
+      const errorEl = doc.getElementById('field-metadata-error') as HTMLElement;
+
+      // Type invalid JSON
+      textarea.value = '{"broken": json,}';
+      textarea.dispatchEvent(new win.Event('input'));
+
+      expect(textarea.classList.contains('input-invalid')).toBe(true);
+      expect(errorEl.style.display).not.toBe('none');
+      expect(errorEl.textContent).toContain('Invalid JSON');
+
+      // Fix syntax to valid JSON
+      textarea.value = '{"fixed": true}';
+      textarea.dispatchEvent(new win.Event('input'));
+
+      expect(textarea.classList.contains('input-invalid')).toBe(false);
+      expect(errorEl.style.display).toBe('none');
+    });
+
+    it('should block modal submission if JSON syntax is invalid', async () => {
+      const { win, doc } = createModalTestDOM();
+      win.openNewRecordModal();
+
+      const textarea = doc.getElementById('field-metadata') as HTMLTextAreaElement;
+      textarea.value = '{ invalid json syntax }';
+
+      win.api.mockClear();
+      await win.submitNewRecord();
+
+      // API should not be called due to pre-submission validation halt
+      expect(win.api).not.toHaveBeenCalled();
+      expect(textarea.classList.contains('input-invalid')).toBe(true);
+    });
+  });
+
+  describe('Modern Form Controls — Dates', () => {
+    it('should render <input type="datetime-local"> instead of generic text for date fields', () => {
+      const { win, doc } = createModalTestDOM();
+      win.openNewRecordModal();
+
+      const dateInput = doc.getElementById('field-published_at') as HTMLInputElement;
+      expect(dateInput).not.toBeNull();
+      expect(dateInput.type).toBe('datetime-local');
+      expect(dateInput.type).not.toBe('text');
+    });
+
+    it('should populate formatted datetime-local value in edit modal and submit as ISO date', async () => {
+      const { win, doc } = createModalTestDOM();
+      win.editRecord('rec_01');
+
+      const dateInput = doc.getElementById('field-edit-published_at') as HTMLInputElement;
+      expect(dateInput).not.toBeNull();
+      expect(dateInput.type).toBe('datetime-local');
+      expect(dateInput.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+
+      // Change datetime
+      dateInput.value = '2026-11-20T09:45';
+      await win.submitEditRecord('rec_01');
+
+      const expectedIso = new Date('2026-11-20T09:45').toISOString();
+      expect(win.api).toHaveBeenCalledWith(
+        '/api/collections/articles/records/rec_01',
+        expect.objectContaining({
+          method: 'PATCH',
+        })
+      );
+
+      const patchCall = win.api.mock.calls[0];
+      const payload = JSON.parse(patchCall[1].body);
+      expect(payload.published_at).toBe(expectedIso);
+      expect(payload.published_at).not.toBe('2026-11-20T09:45');
+      expect(payload.published_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    });
+
+    it('should convert datetime-local value to ISO date on create record submission', async () => {
+      const { win, doc } = createModalTestDOM();
+      win.openNewRecordModal();
+
+      const titleInput = doc.getElementById('field-title') as HTMLInputElement;
+      titleInput.value = 'New Article';
+
+      const dateInput = doc.getElementById('field-published_at') as HTMLInputElement;
+      dateInput.value = '2026-11-20T09:45';
+
+      win.api.mockClear();
+      await win.submitNewRecord();
+
+      const expectedIso = new Date('2026-11-20T09:45').toISOString();
+      const createCall = win.api.mock.calls[0];
+      const payload = JSON.parse(createCall[1].body);
+      expect(payload.published_at).toBe(expectedIso);
+      expect(payload.published_at).not.toBe('2026-11-20T09:45');
+      expect(payload.published_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    });
+
+    it('should append empty string for cleared date, json, and number fields when editing record with a file', async () => {
+      const fileTestCollection = {
+        name: 'documents',
+        type: 'base',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text' },
+          { id: 'f_attachment', name: 'attachment', type: 'file' },
+          { id: 'f_published', name: 'published', type: 'bool' },
+          { id: 'f_metadata', name: 'metadata', type: 'json' },
+          { id: 'f_published_at', name: 'published_at', type: 'date' },
+          { id: 'f_view_count', name: 'view_count', type: 'number' },
+        ],
+      };
+      const fileTestRecords = [
+        {
+          id: 'doc_01',
+          title: 'Original Doc',
+          attachment: 'doc_01.pdf',
+          published: true,
+          metadata: { key: 'val' },
+          published_at: '2026-10-14T12:00:00.000Z',
+          view_count: 42,
+          created: '2026-01-01T10:00:00.000Z',
+          updated: '2026-01-01T10:00:00.000Z',
+        },
+      ];
+
+      const { win, doc } = createModalTestDOM();
+      win.state.activeCollection = fileTestCollection;
+      win.state.records = [...fileTestRecords];
+
+      win.editRecord('doc_01');
+
+      // Provide a new file to trigger multipart/form-data
+      const fileInput = doc.getElementById('field-edit-attachment') as HTMLInputElement;
+      const fakeFile = new win.File(['sample'], 'sample.pdf', { type: 'application/pdf' });
+      Object.defineProperty(fileInput, 'files', { value: [fakeFile], writable: true });
+
+      // Clear date, json, and number
+      const dateInput = doc.getElementById('field-edit-published_at') as HTMLInputElement;
+      dateInput.value = '';
+
+      const jsonInput = doc.getElementById('field-edit-metadata') as HTMLTextAreaElement;
+      jsonInput.value = '   ';
+
+      const numInput = doc.getElementById('field-edit-view_count') as HTMLInputElement;
+      numInput.value = '';
+
+      win.api.mockClear();
+      await win.submitEditRecord('doc_01');
+
+      expect(win.api).toHaveBeenCalledWith(
+        '/api/collections/documents/records/doc_01',
+        expect.objectContaining({
+          method: 'PATCH',
+        })
+      );
+
+      const callArgs = win.api.mock.calls[0];
+      const formData = callArgs[1].body;
+      expect(formData).toBeDefined();
+      expect(formData.get('published_at')).toBe('');
+      expect(formData.get('metadata')).toBe('');
+      expect(formData.get('view_count')).toBe('');
+      expect(formData.get('attachment')).toBeTruthy();
+      expect((formData.get('attachment') as any).name).toBe('sample.pdf');
+    });
+
+    it('should convert non-empty date to ISO string and trim non-empty JSON in multipart edit', async () => {
+      const fileTestCollection = {
+        name: 'documents',
+        type: 'base',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text' },
+          { id: 'f_attachment', name: 'attachment', type: 'file' },
+          { id: 'f_published_at', name: 'published_at', type: 'date' },
+          { id: 'f_metadata', name: 'metadata', type: 'json' },
+        ],
+      };
+      const fileTestRecords = [
+        {
+          id: 'doc_01',
+          title: 'Original Doc',
+          attachment: 'doc_01.pdf',
+          published_at: '2026-10-14T12:00:00.000Z',
+          metadata: { key: 'val' },
+          created: '2026-01-01T10:00:00.000Z',
+          updated: '2026-01-01T10:00:00.000Z',
+        },
+      ];
+
+      const { win, doc } = createModalTestDOM();
+      win.state.activeCollection = fileTestCollection;
+      win.state.records = [...fileTestRecords];
+
+      win.editRecord('doc_01');
+
+      const fileInput = doc.getElementById('field-edit-attachment') as HTMLInputElement;
+      const fakeFile = new win.Blob(['sample'], { type: 'application/pdf' });
+      Object.defineProperty(fileInput, 'files', { value: [fakeFile], writable: true });
+
+      const dateInput = doc.getElementById('field-edit-published_at') as HTMLInputElement;
+      dateInput.value = '2026-11-20T09:45';
+
+      const jsonInput = doc.getElementById('field-edit-metadata') as HTMLTextAreaElement;
+      jsonInput.value = '  {"valid": true}  ';
+
+      win.api.mockClear();
+      await win.submitEditRecord('doc_01');
+
+      const expectedIso = new Date('2026-11-20T09:45').toISOString();
+      const callArgs = win.api.mock.calls[0];
+      const formData = callArgs[1].body;
+      expect(formData.get('published_at')).toBe(expectedIso);
+      expect(formData.get('published_at')).not.toBe('2026-11-20T09:45');
+      expect(formData.get('published_at')).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      expect(formData.get('metadata')).toBe('{"valid": true}');
+    });
+
+    it('should append empty string for empty date, json, and number in multipart create', async () => {
+      const fileTestCollection = {
+        name: 'documents',
+        type: 'base',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text' },
+          { id: 'f_attachment', name: 'attachment', type: 'file' },
+          { id: 'f_metadata', name: 'metadata', type: 'json' },
+          { id: 'f_published_at', name: 'published_at', type: 'date' },
+          { id: 'f_view_count', name: 'view_count', type: 'number' },
+        ],
+      };
+
+      const { win, doc } = createModalTestDOM();
+      win.state.activeCollection = fileTestCollection;
+
+      win.openNewRecordModal();
+
+      const fileInput = doc.getElementById('field-attachment') as HTMLInputElement;
+      const fakeFile = new win.Blob(['sample'], { type: 'application/pdf' });
+      Object.defineProperty(fileInput, 'files', { value: [fakeFile], writable: true });
+
+      const titleInput = doc.getElementById('field-title') as HTMLInputElement;
+      titleInput.value = 'New Document';
+
+      win.api.mockClear();
+      await win.submitNewRecord();
+
+      const callArgs = win.api.mock.calls[0];
+      const formData = callArgs[1].body;
+      expect(formData.get('published_at')).toBe('');
+      expect(formData.get('metadata')).toBe('');
+      expect(formData.get('view_count')).toBe('');
+    });
+
+    it('should convert non-empty date to ISO string in multipart create', async () => {
+      const fileTestCollection = {
+        name: 'documents',
+        type: 'base',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text' },
+          { id: 'f_attachment', name: 'attachment', type: 'file' },
+          { id: 'f_published_at', name: 'published_at', type: 'date' },
+        ],
+      };
+
+      const { win, doc } = createModalTestDOM();
+      win.state.activeCollection = fileTestCollection;
+
+      win.openNewRecordModal();
+
+      const fileInput = doc.getElementById('field-attachment') as HTMLInputElement;
+      const fakeFile = new win.Blob(['sample'], { type: 'application/pdf' });
+      Object.defineProperty(fileInput, 'files', { value: [fakeFile], writable: true });
+
+      const titleInput = doc.getElementById('field-title') as HTMLInputElement;
+      titleInput.value = 'New Document';
+
+      const dateInput = doc.getElementById('field-published_at') as HTMLInputElement;
+      dateInput.value = '2026-11-20T09:45';
+
+      win.api.mockClear();
+      await win.submitNewRecord();
+
+      const expectedIso = new Date('2026-11-20T09:45').toISOString();
+      const callArgs = win.api.mock.calls[0];
+      const formData = callArgs[1].body;
+      expect(formData.get('published_at')).toBe(expectedIso);
+      expect(formData.get('published_at')).not.toBe('2026-11-20T09:45');
+      expect(formData.get('published_at')).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    });
+  });
+
+  describe('Keyboard Ergonomics', () => {
+    it('should close any modal when Escape is pressed', () => {
+      const { win, doc } = createModalTestDOM();
+      win.openNewRecordModal();
+
+      const modalRoot = doc.getElementById('modal-root');
+      expect(modalRoot?.innerHTML.trim()).not.toBe('');
+
+      // Dispatch Escape keydown on window
+      win.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+      expect(modalRoot?.innerHTML.trim()).toBe('');
+    });
+
+    it('should submit form when Ctrl + Enter or Cmd + Enter is pressed', () => {
+      const { win, doc } = createModalTestDOM();
+      win.openNewRecordModal();
+
+      const titleInput = doc.getElementById('field-title') as HTMLInputElement;
+      titleInput.value = 'Keyboard Article';
+
+      win.api.mockClear();
+
+      // Dispatch Ctrl + Enter
+      win.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+      expect(win.api).toHaveBeenCalledWith('/api/collections/articles/records', expect.anything());
+
+      // Open another modal & test Cmd + Enter (metaKey)
+      win.openNewRecordModal();
+      win.api.mockClear();
+      win.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
+      expect(win.api).toHaveBeenCalledWith('/api/collections/articles/records', expect.anything());
+    });
+
+    it('should autofocus the first editable field whenever a modal opens', () => {
+      const { win, doc } = createModalTestDOM();
+      win.openNewRecordModal();
+
+      // First editable field is #field-title
+      const titleInput = doc.getElementById('field-title');
+      expect(doc.activeElement).toBe(titleInput);
+
+      // Open new collection modal -> first field #new-col-name
+      win.openNewCollectionModal();
+      const colNameInput = doc.getElementById('new-col-name');
+      expect(doc.activeElement).toBe(colNameInput);
+    });
+
+    it('should NOT trigger arbitrary body action buttons in ambiguous modals like templates gallery when Ctrl/Cmd+Enter is pressed', () => {
+      const { win, doc } = createModalTestDOM();
+      win.openTemplatesModal();
+
+      const modalRoot = doc.getElementById('modal-root');
+      expect(modalRoot?.textContent).toContain('Starter Templates & Recipes');
+
+      const applySpy = vi.fn();
+      win.openApplyTemplateConfirmModal = applySpy;
+
+      // Dispatch Ctrl + Enter
+      win.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+      expect(applySpy).not.toHaveBeenCalled();
+
+      // Dispatch Cmd + Enter
+      win.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
+      expect(applySpy).not.toHaveBeenCalled();
     });
   });
 });
