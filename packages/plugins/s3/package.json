@@ -22,6 +22,11 @@
   "peerDependencies": {
     "nodestack": "^1.1.0"
   },
+  "peerDependenciesMeta": {
+    "nodestack": {
+      "optional": true
+    }
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/satya-jugran/nodebase.git",
