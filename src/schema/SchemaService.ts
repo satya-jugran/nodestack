@@ -87,7 +87,8 @@ export class SchemaService {
 
   /**
    * Register or idempotent ensure a system collection (used by plugins & system modules).
-   * Does not throw ConflictError if already created; syncs any newly declared fields.
+   * Does not throw ConflictError if already created as a system collection; syncs any newly declared fields.
+   * Rejects existing non-system collections with ConflictError to prevent altering user collections.
    */
   public registerSystemCollection(dto: CreateCollectionDto): CollectionModel {
     const cleanName = dto.name.trim().toLowerCase();
@@ -97,11 +98,25 @@ export class SchemaService {
 
     const existing = this.getCollection(cleanName);
     if (existing) {
+      if (!existing.system) {
+        throw new ConflictError(
+          `Cannot register system collection '${cleanName}': a non-system collection with this name already exists`
+        );
+      }
+
       if (dto.schema && dto.schema.length > 0) {
+        const existingFieldNames = new Set(existing.schema.map((f) => f.name.toLowerCase()));
+        const mergedSchema = [...existing.schema];
+        for (const field of dto.schema) {
+          if (!existingFieldNames.has(field.name.toLowerCase())) {
+            mergedSchema.push(field);
+          }
+        }
+
         return this.updateCollection(existing.id, {
-          schema: dto.schema,
-          indexes: dto.indexes,
-          options: dto.options,
+          schema: mergedSchema,
+          indexes: dto.indexes || existing.indexes,
+          options: dto.options ? { ...existing.options, ...dto.options } : existing.options,
         });
       }
       return existing;

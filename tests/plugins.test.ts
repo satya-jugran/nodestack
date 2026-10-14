@@ -423,6 +423,51 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(col1.id).toBe(col2.id);
       expect(col2.system).toBe(true);
     });
+
+    it('should reject registering a system collection if an existing non-system collection has the same name', () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8111 });
+
+      // Create a normal application collection (e.g. orders)
+      const userCol = app.schema.createCollection({
+        name: 'orders',
+        type: 'base',
+        schema: [{ id: 'f_total', name: 'total', type: 'number' }],
+      });
+      expect(userCol.system).toBe(false);
+
+      // Attempt to register a system collection with the colliding name 'orders'
+      expect(() => {
+        app.schema.registerSystemCollection({
+          name: 'orders',
+          type: 'base',
+          schema: [{ id: 'f_injected', name: 'injected_field', type: 'text' }],
+        });
+      }).toThrow(/Cannot register system collection 'orders': a non-system collection with this name already exists/);
+
+      // Ensure the existing collection is untouched and non-system
+      const fetched = app.schema.getCollection('orders');
+      expect(fetched).toBeDefined();
+      expect(fetched!.system).toBe(false);
+      expect(fetched!.schema.some((f) => f.name === 'injected_field')).toBe(false);
+      expect(fetched!.schema.some((f) => f.name === 'total')).toBe(true);
+
+      // Also ensure plugin registration fails fast when a declarative collection collides with a user collection
+      const collidingPlugin: INodeStackPlugin = {
+        name: 'colliding-plugin',
+        version: '1.0.0',
+        collections: [
+          {
+            name: 'orders',
+            type: 'base',
+            schema: [{ id: 'f_bad', name: 'bad_field', type: 'text' }],
+          },
+        ],
+      };
+
+      expect(() => {
+        app.use(collidingPlugin);
+      }).toThrow(/Cannot register system collection 'orders'/);
+    });
   });
 
   describe('5. Admin UI Navigation Items & Container TOKENS Integration', () => {
