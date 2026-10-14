@@ -1139,6 +1139,25 @@ describe('Form & Modal Micro-Interactions (modals.js)', () => {
       const colNameInput = doc.getElementById('new-col-name');
       expect(doc.activeElement).toBe(colNameInput);
     });
+
+    it('should NOT trigger arbitrary body action buttons in ambiguous modals like templates gallery when Ctrl/Cmd+Enter is pressed', () => {
+      const { win, doc } = createModalTestDOM();
+      win.openTemplatesModal();
+
+      const modalRoot = doc.getElementById('modal-root');
+      expect(modalRoot?.textContent).toContain('Starter Templates & Recipes');
+
+      const applySpy = vi.fn();
+      win.openApplyTemplateConfirmModal = applySpy;
+
+      // Dispatch Ctrl + Enter
+      win.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+      expect(applySpy).not.toHaveBeenCalled();
+
+      // Dispatch Cmd + Enter
+      win.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
+      expect(applySpy).not.toHaveBeenCalled();
+    });
   });
 });
 

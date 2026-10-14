@@ -166,16 +166,14 @@
         }
       }
 
-      // Prioritize primary / danger action buttons that are not disabled
+      // Restrict submission to explicit submit controls or footer action buttons
+      // to prevent ambiguous modals (e.g. templates gallery) from triggering arbitrary body buttons
       const submitBtn = modalRoot.querySelector(
+        '.modal-footer button[type="submit"]:not([disabled]), ' +
         '.modal-footer .btn-primary:not([disabled]), ' +
         '.modal-footer .btn-danger:not([disabled]), ' +
-        '#btn-submit-import-json:not([disabled]), ' +
-        '#btn-execute-import:not([disabled]), ' +
-        '#btn-submit-mock-data:not([disabled]), ' +
-        '#btn-confirm-apply-template:not([disabled]), ' +
-        '#btn-confirm-delete-col:not([disabled]), ' +
-        '.modal .btn-primary:not([disabled])'
+        'form button[type="submit"]:not([disabled]), ' +
+        'form input[type="submit"]:not([disabled])'
       );
 
       if (submitBtn) {
