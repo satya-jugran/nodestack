@@ -1082,13 +1082,40 @@ describe('Form & Modal Micro-Interactions (modals.js)', () => {
       dateInput.value = '2026-11-20T09:45';
       await win.submitEditRecord('rec_01');
 
+      const expectedIso = new Date('2026-11-20T09:45').toISOString();
       expect(win.api).toHaveBeenCalledWith(
         '/api/collections/articles/records/rec_01',
         expect.objectContaining({
           method: 'PATCH',
-          body: expect.stringContaining('"published_at"'),
         })
       );
+
+      const patchCall = win.api.mock.calls[0];
+      const payload = JSON.parse(patchCall[1].body);
+      expect(payload.published_at).toBe(expectedIso);
+      expect(payload.published_at).not.toBe('2026-11-20T09:45');
+      expect(payload.published_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    });
+
+    it('should convert datetime-local value to ISO date on create record submission', async () => {
+      const { win, doc } = createModalTestDOM();
+      win.openNewRecordModal();
+
+      const titleInput = doc.getElementById('field-title') as HTMLInputElement;
+      titleInput.value = 'New Article';
+
+      const dateInput = doc.getElementById('field-published_at') as HTMLInputElement;
+      dateInput.value = '2026-11-20T09:45';
+
+      win.api.mockClear();
+      await win.submitNewRecord();
+
+      const expectedIso = new Date('2026-11-20T09:45').toISOString();
+      const createCall = win.api.mock.calls[0];
+      const payload = JSON.parse(createCall[1].body);
+      expect(payload.published_at).toBe(expectedIso);
+      expect(payload.published_at).not.toBe('2026-11-20T09:45');
+      expect(payload.published_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     });
 
     it('should append empty string for cleared date, json, and number fields when editing record with a file', async () => {
@@ -1201,9 +1228,12 @@ describe('Form & Modal Micro-Interactions (modals.js)', () => {
       win.api.mockClear();
       await win.submitEditRecord('doc_01');
 
+      const expectedIso = new Date('2026-11-20T09:45').toISOString();
       const callArgs = win.api.mock.calls[0];
       const formData = callArgs[1].body;
-      expect(formData.get('published_at')).toBe(new Date('2026-11-20T09:45').toISOString());
+      expect(formData.get('published_at')).toBe(expectedIso);
+      expect(formData.get('published_at')).not.toBe('2026-11-20T09:45');
+      expect(formData.get('published_at')).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
       expect(formData.get('metadata')).toBe('{"valid": true}');
     });
 
@@ -1240,6 +1270,43 @@ describe('Form & Modal Micro-Interactions (modals.js)', () => {
       expect(formData.get('published_at')).toBe('');
       expect(formData.get('metadata')).toBe('');
       expect(formData.get('view_count')).toBe('');
+    });
+
+    it('should convert non-empty date to ISO string in multipart create', async () => {
+      const fileTestCollection = {
+        name: 'documents',
+        type: 'base',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text' },
+          { id: 'f_attachment', name: 'attachment', type: 'file' },
+          { id: 'f_published_at', name: 'published_at', type: 'date' },
+        ],
+      };
+
+      const { win, doc } = createModalTestDOM();
+      win.state.activeCollection = fileTestCollection;
+
+      win.openNewRecordModal();
+
+      const fileInput = doc.getElementById('field-attachment') as HTMLInputElement;
+      const fakeFile = new win.Blob(['sample'], { type: 'application/pdf' });
+      Object.defineProperty(fileInput, 'files', { value: [fakeFile], writable: true });
+
+      const titleInput = doc.getElementById('field-title') as HTMLInputElement;
+      titleInput.value = 'New Document';
+
+      const dateInput = doc.getElementById('field-published_at') as HTMLInputElement;
+      dateInput.value = '2026-11-20T09:45';
+
+      win.api.mockClear();
+      await win.submitNewRecord();
+
+      const expectedIso = new Date('2026-11-20T09:45').toISOString();
+      const callArgs = win.api.mock.calls[0];
+      const formData = callArgs[1].body;
+      expect(formData.get('published_at')).toBe(expectedIso);
+      expect(formData.get('published_at')).not.toBe('2026-11-20T09:45');
+      expect(formData.get('published_at')).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     });
   });
 
