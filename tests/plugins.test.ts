@@ -650,21 +650,56 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
     it('should register email logs collection and send transactional email', async () => {
       app = new NodeStack({ dataDir: testDataDir, port: 8116 });
 
+      const capturedResendRequests: Array<{ url: string; method: string; headers: any; body: any }> = [];
+      let shouldFail = false;
+
+      const mockResendFetch = vi.fn().mockImplementation(async (url: string, init: any) => {
+        capturedResendRequests.push({
+          url,
+          method: init.method,
+          headers: init.headers,
+          body: init.body ? JSON.parse(init.body) : undefined,
+        });
+
+        if (shouldFail) {
+          return {
+            ok: false,
+            status: 422,
+            statusText: 'Unprocessable Entity',
+            json: async () => ({ statusCode: 422, message: 'Domain not verified on Resend' }),
+            text: async () => 'Domain not verified on Resend',
+          };
+        }
+
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({ id: 're_msg_resend_12345' }),
+          text: async () => '',
+        };
+      });
+
       app.use(
         resendPlugin({
           apiKey: 're_test_1234567890',
           from: 'notifications@nodestack.io',
+          fetch: mockResendFetch as any,
         })
       );
 
       expect(app.schema.getCollection('_email_logs')).toBeDefined();
 
       let emailSentEvent: any = null;
+      let emailFailedEvent: any = null;
       app.eventBus.on('email:sent', (data) => {
         emailSentEvent = data;
       });
+      app.eventBus.on('email:failed', (data) => {
+        emailFailedEvent = data;
+      });
 
-      // Verify unauthenticated send request is rejected with 403
+      // 1. Verify unauthenticated send request is rejected with 403
       const resUnauth = await app.server.inject({
         method: 'POST',
         url: '/api/resend/send',
@@ -679,6 +714,7 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       await app.auth.createAdmin('admin@nodestack.io', 'Password123!');
       const { token: adminToken } = await app.auth.authenticateAdmin('admin@nodestack.io', 'Password123!');
 
+      // 2. Successful email send via Resend API
       const res = await app.server.inject({
         method: 'POST',
         url: '/api/resend/send',
@@ -694,13 +730,52 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(sent.to).toBe('customer@example.com');
       expect(sent.from).toBe('notifications@nodestack.io');
       expect(sent.status).toBe('delivered');
+      expect(sent.id).toBe('re_msg_resend_12345');
       expect(emailSentEvent).toBeDefined();
 
-      // Check database log
-      const logs = await app.records.getList('_email_logs');
+      // Verify outbound HTTP request sent to Resend API
+      expect(capturedResendRequests.length).toBe(1);
+      expect(capturedResendRequests[0].url).toBe('https://api.resend.com/emails');
+      expect(capturedResendRequests[0].method).toBe('POST');
+      expect(capturedResendRequests[0].headers['Authorization']).toBe('Bearer re_test_1234567890');
+      expect(capturedResendRequests[0].body.from).toBe('notifications@nodestack.io');
+      expect(capturedResendRequests[0].body.to).toEqual(['customer@example.com']);
+      expect(capturedResendRequests[0].body.subject).toBe('Welcome to NodeStack!');
+
+      // Check database log for successful delivery
+      let logs = await app.records.getList('_email_logs');
       expect(logs.items.length).toBe(1);
       expect(logs.items[0].to).toBe('customer@example.com');
       expect(logs.items[0].subject).toBe('Welcome to NodeStack!');
+      expect(logs.items[0].status).toBe('delivered');
+      expect(logs.items[0].messageId).toBe('re_msg_resend_12345');
+
+      // 3. Failed email send via Resend API - should NOT emit delivery and log failure
+      shouldFail = true;
+      emailSentEvent = null;
+
+      const resFail = await app.server.inject({
+        method: 'POST',
+        url: '/api/resend/send',
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: {
+          to: 'invalid@unverified.com',
+          subject: 'Failed email test',
+        },
+      });
+
+      expect(resFail.statusCode).toBe(422);
+      expect(emailSentEvent).toBeNull();
+      expect(emailFailedEvent).toBeDefined();
+      expect(emailFailedEvent.status).toBe('failed');
+      expect(emailFailedEvent.error).toContain('Domain not verified');
+
+      // Check database log contains failed record
+      logs = await app.records.getList('_email_logs');
+      expect(logs.items.length).toBe(2);
+      const failedLog = logs.items.find((item: any) => item.to === 'invalid@unverified.com');
+      expect(failedLog).toBeDefined();
+      expect(failedLog.status).toBe('failed');
     });
   });
 

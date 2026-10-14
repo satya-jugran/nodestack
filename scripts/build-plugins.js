@@ -87,25 +87,35 @@ export interface ResendPluginOptions {
   from?: string;
   collectionName?: string;
   authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
+  endpoint?: string;
+  fetch?: typeof fetch;
+  dryRun?: boolean;
+}
+
+export interface ResendEmailResult {
+  id: string;
+  from: string;
+  to: string;
+  subject: string;
+  status: 'sent' | 'delivered' | 'failed';
+  createdAt: string;
+  error?: string;
 }
 
 export declare class ResendEmailService {
   readonly options: ResendPluginOptions;
   constructor(options: ResendPluginOptions);
+  getBaseUrl(): string;
   sendEmail(params: {
-    to: string;
+    to: string | string[];
     subject: string;
     html?: string;
     text?: string;
     from?: string;
-  }): Promise<{
-    id: string;
-    from: string;
-    to: string;
-    subject: string;
-    status: string;
-    createdAt: string;
-  }>;
+    cc?: string | string[];
+    bcc?: string | string[];
+    replyTo?: string;
+  }): Promise<ResendEmailResult>;
 }
 
 export declare function resendPlugin(options: ResendPluginOptions): INodeStackPlugin;
