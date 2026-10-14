@@ -1,1 +1,6 @@
-export { webhookPlugin, WebhookPluginOptions, WebhookNotificationService } from '../../../../src/plugins/webhooks';
+export {
+  webhookPlugin,
+  WebhookPluginOptions,
+  WebhookNotificationService,
+  WebhookDispatchResult,
+} from '../../../../src/plugins/webhooks';

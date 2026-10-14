@@ -988,7 +988,7 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
   });
 
   describe('9. Official Community Extension: Discord/Slack Webhooks Plugin', () => {
-    it('should fire webhook notifications on database record mutations', async () => {
+    it('should fire webhook notifications on database record mutations and perform HTTP platform requests', async () => {
       app = new NodeStack({ dataDir: testDataDir, port: 8117 });
 
       app.schema.createCollection({
@@ -1001,29 +1001,169 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
         listRule: '',
         viewRule: '',
         createRule: '',
+        updateRule: '',
       });
+
+      const capturedWebhookRequests: Array<{ url: string; method: string; headers: any; body: any }> = [];
+      let shouldWebhookFail = false;
+
+      const mockWebhookFetch = vi.fn().mockImplementation(async (url: string, init: any) => {
+        capturedWebhookRequests.push({
+          url,
+          method: init.method,
+          headers: init.headers,
+          body: init.body ? JSON.parse(init.body) : undefined,
+        });
+
+        if (shouldWebhookFail) {
+          return {
+            ok: false,
+            status: 500,
+            statusText: 'Internal Server Error',
+            text: async () => 'Discord upstream 500 error',
+          };
+        }
+
+        // Discord typically responds with 204 No Content, Slack with 200 OK
+        const status = url.includes('discord') ? 204 : 200;
+        return {
+          ok: true,
+          status,
+          statusText: status === 204 ? 'No Content' : 'OK',
+          text: async () => (status === 204 ? '' : 'ok'),
+        };
+      });
+
+      let dispatchedEvents: any[] = [];
+      let failedEvents: any[] = [];
+      app.eventBus.on('webhook:dispatched', (e) => dispatchedEvents.push(e));
+      app.eventBus.on('webhook:failed', (e) => failedEvents.push(e));
 
       app.use(
         webhookPlugin({
-          discordWebhookUrl: 'https://discord.com/api/webhooks/mock/123',
+          discordWebhookUrl: 'https://discord.com/api/webhooks/mock/discord-token',
+          slackWebhookUrl: 'https://hooks.slack.com/services/mock/slack-token',
           collections: ['support_tickets'],
+          fetch: mockWebhookFetch as any,
         })
       );
 
       expect(app.schema.getCollection('_webhook_logs')).toBeDefined();
 
-      // Create a ticket which should trigger the afterCreate hook
-      await app.records.create('support_tickets', {
+      // 1. Create a ticket which triggers afterCreate hook
+      const createdTicket = await app.records.create('support_tickets', {
         title: 'Server connection timeout',
         priority: 'high',
       });
 
-      // Verify webhook log created
-      const logs = await app.records.getList('_webhook_logs');
-      expect(logs.items.length).toBe(1);
-      expect(logs.items[0].platform).toBe('discord');
-      expect(logs.items[0].collection).toBe('support_tickets');
-      expect(logs.items[0].event).toBe('record:created');
+      // Verify outbound HTTP requests sent to Discord and Slack
+      expect(capturedWebhookRequests.length).toBe(2);
+
+      const discordReq = capturedWebhookRequests.find((r) => r.url.includes('discord'));
+      expect(discordReq).toBeDefined();
+      expect(discordReq!.method).toBe('POST');
+      expect(discordReq!.headers['Content-Type']).toBe('application/json');
+      expect(discordReq!.body.content).toContain('Server connection timeout');
+      expect(discordReq!.body.content).toContain(createdTicket.id);
+
+      const slackReq = capturedWebhookRequests.find((r) => r.url.includes('slack'));
+      expect(slackReq).toBeDefined();
+      expect(slackReq!.method).toBe('POST');
+      expect(slackReq!.headers['Content-Type']).toBe('application/json');
+      expect(slackReq!.body.text).toContain('Server connection timeout');
+      expect(slackReq!.body.text).toContain(createdTicket.id);
+
+      // Verify webhook logs in database
+      let logs = await app.records.getList('_webhook_logs');
+      expect(logs.items.length).toBe(2);
+
+      const discordLog = logs.items.find((l: any) => l.platform === 'discord');
+      expect(discordLog).toBeDefined();
+      expect(discordLog.collection).toBe('support_tickets');
+      expect(discordLog.event).toBe('record:created');
+      expect(discordLog.status).toBe('dispatched');
+      expect(discordLog.statusCode).toBe(204);
+
+      const slackLog = logs.items.find((l: any) => l.platform === 'slack');
+      expect(slackLog).toBeDefined();
+      expect(slackLog.collection).toBe('support_tickets');
+      expect(slackLog.event).toBe('record:created');
+      expect(slackLog.status).toBe('dispatched');
+      expect(slackLog.statusCode).toBe(200);
+
+      expect(dispatchedEvents.length).toBe(2);
+      expect(failedEvents.length).toBe(0);
+
+      // 2. Test status endpoint
+      const statusRes = await app.server.inject({
+        method: 'GET',
+        url: '/api/webhooks/status',
+      });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json()).toMatchObject({
+        hasDiscord: true,
+        hasSlack: true,
+        dispatchedCount: 2,
+        failedCount: 0,
+        totalCount: 2,
+      });
+
+      // 3. Test failed webhook dispatch (HTTP 500 error from upstream)
+      shouldWebhookFail = true;
+      dispatchedEvents = [];
+      failedEvents = [];
+      capturedWebhookRequests.length = 0;
+
+      await app.records.update('support_tickets', createdTicket.id, {
+        priority: 'urgent',
+      });
+
+      // Outbound requests were attempted
+      expect(capturedWebhookRequests.length).toBe(2);
+
+      // Verify failed logs recorded in database with error and status
+      logs = await app.records.getList('_webhook_logs');
+      expect(logs.items.length).toBe(4);
+
+      const failedLogs = logs.items.filter((l: any) => l.status === 'failed');
+      expect(failedLogs.length).toBe(2);
+      expect(failedLogs[0].statusCode).toBe(500);
+      expect(failedLogs[0].error).toContain('Discord upstream 500 error');
+
+      expect(failedEvents.length).toBe(2);
+      expect(failedEvents[0].result.status).toBe('failed');
+      expect(failedEvents[0].result.statusCode).toBe(500);
+
+      // 4. Test /api/webhooks/test action endpoint authentication & dispatch
+      shouldWebhookFail = false;
+      capturedWebhookRequests.length = 0;
+
+      // (a) Unauthenticated call is rejected with 403
+      const resUnauth = await app.server.inject({
+        method: 'POST',
+        url: '/api/webhooks/test',
+        payload: { platform: 'discord', message: 'Unauthorized test' },
+      });
+      expect(resUnauth.statusCode).toBe(403);
+      expect(capturedWebhookRequests.length).toBe(0);
+
+      // (b) Authenticated admin call succeeds and dispatches
+      await app.auth.createAdmin('webhook-admin@nodestack.io', 'Password123!');
+      const { token: adminToken } = await app.auth.authenticateAdmin(
+        'webhook-admin@nodestack.io',
+        'Password123!'
+      );
+
+      const resAuth = await app.server.inject({
+        method: 'POST',
+        url: '/api/webhooks/test',
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { platform: 'discord', message: 'Hello from Admin' },
+      });
+      expect(resAuth.statusCode).toBe(200);
+      expect(resAuth.json().status).toBe('dispatched');
+      expect(capturedWebhookRequests.length).toBe(1);
+      expect(capturedWebhookRequests[0].body.content).toBe('Hello from Admin');
     });
   });
 

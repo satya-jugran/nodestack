@@ -162,22 +162,28 @@ export interface WebhookPluginOptions {
   collections?: string[];
   events?: Array<'create' | 'update' | 'delete'>;
   collectionName?: string;
+  authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
+  fetch?: typeof fetch;
+  dryRun?: boolean;
+}
+
+export interface WebhookDispatchResult {
+  id: string;
+  platform: 'discord' | 'slack';
+  payload: any;
+  status: 'dispatched' | 'failed';
+  statusCode?: number;
+  error?: string;
+  timestamp: string;
 }
 
 export declare class WebhookNotificationService {
   readonly options: WebhookPluginOptions;
-  dispatched: Array<{
-    platform: string;
-    payload: any;
-    timestamp: string;
-  }>;
+  dispatched: Array<WebhookDispatchResult>;
   constructor(options: WebhookPluginOptions);
-  dispatch(platform: 'discord' | 'slack', payload: any): Promise<{
-    id: string;
-    platform: 'discord' | 'slack';
-    payload: any;
-    timestamp: string;
-  }>;
+  getWebhookUrl(platform: 'discord' | 'slack'): string | undefined;
+  formatPayload(platform: 'discord' | 'slack', payload: any): Record<string, any>;
+  dispatch(platform: 'discord' | 'slack', payload: any, customUrl?: string): Promise<WebhookDispatchResult>;
 }
 
 export declare function webhookPlugin(options?: WebhookPluginOptions): INodeStackPlugin;
