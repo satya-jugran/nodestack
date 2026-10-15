@@ -7,6 +7,11 @@ A zero-configuration, interactive demonstration and testing suite showcasing Nod
 - 🔔 **Discord & Slack Webhooks** (`@nodestackapp/plugin-webhooks`)
 - 🔍 **Algolia Search** (`@nodestackapp/plugin-algolia`)
 
+```bash
+# Install individual plugins into your project:
+npm install @nodestackapp/plugin-stripe @nodestackapp/plugin-s3 @nodestackapp/plugin-resend @nodestackapp/plugin-webhooks @nodestackapp/plugin-algolia
+```
+
 ---
 
 ## ⚡ Quick Start
