@@ -385,11 +385,11 @@ await client.demo.reset();
 ### 14. Modular Plugin Architecture & Official Extensions
 
 Extend NodeStack capabilities with official first-party plugins for payment processing, cloud storage, transactional emails, webhook notifications, and search indexing:
-- 💳 **Stripe (`@nodestack/plugin-stripe`)**: Checkout sessions, customer portals, webhook signature verification (`stripe-signature`), and payment tracking in `_stripe_payments`.
-- ☁️ **S3 Storage (`@nodestack/plugin-s3`)**: AWS S3 and S3-compatible providers (MinIO, Cloudflare R2, LocalStack) with SigV4 presigned upload/download URLs and upload tracking in `_s3_uploads`.
-- 📧 **Resend (`@nodestack/plugin-resend`)**: Transactional email delivery with dry-run safe mode and delivery audit logs in `_email_logs`.
-- 🔔 **Discord & Slack Webhooks (`@nodestack/plugin-webhooks`)**: Automated outbound notifications dispatched on database record mutations with audit rows in `_webhook_logs`.
-- 🔍 **Algolia Search (`@nodestack/plugin-algolia`)**: Automatic search index synchronization on database mutations, background worker queues, and batch re-indexing.
+- 💳 **Stripe (`@nodestackapp/plugin-stripe`)**: Checkout sessions, customer portals, webhook signature verification (`stripe-signature`), and payment tracking in `_stripe_payments`.
+- ☁️ **S3 Storage (`@nodestackapp/plugin-s3`)**: AWS S3 and S3-compatible providers (MinIO, Cloudflare R2, LocalStack) with SigV4 presigned upload/download URLs and upload tracking in `_s3_uploads`.
+- 📧 **Resend (`@nodestackapp/plugin-resend`)**: Transactional email delivery with dry-run safe mode and delivery audit logs in `_email_logs`.
+- 🔔 **Discord & Slack Webhooks (`@nodestackapp/plugin-webhooks`)**: Automated outbound notifications dispatched on database record mutations with audit rows in `_webhook_logs`.
+- 🔍 **Algolia Search (`@nodestackapp/plugin-algolia`)**: Automatic search index synchronization on database mutations, background worker queues, and batch re-indexing.
 
 #### 🎮 Interactive Demo & Testing Suite
 Test all 5 plugins immediately with zero configuration in the standalone demo application:

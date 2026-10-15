@@ -1,11 +1,11 @@
 # NodeStack Plugins Showcase & Interactive Demo
 
 A zero-configuration, interactive demonstration and testing suite showcasing NodeStack's 5 official community extension plugins:
-- 💳 **Stripe** (`@nodestack/plugin-stripe`)
-- ☁️ **S3 / MinIO / Cloudflare R2** (`@nodestack/plugin-s3`)
-- 📧 **Resend** (`@nodestack/plugin-resend`)
-- 🔔 **Discord & Slack Webhooks** (`@nodestack/plugin-webhooks`)
-- 🔍 **Algolia Search** (`@nodestack/plugin-algolia`)
+- 💳 **Stripe** (`@nodestackapp/plugin-stripe`)
+- ☁️ **S3 / MinIO / Cloudflare R2** (`@nodestackapp/plugin-s3`)
+- 📧 **Resend** (`@nodestackapp/plugin-resend`)
+- 🔔 **Discord & Slack Webhooks** (`@nodestackapp/plugin-webhooks`)
+- 🔍 **Algolia Search** (`@nodestackapp/plugin-algolia`)
 
 ---
 
@@ -58,25 +58,25 @@ To ensure safety when running locally with known default credentials, the demo s
 
 ## 🛠️ Interactive Features & Plugin Testing
 
-### 1. Stripe Plugin (`@nodestack/plugin-stripe`)
+### 1. Stripe Plugin (`@nodestackapp/plugin-stripe`)
 - **Checkout Sessions**: Select a pre-seeded product (e.g. Mechanical Keyboard Pro, $149) or enter custom amounts to initiate Stripe Checkout sessions via `/api/stripe/create-checkout-session`.
 - **Webhook Simulator**: Test `checkout.session.completed` lifecycle events. NodeStack validates and logs payment records to `_stripe_payments` and triggers application event bus notifications.
 
-### 2. S3 Storage Plugin (`@nodestack/plugin-s3`)
+### 2. S3 Storage Plugin (`@nodestackapp/plugin-s3`)
 - **SigV4 Presigned Upload URLs**: Generate signed PUT URLs on-demand for S3, MinIO, or Cloudflare R2 via `/api/s3/sign-upload-url`.
 - **Path-Style vs Virtual-Hosted Addressing**: Supports `forcePathStyle: true` for MinIO/local S3 setups.
 - **Upload Tracking**: Inspect uploaded assets directly in `_s3_uploads`.
 
-### 3. Resend Plugin (`@nodestack/plugin-resend`)
+### 3. Resend Plugin (`@nodestackapp/plugin-resend`)
 - **Email Dispatch**: Send HTML/text transactional emails via `/api/resend/send`.
 - **Safe Dry-Run Mode**: By default, runs with `dryRun: true` so no real API key is required. All emails are captured, validated, and logged to `_email_logs`.
 
-### 4. Discord & Slack Webhooks (`@nodestack/plugin-webhooks`)
+### 4. Discord & Slack Webhooks (`@nodestackapp/plugin-webhooks`)
 - **Mutation Webhooks**: Create a new Support Ticket (e.g., "Urgent checkout issue") in the demo UI. NodeStack's `onRecordAfterCreate` hook automatically dispatches formatted notifications to both Discord and Slack.
 - **Manual Test Dispatch**: Send immediate test payloads via `/api/webhooks/test`.
 - **Per-Platform Audit Logging**: Each dispatched platform creates a distinct audit row in `_webhook_logs` with HTTP status and payload details.
 
-### 5. Algolia Search Plugin (`@nodestack/plugin-algolia`)
+### 5. Algolia Search Plugin (`@nodestackapp/plugin-algolia`)
 - **Automatic Queue Sync**: Record creations, updates, and deletions on monitored collections (`products`) automatically queue indexing jobs in `_algolia_sync_queue`.
 - **Manual Indexing**: Trigger full re-indexing of collections on-demand via `/api/algolia/reindex`.
 - **Queue Worker**: Periodically processes queued operations in background intervals.
