@@ -1387,6 +1387,53 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(resProcess.statusCode).toBe(200);
       expect(resProcess.json().success).toBe(true);
     });
+
+    it('should reconcile or restart background worker timer when autoProcessIntervalMs configuration changes', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8128 });
+
+      // Start with autoProcessIntervalMs: 0 (disabled worker)
+      app.use(
+        algoliaPlugin({
+          appId: 'ALGOLIA_APP_ID',
+          apiKey: 'ALGOLIA_API_KEY',
+          autoProcessIntervalMs: 0,
+          collections: [],
+        })
+      );
+
+      // Verify worker is initially not active
+      let statusRes = await app.server.inject({ method: 'GET', url: '/api/algolia/status' });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().workerActive).toBe(false);
+      expect(statusRes.json().autoProcessIntervalMs).toBe(0);
+
+      // 1. Changing 0 to a positive value dynamically starts the worker
+      await app.pluginManager.updatePluginConfig('algolia', {
+        autoProcessIntervalMs: 2500,
+      });
+
+      statusRes = await app.server.inject({ method: 'GET', url: '/api/algolia/status' });
+      expect(statusRes.json().workerActive).toBe(true);
+      expect(statusRes.json().autoProcessIntervalMs).toBe(2500);
+
+      // 2. Updating interval restarts timer with the new interval
+      await app.pluginManager.updatePluginConfig('algolia', {
+        autoProcessIntervalMs: 1200,
+      });
+
+      statusRes = await app.server.inject({ method: 'GET', url: '/api/algolia/status' });
+      expect(statusRes.json().workerActive).toBe(true);
+      expect(statusRes.json().autoProcessIntervalMs).toBe(1200);
+
+      // 3. Changing to 0 stops the active worker
+      await app.pluginManager.updatePluginConfig('algolia', {
+        autoProcessIntervalMs: 0,
+      });
+
+      statusRes = await app.server.inject({ method: 'GET', url: '/api/algolia/status' });
+      expect(statusRes.json().workerActive).toBe(false);
+      expect(statusRes.json().autoProcessIntervalMs).toBe(0);
+    });
   });
 
   describe('11. Workspace Package Exports under packages/plugins/* (s3, stripe, resend, etc.)', () => {
