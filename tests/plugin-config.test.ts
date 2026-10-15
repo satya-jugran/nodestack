@@ -315,5 +315,91 @@ TEST_PLUGIN_DISCORD_URL=https://discord.com/api/webhooks/test
     expect(effective2.apiKey).toBe('rotated_new_secret_99999'); // Successfully rotated!
     expect(latestRuntimeConfig.apiKey).toBe('rotated_new_secret_99999');
   });
+
+  it('should enforce allowed choices for select fields, preserve typed values, and reject arbitrary text with 400', async () => {
+    app = new NodeStack({ dataDir: testDataDir, port: 8206 });
+
+    let latestRuntimeConfig: any = null;
+
+    const samplePlugin: INodeStackPlugin = {
+      name: 'test-select-plugin',
+      version: '1.0.0',
+      configSchema: {
+        fields: [
+          {
+            name: 'region',
+            label: 'Region',
+            type: 'select',
+            required: true,
+            options: [
+              { label: 'US East (N. Virginia)', value: 'us-east-1' },
+              { label: 'EU West (Ireland)', value: 'eu-west-1' },
+              { label: 'Asia Pacific (Tokyo)', value: 'ap-northeast-1' },
+            ],
+          },
+          {
+            name: 'pageSize',
+            label: 'Page Size',
+            type: 'select',
+            defaultValue: 25,
+            options: [
+              { label: '10 items', value: 10 },
+              { label: '25 items', value: 25 },
+              { label: '50 items', value: 50 },
+            ],
+          },
+        ],
+      },
+      onConfigUpdate(config) {
+        latestRuntimeConfig = config;
+      },
+    };
+
+    app.use(samplePlugin);
+
+    // 1. When defaultValue is omitted on required select field, should fall back to first option
+    const initialConfig = app.pluginManager.getPluginConfig('test-select-plugin');
+    const regionField = initialConfig.fields.find((f) => f.name === 'region');
+    expect(regionField?.value).toBe('us-east-1');
+    expect(regionField?.source).toBe('default');
+
+    const pageSizeField = initialConfig.fields.find((f) => f.name === 'pageSize');
+    expect(pageSizeField?.value).toBe(25);
+
+    // 2. Valid update: updating allowed choice succeeds and preserves original types (e.g. number 50)
+    const updated = await app.pluginManager.updatePluginConfig('test-select-plugin', {
+      region: 'eu-west-1',
+      pageSize: '50', // UI sends string via HTML select
+    });
+
+    const updatedRegion = updated.fields.find((f) => f.name === 'region');
+    expect(updatedRegion?.value).toBe('eu-west-1');
+    expect(updatedRegion?.source).toBe('db');
+
+    const updatedPageSize = updated.fields.find((f) => f.name === 'pageSize');
+    expect(updatedPageSize?.value).toBe(50); // Preserved typed number!
+    expect(typeof updatedPageSize?.value).toBe('number');
+
+    const effective = app.pluginManager.getEffectiveConfig('test-select-plugin');
+    expect(effective.region).toBe('eu-west-1');
+    expect(effective.pageSize).toBe(50);
+    expect(latestRuntimeConfig.region).toBe('eu-west-1');
+    expect(latestRuntimeConfig.pageSize).toBe(50);
+
+    // 3. Choice enforcement: arbitrary text rejected with 400 Bad Request
+    await expect(
+      app.pluginManager.updatePluginConfig('test-select-plugin', {
+        region: 'invalid-region-injection',
+      })
+    ).rejects.toThrow(/Invalid value "invalid-region-injection" for select field "region"/);
+
+    // 4. Required empty value rejected with 400 Bad Request
+    await expect(
+      app.pluginManager.updatePluginConfig('test-select-plugin', {
+        region: '',
+      })
+    ).rejects.toThrow(/Field "region" is required/);
+  });
 });
+
 

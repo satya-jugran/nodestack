@@ -358,8 +358,23 @@
                     </div>
 
                     ${isLocked ? `
-                      <input type="text" class="form-input" disabled value="${escapeHtml(field.type === 'password' ? '••••••••' : (field.value !== undefined ? String(field.value) : ''))}"
-                        style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.35); font-family: monospace; font-size: 12.5px; border-color: rgba(255,255,255,0.06);" />
+                      ${field.type === 'select' ? `
+                        <select class="form-input" disabled
+                          style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.35); font-size: 12.5px; border-color: rgba(255,255,255,0.06); color: #fff;">
+                          ${field.value !== undefined && !(field.options || []).some(opt => String(typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt) === String(field.value)) ? `
+                            <option value="${escapeHtml(String(field.value))}" selected>${escapeHtml(String(field.value))}</option>
+                          ` : ''}
+                          ${(field.options || []).map(opt => {
+                            const optVal = typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt;
+                            const optLabel = typeof opt === 'object' && opt !== null && 'label' in opt ? opt.label : opt;
+                            const isSelected = String(field.value) === String(optVal);
+                            return `<option value="${escapeHtml(String(optVal))}" ${isSelected ? 'selected' : ''}>${escapeHtml(String(optLabel))}</option>`;
+                          }).join('')}
+                        </select>
+                      ` : `
+                        <input type="text" class="form-input" disabled value="${escapeHtml(field.type === 'password' ? '••••••••' : (field.value !== undefined ? String(field.value) : ''))}"
+                          style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.35); font-family: monospace; font-size: 12.5px; border-color: rgba(255,255,255,0.06);" />
+                      `}
                       <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 4px;">
                         <span>🔒</span> <span>${escapeHtml(field.lockReason || 'Managed by environment')}</span>
                       </div>
@@ -368,6 +383,21 @@
                         <input type="checkbox" id="${fieldId}" ${field.value ? 'checked' : ''} style="cursor: pointer; width: 18px; height: 18px;" />
                         <label for="${fieldId}" style="font-size: 12.5px; color: #e2e8f0; cursor: pointer;">Enabled</label>
                       </div>
+                    ` : (field.type === 'select' ? `
+                      <select class="form-input" id="${fieldId}"
+                        style="cursor: pointer; font-size: 12.5px; background: var(--bg-card); color: #fff;">
+                        ${!field.required && !(field.options || []).some(opt => (typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt) === '') ? `
+                          <option value="" ${field.value === undefined || field.value === '' ? 'selected' : ''}>${escapeHtml(field.placeholder || '-- Select an option --')}</option>
+                        ` : (field.placeholder && (field.value === undefined || field.value === '') ? `
+                          <option value="" disabled selected>${escapeHtml(field.placeholder)}</option>
+                        ` : '')}
+                        ${(field.options || []).map(opt => {
+                          const optVal = typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt;
+                          const optLabel = typeof opt === 'object' && opt !== null && 'label' in opt ? opt.label : opt;
+                          const isSelected = String(field.value) === String(optVal);
+                          return `<option value="${escapeHtml(String(optVal))}" ${isSelected ? 'selected' : ''}>${escapeHtml(String(optLabel))}</option>`;
+                        }).join('')}
+                      </select>
                     ` : (field.type === 'password' ? `
                       <input type="password" class="form-input" id="${fieldId}"
                         value="" placeholder="${field.hasValue ? '•••••••• (Secret configured - leave blank to keep unchanged)' : escapeHtml(field.placeholder || 'Enter secret...')}"
@@ -382,7 +412,7 @@
                       <input type="text" class="form-input" id="${fieldId}"
                         value="${escapeHtml(field.value !== undefined ? String(field.value) : '')}" placeholder="${escapeHtml(field.placeholder || '')}"
                         style="font-family: monospace; font-size: 12.5px;" />
-                    `))}
+                    `)))}
 
                     <div style="font-size: 11px; color: var(--text-muted); line-height: 1.35;">
                       ${escapeHtml(field.description || '')}
@@ -435,6 +465,9 @@
             if (fieldEl.value && fieldEl.value.trim() !== '') {
               updates[field.name] = fieldEl.value;
             }
+          } else if (field.type === 'select') {
+            const hasEmptyOpt = (field.options || []).some(opt => (typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt) === '');
+            updates[field.name] = (fieldEl.value === '' && !hasEmptyOpt) ? undefined : fieldEl.value;
           } else {
             updates[field.name] = fieldEl.value;
           }

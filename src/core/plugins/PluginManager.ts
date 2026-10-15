@@ -468,7 +468,16 @@ export class PluginManager {
       }
       // 4. Default Fallback
       else {
-        val = field.defaultValue !== undefined ? field.defaultValue : (field.type === 'boolean' ? false : undefined);
+        val =
+          field.defaultValue !== undefined
+            ? field.defaultValue
+            : (field.type === 'boolean'
+                ? false
+                : (field.type === 'select' && field.required && field.options && field.options.length > 0
+                    ? (typeof field.options[0] === 'object' && field.options[0] !== null && 'value' in field.options[0]
+                        ? field.options[0].value
+                        : field.options[0])
+                    : undefined));
       }
 
       if (val !== undefined && val !== '') {
@@ -554,7 +563,16 @@ export class PluginManager {
       }
       // 4. Default Fallback
       else {
-        rawValue = field.defaultValue !== undefined ? field.defaultValue : (field.type === 'boolean' ? false : '');
+        rawValue =
+          field.defaultValue !== undefined
+            ? field.defaultValue
+            : (field.type === 'boolean'
+                ? false
+                : (field.type === 'select' && field.required && field.options && field.options.length > 0
+                    ? (typeof field.options[0] === 'object' && field.options[0] !== null && 'value' in field.options[0]
+                        ? field.options[0].value
+                        : field.options[0])
+                    : undefined));
         isLocked = false;
         source = 'default';
       }
@@ -662,8 +680,40 @@ export class PluginManager {
         cleanedVal = val === '' ? undefined : Number(val);
       } else if (field.type === 'boolean') {
         cleanedVal = Boolean(val);
+      } else if (field.type === 'select') {
+        if (field.options && field.options.length > 0) {
+          const matchedOpt = field.options.find((opt) => {
+            const optVal = typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt;
+            return String(optVal) === String(val);
+          });
+          if (matchedOpt) {
+            const rawOptVal =
+              typeof matchedOpt === 'object' && matchedOpt !== null && 'value' in matchedOpt
+                ? matchedOpt.value
+                : matchedOpt;
+            cleanedVal = rawOptVal;
+          } else if (val === '' || val === undefined || val === null) {
+            if (field.required) {
+              throw new AppError(`Field "${key}" is required.`, 400);
+            }
+            cleanedVal = undefined;
+          } else {
+            const allowedLabels = field.options.map((opt) => {
+              const optVal = typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt;
+              return JSON.stringify(optVal);
+            });
+            throw new AppError(
+              `Invalid value "${val}" for select field "${key}". Allowed choices: ${allowedLabels.join(', ')}`,
+              400
+            );
+          }
+        }
       }
-      dbSettings[key] = cleanedVal;
+      if (cleanedVal === undefined) {
+        delete dbSettings[key];
+      } else {
+        dbSettings[key] = cleanedVal;
+      }
     }
 
     const now = new Date().toISOString();
