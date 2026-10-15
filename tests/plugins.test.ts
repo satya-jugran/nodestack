@@ -1350,6 +1350,118 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(capturedWebhookRequests.length).toBe(1);
       expect(capturedWebhookRequests[0].body.content).toBe('Hello from Admin');
     });
+
+    it('should dynamically update active dispatch platforms and status when webhook URLs are configured at runtime', async () => {
+      const origDiscordEnv = process.env.DISCORD_WEBHOOK_URL;
+      const origSlackEnv = process.env.SLACK_WEBHOOK_URL;
+      delete process.env.DISCORD_WEBHOOK_URL;
+      delete process.env.SLACK_WEBHOOK_URL;
+
+      try {
+        app = new NodeStack({ dataDir: testDataDir, port: 8130 });
+
+        app.schema.createCollection({
+          name: 'live_tickets',
+          type: 'base',
+          schema: [
+            { id: 'f_title', name: 'title', type: 'text', required: true },
+          ],
+          listRule: '',
+          viewRule: '',
+          createRule: '',
+          updateRule: '',
+        });
+
+        const capturedRequests: Array<{ url: string; method: string; body: any }> = [];
+        const mockFetch = vi.fn().mockImplementation(async (url: string, init: any) => {
+          capturedRequests.push({
+            url,
+            method: init.method,
+            body: init.body ? JSON.parse(init.body) : undefined,
+          });
+          return {
+            ok: true,
+            status: url.includes('discord') ? 204 : 200,
+            statusText: 'OK',
+            text: async () => '',
+          };
+        });
+
+        // 1. Initialize plugin with no initial webhook URLs
+        app.use(
+          webhookPlugin({
+            collections: ['live_tickets'],
+            fetch: mockFetch as any,
+          })
+        );
+
+        // Status route reports both false and admin nav reports READY
+        let statusRes = await app.server.inject({ method: 'GET', url: '/api/webhooks/status' });
+        expect(statusRes.statusCode).toBe(200);
+        expect(statusRes.json()).toMatchObject({
+          hasDiscord: false,
+          hasSlack: false,
+        });
+
+        let navRes = await app.server.inject({ method: 'GET', url: '/api/plugins' });
+        let webhooksNav = navRes.json().navItems.find((n: any) => n.id === 'webhooks');
+        expect(webhooksNav.badge).toBe('READY');
+
+        // Mutation before configuration: 0 outbound requests sent
+        const ticket = await app.records.create('live_tickets', { title: 'First ticket' });
+        expect(capturedRequests.length).toBe(0);
+
+        // 2. Configure Discord webhook URL via Admin UI plugin config update
+        await app.pluginManager.updatePluginConfig('webhooks', {
+          discordWebhookUrl: 'https://discord.com/api/webhooks/live-discord',
+        });
+
+        // Status route dynamically reflects discord enabled
+        statusRes = await app.server.inject({ method: 'GET', url: '/api/webhooks/status' });
+        expect(statusRes.json()).toMatchObject({
+          hasDiscord: true,
+          hasSlack: false,
+        });
+
+        navRes = await app.server.inject({ method: 'GET', url: '/api/plugins' });
+        webhooksNav = navRes.json().navItems.find((n: any) => n.id === 'webhooks');
+        expect(webhooksNav.badge).toBe('CONFIGURED');
+
+        // Mutation after config update: Discord webhook is dispatched!
+        await app.records.update('live_tickets', ticket.id, { title: 'Updated ticket title' });
+        expect(capturedRequests.length).toBe(1);
+        expect(capturedRequests[0].url).toBe('https://discord.com/api/webhooks/live-discord');
+        expect(capturedRequests[0].body.content).toContain('Updated ticket title');
+
+        // Verify logged in _webhook_logs
+        let logs = await app.records.getList('_webhook_logs');
+        expect(logs.items.length).toBe(1);
+        expect(logs.items[0].platform).toBe('discord');
+        expect(logs.items[0].event).toBe('record:updated');
+
+        // 3. Add Slack webhook via config update as well
+        await app.pluginManager.updatePluginConfig('webhooks', {
+          slackWebhookUrl: 'https://hooks.slack.com/services/live-slack',
+        });
+
+        statusRes = await app.server.inject({ method: 'GET', url: '/api/webhooks/status' });
+        expect(statusRes.json()).toMatchObject({
+          hasDiscord: true,
+          hasSlack: true,
+        });
+
+        capturedRequests.length = 0;
+        await app.records.create('live_tickets', { title: 'Second ticket' });
+        expect(capturedRequests.length).toBe(2);
+        expect(capturedRequests.some((r) => r.url.includes('discord'))).toBe(true);
+        expect(capturedRequests.some((r) => r.url.includes('slack'))).toBe(true);
+      } finally {
+        if (origDiscordEnv !== undefined) process.env.DISCORD_WEBHOOK_URL = origDiscordEnv;
+        else delete process.env.DISCORD_WEBHOOK_URL;
+        if (origSlackEnv !== undefined) process.env.SLACK_WEBHOOK_URL = origSlackEnv;
+        else delete process.env.SLACK_WEBHOOK_URL;
+      }
+    });
   });
 
   describe('10. Official Community Extension: Algolia Search Sync Plugin', () => {

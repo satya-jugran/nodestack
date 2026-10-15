@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { INodeStackPlugin, NodeStackPluginContext } from '../core/plugins/types';
+import { INodeStackPlugin, NodeStackPluginContext, AdminNavItem } from '../core/plugins/types';
 
 export interface WebhookPluginOptions {
   discordWebhookUrl?: string;
@@ -43,6 +43,17 @@ export class WebhookNotificationService {
       return this.options.discordWebhookUrl || process.env.DISCORD_WEBHOOK_URL;
     }
     return this.options.slackWebhookUrl || process.env.SLACK_WEBHOOK_URL;
+  }
+
+  public getActivePlatforms(): Array<'discord' | 'slack'> {
+    const platforms: Array<'discord' | 'slack'> = [];
+    if (this.getWebhookUrl('discord')) {
+      platforms.push('discord');
+    }
+    if (this.getWebhookUrl('slack')) {
+      platforms.push('slack');
+    }
+    return platforms;
   }
 
   public formatPayload(platform: 'discord' | 'slack', payload: any): Record<string, any> {
@@ -187,6 +198,21 @@ export function webhookPlugin(options: WebhookPluginOptions = {}): INodeStackPlu
   const collectionName = options.collectionName || '_webhook_logs';
   const listenedEvents = options.events || ['create', 'update', 'delete'];
   const monitoredCollections = options.collections || [];
+  let currentContext: NodeStackPluginContext | null = null;
+
+  const isConfigured = () => webhookService.getActivePlatforms().length > 0;
+
+  const navItem: AdminNavItem = {
+    id: 'webhooks',
+    title: 'Webhooks',
+    badge: isConfigured() ? 'CONFIGURED' : 'READY',
+    badgeVariant: 'primary',
+    icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+    view: {
+      title: 'Discord & Slack Webhook Feeds',
+      description: `Broadcasting database mutation events for collections: ${monitoredCollections.length ? monitoredCollections.join(', ') : 'All collections'}`,
+    },
+  };
 
   return {
     name: 'webhooks',
@@ -223,6 +249,10 @@ export function webhookPlugin(options: WebhookPluginOptions = {}): INodeStackPlu
     },
     onConfigUpdate(newConfig) {
       webhookService.updateOptions(newConfig);
+      navItem.badge = isConfigured() ? 'CONFIGURED' : 'READY';
+      if (currentContext) {
+        currentContext.registerAdminNav(navItem);
+      }
     },
 
     collections: [
@@ -242,21 +272,10 @@ export function webhookPlugin(options: WebhookPluginOptions = {}): INodeStackPlu
       },
     ],
 
-    adminNavItems: [
-      {
-        id: 'webhooks',
-        title: 'Webhooks',
-        badge: (options.discordWebhookUrl || options.slackWebhookUrl || process.env.DISCORD_WEBHOOK_URL || process.env.SLACK_WEBHOOK_URL) ? 'CONFIGURED' : 'READY',
-        badgeVariant: 'primary',
-        icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
-        view: {
-          title: 'Discord & Slack Webhook Feeds',
-          description: `Broadcasting database mutation events for collections: ${monitoredCollections.length ? monitoredCollections.join(', ') : 'All collections'}`,
-        },
-      },
-    ],
+    adminNavItems: [navItem],
 
     register(ctx: NodeStackPluginContext) {
+      currentContext = ctx;
       // 1. Bind service into container
       ctx.bindService(Symbol.for('WebhookNotificationService'), webhookService);
 
@@ -278,13 +297,7 @@ export function webhookPlugin(options: WebhookPluginOptions = {}): INodeStackPlu
           timestamp: new Date().toISOString(),
         };
 
-        const platforms: Array<'discord' | 'slack'> = [];
-        if (options.discordWebhookUrl || process.env.DISCORD_WEBHOOK_URL) {
-          platforms.push('discord');
-        }
-        if (options.slackWebhookUrl || process.env.SLACK_WEBHOOK_URL) {
-          platforms.push('slack');
-        }
+        const platforms = webhookService.getActivePlatforms();
 
         for (const platform of platforms) {
           const result = await webhookService.dispatch(platform, payload);
@@ -337,8 +350,8 @@ export function webhookPlugin(options: WebhookPluginOptions = {}): INodeStackPlu
       // 3. REST endpoints
       ctx.registerRoute('GET', '/api/webhooks/status', async (_req, reply) => {
         return reply.send({
-          hasDiscord: Boolean(options.discordWebhookUrl || process.env.DISCORD_WEBHOOK_URL),
-          hasSlack: Boolean(options.slackWebhookUrl || process.env.SLACK_WEBHOOK_URL),
+          hasDiscord: Boolean(webhookService.getWebhookUrl('discord')),
+          hasSlack: Boolean(webhookService.getWebhookUrl('slack')),
           monitoredCollections,
           listenedEvents,
           dispatchedCount: webhookService.dispatched.filter((d) => d.status === 'dispatched').length,
@@ -385,6 +398,9 @@ export function webhookPlugin(options: WebhookPluginOptions = {}): INodeStackPlu
         },
         { auth: options.authPolicy || 'admin' }
       );
+    },
+    onDestroy() {
+      currentContext = null;
     },
   };
 }
