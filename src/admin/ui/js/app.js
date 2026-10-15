@@ -479,6 +479,18 @@
         });
 
         toast('Configuration updated and applied successfully!', 'success');
+        try {
+          const navRes = await api('/api/plugins');
+          if (navRes && navRes.navItems) {
+            state.pluginNavItems = navRes.navItems;
+            if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
+            const activeItem = state.pluginNavItems.find(p => p.id === pluginId);
+            if (activeItem && typeof mountCustomView === 'function' && state.activeNav === pluginId) {
+              mountCustomView(activeItem);
+              return;
+            }
+          }
+        } catch (_) {}
         await loadPluginConfig(pluginId);
       } catch (err) {
         toast(err.message || 'Failed to update plugin configuration', 'error');

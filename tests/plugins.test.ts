@@ -965,6 +965,78 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       });
       expect(awsVhostService.getBucketEndpoint()).toBe('https://my-aws-bucket.s3.eu-central-1.amazonaws.com');
     });
+
+    it('should reflect updated bucket and region consistently across status route, _s3_uploads rows, and admin UI view', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8129 });
+
+      app.use(
+        s3StoragePlugin({
+          bucket: 'initial-s3-bucket',
+          region: 'us-east-1',
+        })
+      );
+
+      // Authenticate admin
+      await app.auth.createAdmin('s3admin@nodestack.io', 'Password123!');
+      const { token: adminToken } = await app.auth.authenticateAdmin('s3admin@nodestack.io', 'Password123!');
+
+      // 1. Initial status reflects initial bucket
+      let statusRes = await app.server.inject({ method: 'GET', url: '/api/s3/status' });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().bucket).toBe('initial-s3-bucket');
+      expect(statusRes.json().region).toBe('us-east-1');
+
+      // Upload file under initial bucket
+      let uploadRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/s3/sign-upload-url',
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { filename: 'first-file.png', mimeType: 'image/png' },
+      });
+      expect(uploadRes.statusCode).toBe(200);
+      expect(uploadRes.json().uploadUrl).toContain('initial-s3-bucket.s3.us-east-1.amazonaws.com');
+
+      let uploads = await app.records.getList('_s3_uploads');
+      expect(uploads.items.length).toBe(1);
+      expect(uploads.items[0].bucket).toBe('initial-s3-bucket');
+      expect(uploads.items[0].url).toContain('initial-s3-bucket');
+
+      // 2. Update bucket and region via Admin UI configuration update
+      await app.pluginManager.updatePluginConfig('s3-storage', {
+        bucket: 'production-assets-2026',
+        region: 'eu-west-1',
+      });
+
+      // Status route must return new bucket and region
+      statusRes = await app.server.inject({ method: 'GET', url: '/api/s3/status' });
+      expect(statusRes.json().bucket).toBe('production-assets-2026');
+      expect(statusRes.json().region).toBe('eu-west-1');
+
+      // Upload file under updated bucket: presigned URL AND _s3_uploads row must both record new bucket!
+      uploadRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/s3/sign-upload-url',
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { filename: 'second-file.png', mimeType: 'image/png' },
+      });
+      expect(uploadRes.statusCode).toBe(200);
+      expect(uploadRes.json().uploadUrl).toContain('production-assets-2026.s3.eu-west-1.amazonaws.com');
+      expect(uploadRes.json().bucket).toBe('production-assets-2026');
+
+      uploads = await app.records.getList('_s3_uploads', { sort: 'created' });
+      expect(uploads.items.length).toBe(2);
+      expect(uploads.items[1].bucket).toBe('production-assets-2026');
+      expect(uploads.items[1].url).toContain('production-assets-2026.s3.eu-west-1.amazonaws.com');
+
+      // 3. Admin UI nav item view is updated with new bucket and region
+      const navItemsRes = await app.server.inject({ method: 'GET', url: '/api/plugins' });
+      const s3NavItem = navItemsRes.json().navItems.find((item: any) => item.id === 's3-storage');
+      expect(s3NavItem).toBeDefined();
+      expect(s3NavItem.badge).toBe('EU-WEST-1');
+      expect(s3NavItem.view.description).toContain('production-assets-2026');
+      expect(s3NavItem.view.description).toContain('eu-west-1');
+      expect(s3NavItem.view.html).toContain('production-assets-2026');
+    });
   });
 
   describe('8. Official Community Extension: Resend Email Plugin', () => {

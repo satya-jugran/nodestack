@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { INodeStackPlugin, NodeStackPluginContext } from '../core/plugins/types';
+import { INodeStackPlugin, NodeStackPluginContext, AdminNavItem, AdminCustomView } from '../core/plugins/types';
 
 export interface S3StoragePluginOptions {
   bucket?: string;
@@ -188,10 +188,63 @@ export class S3StorageService {
 }
 
 export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStackPlugin {
-  const bucket = options?.bucket || process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || '';
-  const region = options?.region || process.env.S3_REGION || process.env.AWS_REGION || 'us-east-1';
+  const initialBucket = options?.bucket || process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || '';
+  const initialRegion = options?.region || process.env.S3_REGION || process.env.AWS_REGION || 'us-east-1';
   const collectionName = options?.collectionName || '_s3_uploads';
-  const s3Service = new S3StorageService({ ...options, bucket, region });
+  const s3Service = new S3StorageService({ ...options, bucket: initialBucket, region: initialRegion });
+  let currentContext: NodeStackPluginContext | null = null;
+
+  const buildAdminView = (currentBucket: string, currentRegion: string): AdminCustomView => ({
+    title: 'S3 Cloud Storage',
+    description: `Connected to bucket "${currentBucket}" in region ${currentRegion}`,
+    html: `
+      <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
+        <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <div style="width: 40px; height: 40px; border-radius: 10px; background: #eab308; display: flex; align-items: center; justify-content: center; color: #000; font-weight: 800; font-size: 18px;">
+                S3
+              </div>
+              <div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-weight: 800; font-size: 16px; color: #fff;">S3-Compatible Storage Provider</span>
+                  <span class="badge badge-get">${escapeHtml(currentRegion)}</span>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                  AWS S3, MinIO, Cloudflare R2, Wasabi & S3-compatible object storage
+                </div>
+              </div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="selectNav('home')">← Overview</button>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+            <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+              <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Bucket Name</div>
+              <div style="font-size: 13px; font-weight: 700; color: #60a5fa; font-family: monospace; margin-top: 4px;">${escapeHtml(currentBucket)}</div>
+            </div>
+            <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+              <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Region</div>
+              <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${escapeHtml(currentRegion)}</div>
+            </div>
+            <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+              <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Tracking Collection</div>
+              <div style="font-size: 13px; font-weight: 700; color: #eab308; font-family: monospace; margin-top: 4px;">${escapeHtml(collectionName)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `,
+  });
+
+  const navItem: AdminNavItem = {
+    id: 's3-storage',
+    title: 'S3 Storage',
+    badge: (s3Service.options.region || 'us-east-1').toUpperCase(),
+    badgeVariant: 'info',
+    icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>`,
+    view: buildAdminView(s3Service.options.bucket || '', s3Service.options.region || 'us-east-1'),
+  };
 
   return {
     name: 's3-storage',
@@ -256,6 +309,13 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
     },
     onConfigUpdate(newConfig) {
       s3Service.updateOptions(newConfig);
+      const effectiveBucket = s3Service.options.bucket || '';
+      const effectiveRegion = s3Service.options.region || 'us-east-1';
+      navItem.badge = effectiveRegion.toUpperCase();
+      navItem.view = buildAdminView(effectiveBucket, effectiveRegion);
+      if (currentContext) {
+        currentContext.registerAdminNav(navItem);
+      }
     },
 
     collections: [
@@ -274,70 +334,23 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
       },
     ],
 
-    adminNavItems: [
-      {
-        id: 's3-storage',
-        title: 'S3 Storage',
-        badge: region.toUpperCase(),
-        badgeVariant: 'info',
-        icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>`,
-        view: {
-          title: 'S3 Cloud Storage',
-          description: `Connected to bucket "${bucket}" in region ${region}`,
-          html: `
-            <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
-              <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
-                <div style="display: flex; align-items: center; justify-content: space-between;">
-                  <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <div style="width: 40px; height: 40px; border-radius: 10px; background: #eab308; display: flex; align-items: center; justify-content: center; color: #000; font-weight: 800; font-size: 18px;">
-                      S3
-                    </div>
-                    <div>
-                      <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-weight: 800; font-size: 16px; color: #fff;">S3-Compatible Storage Provider</span>
-                        <span class="badge badge-get">${escapeHtml(region)}</span>
-                      </div>
-                      <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-                        AWS S3, MinIO, Cloudflare R2, Wasabi & S3-compatible object storage
-                      </div>
-                    </div>
-                  </div>
-                  <button class="btn btn-secondary btn-sm" onclick="selectNav('home')">← Overview</button>
-                </div>
-
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
-                  <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
-                    <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Bucket Name</div>
-                    <div style="font-size: 13px; font-weight: 700; color: #60a5fa; font-family: monospace; margin-top: 4px;">${escapeHtml(bucket)}</div>
-                  </div>
-                  <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
-                    <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Region</div>
-                    <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${escapeHtml(region)}</div>
-                  </div>
-                  <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
-                    <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Tracking Collection</div>
-                    <div style="font-size: 13px; font-weight: 700; color: #eab308; font-family: monospace; margin-top: 4px;">${escapeHtml(collectionName)}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          `,
-        },
-      },
-    ],
+    adminNavItems: [navItem],
 
     register(ctx: NodeStackPluginContext) {
+      currentContext = ctx;
       // 1. Bind service into container
       ctx.bindService(Symbol.for('S3StorageService'), s3Service);
 
       // 2. Register custom endpoints
       ctx.registerRoute('GET', '/api/s3/status', async (_req, reply) => {
+        const effectiveBucket = s3Service.options.bucket || '';
+        const effectiveRegion = s3Service.options.region || 'us-east-1';
         return reply.send({
-          bucket: options.bucket,
-          region: options.region,
+          bucket: effectiveBucket,
+          region: effectiveRegion,
           endpoint: s3Service.getBucketEndpoint(),
           collection: collectionName,
-          connected: true,
+          connected: Boolean(effectiveBucket),
         });
       });
 
@@ -354,11 +367,13 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
             key: body.key,
           });
 
+          const effectiveBucket = s3Service.options.bucket || '';
+
           // Record entry in system collection
           try {
             await ctx.app.records.create(collectionName, {
               key: presigned.key,
-              bucket: options.bucket,
+              bucket: effectiveBucket,
               mimeType,
               url: s3Service.getObjectUrl(presigned.key),
             });
@@ -370,6 +385,10 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
         },
         { auth: options.authPolicy || 'admin' }
       );
+    },
+
+    onDestroy() {
+      currentContext = null;
     },
   };
 }
