@@ -3,8 +3,8 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { INodeStackPlugin, NodeStackPluginContext } from '../core/plugins/types';
 
 export interface S3StoragePluginOptions {
-  bucket: string;
-  region: string;
+  bucket?: string;
+  region?: string;
   endpoint?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
@@ -17,7 +17,7 @@ export interface S3StoragePluginOptions {
 export class S3StorageService {
   public options: S3StoragePluginOptions;
 
-  constructor(options: S3StoragePluginOptions) {
+  constructor(options: S3StoragePluginOptions = {}) {
     this.options = { ...options };
   }
 
@@ -78,6 +78,7 @@ export class S3StorageService {
       process.env.AWS_SECRET_ACCESS_KEY ||
       'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
     const region = this.options.region || 'us-east-1';
+    const bucket = this.options.bucket || '';
     const expiresIn = options?.expiresIn || 3600;
     const method = options?.method || 'PUT';
 
@@ -99,12 +100,12 @@ export class S3StorageService {
       if (isPathStyle) {
         host = u.host;
         const basePath = u.pathname.replace(/\/+$/, '');
-        canonicalUri = `${basePath}/${encodeURIComponent(this.options.bucket)}/${key
+        canonicalUri = `${basePath}/${encodeURIComponent(bucket)}/${key
           .split('/')
           .map(encodeURIComponent)
           .join('/')}`;
       } else {
-        host = `${this.options.bucket}.${u.host}`;
+        host = `${bucket}.${u.host}`;
         const basePath = u.pathname.replace(/\/+$/, '');
         canonicalUri = `${basePath}/${key.split('/').map(encodeURIComponent).join('/')}`;
       }
@@ -112,12 +113,12 @@ export class S3StorageService {
       const isPathStyle = this.options.forcePathStyle ?? false;
       if (isPathStyle) {
         host = `s3.${region}.amazonaws.com`;
-        canonicalUri = `/${encodeURIComponent(this.options.bucket)}/${key
+        canonicalUri = `/${encodeURIComponent(bucket)}/${key
           .split('/')
           .map(encodeURIComponent)
           .join('/')}`;
       } else {
-        host = `${this.options.bucket}.s3.${region}.amazonaws.com`;
+        host = `${bucket}.s3.${region}.amazonaws.com`;
         canonicalUri = `/${key.split('/').map(encodeURIComponent).join('/')}`;
       }
     }
@@ -178,15 +179,15 @@ export class S3StorageService {
     return {
       key,
       uploadUrl,
-      bucket: this.options.bucket,
-      region: this.options.region,
+      bucket,
+      region,
       mimeType: mimeType || 'application/octet-stream',
       expiresIn,
     };
   }
 }
 
-export function s3StoragePlugin(options: S3StoragePluginOptions = {} as any): INodeStackPlugin {
+export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStackPlugin {
   const bucket = options?.bucket || process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || '';
   const region = options?.region || process.env.S3_REGION || process.env.AWS_REGION || 'us-east-1';
   const collectionName = options?.collectionName || '_s3_uploads';
@@ -277,12 +278,12 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {} as any): IN
       {
         id: 's3-storage',
         title: 'S3 Storage',
-        badge: options.region.toUpperCase(),
+        badge: region.toUpperCase(),
         badgeVariant: 'info',
         icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>`,
         view: {
           title: 'S3 Cloud Storage',
-          description: `Connected to bucket "${options.bucket}" in region ${options.region}`,
+          description: `Connected to bucket "${bucket}" in region ${region}`,
           html: `
             <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
               <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
@@ -294,7 +295,7 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {} as any): IN
                     <div>
                       <div style="display: flex; align-items: center; gap: 8px;">
                         <span style="font-weight: 800; font-size: 16px; color: #fff;">S3-Compatible Storage Provider</span>
-                        <span class="badge badge-get">${escapeHtml(options.region)}</span>
+                        <span class="badge badge-get">${escapeHtml(region)}</span>
                       </div>
                       <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
                         AWS S3, MinIO, Cloudflare R2, Wasabi & S3-compatible object storage
@@ -307,11 +308,11 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {} as any): IN
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
                   <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
                     <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Bucket Name</div>
-                    <div style="font-size: 13px; font-weight: 700; color: #60a5fa; font-family: monospace; margin-top: 4px;">${escapeHtml(options.bucket)}</div>
+                    <div style="font-size: 13px; font-weight: 700; color: #60a5fa; font-family: monospace; margin-top: 4px;">${escapeHtml(bucket)}</div>
                   </div>
                   <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
                     <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Region</div>
-                    <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${escapeHtml(options.region)}</div>
+                    <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${escapeHtml(region)}</div>
                   </div>
                   <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
                     <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Tracking Collection</div>

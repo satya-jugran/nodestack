@@ -1419,6 +1419,23 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(resendStatus.statusCode).toBe(200);
       expect(resendStatus.json().configured).toBe(true);
     });
+
+    it('should support invoking plugin factories with zero arguments (no-options / env-only)', () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8120 });
+
+      // Zero-options invocations must compile and execute cleanly
+      app.use(workspaceStripePlugin());
+      app.use(workspaceS3Plugin());
+      app.use(workspaceResendPlugin());
+      app.use(workspaceWebhookPlugin());
+      app.use(workspaceAlgoliaPlugin());
+
+      expect(app.hasPlugin('stripe')).toBe(true);
+      expect(app.hasPlugin('s3-storage')).toBe(true);
+      expect(app.hasPlugin('resend')).toBe(true);
+      expect(app.hasPlugin('webhooks')).toBe(true);
+      expect(app.hasPlugin('algolia')).toBe(true);
+    });
   });
 
   describe('12. Admin UI DOM Interactions & Navigation for Plugins', () => {

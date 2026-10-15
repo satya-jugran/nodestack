@@ -3,10 +3,10 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { INodeStackPlugin, NodeStackPluginContext } from '../core/plugins/types';
 
 export interface AlgoliaPluginOptions {
-  appId: string;
-  apiKey: string;
+  appId?: string;
+  apiKey?: string;
   indexPrefix?: string;
-  collections: string[];
+  collections?: string[];
   collectionName?: string;
   /** Authentication policy for reindex endpoint: 'admin' (default), 'adminOrInitial', 'user', or 'public' */
   authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
@@ -39,7 +39,7 @@ export class AlgoliaSyncService {
     error?: string;
   }> = [];
 
-  constructor(options: AlgoliaPluginOptions) {
+  constructor(options: AlgoliaPluginOptions = {}) {
     this.options = { ...options };
   }
 
@@ -56,13 +56,13 @@ export class AlgoliaSyncService {
     if (this.options.endpoint) {
       return this.options.endpoint.replace(/\/+$/, '');
     }
-    return `https://${this.options.appId}-dsn.algolia.net`;
+    return `https://${this.options.appId || 'app'}-dsn.algolia.net`;
   }
 
   public getHeaders(): Record<string, string> {
     return {
-      'X-Algolia-Application-Id': this.options.appId,
-      'X-Algolia-API-Key': this.options.apiKey,
+      'X-Algolia-Application-Id': this.options.appId || '',
+      'X-Algolia-API-Key': this.options.apiKey || '',
       'Content-Type': 'application/json',
     };
   }
@@ -251,7 +251,7 @@ export class AlgoliaSyncService {
   }
 }
 
-export function algoliaPlugin(options: AlgoliaPluginOptions = {} as any): INodeStackPlugin {
+export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlugin {
   const appId = options?.appId || process.env.ALGOLIA_APP_ID || '';
   const apiKey = options?.apiKey || process.env.ALGOLIA_API_KEY || '';
   const algoliaService = new AlgoliaSyncService({ ...options, appId, apiKey });

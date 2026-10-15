@@ -3,7 +3,7 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { INodeStackPlugin, NodeStackPluginContext } from '../core/plugins/types';
 
 export interface StripePluginOptions {
-  secretKey: string;
+  secretKey?: string;
   webhookSecret?: string;
   currency?: string;
   customersCollection?: string;
@@ -29,7 +29,7 @@ export interface StripeCheckoutSessionResult {
 export class StripeService {
   public options: StripePluginOptions;
 
-  constructor(options: StripePluginOptions) {
+  constructor(options: StripePluginOptions = {}) {
     this.options = { ...options };
   }
 
@@ -219,7 +219,7 @@ export class StripeService {
   }
 }
 
-export function stripePlugin(options: StripePluginOptions = {} as any): INodeStackPlugin {
+export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugin {
   const secretKey = options?.secretKey || process.env.STRIPE_SECRET_KEY || '';
   const customersCol = options?.customersCollection || '_stripe_customers';
   const paymentsCol = options?.paymentsCollection || '_stripe_payments';

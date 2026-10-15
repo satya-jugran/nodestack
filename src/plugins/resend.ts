@@ -3,7 +3,7 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { INodeStackPlugin, NodeStackPluginContext } from '../core/plugins/types';
 
 export interface ResendPluginOptions {
-  apiKey: string;
+  apiKey?: string;
   from?: string;
   collectionName?: string;
   /** Authentication policy for send endpoint: 'admin' (default), 'adminOrInitial', 'user', or 'public' */
@@ -29,7 +29,7 @@ export interface ResendEmailResult {
 export class ResendEmailService {
   public options: ResendPluginOptions;
 
-  constructor(options: ResendPluginOptions) {
+  constructor(options: ResendPluginOptions = {}) {
     this.options = { ...options };
   }
 
@@ -119,7 +119,7 @@ export class ResendEmailService {
   }
 }
 
-export function resendPlugin(options: ResendPluginOptions = {} as any): INodeStackPlugin {
+export function resendPlugin(options: ResendPluginOptions = {}): INodeStackPlugin {
   const apiKey = options?.apiKey || process.env.RESEND_API_KEY || '';
   const emailService = new ResendEmailService({ ...options, apiKey });
   const collectionName = options?.collectionName || '_email_logs';

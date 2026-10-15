@@ -30,7 +30,7 @@ export class WebhookNotificationService {
   public dispatched: WebhookDispatchResult[] = [];
   public options: WebhookPluginOptions;
 
-  constructor(options: WebhookPluginOptions) {
+  constructor(options: WebhookPluginOptions = {}) {
     this.options = { ...options };
   }
 
