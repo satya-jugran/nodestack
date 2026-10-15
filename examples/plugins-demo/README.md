@@ -40,15 +40,19 @@ The unified demo server will start on **`http://localhost:8090`**.
 
 ---
 
-## 🔑 Pre-Seeded Default Credentials
+## 🔑 Pre-Seeded Default Credentials & Loopback Security
 
-The demo server automatically seeds an administrative user upon startup:
+To ensure safety when running locally with known default credentials, the demo server strictly binds to **`127.0.0.1` (loopback)** by default, preventing accidental exposure of the administrative account to the local network or Wi-Fi.
 
-| Field | Value |
-|---|---|
-| **Admin Email** | `admin@nodestack.io` |
-| **Password** | `Password123!` |
-| **Admin Portal** | `http://localhost:8090/_/` |
+| Field | Default Value | Environment Override |
+|---|---|---|
+| **Interface Binding** | `127.0.0.1` | `HOST` (e.g. `127.0.0.1`) |
+| **Port** | `8090` | `PORT` |
+| **Admin Email** | `admin@nodestack.io` | `DEMO_ADMIN_EMAIL` |
+| **Password** | `Password123!` | `DEMO_ADMIN_PASSWORD` |
+| **Admin Portal** | `http://localhost:8090/_/` | |
+
+> 🔒 **Security Notice**: If `HOST` is configured to a non-loopback address (such as `0.0.0.0`), provide a custom `DEMO_ADMIN_PASSWORD` to protect the admin portal from unauthorized network access.
 
 ---
 

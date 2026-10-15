@@ -12,14 +12,22 @@ import {
 async function bootstrap() {
   const dataDir = path.resolve(__dirname, 'demo_data');
   const port = Number(process.env.PORT) || 8090;
+  const host = process.env.HOST || '127.0.0.1';
 
   console.log('\n======================================================');
   console.log('   🚀 Starting NodeStack Plugins Showcase Demo Server   ');
   console.log('======================================================\n');
 
+  if (host !== '127.0.0.1' && host !== 'localhost' && !process.env.DEMO_ADMIN_PASSWORD) {
+    console.warn(
+      `⚠️  SECURITY WARNING: Server is binding to a non-loopback address (${host}) with default demo credentials. Set DEMO_ADMIN_PASSWORD to protect your instance.`
+    );
+  }
+
   const app = new NodeStack({
     dataDir,
     port,
+    host,
   });
 
   // 1. Mount Official Community Extensions
@@ -163,19 +171,24 @@ async function bootstrap() {
   }
 
   // Pre-seed admin user if none exists
+  const adminEmail = process.env.DEMO_ADMIN_EMAIL || 'admin@nodestack.io';
+  const adminPassword = process.env.DEMO_ADMIN_PASSWORD || 'Password123!';
+
   if (!app.auth.hasAdmins()) {
-    console.log('👤 Seeding default admin account (admin@nodestack.io)...');
-    await app.auth.createAdmin('admin@nodestack.io', 'Password123!');
+    console.log(`👤 Seeding default admin account (${adminEmail})...`);
+    await app.auth.createAdmin(adminEmail, adminPassword);
   }
 
-  // 5. Start server
-  await app.start();
+  // 5. Start server (bound to loopback 127.0.0.1 by default)
+  await app.start(port, host);
 
+  const displayHost = host === '0.0.0.0' ? 'localhost' : host;
   console.log('\n------------------------------------------------------');
   console.log(`  🎉 NodeStack Demo Server is READY!`);
-  console.log(`  🌐 Interactive Demo App : http://localhost:${port}/demo/`);
-  console.log(`  🛠️  Admin UI Control Panel: http://localhost:${port}/_/`);
-  console.log(`  👤 Admin Credentials    : admin@nodestack.io / Password123!`);
+  console.log(`  🔒 Interface Binding    : ${host}:${port} (${host === '127.0.0.1' ? 'Loopback - protected from local network' : 'Exposed'})`);
+  console.log(`  🌐 Interactive Demo App : http://${displayHost}:${port}/demo/`);
+  console.log(`  🛠️  Admin UI Control Panel: http://${displayHost}:${port}/_/`);
+  console.log(`  👤 Admin Credentials    : ${adminEmail} / ${process.env.DEMO_ADMIN_PASSWORD ? '********' : adminPassword}`);
   console.log('------------------------------------------------------\n');
 }
 
