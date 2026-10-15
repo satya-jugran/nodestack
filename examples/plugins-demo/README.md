@@ -64,7 +64,7 @@ To ensure safety when running locally with known default credentials, the demo s
 ## 🛠️ Interactive Features & Plugin Testing
 
 ### 1. Stripe Plugin (`@nodestackapp/plugin-stripe`)
-- **Checkout Sessions**: Select a pre-seeded product (e.g. Mechanical Keyboard Pro, $149) or enter custom amounts to initiate Stripe Checkout sessions via `/api/stripe/create-checkout-session`.
+- **Checkout Sessions**: Select a pre-seeded product (e.g. Mechanical Keyboard Pro, $149) or enter custom amounts to initiate Stripe Checkout sessions via `/api/stripe/checkout-session`.
 - **Webhook Simulator**: Test `checkout.session.completed` lifecycle events. NodeStack validates and logs payment records to `_stripe_payments` and triggers application event bus notifications.
 
 ### 2. S3 Storage Plugin (`@nodestackapp/plugin-s3`)
