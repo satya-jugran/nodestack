@@ -27,7 +27,15 @@ export interface ResendEmailResult {
 }
 
 export class ResendEmailService {
-  constructor(public readonly options: ResendPluginOptions) {}
+  public options: ResendPluginOptions;
+
+  constructor(options: ResendPluginOptions) {
+    this.options = { ...options };
+  }
+
+  public updateOptions(newOpts: Partial<ResendPluginOptions>): void {
+    this.options = { ...this.options, ...newOpts };
+  }
 
   public getBaseUrl(): string {
     if (this.options.endpoint) {
@@ -111,18 +119,57 @@ export class ResendEmailService {
   }
 }
 
-export function resendPlugin(options: ResendPluginOptions): INodeStackPlugin {
-  if (!options || !options.apiKey) {
-    throw new Error('[resendPlugin] Missing required option: apiKey');
-  }
-
-  const emailService = new ResendEmailService(options);
-  const collectionName = options.collectionName || '_email_logs';
+export function resendPlugin(options: ResendPluginOptions = {} as any): INodeStackPlugin {
+  const apiKey = options?.apiKey || process.env.RESEND_API_KEY || '';
+  const emailService = new ResendEmailService({ ...options, apiKey });
+  const collectionName = options?.collectionName || '_email_logs';
 
   return {
     name: 'resend',
     version: '1.0.0',
     description: 'Resend transactional email delivery service & dispatch logs',
+
+    codeOptions: { ...(options || {}) },
+    configSchema: {
+      fields: [
+        {
+          name: 'apiKey',
+          label: 'Resend API Key',
+          type: 'password',
+          envKey: 'RESEND_API_KEY',
+          placeholder: 're_123456789...',
+          description: 'Resend API authentication key starting with re_',
+          required: true,
+        },
+        {
+          name: 'from',
+          label: 'Sender Email (From)',
+          type: 'text',
+          envKey: 'RESEND_FROM',
+          defaultValue: 'onboarding@resend.dev',
+          placeholder: 'Acme <onboarding@yourdomain.com>',
+          description: 'Default sender address for transactional emails',
+        },
+        {
+          name: 'endpoint',
+          label: 'Custom API Endpoint',
+          type: 'text',
+          envKey: 'RESEND_ENDPOINT',
+          placeholder: 'https://api.resend.com',
+          description: 'Base API endpoint for proxies or test mocks',
+        },
+        {
+          name: 'dryRun',
+          label: 'Dry Run Mode',
+          type: 'boolean',
+          defaultValue: false,
+          description: 'Simulate successful email delivery without outbound HTTP calls',
+        },
+      ],
+    },
+    onConfigUpdate(newConfig) {
+      emailService.updateOptions(newConfig);
+    },
 
     collections: [
       {

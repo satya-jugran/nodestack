@@ -39,7 +39,7 @@ function updateDemoSidebarDot() {
 // ==========================================
 
 function renderSnapshotsView() {
-  const main = document.getElementById('main-body');
+  const main = document.getElementById('page-view-snapshots') || document.getElementById('main-body');
   if (!main) return;
 
   const hasSnap = Boolean(state.demo && state.demo.hasSnapshot && state.demo.snapshot);

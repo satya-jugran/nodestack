@@ -24,13 +24,23 @@
           </div>
           <span>NodeStack</span>
         </div>
-        <span class="version-tag">v1.1.0</span>
+        <span class="version-tag">v1.2.0</span>
       </div>
 
       <div style="padding: 0.75rem 1rem 0.25rem; display: flex; flex-direction: column; gap: 4px;">
         <div class="sidebar-nav-item active" id="nav-home" onclick="selectNav('home')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
           <span>Dashboard Overview</span>
+        </div>
+        <div class="sidebar-nav-item" id="nav-collections" onclick="selectNav('collections')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          <span>Collections</span>
+          <span class="badge badge-get" id="sidebar-collections-count" style="margin-left: auto; font-size: 10px; padding: 1px 6px;">0</span>
+        </div>
+        <div class="sidebar-nav-item" id="nav-plugins" onclick="selectNav('plugins')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>Plugins</span>
+          <span class="badge badge-primary" id="sidebar-plugins-badge" style="margin-left: auto; font-size: 10px; padding: 1px 6px; display: none;">0</span>
         </div>
         <div class="sidebar-nav-item" id="nav-analytics" onclick="selectNav('analytics')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
@@ -43,81 +53,7 @@
         </div>
       </div>
 
-      <!-- Plugins Navigation Group -->
-      <div id="sidebar-plugins-group" style="display: none; padding: 0.25rem 1rem 0.25rem; flex-direction: column; gap: 4px;">
-        <div class="sidebar-section-title" style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 6px 0 2px 2px;">
-          Plugins
-        </div>
-        <div id="sidebar-plugin-items" style="display: flex; flex-direction: column; gap: 4px;">
-          <!-- Dynamically populated -->
-        </div>
-      </div>
-
-      <div class="sidebar-section">
-        <span>Collections</span>
-        <div class="dropdown-wrapper">
-          <button class="btn btn-secondary btn-sm" id="btn-collection-new-dropdown" onclick="toggleCollectionCreateMenu(event)" title="Create or import collection" style="padding: 2px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
-            <span>+ New</span>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
-          </button>
-          <div class="dropdown-menu-popover" id="collection-create-menu" style="display: none;">
-            <button class="menu-popover-item" onclick="handleCollectionMenuAction('new')">
-              <span class="popover-icon">➕</span>
-              <div class="popover-text">
-                <div class="popover-title">New Collection</div>
-                <div class="popover-desc">Create blank schema from scratch</div>
-              </div>
-            </button>
-            <button class="menu-popover-item" onclick="handleCollectionMenuAction('templates')">
-              <span class="popover-icon">✨</span>
-              <div class="popover-text">
-                <div class="popover-title">Starter Templates</div>
-                <div class="popover-desc">E-Commerce, Blog, CRM recipes</div>
-              </div>
-            </button>
-            <button class="menu-popover-item" onclick="handleCollectionMenuAction('import')">
-              <span class="popover-icon">⚡</span>
-              <div class="popover-text">
-                <div class="popover-title">Import JSON</div>
-                <div class="popover-desc">Paste JSON → Instant API schema</div>
-              </div>
-            </button>
-          </div>
-        </div>
-      </div>
-
-
-      <div class="sidebar-collection-filter" id="sidebar-collection-filter">
-        <div class="collection-filter-inner">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-          <input 
-            type="text" 
-            id="collection-filter-input" 
-            class="collection-filter-input" 
-            placeholder="Filter collections..." 
-            oninput="handleCollectionFilterInput(this.value)" 
-            autocomplete="off" 
-            spellcheck="false"
-          >
-          <button 
-            type="button" 
-            id="collection-filter-clear-btn" 
-            class="filter-clear-btn" 
-            onclick="clearCollectionFilter()" 
-            title="Clear filter" 
-            style="display:none;"
-          >✕</button>
-        </div>
-      </div>
-
-      <div class="collections-list" id="collections-list">
-        <!-- Rendered dynamically -->
-      </div>
-
-      <div class="sidebar-bottom">
+      <div class="sidebar-bottom" style="margin-top: auto;">
         <a href="/_/docs" target="_blank" class="sidebar-nav-item" id="nav-docs" style="text-decoration: none; color: inherit;" title="Interactive OpenAPI 3.0 Reference">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
           <span>API Docs (OpenAPI)</span>
@@ -178,7 +114,146 @@
 
       <!-- Main Body -->
       <div class="content-body" id="main-body">
-        <!-- Dynamic Content injected by JS -->
+        <!-- 1. Home / Dashboard Overview Page View -->
+        <div id="page-view-home" class="app-page-view" style="display: block;">
+          <!-- Injected by renderHomeView() -->
+        </div>
+
+        <!-- 2. Dedicated Collections Page View -->
+        <div id="page-view-collections" class="app-page-view" style="display: none; height: 100%;">
+          <div class="page-layout-master-detail">
+            <!-- Submenu Rail: Collections navigation, search, and groups -->
+            <aside class="page-submenu-rail" id="collections-submenu-rail" aria-label="Collections sub-navigation">
+              <div class="submenu-rail-header">
+                <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 13px;">📦</span>
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Collections</span>
+                  </div>
+                  <div class="dropdown-wrapper">
+                    <button class="btn btn-secondary btn-sm" id="btn-collection-new-dropdown" onclick="toggleCollectionCreateMenu(event)" title="Create or import collection" style="padding: 2px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                      <span>+ New</span>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    </button>
+                    <div class="dropdown-menu-popover" id="collection-create-menu" style="display: none;">
+                      <button class="menu-popover-item" onclick="handleCollectionMenuAction('new')">
+                        <span class="popover-icon">➕</span>
+                        <div class="popover-text">
+                          <div class="popover-title">New Collection</div>
+                          <div class="popover-desc">Create blank schema from scratch</div>
+                        </div>
+                      </button>
+                      <button class="menu-popover-item" onclick="handleCollectionMenuAction('templates')">
+                        <span class="popover-icon">✨</span>
+                        <div class="popover-text">
+                          <div class="popover-title">Starter Templates</div>
+                          <div class="popover-desc">E-Commerce, Blog, CRM recipes</div>
+                        </div>
+                      </button>
+                      <button class="menu-popover-item" onclick="handleCollectionMenuAction('import')">
+                        <span class="popover-icon">⚡</span>
+                        <div class="popover-text">
+                          <div class="popover-title">Import JSON</div>
+                          <div class="popover-desc">Paste JSON → Instant API schema</div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Collection Filter -->
+              <div class="sidebar-collection-filter" id="sidebar-collection-filter" style="padding: 0 0 0.5rem 0;">
+                <div class="collection-filter-inner">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  <input 
+                    type="text" 
+                    id="collection-filter-input" 
+                    class="collection-filter-input" 
+                    placeholder="Filter collections..." 
+                    oninput="handleCollectionFilterInput(this.value)" 
+                    autocomplete="off" 
+                    spellcheck="false"
+                  >
+                  <button 
+                    type="button" 
+                    id="collection-filter-clear-btn" 
+                    class="filter-clear-btn" 
+                    onclick="clearCollectionFilter()" 
+                    title="Clear filter" 
+                    style="display:none;"
+                  >✕</button>
+                </div>
+              </div>
+
+              <!-- Categorized Collections List -->
+              <div class="collections-list" id="collections-list" style="padding: 0; flex: 1; overflow-y: auto;">
+                <!-- Rendered dynamically by renderCollectionsList() -->
+              </div>
+            </aside>
+
+            <!-- Main Details Area for Collections Page -->
+            <section class="page-detail-content" id="collections-detail-pane" style="flex: 1; min-width: 0; display: flex; flex-direction: column; overflow-y: auto;">
+              <!-- If collection selected: collection-tabs and records/schema view -->
+              <!-- If no collection selected: Collections Hub Overview -->
+            </section>
+          </div>
+        </div>
+
+        <!-- 3. Dedicated Plugins Page View -->
+        <div id="page-view-plugins" class="app-page-view" style="display: none; height: 100%;">
+          <div class="page-layout-master-detail">
+            <!-- Submenu Rail: Installed Plugins list and quick actions -->
+            <aside class="page-submenu-rail" id="plugins-submenu-rail" aria-label="Plugins sub-navigation">
+              <div class="submenu-rail-header">
+                <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 13px;">🧩</span>
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Installed Plugins</span>
+                  </div>
+                  <span class="badge badge-primary" id="plugins-rail-count" style="font-size: 10px; padding: 1px 6px;">0</span>
+                </div>
+              </div>
+
+              <!-- Plugins Navigation Group -->
+              <div id="sidebar-plugins-group" style="display: flex; flex-direction: column; gap: 4px; flex: 1; overflow-y: auto;">
+                <div id="sidebar-plugin-items" style="display: flex; flex-direction: column; gap: 4px;">
+                  <!-- Dynamically populated with nav-stripe, nav-s3-storage, nav-resend, etc. -->
+                </div>
+              </div>
+
+              <!-- Submenu Rail Footer: Link to Demo App Portal -->
+              <div style="margin-top: auto; padding-top: 0.75rem; border-top: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 4px;">
+                <a href="/demo/" target="_blank" class="sidebar-nav-item" style="text-decoration: none; color: inherit; font-size: 12px; padding: 6px 8px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  <span>Demo App Portal</span>
+                  <span style="margin-left: auto; font-size: 10px; opacity: 0.6;">↗</span>
+                </a>
+              </div>
+            </aside>
+
+            <!-- Main Details Area for Plugins Page -->
+            <section class="page-detail-content" id="plugins-detail-pane" style="flex: 1; min-width: 0; display: flex; flex-direction: column; overflow-y: auto;">
+              <!-- If plugin selected: renders plugin view -->
+              <!-- If no plugin selected: renders Plugins Hub Overview -->
+            </section>
+          </div>
+        </div>
+
+        <!-- 4. Analytics & Metrics Page View -->
+        <div id="page-view-analytics" class="app-page-view" style="display: none;"></div>
+
+        <!-- 5. Demo Snapshots Page View -->
+        <div id="page-view-snapshots" class="app-page-view" style="display: none;"></div>
+
+        <!-- 6. Traffic & Logs Page View -->
+        <div id="page-view-logs" class="app-page-view" style="display: none;"></div>
+
+        <!-- 7. System & Settings Page View -->
+        <div id="page-view-settings" class="app-page-view" style="display: none;"></div>
       </div>
     </main>
   </div>

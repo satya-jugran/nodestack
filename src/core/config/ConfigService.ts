@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import { loadEnvFile } from './EnvLoader';
 
 export interface NodeStackConfigOptions {
   dataDir?: string;
@@ -39,6 +40,7 @@ export class ConfigService {
   public readonly mockErrorMessage?: string;
 
   constructor(options: NodeStackConfigOptions = {}) {
+    loadEnvFile();
     this.dataDir = path.resolve(options.dataDir || process.env.NODESTACK_DATA_DIR || process.env.NODEBASE_DATA_DIR || './nodestack_data');
     this.port = options.port || Number(process.env.NODESTACK_PORT || process.env.NODEBASE_PORT) || 8090;
     this.host = options.host || process.env.NODESTACK_HOST || process.env.NODEBASE_HOST || '0.0.0.0';

@@ -16,8 +16,14 @@
 
       const res = await fetch(path, { ...options, headers });
       if (res.status === 401) {
-        logout();
-        throw new Error('Session expired');
+        const isAuthEndpoint = path.includes('auth-with-password') || path.includes('create-initial');
+        const errData = await res.json().catch(() => ({}));
+        const message = errData.message || (isAuthEndpoint ? 'Invalid admin credentials' : 'Session expired');
+
+        if (!isAuthEndpoint) {
+          logout();
+        }
+        throw new Error(message);
       }
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));

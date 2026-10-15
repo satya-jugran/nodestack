@@ -1,6 +1,7 @@
-import { FastifyInstance, RouteHandlerMethod } from 'fastify';
+import { FastifyInstance, FastifyReply, FastifyRequest, RouteHandlerMethod } from 'fastify';
 import { Container } from '../container/Container';
 import { TOKENS, ServiceIdentifier } from '../container/Tokens';
+import { AppError, NotFoundError } from '../errors/AppError';
 import {
   INodeStackPlugin,
   NodeStackPlugin,
@@ -9,6 +10,9 @@ import {
   RegisteredPluginRecord,
   HttpMethod,
   PluginRouteOptions,
+  PluginConfigResult,
+  ResolvedPluginConfigField,
+  PluginConfigSource,
 } from './types';
 import type { NodeStack } from '../../NodeStack';
 
@@ -21,7 +25,10 @@ export class PluginManager {
   constructor(
     private readonly app: NodeStack,
     private readonly container: Container
-  ) {}
+  ) {
+    this.initSettingsTable();
+    this.registerConfigRoutes();
+  }
 
   /**
    * Install/use a plugin on the NodeStack instance
@@ -238,6 +245,7 @@ export class PluginManager {
       name: plugin.name,
       version: plugin.version,
       description: plugin.description,
+      hasConfig: Boolean(plugin.configSchema?.fields && plugin.configSchema.fields.length > 0),
     });
 
     // 9. Store plugin record
@@ -247,6 +255,23 @@ export class PluginManager {
       context,
       status: 'registered',
     });
+
+    // 10. If plugin defines configSchema and onConfigUpdate, hydrate with effective initial settings
+    if (plugin.configSchema?.fields && typeof plugin.onConfigUpdate === 'function') {
+      try {
+        const resolved = this.getPluginConfig(plugin.name);
+        const effective: Record<string, any> = {};
+        for (const f of resolved.fields) {
+          if (f.value !== undefined && f.value !== '') {
+            effective[f.name] = f.value;
+          }
+        }
+        const initialSync = plugin.onConfigUpdate(effective);
+        if (initialSync instanceof Promise) {
+          this.pendingInits.push(initialSync.catch(() => {}));
+        }
+      } catch {}
+    }
 
     return this;
   }
@@ -324,6 +349,250 @@ export class PluginManager {
     delete options.requireAdmin;
 
     return options;
+  }
+
+  /**
+   * Initialize SQLite settings table for plugins if not already present
+   */
+  private initSettingsTable(): void {
+    try {
+      if (this.app.db && typeof this.app.db.run === 'function') {
+        this.app.db.run(`
+          CREATE TABLE IF NOT EXISTS _plugin_settings (
+            pluginName TEXT PRIMARY KEY,
+            settings TEXT NOT NULL DEFAULT '{}',
+            updatedAt TEXT NOT NULL
+          )
+        `);
+      }
+    } catch {
+      // Ignore during mock or container tests
+    }
+  }
+
+  /**
+   * Register Fastify routes for retrieving and updating plugin configuration
+   */
+  private registerConfigRoutes(): void {
+    const fastify = this.app.server?.app;
+    if (!fastify) return;
+
+    fastify.get(
+      '/api/plugins/:name/config',
+      { preHandler: this.app.authMiddleware.requireAdmin() },
+      async (req: FastifyRequest, reply: FastifyReply) => {
+        const { name } = req.params as { name: string };
+        try {
+          const config = this.getPluginConfig(name);
+          return reply.send(config);
+        } catch (err: any) {
+          const statusCode = err.statusCode || 404;
+          return reply.status(statusCode).send({
+            statusCode,
+            message: err.message || `Plugin "${name}" not found`,
+          });
+        }
+      }
+    );
+
+    fastify.put(
+      '/api/plugins/:name/config',
+      { preHandler: this.app.authMiddleware.requireAdmin() },
+      async (req: FastifyRequest, reply: FastifyReply) => {
+        const { name } = req.params as { name: string };
+        const body = (req.body as any) || {};
+        try {
+          const updated = await this.updatePluginConfig(name, body);
+          return reply.send(updated);
+        } catch (err: any) {
+          const statusCode = err.statusCode || 400;
+          return reply.status(statusCode).send({
+            statusCode,
+            message: err.message,
+          });
+        }
+      }
+    );
+  }
+
+  /**
+   * Option B: Resolve plugin configuration with strict environment & code precedence.
+   * If a setting is defined via process.env or code options, it is locked.
+   * If not defined in code/env, it is editable via SQLite database (_plugin_settings).
+   */
+  public getPluginConfig(name: string): PluginConfigResult {
+    let record = this.plugins.get(name);
+    if (!record) {
+      for (const rec of this.plugins.values()) {
+        if (rec.plugin.adminNavItems?.some((i) => i.id === name)) {
+          record = rec;
+          name = rec.name;
+          break;
+        }
+      }
+    }
+    if (!record) {
+      throw new NotFoundError(`Plugin "${name}" is not registered`);
+    }
+
+    const plugin = record.plugin;
+    if (!plugin.configSchema || !plugin.configSchema.fields || plugin.configSchema.fields.length === 0) {
+      return {
+        plugin: name,
+        hasConfig: false,
+        fields: [],
+      };
+    }
+
+    this.initSettingsTable();
+    let dbSettings: Record<string, any> = {};
+    try {
+      const row = this.app.db.get<{ settings: string }>(
+        'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+        [name]
+      );
+      if (row?.settings) {
+        dbSettings = JSON.parse(row.settings);
+      }
+    } catch {}
+
+    const fields: ResolvedPluginConfigField[] = plugin.configSchema.fields.map((field) => {
+      let value: any = undefined;
+      let isLocked = false;
+      let source: PluginConfigSource = 'default';
+      let lockReason: string | undefined = undefined;
+
+      // 1. Strict Option B: Check Environment Variable (The ONLY source that locks)
+      if (field.envKey && process.env[field.envKey] !== undefined && process.env[field.envKey] !== '') {
+        value = process.env[field.envKey];
+        isLocked = true;
+        source = 'env';
+        lockReason = `Managed by environment variable (${field.envKey})`;
+      }
+      // 2. Check Database Settings (Editable via Admin UI, overrides code fallbacks)
+      else if (dbSettings[field.name] !== undefined) {
+        value = dbSettings[field.name];
+        isLocked = false;
+        source = 'db';
+      }
+      // 3. Programmatic Code Options / Fallback (Editable in UI)
+      else if (
+        plugin.codeOptions &&
+        plugin.codeOptions[field.name] !== undefined &&
+        plugin.codeOptions[field.name] !== ''
+      ) {
+        value = plugin.codeOptions[field.name];
+        isLocked = false;
+        source = 'code';
+      }
+      // 4. Default Fallback
+      else {
+        value = field.defaultValue !== undefined ? field.defaultValue : (field.type === 'boolean' ? false : '');
+        isLocked = false;
+        source = 'default';
+      }
+
+      // Mask sensitive password/secret fields
+      let maskedValue: string | undefined = undefined;
+      if (field.type === 'password' && typeof value === 'string' && value.length > 0) {
+        maskedValue = value.length > 8 ? `${value.slice(0, 4)}••••••••${value.slice(-3)}` : '••••••••';
+      }
+
+      return {
+        ...field,
+        value,
+        maskedValue,
+        isLocked,
+        source,
+        lockReason,
+      };
+    });
+
+    return {
+      plugin: name,
+      hasConfig: true,
+      fields,
+    };
+  }
+
+  /**
+   * Option B: Update plugin configuration from Admin UI.
+   * Throws 400 Bad Request if trying to update any locked field.
+   * Saves updates to _plugin_settings and fires onConfigUpdate on the plugin.
+   */
+  public async updatePluginConfig(name: string, updates: Record<string, any>): Promise<PluginConfigResult> {
+    let record = this.plugins.get(name);
+    if (!record) {
+      for (const rec of this.plugins.values()) {
+        if (rec.plugin.adminNavItems?.some((i) => i.id === name)) {
+          record = rec;
+          name = rec.name;
+          break;
+        }
+      }
+    }
+    if (!record) {
+      throw new NotFoundError(`Plugin "${name}" is not registered`);
+    }
+
+    const currentConfig = this.getPluginConfig(name);
+    if (!currentConfig.hasConfig) {
+      throw new AppError(`Plugin "${name}" does not define a configuration schema`, 400);
+    }
+
+    this.initSettingsTable();
+    let dbSettings: Record<string, any> = {};
+    try {
+      const row = this.app.db.get<{ settings: string }>(
+        'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+        [name]
+      );
+      if (row?.settings) {
+        dbSettings = JSON.parse(row.settings);
+      }
+    } catch {}
+
+    // Validate that no locked fields are being modified
+    for (const [key, val] of Object.entries(updates)) {
+      const field = currentConfig.fields.find((f) => f.name === key);
+      if (!field) continue;
+
+      if (field.isLocked) {
+        throw new AppError(
+          `Field "${key}" is locked by ${field.lockReason || 'production environment'} and cannot be modified via UI.`,
+          400
+        );
+      }
+
+      // Format/sanitize values
+      let cleanedVal = val;
+      if (field.type === 'number') {
+        cleanedVal = val === '' ? undefined : Number(val);
+      } else if (field.type === 'boolean') {
+        cleanedVal = Boolean(val);
+      }
+      dbSettings[key] = cleanedVal;
+    }
+
+    const now = new Date().toISOString();
+    this.app.db.prepare(`
+      INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
+      VALUES (?, ?, ?)
+      ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
+    `).run(name, JSON.stringify(dbSettings), now);
+
+    // Compute effective full configuration for hot-update
+    const updatedResult = this.getPluginConfig(name);
+    const effectiveConfig: Record<string, any> = {};
+    for (const f of updatedResult.fields) {
+      effectiveConfig[f.name] = f.value;
+    }
+
+    if (typeof record.plugin.onConfigUpdate === 'function') {
+      await record.plugin.onConfigUpdate(effectiveConfig);
+    }
+
+    return updatedResult;
   }
 
   /**

@@ -28,8 +28,15 @@ export interface WebhookDispatchResult {
 
 export class WebhookNotificationService {
   public dispatched: WebhookDispatchResult[] = [];
+  public options: WebhookPluginOptions;
 
-  constructor(public readonly options: WebhookPluginOptions) {}
+  constructor(options: WebhookPluginOptions) {
+    this.options = { ...options };
+  }
+
+  public updateOptions(newOpts: Partial<WebhookPluginOptions>): void {
+    this.options = { ...this.options, ...newOpts };
+  }
 
   public getWebhookUrl(platform: 'discord' | 'slack'): string | undefined {
     if (platform === 'discord') {
@@ -185,6 +192,38 @@ export function webhookPlugin(options: WebhookPluginOptions = {}): INodeStackPlu
     name: 'webhooks',
     version: '1.0.0',
     description: 'Realtime Discord & Slack webhook notifications on database mutations',
+
+    codeOptions: { ...(options || {}) },
+    configSchema: {
+      fields: [
+        {
+          name: 'discordWebhookUrl',
+          label: 'Discord Webhook URL',
+          type: 'text',
+          envKey: 'DISCORD_WEBHOOK_URL',
+          placeholder: 'https://discord.com/api/webhooks/...',
+          description: 'Discord channel incoming webhook URL for activity dispatch',
+        },
+        {
+          name: 'slackWebhookUrl',
+          label: 'Slack Webhook URL',
+          type: 'text',
+          envKey: 'SLACK_WEBHOOK_URL',
+          placeholder: 'https://hooks.slack.com/services/...',
+          description: 'Slack incoming webhook URL for activity dispatch',
+        },
+        {
+          name: 'dryRun',
+          label: 'Dry Run Simulation',
+          type: 'boolean',
+          defaultValue: false,
+          description: 'Audit notifications to SQLite log table without making outbound HTTP calls',
+        },
+      ],
+    },
+    onConfigUpdate(newConfig) {
+      webhookService.updateOptions(newConfig);
+    },
 
     collections: [
       {

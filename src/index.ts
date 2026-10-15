@@ -5,6 +5,7 @@ export { NodeStack, NodeStackOptions, NodeBase, NodeBaseOptions } from './NodeSt
 export { Container } from './core/container/Container';
 export { TOKENS, ServiceIdentifier } from './core/container/Tokens';
 export { ConfigService, NodeStackConfigOptions, NodeBaseConfigOptions } from './core/config/ConfigService';
+export { loadEnvFile } from './core/config/EnvLoader';
 export { EventBus } from './core/events/EventBus';
 export * from './core/events/types';
 export * from './core/errors/AppError';

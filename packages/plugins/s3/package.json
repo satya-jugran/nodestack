@@ -1,6 +1,6 @@
 {
   "name": "@nodestackapp/plugin-s3",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Official S3 cloud storage plugin alias for NodeStack",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -20,7 +20,7 @@
     "access": "public"
   },
   "peerDependencies": {
-    "nodestack": "^1.1.0"
+    "nodestack": "^1.2.0"
   },
   "peerDependenciesMeta": {
     "nodestack": {

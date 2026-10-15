@@ -15,7 +15,15 @@ export interface S3StoragePluginOptions {
 }
 
 export class S3StorageService {
-  constructor(public readonly options: S3StoragePluginOptions) {}
+  public options: S3StoragePluginOptions;
+
+  constructor(options: S3StoragePluginOptions) {
+    this.options = { ...options };
+  }
+
+  public updateOptions(newOpts: Partial<S3StoragePluginOptions>): void {
+    this.options = { ...this.options, ...newOpts };
+  }
 
   public getBucketEndpoint(): string {
     const isPathStyle =
@@ -178,18 +186,76 @@ export class S3StorageService {
   }
 }
 
-export function s3StoragePlugin(options: S3StoragePluginOptions): INodeStackPlugin {
-  if (!options || !options.bucket || !options.region) {
-    throw new Error('[s3StoragePlugin] Missing required options: bucket and region');
-  }
-
-  const s3Service = new S3StorageService(options);
-  const collectionName = options.collectionName || '_s3_uploads';
+export function s3StoragePlugin(options: S3StoragePluginOptions = {} as any): INodeStackPlugin {
+  const bucket = options?.bucket || process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || '';
+  const region = options?.region || process.env.S3_REGION || process.env.AWS_REGION || 'us-east-1';
+  const collectionName = options?.collectionName || '_s3_uploads';
+  const s3Service = new S3StorageService({ ...options, bucket, region });
 
   return {
     name: 's3-storage',
     version: '1.0.0',
     description: 'S3-compatible cloud storage adapter, presigned URLs & asset synchronization',
+
+    codeOptions: { ...(options || {}) },
+    configSchema: {
+      fields: [
+        {
+          name: 'bucket',
+          label: 'S3 Bucket Name',
+          type: 'text',
+          envKey: 'S3_BUCKET',
+          placeholder: 'my-bucket',
+          description: 'Target AWS S3 or compatible object storage bucket name',
+          required: true,
+        },
+        {
+          name: 'region',
+          label: 'AWS Region',
+          type: 'text',
+          envKey: 'S3_REGION',
+          defaultValue: 'us-east-1',
+          placeholder: 'us-east-1',
+          description: 'AWS region code (e.g. us-east-1, eu-west-1, ap-south-1)',
+          required: true,
+        },
+        {
+          name: 'endpoint',
+          label: 'Custom Endpoint',
+          type: 'text',
+          envKey: 'S3_ENDPOINT',
+          placeholder: 'https://play.min.io or http://localhost:9000',
+          description: 'Custom S3 endpoint for MinIO, Cloudflare R2, or LocalStack',
+        },
+        {
+          name: 'forcePathStyle',
+          label: 'Force Path Style',
+          type: 'boolean',
+          envKey: 'S3_FORCE_PATH_STYLE',
+          defaultValue: false,
+          description: 'Enable path-style addressing (endpoint/bucket) required by MinIO',
+        },
+        {
+          name: 'accessKeyId',
+          label: 'Access Key ID',
+          type: 'text',
+          envKey: 'AWS_ACCESS_KEY_ID',
+          placeholder: 'AKIAIOSFODNN7EXAMPLE',
+          description: 'IAM Access Key ID with S3 read/write permissions',
+        },
+        {
+          name: 'secretAccessKey',
+          label: 'Secret Access Key',
+          type: 'password',
+          envKey: 'AWS_SECRET_ACCESS_KEY',
+          placeholder: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+          description: 'IAM Secret Access Key for SigV4 request authorization',
+        },
+      ],
+    },
+    onConfigUpdate(newConfig) {
+      s3Service.updateOptions(newConfig);
+    },
 
     collections: [
       {
@@ -227,11 +293,11 @@ export function s3StoragePlugin(options: S3StoragePluginOptions): INodeStackPlug
                     </div>
                     <div>
                       <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-weight: 800; font-size: 16px; color: #fff;">Amazon S3 Storage Provider</span>
+                        <span style="font-weight: 800; font-size: 16px; color: #fff;">S3-Compatible Storage Provider</span>
                         <span class="badge badge-get">${escapeHtml(options.region)}</span>
                       </div>
                       <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-                        Cloud object storage & presigned upload distribution
+                        AWS S3, MinIO, Cloudflare R2, Wasabi & S3-compatible object storage
                       </div>
                     </div>
                   </div>

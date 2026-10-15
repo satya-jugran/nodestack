@@ -78,6 +78,9 @@
     }
 
     function renderSchemaView() {
+      if (typeof showPageView === 'function') {
+        showPageView('collections');
+      }
       const col = state.activeCollection;
 
       // Initialize rules state for this collection
@@ -96,7 +99,7 @@
         <button class="btn btn-primary btn-sm" onclick="saveSchemaChanges()">Save Schema</button>
       `;
 
-      const main = document.getElementById('main-body');
+      const main = document.getElementById('collections-detail-pane') || document.getElementById('main-body');
       main.innerHTML = `
         <div style="max-width: 860px; display:flex; flex-direction:column; gap: 1.5rem;">
           <div class="form-group">

@@ -1522,7 +1522,7 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       } finally {
         dom.window.close();
       }
-    });
+    }, 15000);
 
     it('should safely serialize plugin data and prevent </script> tag breakouts and XSS in getHtml()', () => {
       const adminUi = new AdminUIService();

@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-10-14
+
+Release v1.2.0 introduces a modular Plugin Architecture with official community extensions (Stripe, S3, Resend, Webhooks, Algolia), comprehensive Admin UI usability improvements (multi-column search, interactive sorting, command palette, schema drag-and-drop reordering, and action-aware rule summaries), enhanced modal forms with keyboard shortcuts, and responsive layout refinements.
+
+### Added
+
+#### 1. Modular Plugin Architecture & Official Extensions
+* **Core Plugin Engine (`PluginManager`, `nodestack.use(plugin)`)**:
+  * Chainable plugin registration lifecycle for extending NodeStack capabilities with zero core bloat.
+  * Register custom HTTP routes with granular authentication enforcement (`auth: 'admin' | 'user' | 'public'`).
+  * Register database mutation lifecycle hooks (`beforeCreate`, `afterCreate`, `beforeUpdate`, `afterUpdate`, etc.).
+  * Register isolated system collections and custom Admin UI navigation items and views.
+  * Duplicate plugin registration safeguards and collision rejection preventing accidental alteration of user collections.
+* **Official First-Party Plugin Packages (`@nodestackapp/plugin-*`)**:
+  * **Stripe (`plugin-stripe`)**: Seamless Stripe checkout sessions, customer portal links, webhook signature verification (`stripe-signature`), and payment events.
+  * **S3 Storage (`plugin-s3`)**: Cloud storage backend for AWS S3 and S3-compatible providers (MinIO, Cloudflare R2, LocalStack) with presigned upload/download URLs and `forcePathStyle` path-resolution.
+  * **Resend (`plugin-resend`)**: Transactional email delivery via Resend API with automated delivery logging in system collections.
+  * **Webhooks (`plugin-webhooks`)**: Outbound webhook dispatches for Discord, Slack, and custom HTTP endpoints triggered on database record mutations, complete with dispatch logs and failure tracking.
+  * **Algolia (`plugin-algolia`)**: Automatic search index synchronization on database record mutations, reindexing queues, and batch sync endpoints.
+* **Plugin Tooling & CI/CD**:
+  * Dedicated build pipeline (`scripts/build-plugins.js`) for ESM, CJS, and `.d.ts` declaration generation.
+  * Automated publish utility (`scripts/publish-plugins.js`) with npm auth validation and idempotent version detection.
+  * GitHub Actions automated publishing workflow (`.github/workflows/publish.yml`).
+* **Interactive Plugins Demo Application (`examples/plugins-demo/`)**:
+  * Zero-configuration interactive demo portal (`http://localhost:8090/demo/`) launched via `npm run demo:plugins`.
+  * Comprehensive testing and showcase suite for all 5 official plugins: Stripe checkout simulator, S3/MinIO SigV4 presigned upload URLs, Resend transactional email logs, Discord/Slack mutation webhooks, and Algolia search queue indexing.
+  * Isolated sandbox environment (`examples/plugins-demo/demo_data/`) preventing pollution of primary application databases.
+  * Runtime plugin configuration management in the Admin UI with automatic `.env` variable auto-detection, code-level defaults, and persistent SQLite overrides.
+
+
+#### 2. Navigation, Spatial Awareness & Command Palette
+* **Sidebar Organization & Filtering**:
+  * Categorization of collections into collapsible "User Collections" and "System Tables" (`_admins`).
+  * Real-time search filter in the sidebar for rapid collection discovery.
+* **Breadcrumb Navigation**:
+  * Dynamic breadcrumb trail (`Dashboard / Collections / <collection> / Records` or `Schema & Rules`) with clickable ancestor navigation.
+* **Global Command Palette (`Ctrl+K` / `Cmd+K`)**:
+  * Quick-search modal with keyboard navigation (arrow keys, Enter to jump, isolated ESC handling).
+  * Direct actions: jump to collections, navigate views (Analytics, Snapshots, Settings), create collections, and export data.
+  * Full ARIA accessibility support and screen reader announcement integration.
+
+#### 3. Records Data Grid Usability
+* **Multi-Column Search**: Search across all text, email, and URL fields simultaneously using compound `||` filter expressions.
+* **Clickable Column Sorting**: Interactive table header sorting (ascending / descending) with visual sort indicators.
+* **Configurable Pagination**: Flexible page size selectors (25, 50, 100 rows per page), page count bounds, and fast page navigation.
+* **Auth Collection Support**: Full search and sorting support across authentication collections (`users` email, verified).
+* **Slide-Over Record Drawer**: Focus trap management, ESC key dismissal, and ARIA attributes for enhanced record inspection.
+
+#### 4. Schema Designer & Access Rules UX
+* **Drag-and-Drop Reordering**: Visual drag handles (`⋮⋮`) and up/down buttons (▲ / ▼) for reordering schema fields.
+* **Field Type Visuals & Configurator**: Visual type badges, icons, target collection dropdown for `relation` fields, and allowed-options builder for `select` fields.
+* **Action-Aware Rule Builder Summaries**: Natural language rule explanations tailored to specific CRUD operations (`list`, `view`, `create`, `update`, `delete`).
+
+#### 5. Form Validation & Modal Ergonomics
+* **Validation & Submit Controls**: Field-level validation messages, disabled submit buttons, and loading states to prevent duplicate submissions.
+* **Keyboard Shortcuts**: `Escape` dismissal for all modals, `Ctrl+Enter` / `Cmd+Enter` quick submit from input fields.
+* **Autofocus**: Automatic focus on the first editable input upon opening modals.
+* **Multipart Form-Data Normalization**: Automatic ISO 8601 normalization for date fields, whitespace trimming for JSON payloads, and graceful empty string handling for blank optional fields.
+
+#### 6. Dashboard Layout & Quick Tools Refinements
+* **Responsive Layout Reflow**: CSS grid breakpoints (`repeat(auto-fit, minmax(...))`) for Home KPI vitals and tools cards on mobile and narrow viewports.
+* **Quick Action Recipe Launchers**: Direct one-click launcher buttons for starter templates (E-Commerce, Blog, CRM) and Instant JSON Import.
+* **Developer Quick Tools**: Streamlined TypeScript TypeGen cards and copyable REST / SSE base URL widgets.
+
+### Security & Reliability Improvements
+* **Filter Codec & Escaping**: Implemented shared `FilterCodec` (`QueryFilterParser`) to safely escape quotes, backslashes, and literals in query filters.
+* **DOM Attribute Sanitization**: Hardened `renderSortableTh` and `getRecordFileUrl` to prevent injection in dynamic UI attributes.
+* **Plugin Isolation**: Guaranteed non-interference of system collection registrations with user collections.
+
+---
+
 ## [1.1.0] - 2026-10-04
 
 Release v1.1.0 delivers major developer experience and testing enhancements, introducing one-click mock data generation, automatic schema inference from raw JSON, configurable network chaos simulation, out-of-the-box database starter recipes, and zero-downtime demo state management.

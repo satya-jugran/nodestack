@@ -27,10 +27,18 @@ export interface StripeCheckoutSessionResult {
 }
 
 export class StripeService {
-  constructor(public readonly options: StripePluginOptions) {}
+  public options: StripePluginOptions;
+
+  constructor(options: StripePluginOptions) {
+    this.options = { ...options };
+  }
+
+  public updateOptions(newOpts: Partial<StripePluginOptions>): void {
+    this.options = { ...this.options, ...newOpts };
+  }
 
   public isTestMode(): boolean {
-    return this.options.secretKey.startsWith('sk_test_');
+    return (this.options.secretKey || '').startsWith('sk_test_');
   }
 
   public getBaseUrl(): string {
@@ -211,20 +219,67 @@ export class StripeService {
   }
 }
 
-export function stripePlugin(options: StripePluginOptions): INodeStackPlugin {
-  if (!options || !options.secretKey) {
-    throw new Error('[stripePlugin] Missing required option: secretKey');
-  }
-
-  const customersCol = options.customersCollection || '_stripe_customers';
-  const paymentsCol = options.paymentsCollection || '_stripe_payments';
-  const stripeService = new StripeService(options);
+export function stripePlugin(options: StripePluginOptions = {} as any): INodeStackPlugin {
+  const secretKey = options?.secretKey || process.env.STRIPE_SECRET_KEY || '';
+  const customersCol = options?.customersCollection || '_stripe_customers';
+  const paymentsCol = options?.paymentsCollection || '_stripe_payments';
+  const stripeService = new StripeService({ ...options, secretKey });
   const isTest = stripeService.isTestMode();
 
   return {
     name: 'stripe',
     version: '1.0.0',
     description: 'Stripe payments, checkout sessions, customer billing & webhook events',
+
+    codeOptions: { ...(options || {}) },
+    configSchema: {
+      fields: [
+        {
+          name: 'secretKey',
+          label: 'Stripe Secret Key',
+          type: 'password',
+          envKey: 'STRIPE_SECRET_KEY',
+          placeholder: 'sk_test_... or sk_live_...',
+          description: 'Used for Stripe Checkout sessions and payment processing',
+          required: true,
+        },
+        {
+          name: 'webhookSecret',
+          label: 'Webhook Signing Secret',
+          type: 'password',
+          envKey: 'STRIPE_WEBHOOK_SECRET',
+          placeholder: 'whsec_...',
+          description: 'Used to verify incoming Stripe webhook event signatures',
+        },
+        {
+          name: 'currency',
+          label: 'Default Currency',
+          type: 'text',
+          envKey: 'STRIPE_CURRENCY',
+          defaultValue: 'usd',
+          placeholder: 'usd',
+          description: 'Standard 3-letter ISO currency code (usd, eur, gbp, etc.)',
+        },
+        {
+          name: 'endpoint',
+          label: 'Custom API Endpoint',
+          type: 'text',
+          envKey: 'STRIPE_ENDPOINT',
+          placeholder: 'https://api.stripe.com',
+          description: 'Custom Stripe base endpoint for proxies or local mocks',
+        },
+        {
+          name: 'dryRun',
+          label: 'Dry Run Simulation',
+          type: 'boolean',
+          defaultValue: false,
+          description: 'Simulate checkout sessions without calling Stripe live API',
+        },
+      ],
+    },
+    onConfigUpdate(newConfig) {
+      stripeService.updateOptions(newConfig);
+    },
 
     collections: [
       {

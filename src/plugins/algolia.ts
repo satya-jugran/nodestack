@@ -28,6 +28,7 @@ export interface AlgoliaOperationResult {
 }
 
 export class AlgoliaSyncService {
+  public options: AlgoliaPluginOptions;
   public syncedOperations: Array<{
     action: string;
     collection: string;
@@ -38,7 +39,13 @@ export class AlgoliaSyncService {
     error?: string;
   }> = [];
 
-  constructor(public readonly options: AlgoliaPluginOptions) {}
+  constructor(options: AlgoliaPluginOptions) {
+    this.options = { ...options };
+  }
+
+  public updateOptions(newOpts: Partial<AlgoliaPluginOptions>): void {
+    this.options = { ...this.options, ...newOpts };
+  }
 
   public getIndexName(collection: string): string {
     const prefix = this.options.indexPrefix || 'nodestack_';
@@ -244,20 +251,69 @@ export class AlgoliaSyncService {
   }
 }
 
-export function algoliaPlugin(options: AlgoliaPluginOptions): INodeStackPlugin {
-  if (!options || !options.appId || !options.apiKey) {
-    throw new Error('[algoliaPlugin] Missing required options: appId and apiKey');
-  }
-
-  const algoliaService = new AlgoliaSyncService(options);
-  const collectionName = options.collectionName || '_algolia_sync_queue';
-  const targetCollections = options.collections || [];
+export function algoliaPlugin(options: AlgoliaPluginOptions = {} as any): INodeStackPlugin {
+  const appId = options?.appId || process.env.ALGOLIA_APP_ID || '';
+  const apiKey = options?.apiKey || process.env.ALGOLIA_API_KEY || '';
+  const algoliaService = new AlgoliaSyncService({ ...options, appId, apiKey });
+  const collectionName = options?.collectionName || '_algolia_sync_queue';
+  const targetCollections = options?.collections || [];
   let timer: any = null;
 
   return {
     name: 'algolia',
     version: '1.0.0',
     description: 'Algolia search index synchronization & mutation indexing queue',
+
+    codeOptions: { ...(options || {}) },
+    configSchema: {
+      fields: [
+        {
+          name: 'appId',
+          label: 'Application ID',
+          type: 'text',
+          envKey: 'ALGOLIA_APP_ID',
+          placeholder: 'latency or DEMO_APP',
+          description: 'Algolia unique Application ID',
+          required: true,
+        },
+        {
+          name: 'apiKey',
+          label: 'Admin API Key',
+          type: 'password',
+          envKey: 'ALGOLIA_API_KEY',
+          placeholder: 'Write/Admin API Key',
+          description: 'Algolia Admin API key with write permissions',
+          required: true,
+        },
+        {
+          name: 'indexPrefix',
+          label: 'Index Prefix',
+          type: 'text',
+          envKey: 'ALGOLIA_INDEX_PREFIX',
+          defaultValue: 'nodestack_',
+          placeholder: 'nodestack_',
+          description: 'Prefix prepended to collection names for index naming',
+        },
+        {
+          name: 'autoProcessIntervalMs',
+          label: 'Sync Queue Interval (ms)',
+          type: 'number',
+          envKey: 'ALGOLIA_SYNC_INTERVAL_MS',
+          defaultValue: 5000,
+          description: 'Background polling interval in ms for syncing mutation queues',
+        },
+        {
+          name: 'dryRun',
+          label: 'Dry Run Mode',
+          type: 'boolean',
+          defaultValue: false,
+          description: 'Track operations in SQLite queue without sending outbound requests to Algolia',
+        },
+      ],
+    },
+    onConfigUpdate(newConfig) {
+      algoliaService.updateOptions(newConfig);
+    },
 
     collections: [
       {
