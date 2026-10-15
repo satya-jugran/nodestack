@@ -674,7 +674,15 @@
       const container = document.getElementById('toast-container');
       const toast = document.createElement('div');
       toast.className = 'toast';
-      toast.innerHTML = `<span>${type === 'success' ? '✅' : 'ℹ️'}</span> <span>${message}</span>`;
+
+      const iconSpan = document.createElement('span');
+      iconSpan.textContent = type === 'success' ? '✅' : 'ℹ️';
+
+      const msgSpan = document.createElement('span');
+      msgSpan.textContent = message;
+
+      toast.appendChild(iconSpan);
+      toast.appendChild(msgSpan);
       container.appendChild(toast);
       setTimeout(() => {
         toast.style.opacity = '0';
@@ -689,11 +697,22 @@
       const tagClass = 'tag-' + tag.toLowerCase();
       const row = document.createElement('div');
       row.className = 'feed-entry';
-      row.innerHTML = `
-        <span class="feed-time">${time}</span>
-        <span class="feed-tag ${tagClass}">${tag}</span>
-        <span>${text}</span>
-      `;
+
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'feed-time';
+      timeSpan.textContent = time;
+
+      const tagSpan = document.createElement('span');
+      tagSpan.className = 'feed-tag ' + tagClass;
+      tagSpan.textContent = tag;
+
+      const textSpan = document.createElement('span');
+      textSpan.textContent = text;
+
+      row.appendChild(timeSpan);
+      row.appendChild(tagSpan);
+      row.appendChild(textSpan);
+
       feed.insertBefore(row, feed.firstChild);
     }
 
