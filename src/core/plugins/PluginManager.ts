@@ -259,13 +259,7 @@ export class PluginManager {
     // 10. If plugin defines configSchema and onConfigUpdate, hydrate with effective initial settings
     if (plugin.configSchema?.fields && typeof plugin.onConfigUpdate === 'function') {
       try {
-        const resolved = this.getPluginConfig(plugin.name);
-        const effective: Record<string, any> = {};
-        for (const f of resolved.fields) {
-          if (f.value !== undefined && f.value !== '') {
-            effective[f.name] = f.value;
-          }
-        }
+        const effective = this.getEffectiveConfig(plugin.name);
         const initialSync = plugin.onConfigUpdate(effective);
         if (initialSync instanceof Promise) {
           this.pendingInits.push(initialSync.catch(() => {}));
@@ -416,9 +410,82 @@ export class PluginManager {
   }
 
   /**
+   * Resolve raw effective configuration dictionary for internal plugin execution.
+   * Resolves values from environment variables, database (_plugin_settings), code options, and defaults.
+   * Unlike getPluginConfig, this preserves raw secrets required by plugins at runtime.
+   */
+  public getEffectiveConfig(name: string): Record<string, any> {
+    let record = this.plugins.get(name);
+    if (!record) {
+      for (const rec of this.plugins.values()) {
+        if (rec.plugin.adminNavItems?.some((i) => i.id === name)) {
+          record = rec;
+          name = rec.name;
+          break;
+        }
+      }
+    }
+    if (!record) {
+      throw new NotFoundError(`Plugin "${name}" is not registered`);
+    }
+
+    const plugin = record.plugin;
+    if (!plugin.configSchema?.fields || plugin.configSchema.fields.length === 0) {
+      return {};
+    }
+
+    this.initSettingsTable();
+    let dbSettings: Record<string, any> = {};
+    try {
+      const row = this.app.db.get<{ settings: string }>(
+        'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+        [name]
+      );
+      if (row?.settings) {
+        dbSettings = JSON.parse(row.settings);
+      }
+    } catch {}
+
+    const effective: Record<string, any> = {};
+    for (const field of plugin.configSchema.fields) {
+      let val: any = undefined;
+
+      // 1. Environment Variable
+      if (field.envKey && process.env[field.envKey] !== undefined && process.env[field.envKey] !== '') {
+        val = process.env[field.envKey];
+      }
+      // 2. Database Settings
+      else if (dbSettings[field.name] !== undefined) {
+        val = dbSettings[field.name];
+      }
+      // 3. Code Options
+      else if (
+        plugin.codeOptions &&
+        plugin.codeOptions[field.name] !== undefined &&
+        plugin.codeOptions[field.name] !== ''
+      ) {
+        val = plugin.codeOptions[field.name];
+      }
+      // 4. Default Fallback
+      else {
+        val = field.defaultValue !== undefined ? field.defaultValue : (field.type === 'boolean' ? false : undefined);
+      }
+
+      if (val !== undefined && val !== '') {
+        effective[field.name] = val;
+      }
+    }
+
+    return effective;
+  }
+
+  /**
    * Option B: Resolve plugin configuration with strict environment & code precedence.
-   * If a setting is defined via process.env or code options, it is locked.
-   * If not defined in code/env, it is editable via SQLite database (_plugin_settings).
+   * If a setting is defined via process.env, it is locked.
+   * If not defined in env, it is editable via SQLite database (_plugin_settings).
+   *
+   * SECURITY: For fields of type 'password', raw secret values are NEVER returned in responses.
+   * value is omitted (undefined), and hasValue indicates whether a secret is configured.
    */
   public getPluginConfig(name: string): PluginConfigResult {
     let record = this.plugins.get(name);
@@ -457,21 +524,21 @@ export class PluginManager {
     } catch {}
 
     const fields: ResolvedPluginConfigField[] = plugin.configSchema.fields.map((field) => {
-      let value: any = undefined;
+      let rawValue: any = undefined;
       let isLocked = false;
       let source: PluginConfigSource = 'default';
       let lockReason: string | undefined = undefined;
 
       // 1. Strict Option B: Check Environment Variable (The ONLY source that locks)
       if (field.envKey && process.env[field.envKey] !== undefined && process.env[field.envKey] !== '') {
-        value = process.env[field.envKey];
+        rawValue = process.env[field.envKey];
         isLocked = true;
         source = 'env';
         lockReason = `Managed by environment variable (${field.envKey})`;
       }
       // 2. Check Database Settings (Editable via Admin UI, overrides code fallbacks)
       else if (dbSettings[field.name] !== undefined) {
-        value = dbSettings[field.name];
+        rawValue = dbSettings[field.name];
         isLocked = false;
         source = 'db';
       }
@@ -481,27 +548,34 @@ export class PluginManager {
         plugin.codeOptions[field.name] !== undefined &&
         plugin.codeOptions[field.name] !== ''
       ) {
-        value = plugin.codeOptions[field.name];
+        rawValue = plugin.codeOptions[field.name];
         isLocked = false;
         source = 'code';
       }
       // 4. Default Fallback
       else {
-        value = field.defaultValue !== undefined ? field.defaultValue : (field.type === 'boolean' ? false : '');
+        rawValue = field.defaultValue !== undefined ? field.defaultValue : (field.type === 'boolean' ? false : '');
         isLocked = false;
         source = 'default';
       }
 
-      // Mask sensitive password/secret fields
-      let maskedValue: string | undefined = undefined;
-      if (field.type === 'password' && typeof value === 'string' && value.length > 0) {
-        maskedValue = value.length > 8 ? `${value.slice(0, 4)}••••••••${value.slice(-3)}` : '••••••••';
+      // Security: Omit raw password values from responses and provide write-only hint
+      if (field.type === 'password') {
+        const hasValue = rawValue !== undefined && rawValue !== '' && rawValue !== null;
+        return {
+          ...field,
+          value: undefined, // Omit raw secret from API and UI response!
+          hasValue,
+          maskedValue: hasValue ? '••••••••' : undefined,
+          isLocked,
+          source,
+          lockReason,
+        };
       }
 
       return {
         ...field,
-        value,
-        maskedValue,
+        value: rawValue,
         isLocked,
         source,
         lockReason,
@@ -518,7 +592,10 @@ export class PluginManager {
   /**
    * Option B: Update plugin configuration from Admin UI.
    * Throws 400 Bad Request if trying to update any locked field.
-   * Saves updates to _plugin_settings and fires onConfigUpdate on the plugin.
+   * Implements a write-only / unchanged-secret update path:
+   *   - Password fields left empty or set to '••••••••' preserve existing secrets unchanged.
+   *   - A non-empty string updates the secret in _plugin_settings.
+   * Saves updates to _plugin_settings and fires onConfigUpdate on the plugin with effective settings.
    */
   public async updatePluginConfig(name: string, updates: Record<string, any>): Promise<PluginConfigResult> {
     let record = this.plugins.get(name);
@@ -558,13 +635,28 @@ export class PluginManager {
       if (!field) continue;
 
       if (field.isLocked) {
+        // If unchanged placeholder or blank is passed for a locked field, ignore without error
+        if (val === undefined || val === '' || val === null || val === '••••••••') {
+          continue;
+        }
         throw new AppError(
           `Field "${key}" is locked by ${field.lockReason || 'production environment'} and cannot be modified via UI.`,
           400
         );
       }
 
-      // Format/sanitize values
+      // Write-only / unchanged-secret update path:
+      if (field.type === 'password') {
+        if (val === undefined || val === '' || val === null || val === '••••••••') {
+          // Unchanged: preserve existing stored secret
+          continue;
+        }
+        // Operator provided a new secret
+        dbSettings[key] = String(val).trim();
+        continue;
+      }
+
+      // Format/sanitize values for other field types
       let cleanedVal = val;
       if (field.type === 'number') {
         cleanedVal = val === '' ? undefined : Number(val);
@@ -581,18 +673,13 @@ export class PluginManager {
       ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
     `).run(name, JSON.stringify(dbSettings), now);
 
-    // Compute effective full configuration for hot-update
-    const updatedResult = this.getPluginConfig(name);
-    const effectiveConfig: Record<string, any> = {};
-    for (const f of updatedResult.fields) {
-      effectiveConfig[f.name] = f.value;
-    }
-
+    // Compute effective full configuration with raw secrets for runtime update
     if (typeof record.plugin.onConfigUpdate === 'function') {
+      const effectiveConfig = this.getEffectiveConfig(name);
       await record.plugin.onConfigUpdate(effectiveConfig);
     }
 
-    return updatedResult;
+    return this.getPluginConfig(name);
   }
 
   /**

@@ -358,7 +358,7 @@
                     </div>
 
                     ${isLocked ? `
-                      <input type="text" class="form-input" disabled value="${escapeHtml(field.maskedValue || field.value || '')}"
+                      <input type="text" class="form-input" disabled value="${escapeHtml(field.type === 'password' ? '••••••••' : (field.value !== undefined ? String(field.value) : ''))}"
                         style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.35); font-family: monospace; font-size: 12.5px; border-color: rgba(255,255,255,0.06);" />
                       <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 4px;">
                         <span>🔒</span> <span>${escapeHtml(field.lockReason || 'Managed by environment')}</span>
@@ -368,11 +368,21 @@
                         <input type="checkbox" id="${fieldId}" ${field.value ? 'checked' : ''} style="cursor: pointer; width: 18px; height: 18px;" />
                         <label for="${fieldId}" style="font-size: 12.5px; color: #e2e8f0; cursor: pointer;">Enabled</label>
                       </div>
-                    ` : `
-                      <input type="${field.type === 'password' ? 'password' : 'text'}" class="form-input" id="${fieldId}"
-                        value="${escapeHtml(field.value || '')}" placeholder="${escapeHtml(field.placeholder || '')}"
+                    ` : (field.type === 'password' ? `
+                      <input type="password" class="form-input" id="${fieldId}"
+                        value="" placeholder="${field.hasValue ? '•••••••• (Secret configured - leave blank to keep unchanged)' : escapeHtml(field.placeholder || 'Enter secret...')}"
+                        autocomplete="new-password"
                         style="font-family: monospace; font-size: 12.5px;" />
-                    `)}
+                      ${field.hasValue ? `
+                        <div style="font-size: 10.5px; color: #34d399; display: flex; align-items: center; gap: 4px; margin-top: 2px;">
+                          <span>✓</span> <span>Secret is configured. Leave blank to keep existing secret.</span>
+                        </div>
+                      ` : ''}
+                    ` : `
+                      <input type="text" class="form-input" id="${fieldId}"
+                        value="${escapeHtml(field.value !== undefined ? String(field.value) : '')}" placeholder="${escapeHtml(field.placeholder || '')}"
+                        style="font-family: monospace; font-size: 12.5px;" />
+                    `))}
 
                     <div style="font-size: 11px; color: var(--text-muted); line-height: 1.35;">
                       ${escapeHtml(field.description || '')}
@@ -421,6 +431,10 @@
             updates[field.name] = fieldEl.checked;
           } else if (field.type === 'number') {
             updates[field.name] = fieldEl.value === '' ? undefined : Number(fieldEl.value);
+          } else if (field.type === 'password') {
+            if (fieldEl.value && fieldEl.value.trim() !== '') {
+              updates[field.name] = fieldEl.value;
+            }
           } else {
             updates[field.name] = fieldEl.value;
           }

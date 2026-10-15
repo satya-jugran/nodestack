@@ -82,6 +82,8 @@ TEST_PLUGIN_DISCORD_URL=https://discord.com/api/webhooks/test
     expect(apiKeyField?.source).toBe('env');
     expect(apiKeyField?.lockReason).toContain('TEST_PLUGIN_LOCKED_KEY');
     expect(apiKeyField?.maskedValue).toBeDefined();
+    expect(apiKeyField?.value).toBeUndefined();
+    expect(apiKeyField?.hasValue).toBe(true);
 
     const unlockedField = config.fields.find((f) => f.name === 'unlockedParam');
     expect(unlockedField).toBeDefined();
@@ -236,4 +238,82 @@ TEST_PLUGIN_DISCORD_URL=https://discord.com/api/webhooks/test
     expect(parsed.retryCount).toBe(5);
     expect(parsed.enabled).toBe(true);
   });
+
+  it('should omit raw password values from responses and support write-only/unchanged-secret updates', async () => {
+    app = new NodeStack({ dataDir: testDataDir, port: 8205 });
+
+    let latestRuntimeConfig: any = null;
+
+    const samplePlugin: INodeStackPlugin = {
+      name: 'test-secret-plugin',
+      version: '1.0.0',
+      codeOptions: {
+        apiKey: 'initial_secret_token_12345',
+        endpoint: 'https://api.service.io',
+      },
+      configSchema: {
+        fields: [
+          {
+            name: 'apiKey',
+            label: 'API Key Secret',
+            type: 'password',
+            envKey: 'SERVICE_API_KEY_UNSET',
+          },
+          {
+            name: 'endpoint',
+            label: 'API Endpoint',
+            type: 'text',
+          },
+        ],
+      },
+      onConfigUpdate(config) {
+        latestRuntimeConfig = config;
+      },
+    };
+
+    app.use(samplePlugin);
+
+    // 1. Verify getPluginConfig omits raw secret value
+    const configResponse = app.pluginManager.getPluginConfig('test-secret-plugin');
+    const secretField = configResponse.fields.find((f) => f.name === 'apiKey');
+    expect(secretField).toBeDefined();
+    expect(secretField?.value).toBeUndefined(); // Raw secret NEVER exposed!
+    expect(secretField?.hasValue).toBe(true);
+    expect(secretField?.maskedValue).toBe('••••••••');
+    expect(secretField?.isLocked).toBe(false);
+
+    // 2. Verify getEffectiveConfig provides raw secret to internal runtime
+    const effective = app.pluginManager.getEffectiveConfig('test-secret-plugin');
+    expect(effective.apiKey).toBe('initial_secret_token_12345');
+    expect(effective.endpoint).toBe('https://api.service.io');
+
+    // 3. Test unchanged-secret update: update endpoint without sending apiKey (or sending empty string)
+    const updated1 = await app.pluginManager.updatePluginConfig('test-secret-plugin', {
+      endpoint: 'https://new-api.service.io',
+      apiKey: '', // Empty string in UI indicates "leave unchanged"
+    });
+
+    const secretAfterUpdate1 = updated1.fields.find((f) => f.name === 'apiKey');
+    expect(secretAfterUpdate1?.value).toBeUndefined(); // Still omitted
+    expect(secretAfterUpdate1?.hasValue).toBe(true); // Still has value
+
+    const effective1 = app.pluginManager.getEffectiveConfig('test-secret-plugin');
+    expect(effective1.apiKey).toBe('initial_secret_token_12345'); // Preserved!
+    expect(effective1.endpoint).toBe('https://new-api.service.io');
+    expect(latestRuntimeConfig.apiKey).toBe('initial_secret_token_12345');
+
+    // 4. Test explicit secret rotation / write-only update: send a new secret
+    const updated2 = await app.pluginManager.updatePluginConfig('test-secret-plugin', {
+      apiKey: 'rotated_new_secret_99999',
+    });
+
+    const secretAfterUpdate2 = updated2.fields.find((f) => f.name === 'apiKey');
+    expect(secretAfterUpdate2?.value).toBeUndefined(); // Still omitted from response!
+    expect(secretAfterUpdate2?.hasValue).toBe(true);
+
+    const effective2 = app.pluginManager.getEffectiveConfig('test-secret-plugin');
+    expect(effective2.apiKey).toBe('rotated_new_secret_99999'); // Successfully rotated!
+    expect(latestRuntimeConfig.apiKey).toBe('rotated_new_secret_99999');
+  });
 });
+

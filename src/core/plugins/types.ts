@@ -92,7 +92,8 @@ export interface PluginConfigSchema {
 export type PluginConfigSource = 'env' | 'code' | 'db' | 'default';
 
 export interface ResolvedPluginConfigField extends PluginConfigField {
-  value: any;
+  value?: any;
+  hasValue?: boolean;
   isLocked: boolean;
   source: PluginConfigSource;
   lockReason?: string;
