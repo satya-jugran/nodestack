@@ -8,7 +8,7 @@ let analyticsState = {
 };
 
 function renderAnalyticsView() {
-  const main = document.getElementById('main-body');
+  const main = document.getElementById('page-view-analytics') || document.getElementById('main-body');
   if (!main) return;
 
   main.innerHTML = `

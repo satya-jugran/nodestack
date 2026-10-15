@@ -63,6 +63,47 @@ export interface PluginMetadata {
   description?: string;
   author?: string;
   homepage?: string;
+  hasConfig?: boolean;
+}
+
+export type PluginConfigFieldType = 'text' | 'password' | 'number' | 'boolean' | 'select';
+
+export interface PluginConfigFieldOption {
+  label: string;
+  value: any;
+}
+
+export interface PluginConfigField {
+  name: string;
+  label: string;
+  type: PluginConfigFieldType;
+  envKey?: string;
+  placeholder?: string;
+  defaultValue?: any;
+  description?: string;
+  required?: boolean;
+  options?: PluginConfigFieldOption[];
+}
+
+export interface PluginConfigSchema {
+  fields: PluginConfigField[];
+}
+
+export type PluginConfigSource = 'env' | 'code' | 'db' | 'default';
+
+export interface ResolvedPluginConfigField extends PluginConfigField {
+  value?: any;
+  hasValue?: boolean;
+  isLocked: boolean;
+  source: PluginConfigSource;
+  lockReason?: string;
+  maskedValue?: string;
+}
+
+export interface PluginConfigResult {
+  plugin: string;
+  hasConfig: boolean;
+  fields: ResolvedPluginConfigField[];
 }
 
 export interface NodeStackPluginContext {
@@ -140,6 +181,14 @@ export interface INodeStackPlugin {
   routes?: PluginRouteDefinition[];
   collections?: (CreateCollectionDto & { system?: boolean })[];
   adminNavItems?: AdminNavItem[];
+
+  // Option B: Configuration Schema & Dynamic Update
+  /** Configuration schema for Option B strict precedence and Admin UI editing */
+  configSchema?: PluginConfigSchema;
+  /** Programmatic options passed into the plugin on construction */
+  codeOptions?: Record<string, any>;
+  /** Callback fired when an admin updates configuration via Admin UI */
+  onConfigUpdate?(newConfig: Record<string, any>): void | Promise<void>;
 
   // Lifecycle methods
   register?(context: NodeStackPluginContext): void | Promise<void>;

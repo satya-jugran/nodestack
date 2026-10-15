@@ -1,7 +1,21 @@
 // Application Navigation & Lifecycle
 
+    function showPageView(viewName) {
+      const views = ['home', 'collections', 'plugins', 'analytics', 'snapshots', 'logs', 'settings'];
+      for (const v of views) {
+        const el = document.getElementById('page-view-' + v);
+        if (el) {
+          if (v === 'collections' || v === 'plugins') {
+            el.style.display = (v === viewName) ? 'flex' : 'none';
+          } else {
+            el.style.display = (v === viewName) ? 'block' : 'none';
+          }
+        }
+      }
+    }
+
     function clearSidebarNavActive() {
-      const navIds = ['nav-home', 'nav-analytics', 'nav-snapshots', 'nav-logs', 'nav-settings'];
+      const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-analytics', 'nav-snapshots', 'nav-logs', 'nav-settings'];
       for (const id of navIds) {
         document.getElementById(id)?.classList.remove('active');
       }
@@ -15,32 +29,77 @@
 
     async function selectNav(nav) {
       state.activeNav = nav;
-      state.activeCollection = null;
-      renderCollectionsList();
-
-      document.getElementById('collection-tabs').style.display = 'none';
-      document.getElementById('view-badge').style.display = 'none';
 
       if (typeof stopAnalyticsAutoRefresh === 'function') {
         stopAnalyticsAutoRefresh();
       }
 
       clearSidebarNavActive();
-      document.getElementById('nav-' + nav)?.classList.add('active');
 
       if (nav === 'home') {
+        state.activeCollection = null;
+        renderCollectionsList();
+        showPageView('home');
+        document.getElementById('collection-tabs').style.display = 'none';
+        document.getElementById('view-badge').style.display = 'none';
+        document.getElementById('nav-home')?.classList.add('active');
         document.getElementById('view-title').textContent = 'Dashboard Overview';
         document.getElementById('view-actions').innerHTML = `
+          <button class="btn btn-secondary btn-sm" onclick="selectNav('collections')">📦 Collections</button>
+          <button class="btn btn-secondary btn-sm" onclick="selectNav('plugins')">🧩 Plugins</button>
           <button class="btn btn-secondary btn-sm" onclick="selectNav('analytics')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
             Metrics
           </button>
-          <button class="btn btn-secondary btn-sm" onclick="selectNav('snapshots')">📸 Snapshots</button>
           <button class="btn btn-secondary btn-sm" onclick="window.open('/_/docs', '_blank')">API Docs (OpenAPI)</button>
           <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ New Collection</button>
         `;
         renderHomeView();
+      } else if (nav === 'collections') {
+        state.activeCollection = null;
+        renderCollectionsList();
+        showPageView('collections');
+        document.getElementById('collection-tabs').style.display = 'none';
+        document.getElementById('nav-collections')?.classList.add('active');
+        document.getElementById('view-title').textContent = 'Collections';
+        document.getElementById('view-title').style.display = 'inline-block';
+        const count = state.collections ? state.collections.length : 0;
+        const badgeEl = document.getElementById('view-badge');
+        badgeEl.textContent = count + ' Tables';
+        badgeEl.className = 'badge badge-get';
+        badgeEl.style.display = 'inline-block';
+        document.getElementById('view-actions').innerHTML = `
+          <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ New Collection</button>
+          <button class="btn btn-secondary btn-sm" onclick="openTemplatesModal()">✨ Recipes</button>
+          <button class="btn btn-secondary btn-sm" onclick="openImportModal()">⚡ Import JSON</button>
+        `;
+        renderCollectionsHubView();
+      } else if (nav === 'plugins') {
+        state.activeCollection = null;
+        renderCollectionsList();
+        showPageView('plugins');
+        document.getElementById('collection-tabs').style.display = 'none';
+        document.getElementById('nav-plugins')?.classList.add('active');
+        document.getElementById('view-title').textContent = 'Plugins';
+        document.getElementById('view-title').style.display = 'inline-block';
+        const pCount = (state.pluginNavItems || []).length;
+        const badgeEl = document.getElementById('view-badge');
+        badgeEl.textContent = pCount + ' Active';
+        badgeEl.className = 'badge badge-primary';
+        badgeEl.style.display = pCount > 0 ? 'inline-block' : 'none';
+        document.getElementById('view-actions').innerHTML = `
+          <a href="/demo/" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none;">Demo App Portal ↗</a>
+          <a href="/_/docs" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">OpenAPI Specs ↗</a>
+        `;
+        renderPluginNavItems();
+        renderPluginsHubView();
       } else if (nav === 'analytics') {
+        state.activeCollection = null;
+        renderCollectionsList();
+        showPageView('analytics');
+        document.getElementById('collection-tabs').style.display = 'none';
+        document.getElementById('view-badge').style.display = 'none';
+        document.getElementById('nav-analytics')?.classList.add('active');
         document.getElementById('view-title').textContent = 'Analytics & Metrics';
         document.getElementById('view-actions').innerHTML = `
           <button class="btn btn-secondary btn-sm" onclick="loadAnalytics()">Refresh</button>
@@ -52,6 +111,12 @@
           startAnalyticsAutoRefresh();
         }
       } else if (nav === 'snapshots') {
+        state.activeCollection = null;
+        renderCollectionsList();
+        showPageView('snapshots');
+        document.getElementById('collection-tabs').style.display = 'none';
+        document.getElementById('view-badge').style.display = 'none';
+        document.getElementById('nav-snapshots')?.classList.add('active');
         document.getElementById('view-title').textContent = 'Demo Snapshots';
         document.getElementById('view-actions').innerHTML = `
           <button class="btn btn-secondary btn-sm" onclick="openSnapshotDemoModal()">
@@ -63,6 +128,12 @@
         `;
         renderSnapshotsView();
       } else if (nav === 'logs') {
+        state.activeCollection = null;
+        renderCollectionsList();
+        showPageView('logs');
+        document.getElementById('collection-tabs').style.display = 'none';
+        document.getElementById('view-badge').style.display = 'none';
+        document.getElementById('nav-logs')?.classList.add('active');
         document.getElementById('view-title').textContent = 'Traffic & Logs';
         document.getElementById('view-actions').innerHTML = `
           <button class="btn btn-secondary btn-sm" onclick="loadLogs()">Refresh</button>
@@ -71,10 +142,22 @@
         renderLogsView();
         loadLogs();
       } else if (nav === 'settings') {
+        state.activeCollection = null;
+        renderCollectionsList();
+        showPageView('settings');
+        document.getElementById('collection-tabs').style.display = 'none';
+        document.getElementById('view-badge').style.display = 'none';
+        document.getElementById('nav-settings')?.classList.add('active');
         document.getElementById('view-title').textContent = 'System & Settings';
         document.getElementById('view-actions').innerHTML = '';
         renderSettingsView();
       } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === nav)) {
+        state.activeCollection = null;
+        renderCollectionsList();
+        showPageView('plugins');
+        document.getElementById('collection-tabs').style.display = 'none';
+        document.getElementById('nav-plugins')?.classList.add('active');
+        document.getElementById('nav-' + nav)?.classList.add('active');
         const pluginItem = state.pluginNavItems.find(p => p.id === nav);
         renderPluginView(pluginItem);
       }
@@ -85,11 +168,23 @@
     function renderPluginNavItems() {
       const group = document.getElementById('sidebar-plugins-group');
       const container = document.getElementById('sidebar-plugin-items');
-      if (!group || !container) return;
+      const badgeEl = document.getElementById('sidebar-plugins-badge');
+      const railCount = document.getElementById('plugins-rail-count');
 
       const items = state.pluginNavItems || [];
+      if (badgeEl) {
+        badgeEl.textContent = items.length > 0 ? String(items.length) : '0';
+        badgeEl.style.display = items.length > 0 ? 'inline-block' : 'none';
+      }
+      if (railCount) {
+        railCount.textContent = String(items.length);
+      }
+
+      if (!group || !container) return;
+
       if (items.length === 0) {
         group.style.display = 'none';
+        container.innerHTML = '<div style="font-size:11px; color:var(--text-muted); padding:0.5rem;">No plugins registered</div>';
         return;
       }
 
@@ -118,9 +213,18 @@
           </div>
         `;
       }).join('');
+
+      if (state.activeNav === 'plugins') {
+        renderPluginsHubView();
+      }
     }
 
     function renderPluginView(item) {
+      showPageView('plugins');
+      clearSidebarNavActive();
+      document.getElementById('nav-plugins')?.classList.add('active');
+      document.getElementById('nav-' + item.id)?.classList.add('active');
+
       document.getElementById('view-title').textContent = item.title;
       document.getElementById('view-title').style.display = 'inline-block';
       const badgeEl = document.getElementById('view-badge');
@@ -133,27 +237,23 @@
       }
 
       document.getElementById('view-actions').innerHTML = `
-        <button class="btn btn-secondary btn-sm" onclick="selectNav('home')">← Overview</button>
+        <button class="btn btn-secondary btn-sm" onclick="selectNav('plugins')">← All Plugins</button>
+        <a href="/demo/" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">Demo Portal ↗</a>
       `;
 
-      const main = document.getElementById('main-body');
-      if (!main) return;
+      const target = document.getElementById('plugins-detail-pane') || document.getElementById('main-body');
+      if (!target) return;
 
+      let baseHtml = '';
       if (typeof item.view === 'string') {
-        main.innerHTML = item.view;
-        return;
-      }
+        baseHtml = item.view;
+      } else if (item.view && typeof item.view === 'object' && item.view.html) {
+        baseHtml = item.view.html;
+      } else {
+        const title = (item.view && typeof item.view === 'object' && item.view.title) ? item.view.title : item.title;
+        const desc = (item.view && typeof item.view === 'object' && item.view.description) ? item.view.description : 'Configured via NodeStack formal plugin architecture.';
 
-      if (item.view && typeof item.view === 'object' && item.view.html) {
-        main.innerHTML = item.view.html;
-        return;
-      }
-
-      const title = (item.view && typeof item.view === 'object' && item.view.title) ? item.view.title : item.title;
-      const desc = (item.view && typeof item.view === 'object' && item.view.description) ? item.view.description : 'Configured via NodeStack formal plugin architecture.';
-
-      main.innerHTML = `
-        <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
+        baseHtml = `
           <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
             <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
               <div style="display: flex; align-items: center; gap: 0.75rem;">
@@ -170,7 +270,7 @@
                   </div>
                 </div>
               </div>
-              <button class="btn btn-secondary btn-sm" onclick="selectNav('home')">Back to Overview</button>
+              <button class="btn btn-secondary btn-sm" onclick="selectNav('plugins')">Back to Plugins</button>
             </div>
             
             <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1rem;">
@@ -187,6 +287,382 @@
               </div>
             </div>
           </div>
+        `;
+      }
+
+      target.innerHTML = `
+        <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
+          ${baseHtml}
+          <div id="plugin-config-container-${escapeHtml(item.id)}"></div>
+        </div>
+      `;
+
+      loadPluginConfig(item.id);
+    }
+
+    async function loadPluginConfig(pluginId) {
+      const container = document.getElementById('plugin-config-container-' + pluginId);
+      if (!container) return;
+
+      try {
+        const res = await api('/api/plugins/' + encodeURIComponent(pluginId) + '/config');
+        if (!res || !res.hasConfig || !res.fields || res.fields.length === 0) {
+          container.innerHTML = '';
+          return;
+        }
+
+        const lockedCount = res.fields.filter(f => f.isLocked).length;
+        const editableCount = res.fields.length - lockedCount;
+
+        container.innerHTML = `
+          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.85rem;">
+              <div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-weight: 800; font-size: 15px; color: #fff;">⚙️ Configuration & Credentials</span>
+                  <span class="badge badge-info" style="font-size: 10.5px;">Option B Precedence</span>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">
+                  Parameters defined in <code>.env</code> or server code are strictly locked for deployment safety. Remaining parameters can be edited below.
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 11.5px;">
+                <span class="badge" style="background: rgba(30,41,59,0.8); border: 1px solid rgba(148,163,184,0.25); color: #94a3b8;">🔒 ${lockedCount} Locked</span>
+                <span class="badge" style="background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #34d399;">✏️ ${editableCount} Editable</span>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem;">
+              ${res.fields.map(field => {
+                const isLocked = field.isLocked;
+                const fieldId = `cfg-${pluginId}-${field.name}`;
+                return `
+                  <div style="background: var(--bg-input); border: 1px solid ${isLocked ? 'rgba(255,255,255,0.06)' : 'var(--border-subtle)'}; border-radius: 8px; padding: 0.85rem 1rem; display: flex; flex-direction: column; gap: 0.45rem;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                      <label style="font-size: 12.5px; font-weight: 700; color: #fff;" for="${fieldId}">
+                        ${escapeHtml(field.label)} ${field.required ? '<span style="color:#ef4444;">*</span>' : ''}
+                      </label>
+                      ${isLocked ? `
+                        <span class="badge" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(148,163,184,0.3); color: #94a3b8; font-size: 10px; padding: 2px 6px;" title="${escapeHtml(field.lockReason || 'Locked')}">
+                          🔒 ENV LOCKED
+                        </span>
+                      ` : (field.source === 'db' ? `
+                        <span class="badge" style="background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #34d399; font-size: 10px; padding: 2px 6px;">
+                          ✏️ DATABASE OVERRIDE
+                        </span>
+                      ` : `
+                        <span class="badge" style="background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); color: #60a5fa; font-size: 10px; padding: 2px 6px;">
+                          ✏️ ${field.source === 'code' ? 'CODE DEFAULT' : 'DEFAULT'}
+                        </span>
+                      `)}
+                    </div>
+
+                    ${isLocked ? `
+                      ${field.type === 'select' ? `
+                        <select class="form-input" disabled
+                          style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.35); font-size: 12.5px; border-color: rgba(255,255,255,0.06); color: #fff;">
+                          ${field.value !== undefined && !(field.options || []).some(opt => String(typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt) === String(field.value)) ? `
+                            <option value="${escapeHtml(String(field.value))}" selected>${escapeHtml(String(field.value))}</option>
+                          ` : ''}
+                          ${(field.options || []).map(opt => {
+                            const optVal = typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt;
+                            const optLabel = typeof opt === 'object' && opt !== null && 'label' in opt ? opt.label : opt;
+                            const isSelected = String(field.value) === String(optVal);
+                            return `<option value="${escapeHtml(String(optVal))}" ${isSelected ? 'selected' : ''}>${escapeHtml(String(optLabel))}</option>`;
+                          }).join('')}
+                        </select>
+                      ` : `
+                        <input type="text" class="form-input" disabled value="${escapeHtml(field.type === 'password' ? '••••••••' : (field.value !== undefined ? String(field.value) : ''))}"
+                          style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.35); font-family: monospace; font-size: 12.5px; border-color: rgba(255,255,255,0.06);" />
+                      `}
+                      <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 4px;">
+                        <span>🔒</span> <span>${escapeHtml(field.lockReason || 'Managed by environment')}</span>
+                      </div>
+                    ` : (field.type === 'boolean' ? `
+                      <div style="display: flex; align-items: center; gap: 0.5rem; height: 36px;">
+                        <input type="checkbox" id="${fieldId}" ${field.value ? 'checked' : ''} style="cursor: pointer; width: 18px; height: 18px;" />
+                        <label for="${fieldId}" style="font-size: 12.5px; color: #e2e8f0; cursor: pointer;">Enabled</label>
+                      </div>
+                    ` : (field.type === 'select' ? `
+                      <select class="form-input" id="${fieldId}"
+                        style="cursor: pointer; font-size: 12.5px; background: var(--bg-card); color: #fff;">
+                        ${!field.required && !(field.options || []).some(opt => (typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt) === '') ? `
+                          <option value="" ${field.value === undefined || field.value === '' ? 'selected' : ''}>${escapeHtml(field.placeholder || '-- Select an option --')}</option>
+                        ` : (field.placeholder && (field.value === undefined || field.value === '') ? `
+                          <option value="" disabled selected>${escapeHtml(field.placeholder)}</option>
+                        ` : '')}
+                        ${(field.options || []).map(opt => {
+                          const optVal = typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt;
+                          const optLabel = typeof opt === 'object' && opt !== null && 'label' in opt ? opt.label : opt;
+                          const isSelected = String(field.value) === String(optVal);
+                          return `<option value="${escapeHtml(String(optVal))}" ${isSelected ? 'selected' : ''}>${escapeHtml(String(optLabel))}</option>`;
+                        }).join('')}
+                      </select>
+                    ` : (field.type === 'password' ? `
+                      <input type="password" class="form-input" id="${fieldId}"
+                        value="" placeholder="${field.hasValue ? '•••••••• (Secret configured - leave blank to keep unchanged)' : escapeHtml(field.placeholder || 'Enter secret...')}"
+                        autocomplete="new-password"
+                        style="font-family: monospace; font-size: 12.5px;" />
+                      ${field.hasValue ? `
+                        <div style="font-size: 10.5px; color: #34d399; display: flex; align-items: center; gap: 4px; margin-top: 2px;">
+                          <span>✓</span> <span>Secret is configured. Leave blank to keep existing secret.</span>
+                        </div>
+                      ` : ''}
+                    ` : `
+                      <input type="text" class="form-input" id="${fieldId}"
+                        value="${escapeHtml(field.value !== undefined ? String(field.value) : '')}" placeholder="${escapeHtml(field.placeholder || '')}"
+                        style="font-family: monospace; font-size: 12.5px;" />
+                    `)))}
+
+                    <div style="font-size: 11px; color: var(--text-muted); line-height: 1.35;">
+                      ${escapeHtml(field.description || '')}
+                      ${field.envKey ? `<span style="display:inline-block; margin-left: 4px; font-family: monospace; opacity: 0.8;">(${escapeHtml(field.envKey)})</span>` : ''}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--border-subtle);">
+              <div style="font-size: 11.5px; color: var(--text-muted);">
+                ${editableCount > 0 ? 'Database settings are persisted to <code>_plugin_settings</code> in SQLite and immediately hot-reloaded.' : 'All options are strictly controlled by environment variables or code.'}
+              </div>
+              ${editableCount > 0 ? `
+                <button class="btn btn-primary btn-sm" id="btn-save-cfg-${escapeHtml(pluginId)}" onclick="savePluginConfig('${escapeHtml(pluginId)}')">
+                  Save Configuration
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      } catch (e) {
+        container.innerHTML = '';
+      }
+    }
+
+    async function savePluginConfig(pluginId) {
+      const btn = document.getElementById('btn-save-cfg-' + pluginId);
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+      }
+
+      try {
+        const configData = await api('/api/plugins/' + encodeURIComponent(pluginId) + '/config');
+        if (!configData || !configData.fields) throw new Error('Could not read plugin configuration');
+
+        const updates = {};
+        for (const field of configData.fields) {
+          if (field.isLocked) continue;
+          const fieldEl = document.getElementById(`cfg-${pluginId}-${field.name}`);
+          if (!fieldEl) continue;
+
+          if (field.type === 'boolean') {
+            updates[field.name] = fieldEl.checked;
+          } else if (field.type === 'number') {
+            updates[field.name] = fieldEl.value === '' ? undefined : Number(fieldEl.value);
+          } else if (field.type === 'password') {
+            if (fieldEl.value && fieldEl.value.trim() !== '') {
+              updates[field.name] = fieldEl.value;
+            }
+          } else if (field.type === 'select') {
+            const hasEmptyOpt = (field.options || []).some(opt => (typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt) === '');
+            updates[field.name] = (fieldEl.value === '' && !hasEmptyOpt) ? undefined : fieldEl.value;
+          } else {
+            updates[field.name] = fieldEl.value;
+          }
+        }
+
+        await api('/api/plugins/' + encodeURIComponent(pluginId) + '/config', {
+          method: 'PUT',
+          body: JSON.stringify(updates),
+        });
+
+        toast('Configuration updated and applied successfully!', 'success');
+        try {
+          const navRes = await api('/api/plugins');
+          if (navRes && navRes.navItems) {
+            state.pluginNavItems = navRes.navItems;
+            if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
+            const activeItem = state.pluginNavItems.find(p => p.id === pluginId);
+            if (activeItem && typeof mountCustomView === 'function' && state.activeNav === pluginId) {
+              mountCustomView(activeItem);
+              return;
+            }
+          }
+        } catch (_) {}
+        await loadPluginConfig(pluginId);
+      } catch (err) {
+        toast(err.message || 'Failed to update plugin configuration', 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Save Configuration';
+        }
+      }
+    }
+
+    window.loadPluginConfig = loadPluginConfig;
+    window.savePluginConfig = savePluginConfig;
+
+    function renderPluginsHubView() {
+      const target = document.getElementById('plugins-detail-pane') || document.getElementById('main-body');
+      if (!target) return;
+      const items = state.pluginNavItems || [];
+
+      target.innerHTML = `
+        <div class="hub-hero-banner">
+          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
+            <div>
+              <h2 style="font-size:18px; font-weight:800; color:#fff; letter-spacing:-0.02em;">Installed Extensions & Plugins Hub</h2>
+              <p style="font-size:12px; color:var(--text-muted); margin-top:3px;">
+                Modular official plugins extending NodeStack with Stripe payments, S3 cloud storage, Resend emails, Webhooks, and Algolia search.
+              </p>
+            </div>
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+              <a href="/demo/" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none;">Interactive Demo App ↗</a>
+              <a href="/_/docs" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">OpenAPI Specs ↗</a>
+            </div>
+          </div>
+
+          <div class="hub-stats-row" style="margin-top:0.5rem;">
+            <div class="hub-stat-card">
+              <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Active Extensions</span>
+              <span style="font-size:20px; font-weight:800; color:#60a5fa;">${items.length}</span>
+            </div>
+            <div class="hub-stat-card">
+              <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Architecture</span>
+              <span style="font-size:13px; font-weight:700; color:#34d399; margin-top:4px;">app.use(plugin)</span>
+            </div>
+            <div class="hub-stat-card">
+              <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Integration Status</span>
+              <span style="font-size:13px; font-weight:700; color:#10b981; margin-top:4px;">● Live & Ready</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin:0.25rem 0;">
+          Active Plugins (${items.length})
+        </div>
+
+        ${items.length === 0 ? `
+          <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:10px; padding:2rem; text-align:center; color:var(--text-muted);">
+            <div style="font-size:28px; margin-bottom:0.5rem;">🧩</div>
+            <div style="font-weight:700; font-size:15px; color:#fff;">No Plugins Registered</div>
+            <div style="font-size:12px; margin-top:4px;">Mount community extension plugins using <code>app.use(plugin)</code> in your NodeStack server code.</div>
+          </div>
+        ` : `
+          <div class="hub-cards-grid">
+            ${items.map(item => {
+              const title = (item.view && typeof item.view === 'object' && item.view.title) ? item.view.title : item.title;
+              const desc = (item.view && typeof item.view === 'object' && item.view.description) ? item.view.description : 'Configured via NodeStack formal plugin architecture.';
+              const icon = item.icon || '🧩';
+              const isExternal = item.path && (item.target === '_blank' || item.path.startsWith('http'));
+
+              return `
+                <div class="hub-card" onclick="${isExternal ? `window.open('${escapeHtml(item.path)}', '${item.target || '_blank'}')` : `selectNav('${escapeHtml(item.id)}')`}">
+                  <div class="hub-card-header">
+                    <div class="hub-card-title">
+                      <span style="display:inline-flex; align-items:center;">${icon}</span>
+                      <span>${escapeHtml(item.title)}</span>
+                    </div>
+                    ${item.badge ? `<span class="badge ${item.badgeVariant ? 'badge-' + item.badgeVariant : 'badge-get'}" style="font-size:10px;">${escapeHtml(item.badge)}</span>` : ''}
+                  </div>
+                  <div class="hub-card-desc">
+                    ${escapeHtml(desc)}
+                  </div>
+                  <div class="hub-card-footer">
+                    <span style="font-family:monospace; font-size:11px; color:var(--text-muted);">${escapeHtml(item.id)}</span>
+                    ${isExternal ? `
+                      <span class="btn btn-secondary btn-sm" style="display:inline-flex; align-items:center; gap:4px;">
+                        <span>Open Portal</span><span>↗</span>
+                      </span>
+                    ` : `
+                      <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); selectNav('${escapeHtml(item.id)}')">
+                        Open Dashboard ➔
+                      </button>
+                    `}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `}
+      `;
+    }
+
+    function renderCollectionsHubView() {
+      const target = document.getElementById('collections-detail-pane') || document.getElementById('main-body');
+      if (!target) return;
+      const userCols = (state.collections || []).filter(c => !isSystemCollection(c));
+      const systemCols = (state.collections || []).filter(c => isSystemCollection(c));
+
+      target.innerHTML = `
+        <div class="hub-hero-banner">
+          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
+            <div>
+              <h2 style="font-size:18px; font-weight:800; color:#fff; letter-spacing:-0.02em;">Collections & Schema Directory</h2>
+              <p style="font-size:12px; color:var(--text-muted); margin-top:3px;">
+                Embedded SQLite database tables with instant REST API, CRUD endpoints, and realtime subscriptions.
+              </p>
+            </div>
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+              <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ New Collection</button>
+              <button class="btn btn-secondary btn-sm" onclick="openTemplatesModal()">✨ Starter Recipes</button>
+              <button class="btn btn-secondary btn-sm" onclick="openImportModal()">⚡ Import JSON</button>
+            </div>
+          </div>
+
+          <div class="hub-stats-row" style="margin-top:0.5rem;">
+            <div class="hub-stat-card">
+              <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Total Collections</span>
+              <span style="font-size:20px; font-weight:800; color:#fff;">${(state.collections || []).length}</span>
+            </div>
+            <div class="hub-stat-card">
+              <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">User Collections</span>
+              <span style="font-size:20px; font-weight:800; color:#60a5fa;">${userCols.length}</span>
+            </div>
+            <div class="hub-stat-card">
+              <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">System Tables</span>
+              <span style="font-size:20px; font-weight:800; color:#34d399;">${systemCols.length}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin:0.25rem 0;">
+          All Registered Collections (${(state.collections || []).length})
+        </div>
+
+        <div class="hub-cards-grid">
+          ${(state.collections || []).map(col => {
+            const isSys = isSystemCollection(col);
+            const fieldCount = col.schema ? col.schema.length : 0;
+            return `
+              <div class="hub-card" onclick="selectCollection('${escapeHtml(col.name)}')">
+                <div class="hub-card-header">
+                  <div class="hub-card-title">
+                    <span>${isSys ? '⚙️' : '📁'}</span>
+                    <span>${escapeHtml(col.name)}</span>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:4px;">
+                    <span class="badge ${col.type === 'auth' ? 'badge-post' : 'badge-get'}" style="font-size:10px;">${escapeHtml(col.type)}</span>
+                    ${isSys ? `<span class="badge badge-warning" style="font-size:9.5px;">SYSTEM</span>` : ''}
+                  </div>
+                </div>
+                <div class="hub-card-desc">
+                  ${fieldCount} schema fields defined. Managed embedded table with automatic API rules and validation.
+                </div>
+                <div class="hub-card-footer">
+                  <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); selectCollection('${escapeHtml(col.name)}')">
+                    Open Data Grid ➔
+                  </button>
+                  <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); selectCollection('${escapeHtml(col.name)}'); switchCollectionTab('schema');" title="Configure schema">
+                    ⚙️ Schema
+                  </button>
+                </div>
+              </div>
+            `;
+          }).join('')}
         </div>
       `;
     }
@@ -320,6 +796,15 @@
 
       container.innerHTML = html;
 
+      const countEl = document.getElementById('sidebar-collections-count');
+      if (countEl) {
+        countEl.textContent = String(state.collections ? state.collections.length : 0);
+      }
+
+      if (state.activeNav === 'collections' && !state.activeCollection) {
+        renderCollectionsHubView();
+      }
+
       if (state.admin) {
         const emailEl = document.getElementById('admin-user-email');
         if (emailEl) {
@@ -342,16 +827,23 @@
       if (typeof closeRecordDrawer === 'function') {
         closeRecordDrawer();
       }
+
+      showPageView('collections');
+      clearSidebarNavActive();
+      document.getElementById('nav-collections')?.classList.add('active');
+
       renderCollectionsList();
 
-      clearSidebarNavActive();
       document.getElementById('collection-tabs').style.display = 'flex';
 
-      document.getElementById('view-title').textContent = state.activeCollection.name;
+      document.getElementById('view-title').textContent = state.activeCollection ? state.activeCollection.name : name;
+      document.getElementById('view-title').style.display = 'inline-block';
       const badge = document.getElementById('view-badge');
-      badge.style.display = 'inline-flex';
-      badge.textContent = state.activeCollection.type.toUpperCase();
-      badge.className = 'badge badge-post';
+      if (badge && state.activeCollection) {
+        badge.style.display = 'inline-flex';
+        badge.textContent = state.activeCollection.type.toUpperCase();
+        badge.className = 'badge ' + (state.activeCollection.type === 'auth' ? 'badge-post' : 'badge-get');
+      }
 
       updateBreadcrumbs();
 
@@ -399,7 +891,8 @@
       if (state.activeNav === 'collection' && state.activeCollection) {
         crumbs.push({
           label: 'Collections',
-          clickable: false
+          clickable: true,
+          action: () => selectNav('collections')
         });
         crumbs.push({
           label: state.activeCollection.name,
@@ -417,6 +910,10 @@
             active: true
           });
         }
+      } else if (state.activeNav === 'collections') {
+        crumbs.push({ label: 'Collections', active: true });
+      } else if (state.activeNav === 'plugins') {
+        crumbs.push({ label: 'Plugins', active: true });
       } else if (state.activeNav === 'home') {
         crumbs.push({ label: 'Overview', active: true });
       } else if (state.activeNav === 'analytics') {
@@ -429,7 +926,7 @@
         crumbs.push({ label: 'System & Settings', active: true });
       } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === state.activeNav)) {
         const item = state.pluginNavItems.find(p => p.id === state.activeNav);
-        crumbs.push({ label: 'Plugins', clickable: true, action: () => selectNav('home') });
+        crumbs.push({ label: 'Plugins', clickable: true, action: () => selectNav('plugins') });
         crumbs.push({ label: item.title, active: true });
       }
 
@@ -525,6 +1022,28 @@
         icon: '🏠',
         keywords: ['home', 'dashboard', 'overview'],
         action: () => selectNav('home')
+      });
+
+      items.push({
+        id: 'nav-collections',
+        title: 'Collections',
+        description: 'Dedicated database collections directory, tables & schema',
+        category: 'Navigation',
+        badge: 'PAGE',
+        icon: '📦',
+        keywords: ['collections', 'database', 'tables', 'schema', 'records'],
+        action: () => selectNav('collections')
+      });
+
+      items.push({
+        id: 'nav-plugins',
+        title: 'Plugins',
+        description: 'Dedicated official extensions & community plugins directory',
+        category: 'Navigation',
+        badge: 'PAGE',
+        icon: '🧩',
+        keywords: ['plugins', 'extensions', 'addons', 'stripe', 's3', 'resend', 'webhooks', 'algolia'],
+        action: () => selectNav('plugins')
       });
 
       items.push({

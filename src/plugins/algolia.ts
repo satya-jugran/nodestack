@@ -3,10 +3,10 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { INodeStackPlugin, NodeStackPluginContext } from '../core/plugins/types';
 
 export interface AlgoliaPluginOptions {
-  appId: string;
-  apiKey: string;
+  appId?: string;
+  apiKey?: string;
   indexPrefix?: string;
-  collections: string[];
+  collections?: string[];
   collectionName?: string;
   /** Authentication policy for reindex endpoint: 'admin' (default), 'adminOrInitial', 'user', or 'public' */
   authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
@@ -28,6 +28,7 @@ export interface AlgoliaOperationResult {
 }
 
 export class AlgoliaSyncService {
+  public options: AlgoliaPluginOptions;
   public syncedOperations: Array<{
     action: string;
     collection: string;
@@ -37,8 +38,15 @@ export class AlgoliaSyncService {
     taskId?: string | number;
     error?: string;
   }> = [];
+  public isProcessingQueue: boolean = false;
 
-  constructor(public readonly options: AlgoliaPluginOptions) {}
+  constructor(options: AlgoliaPluginOptions = {}) {
+    this.options = { ...options };
+  }
+
+  public updateOptions(newOpts: Partial<AlgoliaPluginOptions>): void {
+    this.options = { ...this.options, ...newOpts };
+  }
 
   public getIndexName(collection: string): string {
     const prefix = this.options.indexPrefix || 'nodestack_';
@@ -49,13 +57,13 @@ export class AlgoliaSyncService {
     if (this.options.endpoint) {
       return this.options.endpoint.replace(/\/+$/, '');
     }
-    return `https://${this.options.appId}-dsn.algolia.net`;
+    return `https://${this.options.appId || 'app'}-dsn.algolia.net`;
   }
 
   public getHeaders(): Record<string, string> {
     return {
-      'X-Algolia-Application-Id': this.options.appId,
-      'X-Algolia-API-Key': this.options.apiKey,
+      'X-Algolia-Application-Id': this.options.appId || '',
+      'X-Algolia-API-Key': this.options.apiKey || '',
       'Content-Type': 'application/json',
     };
   }
@@ -188,76 +196,159 @@ export class AlgoliaSyncService {
   }
 
   public async processQueue(app: any, limit: number = 50): Promise<{ processed: number; succeeded: number; failed: number }> {
-    const queueCollection = this.options.collectionName || '_algolia_sync_queue';
-    let items: any[] = [];
-    try {
-      items =
-        app.db.all(
-          `SELECT * FROM "${queueCollection}" WHERE status IN ('queued', 'failed') ORDER BY created ASC LIMIT ?`,
-          [limit]
-        ) || [];
-    } catch {
+    if (this.isProcessingQueue) {
       return { processed: 0, succeeded: 0, failed: 0 };
     }
+    this.isProcessingQueue = true;
+    try {
+      const queueCollection = this.options.collectionName || '_algolia_sync_queue';
+      let items: any[] = [];
+      try {
+        items =
+          app.db.all(
+            `SELECT * FROM "${queueCollection}" WHERE status IN ('queued', 'failed') ORDER BY created ASC LIMIT ?`,
+            [limit]
+          ) || [];
+      } catch {
+        return { processed: 0, succeeded: 0, failed: 0 };
+      }
 
-    let succeeded = 0;
-    let failed = 0;
+      let succeeded = 0;
+      let failed = 0;
 
-    for (const item of items) {
-      let record: any = null;
-      if (item.operation !== 'delete') {
-        try {
-          record = app.db.get(`SELECT * FROM "${item.collection}" WHERE id = ?`, [item.objectId]);
-          if (!record) {
-            item.operation = 'delete';
+      for (const item of items) {
+        let record: any = null;
+        if (item.operation !== 'delete') {
+          try {
+            record = app.db.get(`SELECT * FROM "${item.collection}" WHERE id = ?`, [item.objectId]);
+            if (!record) {
+              item.operation = 'delete';
+            }
+          } catch {
+            // ignore
           }
+        }
+
+        const result = await this.submitMutation(
+          item.operation as 'save' | 'delete',
+          item.collection,
+          item.objectId,
+          record
+        );
+
+        try {
+          await app.records.update(queueCollection, item.id, {
+            status: result.success ? 'synced' : 'failed',
+            error: result.error || null,
+            taskId: result.taskId ? String(result.taskId) : null,
+          });
         } catch {
           // ignore
         }
+
+        if (result.success) {
+          succeeded++;
+        } else {
+          failed++;
+        }
       }
 
-      const result = await this.submitMutation(
-        item.operation as 'save' | 'delete',
-        item.collection,
-        item.objectId,
-        record
-      );
-
-      try {
-        await app.records.update(queueCollection, item.id, {
-          status: result.success ? 'synced' : 'failed',
-          error: result.error || null,
-          taskId: result.taskId ? String(result.taskId) : null,
-        });
-      } catch {
-        // ignore
-      }
-
-      if (result.success) {
-        succeeded++;
-      } else {
-        failed++;
-      }
+      return { processed: items.length, succeeded, failed };
+    } finally {
+      this.isProcessingQueue = false;
     }
-
-    return { processed: items.length, succeeded, failed };
   }
 }
 
-export function algoliaPlugin(options: AlgoliaPluginOptions): INodeStackPlugin {
-  if (!options || !options.appId || !options.apiKey) {
-    throw new Error('[algoliaPlugin] Missing required options: appId and apiKey');
-  }
-
-  const algoliaService = new AlgoliaSyncService(options);
-  const collectionName = options.collectionName || '_algolia_sync_queue';
-  const targetCollections = options.collections || [];
+export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlugin {
+  const appId = options?.appId || process.env.ALGOLIA_APP_ID || '';
+  const apiKey = options?.apiKey || process.env.ALGOLIA_API_KEY || '';
+  const algoliaService = new AlgoliaSyncService({ ...options, appId, apiKey });
+  const collectionName = options?.collectionName || '_algolia_sync_queue';
+  const targetCollections = options?.collections || [];
   let timer: any = null;
+  let currentContext: NodeStackPluginContext | null = null;
+  let currentIntervalMs: number =
+    options?.autoProcessIntervalMs !== undefined
+      ? Number(options.autoProcessIntervalMs)
+      : (process.env.ALGOLIA_SYNC_INTERVAL_MS ? Number(process.env.ALGOLIA_SYNC_INTERVAL_MS) : 0);
+
+  const reconcileTimer = (interval?: number) => {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+    const ms = interval !== undefined ? Number(interval) : currentIntervalMs;
+    currentIntervalMs = Number.isFinite(ms) ? ms : 0;
+
+    if (currentContext && currentIntervalMs > 0) {
+      timer = setInterval(() => {
+        algoliaService.processQueue(currentContext!.app).catch(() => {});
+      }, currentIntervalMs);
+      if (timer.unref) {
+        timer.unref();
+      }
+    }
+  };
 
   return {
     name: 'algolia',
     version: '1.0.0',
     description: 'Algolia search index synchronization & mutation indexing queue',
+
+    codeOptions: { ...(options || {}) },
+    configSchema: {
+      fields: [
+        {
+          name: 'appId',
+          label: 'Application ID',
+          type: 'text',
+          envKey: 'ALGOLIA_APP_ID',
+          placeholder: 'latency or DEMO_APP',
+          description: 'Algolia unique Application ID',
+          required: true,
+        },
+        {
+          name: 'apiKey',
+          label: 'Admin API Key',
+          type: 'password',
+          envKey: 'ALGOLIA_API_KEY',
+          placeholder: 'Write/Admin API Key',
+          description: 'Algolia Admin API key with write permissions',
+          required: true,
+        },
+        {
+          name: 'indexPrefix',
+          label: 'Index Prefix',
+          type: 'text',
+          envKey: 'ALGOLIA_INDEX_PREFIX',
+          defaultValue: 'nodestack_',
+          placeholder: 'nodestack_',
+          description: 'Prefix prepended to collection names for index naming',
+        },
+        {
+          name: 'autoProcessIntervalMs',
+          label: 'Sync Queue Interval (ms)',
+          type: 'number',
+          envKey: 'ALGOLIA_SYNC_INTERVAL_MS',
+          defaultValue: 5000,
+          description: 'Background polling interval in ms for syncing mutation queues',
+        },
+        {
+          name: 'dryRun',
+          label: 'Dry Run Mode',
+          type: 'boolean',
+          defaultValue: false,
+          description: 'Track operations in SQLite queue without sending outbound requests to Algolia',
+        },
+      ],
+    },
+    onConfigUpdate(newConfig) {
+      algoliaService.updateOptions(newConfig);
+      if (newConfig && newConfig.autoProcessIntervalMs !== undefined) {
+        reconcileTimer(newConfig.autoProcessIntervalMs);
+      }
+    },
 
     collections: [
       {
@@ -291,6 +382,7 @@ export function algoliaPlugin(options: AlgoliaPluginOptions): INodeStackPlugin {
     ],
 
     register(ctx: NodeStackPluginContext) {
+      currentContext = ctx;
       // 1. Bind service into container
       ctx.bindService(Symbol.for('AlgoliaSyncService'), algoliaService);
 
@@ -336,21 +428,18 @@ export function algoliaPlugin(options: AlgoliaPluginOptions): INodeStackPlugin {
       ctx.registerHook('afterDelete', (e: any) => handleIndex('delete', e));
 
       // 3. Background durable queue consumer
-      if (options.autoProcessIntervalMs && options.autoProcessIntervalMs > 0) {
-        timer = setInterval(() => {
-          algoliaService.processQueue(ctx.app).catch(() => {});
-        }, options.autoProcessIntervalMs);
-        if (timer.unref) timer.unref();
-      }
+      reconcileTimer(currentIntervalMs);
 
       // 4. REST endpoints
       ctx.registerRoute('GET', '/api/algolia/status', async (_req, reply) => {
         return reply.send({
-          appId: options.appId,
+          appId: algoliaService.options.appId,
           collections: targetCollections,
           queueCollection: collectionName,
           syncedCount: algoliaService.syncedOperations.length,
           endpoint: algoliaService.getBaseUrl(),
+          autoProcessIntervalMs: currentIntervalMs,
+          workerActive: timer !== null,
         });
       });
 
@@ -462,10 +551,8 @@ export function algoliaPlugin(options: AlgoliaPluginOptions): INodeStackPlugin {
     },
 
     onDestroy() {
-      if (timer) {
-        clearInterval(timer);
-        timer = null;
-      }
+      reconcileTimer(0);
+      currentContext = null;
     },
   };
 }

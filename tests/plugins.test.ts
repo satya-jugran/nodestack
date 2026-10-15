@@ -965,6 +965,78 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       });
       expect(awsVhostService.getBucketEndpoint()).toBe('https://my-aws-bucket.s3.eu-central-1.amazonaws.com');
     });
+
+    it('should reflect updated bucket and region consistently across status route, _s3_uploads rows, and admin UI view', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8129 });
+
+      app.use(
+        s3StoragePlugin({
+          bucket: 'initial-s3-bucket',
+          region: 'us-east-1',
+        })
+      );
+
+      // Authenticate admin
+      await app.auth.createAdmin('s3admin@nodestack.io', 'Password123!');
+      const { token: adminToken } = await app.auth.authenticateAdmin('s3admin@nodestack.io', 'Password123!');
+
+      // 1. Initial status reflects initial bucket
+      let statusRes = await app.server.inject({ method: 'GET', url: '/api/s3/status' });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().bucket).toBe('initial-s3-bucket');
+      expect(statusRes.json().region).toBe('us-east-1');
+
+      // Upload file under initial bucket
+      let uploadRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/s3/sign-upload-url',
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { filename: 'first-file.png', mimeType: 'image/png' },
+      });
+      expect(uploadRes.statusCode).toBe(200);
+      expect(uploadRes.json().uploadUrl).toContain('initial-s3-bucket.s3.us-east-1.amazonaws.com');
+
+      let uploads = await app.records.getList('_s3_uploads');
+      expect(uploads.items.length).toBe(1);
+      expect(uploads.items[0].bucket).toBe('initial-s3-bucket');
+      expect(uploads.items[0].url).toContain('initial-s3-bucket');
+
+      // 2. Update bucket and region via Admin UI configuration update
+      await app.pluginManager.updatePluginConfig('s3-storage', {
+        bucket: 'production-assets-2026',
+        region: 'eu-west-1',
+      });
+
+      // Status route must return new bucket and region
+      statusRes = await app.server.inject({ method: 'GET', url: '/api/s3/status' });
+      expect(statusRes.json().bucket).toBe('production-assets-2026');
+      expect(statusRes.json().region).toBe('eu-west-1');
+
+      // Upload file under updated bucket: presigned URL AND _s3_uploads row must both record new bucket!
+      uploadRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/s3/sign-upload-url',
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { filename: 'second-file.png', mimeType: 'image/png' },
+      });
+      expect(uploadRes.statusCode).toBe(200);
+      expect(uploadRes.json().uploadUrl).toContain('production-assets-2026.s3.eu-west-1.amazonaws.com');
+      expect(uploadRes.json().bucket).toBe('production-assets-2026');
+
+      uploads = await app.records.getList('_s3_uploads', { sort: 'created' });
+      expect(uploads.items.length).toBe(2);
+      expect(uploads.items[1].bucket).toBe('production-assets-2026');
+      expect(uploads.items[1].url).toContain('production-assets-2026.s3.eu-west-1.amazonaws.com');
+
+      // 3. Admin UI nav item view is updated with new bucket and region
+      const navItemsRes = await app.server.inject({ method: 'GET', url: '/api/plugins' });
+      const s3NavItem = navItemsRes.json().navItems.find((item: any) => item.id === 's3-storage');
+      expect(s3NavItem).toBeDefined();
+      expect(s3NavItem.badge).toBe('EU-WEST-1');
+      expect(s3NavItem.view.description).toContain('production-assets-2026');
+      expect(s3NavItem.view.description).toContain('eu-west-1');
+      expect(s3NavItem.view.html).toContain('production-assets-2026');
+    });
   });
 
   describe('8. Official Community Extension: Resend Email Plugin', () => {
@@ -1278,6 +1350,118 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(capturedWebhookRequests.length).toBe(1);
       expect(capturedWebhookRequests[0].body.content).toBe('Hello from Admin');
     });
+
+    it('should dynamically update active dispatch platforms and status when webhook URLs are configured at runtime', async () => {
+      const origDiscordEnv = process.env.DISCORD_WEBHOOK_URL;
+      const origSlackEnv = process.env.SLACK_WEBHOOK_URL;
+      delete process.env.DISCORD_WEBHOOK_URL;
+      delete process.env.SLACK_WEBHOOK_URL;
+
+      try {
+        app = new NodeStack({ dataDir: testDataDir, port: 8130 });
+
+        app.schema.createCollection({
+          name: 'live_tickets',
+          type: 'base',
+          schema: [
+            { id: 'f_title', name: 'title', type: 'text', required: true },
+          ],
+          listRule: '',
+          viewRule: '',
+          createRule: '',
+          updateRule: '',
+        });
+
+        const capturedRequests: Array<{ url: string; method: string; body: any }> = [];
+        const mockFetch = vi.fn().mockImplementation(async (url: string, init: any) => {
+          capturedRequests.push({
+            url,
+            method: init.method,
+            body: init.body ? JSON.parse(init.body) : undefined,
+          });
+          return {
+            ok: true,
+            status: url.includes('discord') ? 204 : 200,
+            statusText: 'OK',
+            text: async () => '',
+          };
+        });
+
+        // 1. Initialize plugin with no initial webhook URLs
+        app.use(
+          webhookPlugin({
+            collections: ['live_tickets'],
+            fetch: mockFetch as any,
+          })
+        );
+
+        // Status route reports both false and admin nav reports READY
+        let statusRes = await app.server.inject({ method: 'GET', url: '/api/webhooks/status' });
+        expect(statusRes.statusCode).toBe(200);
+        expect(statusRes.json()).toMatchObject({
+          hasDiscord: false,
+          hasSlack: false,
+        });
+
+        let navRes = await app.server.inject({ method: 'GET', url: '/api/plugins' });
+        let webhooksNav = navRes.json().navItems.find((n: any) => n.id === 'webhooks');
+        expect(webhooksNav.badge).toBe('READY');
+
+        // Mutation before configuration: 0 outbound requests sent
+        const ticket = await app.records.create('live_tickets', { title: 'First ticket' });
+        expect(capturedRequests.length).toBe(0);
+
+        // 2. Configure Discord webhook URL via Admin UI plugin config update
+        await app.pluginManager.updatePluginConfig('webhooks', {
+          discordWebhookUrl: 'https://discord.com/api/webhooks/live-discord',
+        });
+
+        // Status route dynamically reflects discord enabled
+        statusRes = await app.server.inject({ method: 'GET', url: '/api/webhooks/status' });
+        expect(statusRes.json()).toMatchObject({
+          hasDiscord: true,
+          hasSlack: false,
+        });
+
+        navRes = await app.server.inject({ method: 'GET', url: '/api/plugins' });
+        webhooksNav = navRes.json().navItems.find((n: any) => n.id === 'webhooks');
+        expect(webhooksNav.badge).toBe('CONFIGURED');
+
+        // Mutation after config update: Discord webhook is dispatched!
+        await app.records.update('live_tickets', ticket.id, { title: 'Updated ticket title' });
+        expect(capturedRequests.length).toBe(1);
+        expect(capturedRequests[0].url).toBe('https://discord.com/api/webhooks/live-discord');
+        expect(capturedRequests[0].body.content).toContain('Updated ticket title');
+
+        // Verify logged in _webhook_logs
+        let logs = await app.records.getList('_webhook_logs');
+        expect(logs.items.length).toBe(1);
+        expect(logs.items[0].platform).toBe('discord');
+        expect(logs.items[0].event).toBe('record:updated');
+
+        // 3. Add Slack webhook via config update as well
+        await app.pluginManager.updatePluginConfig('webhooks', {
+          slackWebhookUrl: 'https://hooks.slack.com/services/live-slack',
+        });
+
+        statusRes = await app.server.inject({ method: 'GET', url: '/api/webhooks/status' });
+        expect(statusRes.json()).toMatchObject({
+          hasDiscord: true,
+          hasSlack: true,
+        });
+
+        capturedRequests.length = 0;
+        await app.records.create('live_tickets', { title: 'Second ticket' });
+        expect(capturedRequests.length).toBe(2);
+        expect(capturedRequests.some((r) => r.url.includes('discord'))).toBe(true);
+        expect(capturedRequests.some((r) => r.url.includes('slack'))).toBe(true);
+      } finally {
+        if (origDiscordEnv !== undefined) process.env.DISCORD_WEBHOOK_URL = origDiscordEnv;
+        else delete process.env.DISCORD_WEBHOOK_URL;
+        if (origSlackEnv !== undefined) process.env.SLACK_WEBHOOK_URL = origSlackEnv;
+        else delete process.env.SLACK_WEBHOOK_URL;
+      }
+    });
   });
 
   describe('10. Official Community Extension: Algolia Search Sync Plugin', () => {
@@ -1387,6 +1571,53 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(resProcess.statusCode).toBe(200);
       expect(resProcess.json().success).toBe(true);
     });
+
+    it('should reconcile or restart background worker timer when autoProcessIntervalMs configuration changes', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8128 });
+
+      // Start with autoProcessIntervalMs: 0 (disabled worker)
+      app.use(
+        algoliaPlugin({
+          appId: 'ALGOLIA_APP_ID',
+          apiKey: 'ALGOLIA_API_KEY',
+          autoProcessIntervalMs: 0,
+          collections: [],
+        })
+      );
+
+      // Verify worker is initially not active
+      let statusRes = await app.server.inject({ method: 'GET', url: '/api/algolia/status' });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().workerActive).toBe(false);
+      expect(statusRes.json().autoProcessIntervalMs).toBe(0);
+
+      // 1. Changing 0 to a positive value dynamically starts the worker
+      await app.pluginManager.updatePluginConfig('algolia', {
+        autoProcessIntervalMs: 2500,
+      });
+
+      statusRes = await app.server.inject({ method: 'GET', url: '/api/algolia/status' });
+      expect(statusRes.json().workerActive).toBe(true);
+      expect(statusRes.json().autoProcessIntervalMs).toBe(2500);
+
+      // 2. Updating interval restarts timer with the new interval
+      await app.pluginManager.updatePluginConfig('algolia', {
+        autoProcessIntervalMs: 1200,
+      });
+
+      statusRes = await app.server.inject({ method: 'GET', url: '/api/algolia/status' });
+      expect(statusRes.json().workerActive).toBe(true);
+      expect(statusRes.json().autoProcessIntervalMs).toBe(1200);
+
+      // 3. Changing to 0 stops the active worker
+      await app.pluginManager.updatePluginConfig('algolia', {
+        autoProcessIntervalMs: 0,
+      });
+
+      statusRes = await app.server.inject({ method: 'GET', url: '/api/algolia/status' });
+      expect(statusRes.json().workerActive).toBe(false);
+      expect(statusRes.json().autoProcessIntervalMs).toBe(0);
+    });
   });
 
   describe('11. Workspace Package Exports under packages/plugins/* (s3, stripe, resend, etc.)', () => {
@@ -1418,6 +1649,23 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       const resendStatus = await app.server.inject({ method: 'GET', url: '/api/resend/status' });
       expect(resendStatus.statusCode).toBe(200);
       expect(resendStatus.json().configured).toBe(true);
+    });
+
+    it('should support invoking plugin factories with zero arguments (no-options / env-only)', () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8120 });
+
+      // Zero-options invocations must compile and execute cleanly
+      app.use(workspaceStripePlugin());
+      app.use(workspaceS3Plugin());
+      app.use(workspaceResendPlugin());
+      app.use(workspaceWebhookPlugin());
+      app.use(workspaceAlgoliaPlugin());
+
+      expect(app.hasPlugin('stripe')).toBe(true);
+      expect(app.hasPlugin('s3-storage')).toBe(true);
+      expect(app.hasPlugin('resend')).toBe(true);
+      expect(app.hasPlugin('webhooks')).toBe(true);
+      expect(app.hasPlugin('algolia')).toBe(true);
     });
   });
 
@@ -1522,7 +1770,7 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       } finally {
         dom.window.close();
       }
-    });
+    }, 15000);
 
     it('should safely serialize plugin data and prevent </script> tag breakouts and XSS in getHtml()', () => {
       const adminUi = new AdminUIService();

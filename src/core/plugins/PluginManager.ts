@@ -1,6 +1,7 @@
-import { FastifyInstance, RouteHandlerMethod } from 'fastify';
+import { FastifyInstance, FastifyReply, FastifyRequest, RouteHandlerMethod } from 'fastify';
 import { Container } from '../container/Container';
 import { TOKENS, ServiceIdentifier } from '../container/Tokens';
+import { AppError, NotFoundError } from '../errors/AppError';
 import {
   INodeStackPlugin,
   NodeStackPlugin,
@@ -9,6 +10,9 @@ import {
   RegisteredPluginRecord,
   HttpMethod,
   PluginRouteOptions,
+  PluginConfigResult,
+  ResolvedPluginConfigField,
+  PluginConfigSource,
 } from './types';
 import type { NodeStack } from '../../NodeStack';
 
@@ -21,7 +25,10 @@ export class PluginManager {
   constructor(
     private readonly app: NodeStack,
     private readonly container: Container
-  ) {}
+  ) {
+    this.initSettingsTable();
+    this.registerConfigRoutes();
+  }
 
   /**
    * Install/use a plugin on the NodeStack instance
@@ -238,6 +245,7 @@ export class PluginManager {
       name: plugin.name,
       version: plugin.version,
       description: plugin.description,
+      hasConfig: Boolean(plugin.configSchema?.fields && plugin.configSchema.fields.length > 0),
     });
 
     // 9. Store plugin record
@@ -247,6 +255,17 @@ export class PluginManager {
       context,
       status: 'registered',
     });
+
+    // 10. If plugin defines configSchema and onConfigUpdate, hydrate with effective initial settings
+    if (plugin.configSchema?.fields && typeof plugin.onConfigUpdate === 'function') {
+      try {
+        const effective = this.getEffectiveConfig(plugin.name);
+        const initialSync = plugin.onConfigUpdate(effective);
+        if (initialSync instanceof Promise) {
+          this.pendingInits.push(initialSync.catch(() => {}));
+        }
+      } catch {}
+    }
 
     return this;
   }
@@ -324,6 +343,393 @@ export class PluginManager {
     delete options.requireAdmin;
 
     return options;
+  }
+
+  /**
+   * Initialize SQLite settings table for plugins if not already present
+   */
+  private initSettingsTable(): void {
+    try {
+      if (this.app.db && typeof this.app.db.run === 'function') {
+        this.app.db.run(`
+          CREATE TABLE IF NOT EXISTS _plugin_settings (
+            pluginName TEXT PRIMARY KEY,
+            settings TEXT NOT NULL DEFAULT '{}',
+            updatedAt TEXT NOT NULL
+          )
+        `);
+      }
+    } catch {
+      // Ignore during mock or container tests
+    }
+  }
+
+  /**
+   * Register Fastify routes for retrieving and updating plugin configuration
+   */
+  private registerConfigRoutes(): void {
+    const fastify = this.app.server?.app;
+    if (!fastify) return;
+
+    fastify.get(
+      '/api/plugins/:name/config',
+      { preHandler: this.app.authMiddleware.requireAdmin() },
+      async (req: FastifyRequest, reply: FastifyReply) => {
+        const { name } = req.params as { name: string };
+        try {
+          const config = this.getPluginConfig(name);
+          return reply.send(config);
+        } catch (err: any) {
+          const statusCode = err.statusCode || 404;
+          return reply.status(statusCode).send({
+            statusCode,
+            message: err.message || `Plugin "${name}" not found`,
+          });
+        }
+      }
+    );
+
+    fastify.put(
+      '/api/plugins/:name/config',
+      { preHandler: this.app.authMiddleware.requireAdmin() },
+      async (req: FastifyRequest, reply: FastifyReply) => {
+        const { name } = req.params as { name: string };
+        const body = (req.body as any) || {};
+        try {
+          const updated = await this.updatePluginConfig(name, body);
+          return reply.send(updated);
+        } catch (err: any) {
+          const statusCode = err.statusCode || 400;
+          return reply.status(statusCode).send({
+            statusCode,
+            message: err.message,
+          });
+        }
+      }
+    );
+  }
+
+  /**
+   * Resolve raw effective configuration dictionary for internal plugin execution.
+   * Resolves values from environment variables, database (_plugin_settings), code options, and defaults.
+   * Unlike getPluginConfig, this preserves raw secrets required by plugins at runtime.
+   */
+  public getEffectiveConfig(name: string): Record<string, any> {
+    let record = this.plugins.get(name);
+    if (!record) {
+      for (const rec of this.plugins.values()) {
+        if (rec.plugin.adminNavItems?.some((i) => i.id === name)) {
+          record = rec;
+          name = rec.name;
+          break;
+        }
+      }
+    }
+    if (!record) {
+      throw new NotFoundError(`Plugin "${name}" is not registered`);
+    }
+
+    const plugin = record.plugin;
+    if (!plugin.configSchema?.fields || plugin.configSchema.fields.length === 0) {
+      return {};
+    }
+
+    this.initSettingsTable();
+    let dbSettings: Record<string, any> = {};
+    try {
+      const row = this.app.db.get<{ settings: string }>(
+        'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+        [name]
+      );
+      if (row?.settings) {
+        dbSettings = JSON.parse(row.settings);
+      }
+    } catch {}
+
+    const effective: Record<string, any> = {};
+    for (const field of plugin.configSchema.fields) {
+      let val: any = undefined;
+
+      // 1. Environment Variable
+      if (field.envKey && process.env[field.envKey] !== undefined && process.env[field.envKey] !== '') {
+        val = process.env[field.envKey];
+      }
+      // 2. Database Settings
+      else if (dbSettings[field.name] !== undefined) {
+        val = dbSettings[field.name];
+      }
+      // 3. Code Options
+      else if (
+        plugin.codeOptions &&
+        plugin.codeOptions[field.name] !== undefined &&
+        plugin.codeOptions[field.name] !== ''
+      ) {
+        val = plugin.codeOptions[field.name];
+      }
+      // 4. Default Fallback
+      else {
+        val =
+          field.defaultValue !== undefined
+            ? field.defaultValue
+            : (field.type === 'boolean'
+                ? false
+                : (field.type === 'select' && field.required && field.options && field.options.length > 0
+                    ? (typeof field.options[0] === 'object' && field.options[0] !== null && 'value' in field.options[0]
+                        ? field.options[0].value
+                        : field.options[0])
+                    : undefined));
+      }
+
+      if (val !== undefined && val !== '') {
+        effective[field.name] = val;
+      }
+    }
+
+    return effective;
+  }
+
+  /**
+   * Option B: Resolve plugin configuration with strict environment & code precedence.
+   * If a setting is defined via process.env, it is locked.
+   * If not defined in env, it is editable via SQLite database (_plugin_settings).
+   *
+   * SECURITY: For fields of type 'password', raw secret values are NEVER returned in responses.
+   * value is omitted (undefined), and hasValue indicates whether a secret is configured.
+   */
+  public getPluginConfig(name: string): PluginConfigResult {
+    let record = this.plugins.get(name);
+    if (!record) {
+      for (const rec of this.plugins.values()) {
+        if (rec.plugin.adminNavItems?.some((i) => i.id === name)) {
+          record = rec;
+          name = rec.name;
+          break;
+        }
+      }
+    }
+    if (!record) {
+      throw new NotFoundError(`Plugin "${name}" is not registered`);
+    }
+
+    const plugin = record.plugin;
+    if (!plugin.configSchema || !plugin.configSchema.fields || plugin.configSchema.fields.length === 0) {
+      return {
+        plugin: name,
+        hasConfig: false,
+        fields: [],
+      };
+    }
+
+    this.initSettingsTable();
+    let dbSettings: Record<string, any> = {};
+    try {
+      const row = this.app.db.get<{ settings: string }>(
+        'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+        [name]
+      );
+      if (row?.settings) {
+        dbSettings = JSON.parse(row.settings);
+      }
+    } catch {}
+
+    const fields: ResolvedPluginConfigField[] = plugin.configSchema.fields.map((field) => {
+      let rawValue: any = undefined;
+      let isLocked = false;
+      let source: PluginConfigSource = 'default';
+      let lockReason: string | undefined = undefined;
+
+      // 1. Strict Option B: Check Environment Variable (The ONLY source that locks)
+      if (field.envKey && process.env[field.envKey] !== undefined && process.env[field.envKey] !== '') {
+        rawValue = process.env[field.envKey];
+        isLocked = true;
+        source = 'env';
+        lockReason = `Managed by environment variable (${field.envKey})`;
+      }
+      // 2. Check Database Settings (Editable via Admin UI, overrides code fallbacks)
+      else if (dbSettings[field.name] !== undefined) {
+        rawValue = dbSettings[field.name];
+        isLocked = false;
+        source = 'db';
+      }
+      // 3. Programmatic Code Options / Fallback (Editable in UI)
+      else if (
+        plugin.codeOptions &&
+        plugin.codeOptions[field.name] !== undefined &&
+        plugin.codeOptions[field.name] !== ''
+      ) {
+        rawValue = plugin.codeOptions[field.name];
+        isLocked = false;
+        source = 'code';
+      }
+      // 4. Default Fallback
+      else {
+        rawValue =
+          field.defaultValue !== undefined
+            ? field.defaultValue
+            : (field.type === 'boolean'
+                ? false
+                : (field.type === 'select' && field.required && field.options && field.options.length > 0
+                    ? (typeof field.options[0] === 'object' && field.options[0] !== null && 'value' in field.options[0]
+                        ? field.options[0].value
+                        : field.options[0])
+                    : undefined));
+        isLocked = false;
+        source = 'default';
+      }
+
+      // Security: Omit raw password values from responses and provide write-only hint
+      if (field.type === 'password') {
+        const hasValue = rawValue !== undefined && rawValue !== '' && rawValue !== null;
+        return {
+          ...field,
+          value: undefined, // Omit raw secret from API and UI response!
+          hasValue,
+          maskedValue: hasValue ? '••••••••' : undefined,
+          isLocked,
+          source,
+          lockReason,
+        };
+      }
+
+      return {
+        ...field,
+        value: rawValue,
+        isLocked,
+        source,
+        lockReason,
+      };
+    });
+
+    return {
+      plugin: name,
+      hasConfig: true,
+      fields,
+    };
+  }
+
+  /**
+   * Option B: Update plugin configuration from Admin UI.
+   * Throws 400 Bad Request if trying to update any locked field.
+   * Implements a write-only / unchanged-secret update path:
+   *   - Password fields left empty or set to '••••••••' preserve existing secrets unchanged.
+   *   - A non-empty string updates the secret in _plugin_settings.
+   * Saves updates to _plugin_settings and fires onConfigUpdate on the plugin with effective settings.
+   */
+  public async updatePluginConfig(name: string, updates: Record<string, any>): Promise<PluginConfigResult> {
+    let record = this.plugins.get(name);
+    if (!record) {
+      for (const rec of this.plugins.values()) {
+        if (rec.plugin.adminNavItems?.some((i) => i.id === name)) {
+          record = rec;
+          name = rec.name;
+          break;
+        }
+      }
+    }
+    if (!record) {
+      throw new NotFoundError(`Plugin "${name}" is not registered`);
+    }
+
+    const currentConfig = this.getPluginConfig(name);
+    if (!currentConfig.hasConfig) {
+      throw new AppError(`Plugin "${name}" does not define a configuration schema`, 400);
+    }
+
+    this.initSettingsTable();
+    let dbSettings: Record<string, any> = {};
+    try {
+      const row = this.app.db.get<{ settings: string }>(
+        'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+        [name]
+      );
+      if (row?.settings) {
+        dbSettings = JSON.parse(row.settings);
+      }
+    } catch {}
+
+    // Validate that no locked fields are being modified
+    for (const [key, val] of Object.entries(updates)) {
+      const field = currentConfig.fields.find((f) => f.name === key);
+      if (!field) continue;
+
+      if (field.isLocked) {
+        // If unchanged placeholder or blank is passed for a locked field, ignore without error
+        if (val === undefined || val === '' || val === null || val === '••••••••') {
+          continue;
+        }
+        throw new AppError(
+          `Field "${key}" is locked by ${field.lockReason || 'production environment'} and cannot be modified via UI.`,
+          400
+        );
+      }
+
+      // Write-only / unchanged-secret update path:
+      if (field.type === 'password') {
+        if (val === undefined || val === '' || val === null || val === '••••••••') {
+          // Unchanged: preserve existing stored secret
+          continue;
+        }
+        // Operator provided a new secret
+        dbSettings[key] = String(val).trim();
+        continue;
+      }
+
+      // Format/sanitize values for other field types
+      let cleanedVal = val;
+      if (field.type === 'number') {
+        cleanedVal = val === '' ? undefined : Number(val);
+      } else if (field.type === 'boolean') {
+        cleanedVal = Boolean(val);
+      } else if (field.type === 'select') {
+        if (field.options && field.options.length > 0) {
+          const matchedOpt = field.options.find((opt) => {
+            const optVal = typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt;
+            return String(optVal) === String(val);
+          });
+          if (matchedOpt) {
+            const rawOptVal =
+              typeof matchedOpt === 'object' && matchedOpt !== null && 'value' in matchedOpt
+                ? matchedOpt.value
+                : matchedOpt;
+            cleanedVal = rawOptVal;
+          } else if (val === '' || val === undefined || val === null) {
+            if (field.required) {
+              throw new AppError(`Field "${key}" is required.`, 400);
+            }
+            cleanedVal = undefined;
+          } else {
+            const allowedLabels = field.options.map((opt) => {
+              const optVal = typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt;
+              return JSON.stringify(optVal);
+            });
+            throw new AppError(
+              `Invalid value "${val}" for select field "${key}". Allowed choices: ${allowedLabels.join(', ')}`,
+              400
+            );
+          }
+        }
+      }
+      if (cleanedVal === undefined) {
+        delete dbSettings[key];
+      } else {
+        dbSettings[key] = cleanedVal;
+      }
+    }
+
+    const now = new Date().toISOString();
+    this.app.db.prepare(`
+      INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
+      VALUES (?, ?, ?)
+      ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
+    `).run(name, JSON.stringify(dbSettings), now);
+
+    // Compute effective full configuration with raw secrets for runtime update
+    if (typeof record.plugin.onConfigUpdate === 'function') {
+      const effectiveConfig = this.getEffectiveConfig(name);
+      await record.plugin.onConfigUpdate(effectiveConfig);
+    }
+
+    return this.getPluginConfig(name);
   }
 
   /**

@@ -1,6 +1,6 @@
 // Overview, Logs & Settings Views
     function renderHomeView() {
-      const main = document.getElementById('main-body');
+      const main = document.getElementById('page-view-home') || document.getElementById('main-body');
       const collectionsCount = state.collections.length;
       main.innerHTML = `
         <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
@@ -16,7 +16,7 @@
                 <div>
                   <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="font-weight: 800; font-size: 15px; color: #fff; letter-spacing: -0.02em;">NodeStack Core</span>
-                    <span class="version-tag" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd; font-size: 10.5px;">v1.1.0</span>
+                    <span class="version-tag" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd; font-size: 10.5px;">v1.2.0</span>
                     <span class="badge badge-get" style="font-size: 10.5px; display: inline-flex; align-items: center; gap: 5px;">
                       <span class="live-dot" style="width: 6px; height: 6px;"></span>
                       <span>Server Online</span>
@@ -326,7 +326,7 @@
     }
 
     function renderLogsView() {
-      const main = document.getElementById('main-body');
+      const main = document.getElementById('page-view-logs') || document.getElementById('main-body');
       main.innerHTML = `
         <div class="table-container">
           <table>
@@ -403,8 +403,8 @@
 
     // Settings View
     async function renderSettingsView() {
-      const main = document.getElementById('main-body');
-      let health = { version: '1.1.0', appName: 'NodeStack' };
+      const main = document.getElementById('page-view-settings') || document.getElementById('main-body');
+      let health = { version: '1.2.0', appName: 'NodeStack' };
       try {
         health = await api('/api/health');
       } catch {}

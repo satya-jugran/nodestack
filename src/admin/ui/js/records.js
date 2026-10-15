@@ -195,10 +195,13 @@
         </div>
       `;
 
+      if (typeof showPageView === 'function') {
+        showPageView('collections');
+      }
       const col = state.activeCollection;
       const searchableFields = getSearchableFields(col);
 
-      const main = document.getElementById('main-body');
+      const main = document.getElementById('collections-detail-pane') || document.getElementById('main-body');
       main.innerHTML = `
         <div class="controls-bar">
           <div style="display:flex; align-items:center; gap:0.75rem; flex:1; max-width:640px;">

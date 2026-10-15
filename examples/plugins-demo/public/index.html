@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NodeStack Plugins Interactive Demo</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <style>
+    :root {
+      --bg: #090a0f;
+      --bg-card: #11131a;
+      --bg-card-hover: #161922;
+      --bg-input: #0c0e14;
+      --border: #232838;
+      --border-focus: #3b82f6;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --purple: #8b5cf6;
+      --cyan: #06b6d4;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: rgba(17, 19, 26, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 0.85rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .brand-title {
+      font-weight: 800;
+      font-size: 16px;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      padding: 0.5rem 0.9rem;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 7px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.15s ease;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-secondary {
+      background: var(--bg-card);
+      border-color: var(--border);
+      color: var(--text);
+    }
+    .btn-secondary:hover {
+      background: var(--bg-card-hover);
+      border-color: #3b4256;
+    }
+
+    .btn-outline {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text-muted);
+    }
+    .btn-outline:hover {
+      color: var(--text);
+      border-color: var(--primary);
+    }
+
+    .btn-sm {
+      padding: 0.35rem 0.65rem;
+      font-size: 12px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 9999px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .badge-success { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-warning { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .badge-primary { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .badge-purple { background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); }
+    .badge-cyan { background: rgba(6, 182, 212, 0.15); color: #22d3ee; border: 1px solid rgba(6, 182, 212, 0.3); }
+
+    main {
+      flex: 1;
+      max-width: 1280px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 1.75rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .hero-banner {
+      background: linear-gradient(180deg, rgba(30, 41, 59, 0.4) 0%, rgba(17, 19, 26, 0.6) 100%);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+    }
+
+    .hero-text h1 {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .hero-text p {
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-top: 4px;
+      max-width: 650px;
+      line-height: 1.5;
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 9999px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+    }
+
+    .grid-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .plugin-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      transition: border-color 0.15s ease;
+    }
+
+    .plugin-card:hover {
+      border-color: #3b4256;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-title-group {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+    }
+
+    .card-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .card-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .card-body {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      flex: 1;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .form-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .form-input {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 13px;
+      padding: 0.45rem 0.7rem;
+      border-radius: 6px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .form-input:focus {
+      border-color: var(--border-focus);
+    }
+
+    .output-box {
+      background: #06070a;
+      border: 1px solid #1a1e2a;
+      border-radius: 6px;
+      padding: 0.65rem 0.85rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      color: #93c5fd;
+      max-height: 120px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .card-footer {
+      padding-top: 0.5rem;
+      border-top: 1px solid #1c2130;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .card-footer a {
+      color: #60a5fa;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .card-footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* Activity log */
+    .activity-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }
+
+    .activity-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+
+    .activity-title {
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .activity-feed {
+      background: #06070a;
+      border: 1px solid #1a1e2a;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      max-height: 180px;
+      overflow-y: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .feed-entry {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .feed-time {
+      color: #64748b;
+      font-size: 11px;
+    }
+
+    .feed-tag {
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .tag-stripe { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+    .tag-s3 { background: rgba(6, 182, 212, 0.2); color: #22d3ee; }
+    .tag-resend { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .tag-webhooks { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
+    .tag-algolia { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+
+    /* Toast */
+    #toast-container {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      z-index: 999;
+    }
+
+    .toast {
+      background: #1e293b;
+      color: #fff;
+      border: 1px solid #334155;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      animation: slideIn 0.2s ease;
+    }
+
+    @keyframes slideIn {
+      from { transform: translateY(10px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-icon">🧩</div>
+      <div>
+        <div class="brand-title">NodeStack Plugins Demo</div>
+        <div class="brand-subtitle">Interactive Playground for Official NodeStack Extensions</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="status-pill">
+        <div class="status-dot"></div>
+        <span>Backend Online (Port 8090)</span>
+      </div>
+      <a href="/_/" target="_blank" class="btn btn-primary btn-sm">
+        <span>Open Admin UI (/_/)</span>
+        <span>↗</span>
+      </a>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero-banner">
+      <div class="hero-text">
+        <h1>Welcome to the Plugins Interactive Showcase</h1>
+        <p>
+          Trigger actions below to experience each plugin live. Then open the <strong>Admin UI (/_/)</strong> in another tab to inspect the registered plugin views, sidebar tabs, and the real-time SQLite database rows created by your actions!
+        </p>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-muted);">
+        <div>👤 Admin: <code style="color: #60a5fa;">admin@nodestack.io</code></div>
+        <div>🔑 Password: <code style="color: #60a5fa;">Password123!</code></div>
+      </div>
+    </div>
+
+    <div class="grid-cards">
+
+      <!-- 1. Stripe -->
+      <div class="plugin-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <div class="card-icon" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;">💳</div>
+            <div>
+              <div class="card-title">Stripe Payments</div>
+              <div class="card-desc">Checkout sessions & webhook automation</div>
+            </div>
+          </div>
+          <span class="badge badge-warning">Test Mode</span>
+        </div>
+        <div class="card-body">
+          <div class="form-group">
+            <label class="form-label">Customer Email</label>
+            <input type="email" id="stripe-email" class="form-input" value="buyer@example.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Amount (cents)</label>
+            <input type="number" id="stripe-amount" class="form-input" value="4900">
+          </div>
+          <div style="display: flex; gap: 0.5rem; margin-top: 4px;">
+            <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="createStripeCheckout()">Create Checkout Session</button>
+            <button class="btn btn-outline btn-sm" onclick="simulateStripeWebhook()">Simulate Webhook</button>
+          </div>
+          <div id="stripe-output" class="output-box" style="display: none;"></div>
+        </div>
+        <div class="card-footer">
+          <span>Target collection: <code>_stripe_payments</code></span>
+          <a href="/_/" target="_blank">View Rows ↗</a>
+        </div>
+      </div>
+
+      <!-- 2. S3 Storage -->
+      <div class="plugin-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <div class="card-icon" style="background: rgba(6, 182, 212, 0.15); color: #22d3ee;">☁️</div>
+            <div>
+              <div class="card-title">S3 Cloud Storage</div>
+              <div class="card-desc">SigV4 presigned upload URLs (MinIO/R2 path-style)</div>
+            </div>
+          </div>
+          <span class="badge badge-cyan">Path-Style</span>
+        </div>
+        <div class="card-body">
+          <div class="form-group">
+            <label class="form-label">Filename to Upload</label>
+            <input type="text" id="s3-filename" class="form-input" value="user_document.pdf">
+          </div>
+          <div class="form-group">
+            <label class="form-label">MIME Type</label>
+            <input type="text" id="s3-mimetype" class="form-input" value="application/pdf">
+          </div>
+          <button class="btn btn-secondary btn-sm" style="margin-top: 4px;" onclick="generateS3UploadUrl()">Generate Presigned Upload URL</button>
+          <div id="s3-output" class="output-box" style="display: none;"></div>
+        </div>
+        <div class="card-footer">
+          <span>Target collection: <code>_s3_uploads</code></span>
+          <a href="/_/" target="_blank">View Rows ↗</a>
+        </div>
+      </div>
+
+      <!-- 3. Resend Email -->
+      <div class="plugin-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <div class="card-icon" style="background: rgba(16, 185, 129, 0.15); color: #34d399;">✉️</div>
+            <div>
+              <div class="card-title">Resend Email</div>
+              <div class="card-desc">Transactional delivery with SQLite audit log</div>
+            </div>
+          </div>
+          <span class="badge badge-success">Active</span>
+        </div>
+        <div class="card-body">
+          <div class="form-group">
+            <label class="form-label">Recipient Email</label>
+            <input type="email" id="resend-to" class="form-input" value="recipient@example.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Subject</label>
+            <input type="text" id="resend-subject" class="form-input" value="Welcome to NodeStack Demo!">
+          </div>
+          <button class="btn btn-secondary btn-sm" style="margin-top: 4px;" onclick="sendResendEmail()">Send Transactional Email</button>
+          <div id="resend-output" class="output-box" style="display: none;"></div>
+        </div>
+        <div class="card-footer">
+          <span>Target collection: <code>_email_logs</code></span>
+          <a href="/_/" target="_blank">View Rows ↗</a>
+        </div>
+      </div>
+
+      <!-- 4. Webhooks -->
+      <div class="plugin-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <div class="card-icon" style="background: rgba(139, 92, 246, 0.15); color: #a78bfa;">🔔</div>
+            <div>
+              <div class="card-title">Realtime Webhooks</div>
+              <div class="card-desc">Fires Discord & Slack alerts on database mutations</div>
+            </div>
+          </div>
+          <span class="badge badge-purple">Discord + Slack</span>
+        </div>
+        <div class="card-body">
+          <div class="form-group">
+            <label class="form-label">Create Support Ticket (Monitored)</label>
+            <input type="text" id="webhook-title" class="form-input" value="API Gateway Connection Timeout">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Priority</label>
+            <select id="webhook-priority" class="form-input">
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+          <div style="display: flex; gap: 0.5rem; margin-top: 4px;">
+            <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="createTicketMutation()">Trigger Mutation Hook</button>
+            <button class="btn btn-outline btn-sm" onclick="sendTestWebhook()">Manual Test</button>
+          </div>
+          <div id="webhook-output" class="output-box" style="display: none;"></div>
+        </div>
+        <div class="card-footer">
+          <span>Target collection: <code>_webhook_logs</code></span>
+          <a href="/_/" target="_blank">View Rows ↗</a>
+        </div>
+      </div>
+
+      <!-- 5. Algolia -->
+      <div class="plugin-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <div class="card-icon" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa;">🔍</div>
+            <div>
+              <div class="card-title">Algolia Search Sync</div>
+              <div class="card-desc">Instant search pipeline & durable queue consumer</div>
+            </div>
+          </div>
+          <span class="badge badge-primary">Auto-Sync</span>
+        </div>
+        <div class="card-body">
+          <div class="form-group">
+            <label class="form-label">Collection to Reindex</label>
+            <input type="text" id="algolia-collection" class="form-input" value="products">
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
+            Triggers a bulk scan of the collection, batches document payloads, and stores operations in the durable sync queue.
+          </div>
+          <button class="btn btn-secondary btn-sm" style="margin-top: 4px;" onclick="triggerAlgoliaReindex()">Trigger Bulk Reindex</button>
+          <div id="algolia-output" class="output-box" style="display: none;"></div>
+        </div>
+        <div class="card-footer">
+          <span>Target collection: <code>_algolia_sync_queue</code></span>
+          <a href="/_/" target="_blank">View Rows ↗</a>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Real-time Activity Feed -->
+    <div class="activity-section">
+      <div class="activity-header">
+        <div class="activity-title">
+          <span>⚡ Live Plugin Event Feed</span>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="clearFeed()">Clear Feed</button>
+      </div>
+      <div id="activity-feed" class="activity-feed">
+        <div class="feed-entry">
+          <span class="feed-time">Ready</span>
+          <span class="feed-tag tag-stripe">SYSTEM</span>
+          <span>Plugins initialized and active on http://localhost:8090</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div id="toast-container"></div>
+
+  <script>
+    let adminToken = '';
+
+    // Auto-authenticate as seeded admin to authorize action endpoints
+    async function getAdminToken() {
+      if (adminToken) return adminToken;
+      try {
+        const res = await fetch('/api/admins/auth-with-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identity: 'admin@nodestack.io',
+            password: 'Password123!'
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          adminToken = data.token;
+          logFeed('SYSTEM', 'Authenticated as admin@nodestack.io');
+          return adminToken;
+        }
+      } catch (e) {
+        console.warn('Auto-auth warning:', e);
+      }
+      return '';
+    }
+
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+
+      const iconSpan = document.createElement('span');
+      iconSpan.textContent = type === 'success' ? '✅' : 'ℹ️';
+
+      const msgSpan = document.createElement('span');
+      msgSpan.textContent = message;
+
+      toast.appendChild(iconSpan);
+      toast.appendChild(msgSpan);
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    function logFeed(tag, text) {
+      const feed = document.getElementById('activity-feed');
+      const time = new Date().toLocaleTimeString();
+      const tagClass = 'tag-' + tag.toLowerCase();
+      const row = document.createElement('div');
+      row.className = 'feed-entry';
+
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'feed-time';
+      timeSpan.textContent = time;
+
+      const tagSpan = document.createElement('span');
+      tagSpan.className = 'feed-tag ' + tagClass;
+      tagSpan.textContent = tag;
+
+      const textSpan = document.createElement('span');
+      textSpan.textContent = text;
+
+      row.appendChild(timeSpan);
+      row.appendChild(tagSpan);
+      row.appendChild(textSpan);
+
+      feed.insertBefore(row, feed.firstChild);
+    }
+
+    function clearFeed() {
+      document.getElementById('activity-feed').innerHTML = '';
+    }
+
+    // 1. Stripe Checkout
+    async function createStripeCheckout() {
+      const email = document.getElementById('stripe-email').value;
+      const amount = Number(document.getElementById('stripe-amount').value);
+      try {
+        const res = await fetch('/api/stripe/checkout-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, amount })
+        });
+        const data = await res.json();
+        const box = document.getElementById('stripe-output');
+        box.style.display = 'block';
+        box.textContent = JSON.stringify(data, null, 2);
+        logFeed('STRIPE', `Created checkout session: ${data.id} ($${(amount/100).toFixed(2)})`);
+        showToast('Stripe checkout session created!');
+      } catch (err) {
+        alert('Stripe error: ' + err.message);
+      }
+    }
+
+    // 1b. Simulate Stripe Webhook
+    async function simulateStripeWebhook() {
+      try {
+        const res = await fetch('/api/stripe/webhook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'payment_intent.succeeded',
+            data: {
+              object: {
+                id: 'pi_demo_' + Math.random().toString(36).substring(2, 9),
+                amount: 4900,
+                currency: 'usd',
+                customer: 'cus_demo_user',
+                status: 'succeeded'
+              }
+            }
+          })
+        });
+        const data = await res.json();
+        const box = document.getElementById('stripe-output');
+        box.style.display = 'block';
+        box.textContent = JSON.stringify(data, null, 2);
+        logFeed('STRIPE', `Webhook processed: payment_intent.succeeded recorded in _stripe_payments`);
+        showToast('Payment recorded in _stripe_payments! Check Admin UI.');
+      } catch (err) {
+        alert('Webhook error: ' + err.message);
+      }
+    }
+
+    // 2. S3 Storage
+    async function generateS3UploadUrl() {
+      const token = await getAdminToken();
+      const filename = document.getElementById('s3-filename').value;
+      const mimeType = document.getElementById('s3-mimetype').value;
+      try {
+        const res = await fetch('/api/s3/sign-upload-url', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ filename, mimeType })
+        });
+        const data = await res.json();
+        const box = document.getElementById('s3-output');
+        box.style.display = 'block';
+        box.textContent = JSON.stringify(data, null, 2);
+        logFeed('S3', `Generated SigV4 presigned upload URL for key "${data.key}"`);
+        showToast('Presigned S3 URL generated and logged to _s3_uploads!');
+      } catch (err) {
+        alert('S3 error: ' + err.message);
+      }
+    }
+
+    // 3. Resend Email
+    async function sendResendEmail() {
+      const token = await getAdminToken();
+      const to = document.getElementById('resend-to').value;
+      const subject = document.getElementById('resend-subject').value;
+      try {
+        const res = await fetch('/api/resend/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            to,
+            subject,
+            html: `<h1>${subject}</h1><p>This is a live test from the NodeStack plugins showcase.</p>`
+          })
+        });
+        const data = await res.json();
+        const box = document.getElementById('resend-output');
+        box.style.display = 'block';
+        box.textContent = JSON.stringify(data, null, 2);
+        logFeed('RESEND', `Sent email to ${to} (ID: ${data.id})`);
+        showToast('Email delivered and logged to _email_logs!');
+      } catch (err) {
+        alert('Resend error: ' + err.message);
+      }
+    }
+
+    // 4. Webhooks (Record Mutation)
+    async function createTicketMutation() {
+      const title = document.getElementById('webhook-title').value;
+      const priority = document.getElementById('webhook-priority').value;
+      try {
+        const res = await fetch('/api/collections/support_tickets/records', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, priority })
+        });
+        const data = await res.json();
+        const box = document.getElementById('webhook-output');
+        box.style.display = 'block';
+        box.textContent = JSON.stringify({
+          mutation: 'afterCreate hook triggered',
+          record: data,
+          dispatchedTo: ['discord', 'slack']
+        }, null, 2);
+        logFeed('WEBHOOKS', `Created ticket "${title}". Webhook notification logged in _webhook_logs.`);
+        showToast('Support ticket created & webhooks dispatched!');
+      } catch (err) {
+        alert('Mutation error: ' + err.message);
+      }
+    }
+
+    // 4b. Webhooks (Manual Test)
+    async function sendTestWebhook() {
+      const token = await getAdminToken();
+      try {
+        const res = await fetch('/api/webhooks/test', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            platform: 'discord',
+            message: 'Manual test alert from NodeStack Plugins Demo'
+          })
+        });
+        const data = await res.json();
+        const box = document.getElementById('webhook-output');
+        box.style.display = 'block';
+        box.textContent = JSON.stringify(data, null, 2);
+        logFeed('WEBHOOKS', `Manual webhook test dispatched to discord`);
+        showToast('Webhook test executed successfully!');
+      } catch (err) {
+        alert('Webhook test error: ' + err.message);
+      }
+    }
+
+    // 5. Algolia Reindex
+    async function triggerAlgoliaReindex() {
+      const token = await getAdminToken();
+      const collection = document.getElementById('algolia-collection').value;
+      try {
+        const res = await fetch('/api/algolia/reindex', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ collection })
+        });
+        const data = await res.json();
+        const box = document.getElementById('algolia-output');
+        box.style.display = 'block';
+        box.textContent = JSON.stringify(data, null, 2);
+        logFeed('ALGOLIA', `Triggered bulk reindex for "${collection}": ${data.queued} records queued.`);
+        showToast('Algolia reindex started! Logged to _algolia_sync_queue.');
+      } catch (err) {
+        alert('Algolia error: ' + err.message);
+      }
+    }
+
+    // Auto connect on load
+    getAdminToken();
+  </script>
+</body>
+</html>

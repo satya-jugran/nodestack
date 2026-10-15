@@ -12,7 +12,7 @@ const PLUGINS = [
     typesContent: `import type { INodeStackPlugin } from 'nodestack';
 
 export interface StripePluginOptions {
-  secretKey: string;
+  secretKey?: string;
   webhookSecret?: string;
   currency?: string;
   customersCollection?: string;
@@ -34,7 +34,7 @@ export interface StripeCheckoutSessionResult {
 
 export declare class StripeService {
   readonly options: StripePluginOptions;
-  constructor(options: StripePluginOptions);
+  constructor(options?: StripePluginOptions);
   isTestMode(): boolean;
   getBaseUrl(): string;
   createCheckoutSession(params: {
@@ -59,7 +59,7 @@ export declare class StripeService {
   ): string;
 }
 
-export declare function stripePlugin(options: StripePluginOptions): INodeStackPlugin;
+export declare function stripePlugin(options?: StripePluginOptions): INodeStackPlugin;
 `,
   },
   {
@@ -69,8 +69,8 @@ export declare function stripePlugin(options: StripePluginOptions): INodeStackPl
     typesContent: `import type { INodeStackPlugin } from 'nodestack';
 
 export interface S3StoragePluginOptions {
-  bucket: string;
-  region: string;
+  bucket?: string;
+  region?: string;
   endpoint?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
@@ -81,7 +81,7 @@ export interface S3StoragePluginOptions {
 
 export declare class S3StorageService {
   readonly options: S3StoragePluginOptions;
-  constructor(options: S3StoragePluginOptions);
+  constructor(options?: S3StoragePluginOptions);
   getBucketEndpoint(): string;
   getObjectUrl(key: string): string;
   getPresignedUploadUrl(
@@ -102,7 +102,7 @@ export declare class S3StorageService {
   };
 }
 
-export declare function s3StoragePlugin(options: S3StoragePluginOptions): INodeStackPlugin;
+export declare function s3StoragePlugin(options?: S3StoragePluginOptions): INodeStackPlugin;
 export declare const awsS3Plugin: typeof s3StoragePlugin;
 `,
   },
@@ -113,7 +113,7 @@ export declare const awsS3Plugin: typeof s3StoragePlugin;
     typesContent: `import type { INodeStackPlugin } from 'nodestack';
 
 export interface ResendPluginOptions {
-  apiKey: string;
+  apiKey?: string;
   from?: string;
   collectionName?: string;
   authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
@@ -134,7 +134,7 @@ export interface ResendEmailResult {
 
 export declare class ResendEmailService {
   readonly options: ResendPluginOptions;
-  constructor(options: ResendPluginOptions);
+  constructor(options?: ResendPluginOptions);
   getBaseUrl(): string;
   sendEmail(params: {
     to: string | string[];
@@ -148,7 +148,7 @@ export declare class ResendEmailService {
   }): Promise<ResendEmailResult>;
 }
 
-export declare function resendPlugin(options: ResendPluginOptions): INodeStackPlugin;
+export declare function resendPlugin(options?: ResendPluginOptions): INodeStackPlugin;
 `,
   },
   {
@@ -181,7 +181,7 @@ export interface WebhookDispatchResult {
 export declare class WebhookNotificationService {
   readonly options: WebhookPluginOptions;
   dispatched: Array<WebhookDispatchResult>;
-  constructor(options: WebhookPluginOptions);
+  constructor(options?: WebhookPluginOptions);
   getWebhookUrl(platform: 'discord' | 'slack'): string | undefined;
   formatPayload(platform: 'discord' | 'slack', payload: any): Record<string, any>;
   dispatch(platform: 'discord' | 'slack', payload: any, customUrl?: string): Promise<WebhookDispatchResult>;
@@ -197,10 +197,10 @@ export declare function webhookPlugin(options?: WebhookPluginOptions): INodeStac
     typesContent: `import type { INodeStackPlugin } from 'nodestack';
 
 export interface AlgoliaPluginOptions {
-  appId: string;
-  apiKey: string;
+  appId?: string;
+  apiKey?: string;
   indexPrefix?: string;
-  collections: string[];
+  collections?: string[];
   collectionName?: string;
   authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
   endpoint?: string;
@@ -227,7 +227,7 @@ export declare class AlgoliaSyncService {
     taskId?: string | number;
     error?: string;
   }>;
-  constructor(options: AlgoliaPluginOptions);
+  constructor(options?: AlgoliaPluginOptions);
   getIndexName(collection: string): string;
   getBaseUrl(): string;
   getHeaders(): Record<string, string>;
@@ -240,7 +240,7 @@ export declare class AlgoliaSyncService {
   processQueue(app: any, limit?: number): Promise<{ processed: number; succeeded: number; failed: number }>;
 }
 
-export declare function algoliaPlugin(options: AlgoliaPluginOptions): INodeStackPlugin;
+export declare function algoliaPlugin(options?: AlgoliaPluginOptions): INodeStackPlugin;
 `,
   },
 ];
