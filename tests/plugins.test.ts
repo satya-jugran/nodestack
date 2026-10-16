@@ -319,6 +319,80 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       });
       expect(resHelperSuccess.statusCode).toBe(200);
     });
+
+    it('should correctly dispatch dynamic routes registered after app.start() (post-boot Fastify and 1-click enable)', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8188 });
+      await app.auth.createAdmin('bootadmin@nodestack.io', 'Password123!');
+      const { token } = await app.auth.authenticateAdmin('bootadmin@nodestack.io', 'Password123!');
+
+      // Start the server so Fastify completes its boot lifecycle
+      await app.start();
+
+      // Verify unhandled route returns 404 initially
+      const resInitial404 = await app.server.inject({ method: 'GET', url: '/api/postboot/user/42' });
+      expect(resInitial404.statusCode).toBe(404);
+
+      // 1. Register a custom plugin AFTER boot
+      const postBootPlugin: INodeStackPlugin = {
+        name: 'post-boot-plugin',
+        routes: [
+          {
+            method: 'GET',
+            path: '/api/postboot/user/:id',
+            handler: async (req, reply) => {
+              const id = (req.params as any)?.id;
+              return reply.status(200).send({ ok: true, userId: id });
+            },
+          },
+        ],
+        register(ctx) {
+          ctx.registerRoute('POST', '/api/postboot/action', async (req, reply) => {
+            return reply.status(201).send({ created: true, body: req.body });
+          });
+        },
+      };
+
+      app.use(postBootPlugin);
+
+      // Verify dynamic route with params is resolved
+      const resDynamicGet = await app.server.inject({ method: 'GET', url: '/api/postboot/user/42' });
+      expect(resDynamicGet.statusCode).toBe(200);
+      expect(resDynamicGet.json()).toEqual({ ok: true, userId: '42' });
+
+      // Verify dynamic POST route is resolved
+      const resDynamicPost = await app.server.inject({
+        method: 'POST',
+        url: '/api/postboot/action',
+        payload: { greeting: 'hello from post-boot' },
+      });
+      expect(resDynamicPost.statusCode).toBe(201);
+      expect(resDynamicPost.json()).toEqual({ created: true, body: { greeting: 'hello from post-boot' } });
+
+      // 2. 1-Click Enable an official plugin (stripe) while server is already booted
+      const resEnable = await app.server.inject({
+        method: 'POST',
+        url: '/api/plugins/stripe/enable',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(resEnable.statusCode).toBe(200);
+      expect(resEnable.json().success).toBe(true);
+
+      // The stripe plugin route must respond with 200 via dynamic router (not fall through to 404)
+      const resStripeStatus = await app.server.inject({ method: 'GET', url: '/api/stripe/status' });
+      expect(resStripeStatus.statusCode).toBe(200);
+      expect(resStripeStatus.json().currency).toBe('usd');
+
+      // 3. Disable official plugin: route should no longer be active (returns 404)
+      const resDisable = await app.server.inject({
+        method: 'POST',
+        url: '/api/plugins/stripe/disable',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(resDisable.statusCode).toBe(200);
+
+      const resStripeDisabled = await app.server.inject({ method: 'GET', url: '/api/stripe/status' });
+      expect(resStripeDisabled.statusCode).toBe(404);
+    });
   });
 
   describe('3. Lifecycle Hooks Registration via Plugins', () => {

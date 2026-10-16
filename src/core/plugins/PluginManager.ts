@@ -509,9 +509,10 @@ export class PluginManager {
       preHandler: options.preHandler,
       pluginName,
     };
+    (handler as any).routeData = item;
     this.dynamicRoutesMap.set(routeKey, item);
     try {
-      this.dynamicRouter.on(m as any, path, () => {}, item);
+      this.dynamicRouter.on(m as any, path, { store: item } as any, handler as any, item);
     } catch {
       // route may already be registered
     }
@@ -522,8 +523,11 @@ export class PluginManager {
     const match = this.dynamicRouter.find(req.method as any, urlPath);
     if (!match) return false;
 
-    const routeData = (match.store || match.handler) as any;
-    if (!routeData || typeof routeData.handler !== 'function') return false;
+    const routeData = (match.store || (match.handler as any)?.routeData || match.handler) as any;
+    const handler = typeof routeData?.handler === 'function'
+      ? routeData.handler
+      : (typeof match.handler === 'function' ? match.handler : null);
+    if (!handler) return false;
 
     (req as any).params = { ...((req as any).params || {}), ...match.params };
 
@@ -535,7 +539,7 @@ export class PluginManager {
       }
     }
 
-    const result = await routeData.handler.call(this.app.server.app, req, reply);
+    const result = await handler.call(this.app.server.app, req, reply);
     if (!reply.sent && result !== undefined) {
       reply.send(result);
     }
@@ -551,7 +555,8 @@ export class PluginManager {
     this.dynamicRouter.reset();
     for (const item of this.dynamicRoutesMap.values()) {
       try {
-        this.dynamicRouter.on(item.method as any, item.path, () => {}, item);
+        (item.handler as any).routeData = item;
+        this.dynamicRouter.on(item.method as any, item.path, { store: item } as any, item.handler as any, item);
       } catch {}
     }
   }
