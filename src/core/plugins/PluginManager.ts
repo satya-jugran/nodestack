@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyReply, FastifyRequest, RouteHandlerMethod } from 'fastify';
+import findMyWay from 'find-my-way';
 import { Container } from '../container/Container';
 import { TOKENS, ServiceIdentifier } from '../container/Tokens';
 import { AppError, NotFoundError } from '../errors/AppError';
@@ -15,12 +16,112 @@ import {
   PluginConfigSource,
 } from './types';
 import type { NodeStack } from '../../NodeStack';
+import { stripePlugin } from '../../plugins/stripe';
+import { s3StoragePlugin } from '../../plugins/s3';
+import { resendPlugin } from '../../plugins/resend';
+import { webhookPlugin } from '../../plugins/webhooks';
+import { algoliaPlugin } from '../../plugins/algolia';
+
+export interface OfficialPluginMetadata {
+  id: string;
+  name: string;
+  packageName: string;
+  title: string;
+  category: string;
+  description: string;
+  icon: string;
+  badge: string;
+  isInstalled: boolean;
+  hasConfig: boolean;
+  collections: string[];
+}
+
+export interface OfficialPluginDef {
+  id: string;
+  name: string;
+  packageName: string;
+  title: string;
+  category: string;
+  description: string;
+  icon: string;
+  badge: string;
+  collections: string[];
+  factory: () => INodeStackPlugin;
+}
+
+export const OFFICIAL_PLUGINS: OfficialPluginDef[] = [
+  {
+    id: 'stripe',
+    name: 'stripe',
+    packageName: '@nodestackapp/plugin-stripe',
+    title: 'Stripe Payments',
+    category: 'Payments & Checkout',
+    description: 'Process checkout sessions, customer billing portals, and verify webhook signatures with audit logs.',
+    icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>`,
+    badge: 'PAYMENTS',
+    collections: ['_stripe_payments'],
+    factory: () => stripePlugin(),
+  },
+  {
+    id: 's3-storage',
+    name: 's3-storage',
+    packageName: '@nodestackapp/plugin-s3',
+    title: 'S3 Cloud Storage',
+    category: 'Object Storage & CDN',
+    description: 'AWS S3, MinIO, and Cloudflare R2 object storage with SigV4 presigned upload URLs and file tracking.',
+    icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>`,
+    badge: 'STORAGE',
+    collections: ['_s3_uploads'],
+    factory: () => s3StoragePlugin(),
+  },
+  {
+    id: 'resend',
+    name: 'resend',
+    packageName: '@nodestackapp/plugin-resend',
+    title: 'Resend Transactional Email',
+    category: 'Communications',
+    description: 'Transactional email delivery via Resend API with safe dry-run mode and delivery logs in SQLite.',
+    icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>`,
+    badge: 'EMAIL',
+    collections: ['_email_logs'],
+    factory: () => resendPlugin(),
+  },
+  {
+    id: 'webhooks',
+    name: 'webhooks',
+    packageName: '@nodestackapp/plugin-webhooks',
+    title: 'Discord & Slack Webhooks',
+    category: 'Automation & Alerts',
+    description: 'Real-time outbound notifications to Discord and Slack channels on database mutations with payload logs.',
+    icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+    badge: 'WEBHOOKS',
+    collections: ['_webhook_logs'],
+    factory: () => webhookPlugin(),
+  },
+  {
+    id: 'algolia',
+    name: 'algolia',
+    packageName: '@nodestackapp/plugin-algolia',
+    title: 'Algolia Search Sync',
+    category: 'Search & Discovery',
+    description: 'Realtime search indexing on record mutations, background sync queues, and batch re-indexing.',
+    icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+    badge: 'SEARCH',
+    collections: ['_algolia_sync_queue'],
+    factory: () => algoliaPlugin(),
+  },
+];
 
 export class PluginManager {
   private plugins = new Map<string, RegisteredPluginRecord>();
   private pendingInits: Promise<void>[] = [];
   private anonymousCounter = 1;
   private registeredFunctions = new Set<Function>();
+  private dynamicRouter = findMyWay({ defaultRoute: (_req: any, res: any) => res.end() });
+  private dynamicRoutesMap = new Map<
+    string,
+    { method: string; path: string; handler: RouteHandlerMethod; preHandler?: any; pluginName?: string }
+  >();
 
   constructor(
     private readonly app: NodeStack,
@@ -28,6 +129,18 @@ export class PluginManager {
   ) {
     this.initSettingsTable();
     this.registerConfigRoutes();
+
+    if (this.app.adminUi && typeof (this.app.adminUi as any).setCatalogGetter === 'function') {
+      (this.app.adminUi as any).setCatalogGetter(() => this.getOfficialCatalog());
+    }
+
+    if (this.app.server && typeof (this.app.server as any).setDynamicRouteHandler === 'function') {
+      (this.app.server as any).setDynamicRouteHandler((req: FastifyRequest, reply: FastifyReply) =>
+        this.handleDynamicRoute(req, reply)
+      );
+    }
+
+    this.loadAutoEnabledPlugins();
   }
 
   /**
@@ -92,15 +205,15 @@ export class PluginManager {
       },
       router: {
         get: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) =>
-          this.app.server.app.get(path, this.resolveRouteOptions(options), handler),
+          context.registerRoute('GET', path, handler, options),
         post: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) =>
-          this.app.server.app.post(path, this.resolveRouteOptions(options), handler),
+          context.registerRoute('POST', path, handler, options),
         patch: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) =>
-          this.app.server.app.patch(path, this.resolveRouteOptions(options), handler),
+          context.registerRoute('PATCH', path, handler, options),
         delete: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) =>
-          this.app.server.app.delete(path, this.resolveRouteOptions(options), handler),
+          context.registerRoute('DELETE', path, handler, options),
         put: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) =>
-          this.app.server.app.put(path, this.resolveRouteOptions(options), handler),
+          context.registerRoute('PUT', path, handler, options),
         raw: this.app.server.app,
       },
       registerRoute: (
@@ -111,16 +224,37 @@ export class PluginManager {
       ) => {
         const fastify = this.app.server.app;
         const resolvedOptions = this.resolveRouteOptions(options);
-        const m = method.toLowerCase();
-        if (typeof (fastify as any)[m] === 'function') {
-          (fastify as any)[m](path, resolvedOptions, handler);
-        } else {
-          fastify.route({
-            method: method as any,
-            url: path,
-            handler,
-            ...resolvedOptions,
-          });
+
+        const routeHandler: RouteHandlerMethod = async (req, reply) => {
+          if (!this.plugins.has(plugin.name)) {
+            return reply.status(404).send({
+              statusCode: 404,
+              error: 'Not Found',
+              message: `Route ${req.method}:${req.url} not found (plugin disabled)`,
+            });
+          }
+          return handler.call(this.app.server.app, req, reply);
+        };
+
+        this.registerDynamicRoute(method, path, routeHandler, resolvedOptions, plugin.name);
+
+        const isBooted = this.isFastifyBooted(fastify);
+        if (!isBooted) {
+          try {
+            const m = method.toLowerCase();
+            if (typeof (fastify as any)[m] === 'function') {
+              (fastify as any)[m](path, resolvedOptions, routeHandler);
+            } else {
+              fastify.route({
+                method: method as any,
+                url: path,
+                handler: routeHandler,
+                ...resolvedOptions,
+              });
+            }
+          } catch {
+            // Already booted fallback to dynamicRouter
+          }
         }
       },
       registerHook: (
@@ -345,6 +479,219 @@ export class PluginManager {
     return options;
   }
 
+  private isFastifyBooted(fastify: any): boolean {
+    if (!fastify) return false;
+    if (fastify.server && (fastify.server as any).listening) return true;
+    for (const sym of Object.getOwnPropertySymbols(fastify)) {
+      if (sym.description === 'fastify.state') {
+        const state = fastify[sym];
+        if (state && (state.ready || state.started || state.listening || state.booting)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private registerDynamicRoute(
+    method: HttpMethod,
+    path: string,
+    handler: RouteHandlerMethod,
+    options: any = {},
+    pluginName?: string
+  ): void {
+    const m = method.toUpperCase();
+    const routeKey = `${m}:${path}`;
+    const item = {
+      method: m,
+      path,
+      handler,
+      preHandler: options.preHandler,
+      pluginName,
+    };
+    this.dynamicRoutesMap.set(routeKey, item);
+    try {
+      this.dynamicRouter.on(m as any, path, () => {}, item);
+    } catch {
+      // route may already be registered
+    }
+  }
+
+  public async handleDynamicRoute(req: FastifyRequest, reply: FastifyReply): Promise<boolean> {
+    const urlPath = req.url.split('?')[0];
+    const match = this.dynamicRouter.find(req.method as any, urlPath);
+    if (!match) return false;
+
+    const routeData = (match.store || match.handler) as any;
+    if (!routeData || typeof routeData.handler !== 'function') return false;
+
+    (req as any).params = { ...((req as any).params || {}), ...match.params };
+
+    if (routeData.preHandler) {
+      const handlers = Array.isArray(routeData.preHandler) ? routeData.preHandler : [routeData.preHandler];
+      for (const ph of handlers) {
+        await ph(req, reply);
+        if (reply.sent) return true;
+      }
+    }
+
+    const result = await routeData.handler.call(this.app.server.app, req, reply);
+    if (!reply.sent && result !== undefined) {
+      reply.send(result);
+    }
+    return true;
+  }
+
+  private removeDynamicRoutesForPlugin(pluginName: string): void {
+    for (const [key, item] of Array.from(this.dynamicRoutesMap.entries())) {
+      if (item.pluginName === pluginName) {
+        this.dynamicRoutesMap.delete(key);
+      }
+    }
+    this.dynamicRouter.reset();
+    for (const item of this.dynamicRoutesMap.values()) {
+      try {
+        this.dynamicRouter.on(item.method as any, item.path, () => {}, item);
+      } catch {}
+    }
+  }
+
+  /**
+   * Return catalog of official first-party extensions and their installation status
+   */
+  public getOfficialCatalog(): OfficialPluginMetadata[] {
+    return OFFICIAL_PLUGINS.map((def) => {
+      const isInstalled = this.plugins.has(def.name);
+      return {
+        id: def.id,
+        name: def.name,
+        packageName: def.packageName,
+        title: def.title,
+        category: def.category,
+        description: def.description,
+        icon: def.icon,
+        badge: def.badge,
+        isInstalled,
+        hasConfig: isInstalled ? Boolean(this.plugins.get(def.name)?.plugin.configSchema?.fields?.length) : true,
+        collections: def.collections,
+      };
+    });
+  }
+
+  /**
+   * 1-Click enable official first-party plugin at runtime
+   */
+  public async enableOfficialPlugin(id: string): Promise<PluginConfigResult | null> {
+    const def = OFFICIAL_PLUGINS.find((p) => p.id === id || p.name === id);
+    if (!def) {
+      throw new NotFoundError(`Official plugin "${id}" not found in catalog`);
+    }
+
+    if (!this.plugins.has(def.name)) {
+      const plugin = def.factory();
+      this.use(plugin);
+      await this.ensureInitialized();
+    }
+
+    this.initSettingsTable();
+    let dbSettings: Record<string, any> = {};
+    try {
+      const row = this.app.db.get<{ settings: string }>(
+        'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+        [def.name]
+      );
+      if (row?.settings) {
+        dbSettings = JSON.parse(row.settings);
+      }
+    } catch {}
+
+    dbSettings._enabled = true;
+    const now = new Date().toISOString();
+    this.app.db.prepare(`
+      INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
+      VALUES (?, ?, ?)
+      ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
+    `).run(def.name, JSON.stringify(dbSettings), now);
+
+    return this.getPluginConfig(def.name);
+  }
+
+  /**
+   * Deactivate official first-party plugin
+   */
+  public async disableOfficialPlugin(id: string): Promise<void> {
+    const def = OFFICIAL_PLUGINS.find((p) => p.id === id || p.name === id);
+    const name = def ? def.name : id;
+
+    const record = this.plugins.get(name);
+    if (record) {
+      if (typeof record.plugin.onDestroy === 'function') {
+        try {
+          await record.plugin.onDestroy(record.context);
+        } catch (e) {
+          console.error(`[PluginManager] Error destroying plugin "${name}":`, e);
+        }
+      }
+
+      if (record.plugin.adminNavItems) {
+        for (const item of record.plugin.adminNavItems) {
+          this.app.adminUi.removeNavItem(item.id);
+        }
+      }
+      this.app.adminUi.removePluginMeta(name);
+
+      this.removeDynamicRoutesForPlugin(name);
+      this.plugins.delete(name);
+    }
+
+    this.initSettingsTable();
+    let dbSettings: Record<string, any> = {};
+    try {
+      const row = this.app.db.get<{ settings: string }>(
+        'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+        [name]
+      );
+      if (row?.settings) {
+        dbSettings = JSON.parse(row.settings);
+      }
+    } catch {}
+
+    dbSettings._enabled = false;
+    const now = new Date().toISOString();
+    this.app.db.prepare(`
+      INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
+      VALUES (?, ?, ?)
+      ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
+    `).run(name, JSON.stringify(dbSettings), now);
+  }
+
+  /**
+   * Auto-load any official plugins previously enabled in _plugin_settings on startup
+   */
+  private loadAutoEnabledPlugins(): void {
+    this.initSettingsTable();
+    try {
+      if (this.app.db && typeof this.app.db.all === 'function') {
+        const rows = this.app.db.all<{ pluginName: string; settings: string }>(
+          'SELECT pluginName, settings FROM _plugin_settings'
+        );
+        for (const row of rows) {
+          try {
+            const parsed = JSON.parse(row.settings);
+            if (parsed && parsed._enabled === true) {
+              const def = OFFICIAL_PLUGINS.find((p) => p.name === row.pluginName || p.id === row.pluginName);
+              if (def && !this.plugins.has(def.name)) {
+                this.use(def.factory());
+              }
+            }
+          } catch {}
+        }
+      }
+    } catch {
+      // Ignore during initial setup or mock runs
+    }
+  }
+
   /**
    * Initialize SQLite settings table for plugins if not already present
    */
@@ -370,6 +717,59 @@ export class PluginManager {
   private registerConfigRoutes(): void {
     const fastify = this.app.server?.app;
     if (!fastify) return;
+
+    fastify.get(
+      '/api/plugins/available',
+      { preHandler: this.app.authMiddleware.requireAdmin() },
+      async (_req: FastifyRequest, reply: FastifyReply) => {
+        return reply.send({
+          plugins: this.getOfficialCatalog(),
+        });
+      }
+    );
+
+    fastify.post(
+      '/api/plugins/:name/enable',
+      { preHandler: this.app.authMiddleware.requireAdmin() },
+      async (req: FastifyRequest, reply: FastifyReply) => {
+        const { name } = req.params as { name: string };
+        try {
+          const config = await this.enableOfficialPlugin(name);
+          return reply.send({
+            success: true,
+            message: `Plugin "${name}" enabled successfully`,
+            config,
+          });
+        } catch (err: any) {
+          const statusCode = err.statusCode || 400;
+          return reply.status(statusCode).send({
+            statusCode,
+            message: err.message || `Failed to enable plugin "${name}"`,
+          });
+        }
+      }
+    );
+
+    fastify.post(
+      '/api/plugins/:name/disable',
+      { preHandler: this.app.authMiddleware.requireAdmin() },
+      async (req: FastifyRequest, reply: FastifyReply) => {
+        const { name } = req.params as { name: string };
+        try {
+          await this.disableOfficialPlugin(name);
+          return reply.send({
+            success: true,
+            message: `Plugin "${name}" disabled successfully`,
+          });
+        } catch (err: any) {
+          const statusCode = err.statusCode || 400;
+          return reply.status(statusCode).send({
+            statusCode,
+            message: err.message || `Failed to disable plugin "${name}"`,
+          });
+        }
+      }
+    );
 
     fastify.get(
       '/api/plugins/:name/config',

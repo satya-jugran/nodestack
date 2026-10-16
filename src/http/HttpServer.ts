@@ -25,6 +25,11 @@ export class HttpServer {
   public readonly app: FastifyInstance;
   public readonly chaosMiddleware: ChaosMiddleware;
   public readonly maintenanceGate?: MaintenanceGate;
+  private dynamicRouteHandler?: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>;
+
+  public setDynamicRouteHandler(handler: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>): void {
+    this.dynamicRouteHandler = handler;
+  }
 
   constructor(
     private config: ConfigService,
@@ -194,6 +199,32 @@ export class HttpServer {
       return reply.status(status).send({
         statusCode: status,
         message: error.message || 'Internal server error',
+      });
+    });
+
+    this.app.setNotFoundHandler(async (req: FastifyRequest, reply: FastifyReply) => {
+      if (this.dynamicRouteHandler) {
+        try {
+          const handled = await this.dynamicRouteHandler(req, reply);
+          if (handled) return;
+        } catch (err: any) {
+          const status = err.statusCode || 500;
+          return reply.status(status).send({
+            statusCode: status,
+            message: err.message || 'Internal server error',
+          });
+        }
+      }
+
+      if (req.url.startsWith('/_/')) {
+        reply.header('Content-Type', 'text/html; charset=utf-8');
+        return reply.send(this.adminUiService.getHtml());
+      }
+
+      return reply.status(404).send({
+        statusCode: 404,
+        error: 'Not Found',
+        message: `Route ${req.method}:${req.url} not found`,
       });
     });
   }

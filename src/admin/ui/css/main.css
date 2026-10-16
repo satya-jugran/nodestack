@@ -757,6 +757,11 @@
     .badge-status-200 { background: rgba(16, 185, 129, 0.15); color: #34d399; }
     .badge-status-400 { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
     .badge-status-500 { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+    .badge-primary { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .badge-success { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-warning { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .badge-danger { background: rgba(239, 68, 68, 0.18); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .badge-info { background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.3); }
 
     /* Modal sizes */
     .modal-lg {
@@ -1279,7 +1284,8 @@
     }
 
     /* Slide-Over Drawer Container */
-    .record-drawer {
+    .record-drawer,
+    .plugin-drawer {
       position: fixed;
       top: 0;
       right: 0;
@@ -1295,10 +1301,12 @@
       transform: translateX(100%);
       transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    .record-drawer.open {
+    .record-drawer.open,
+    .plugin-drawer.open {
       transform: translateX(0);
     }
-    .record-drawer:focus {
+    .record-drawer:focus,
+    .plugin-drawer:focus {
       outline: none;
     }
 

@@ -116,6 +116,16 @@ describe('AdminUIService', () => {
     expect(html).toContain('const state =');
     expect(html).toContain('API Access Rules');
   });
+
+  it('should include in-context Plugin Tester Drawer in bundled HTML', () => {
+    const service = new AdminUIService();
+    const html = service.getHtml();
+
+    expect(html).toBeDefined();
+    expect(html).toContain('openPluginTesterDrawer');
+    expect(html).toContain('plugin-drawer');
+    expect(html).toContain('Test Plugin');
+  });
 });
 
 describe('Records Data Grid DOM Interactions & Accessibility (Browser/DOM Environment)', () => {

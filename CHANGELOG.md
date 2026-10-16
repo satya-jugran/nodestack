@@ -30,11 +30,11 @@ Release v1.2.0 introduces a modular Plugin Architecture with official community 
   * Dedicated build pipeline (`scripts/build-plugins.js`) for ESM, CJS, and `.d.ts` declaration generation.
   * Automated publish utility (`scripts/publish-plugins.js`) with npm auth validation and idempotent version detection.
   * GitHub Actions automated publishing workflow (`.github/workflows/publish.yml`).
-* **Interactive Plugins Demo Application (`examples/plugins-demo/`)**:
-  * Zero-configuration interactive demo portal (`http://localhost:8090/demo/`) launched via `npm run demo:plugins`.
-  * Comprehensive testing and showcase suite for all 5 official plugins: Stripe checkout simulator, S3/MinIO SigV4 presigned upload URLs, Resend transactional email logs, Discord/Slack mutation webhooks, and Algolia search queue indexing.
-  * Isolated sandbox environment (`examples/plugins-demo/demo_data/`) preventing pollution of primary application databases.
-  * Runtime plugin configuration management in the Admin UI with automatic `.env` variable auto-detection, code-level defaults, and persistent SQLite overrides.
+* **In-Context Slide-Over Plugin Tester Drawer**:
+  * Native interactive testing drawer integrated directly into the Admin UI for all active official extensions.
+  * 1-click **`Test Plugin`** trigger in the plugin dashboard, Plugins Hub, and catalog cards that slides open a contextual developer testing workbench.
+  * Tailored testing suites for each plugin: Stripe checkout sessions & webhook simulators, S3/MinIO SigV4 presigned upload generators, Resend email dispatchers, Discord/Slack mutation webhook dispatches, and Algolia collection reindexing.
+  * Real-time formatted JSON response inspector with latency measurements and direct links to inspect audit collections (`_stripe_payments`, `_s3_uploads`, `_email_logs`, `_webhook_logs`, `_algolia_sync_queue`).
 
 
 #### 2. Navigation, Spatial Awareness & Command Palette

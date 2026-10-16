@@ -15,19 +15,36 @@
       }
 
       const res = await fetch(path, { ...options, headers });
-      if (res.status === 401) {
-        const isAuthEndpoint = path.includes('auth-with-password') || path.includes('create-initial');
-        const errData = await res.json().catch(() => ({}));
-        const message = errData.message || (isAuthEndpoint ? 'Invalid admin credentials' : 'Session expired');
+      const isAuthEndpoint = path.includes('auth-with-password') || path.includes('create-initial');
 
-        if (!isAuthEndpoint) {
-          logout();
-        }
-        throw new Error(message);
-      }
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || `Request failed with status ${res.status}`);
+        const errorMsg = errData.message || `Request failed with status ${res.status}`;
+
+        // Specifically detect NodeStack core admin authentication session expiration
+        const isCoreAuthSessionExpired =
+          !options.skipAuthRedirect &&
+          !isAuthEndpoint &&
+          Boolean(state.token) &&
+          (
+            (res.status === 403 && (errorMsg === 'Only admins are authorized to access this resource' || errorMsg.includes('Only admins are authorized'))) ||
+            (res.status === 401 && (errorMsg === 'Authentication required to access this resource' || errorMsg === 'Invalid token' || errorMsg === 'Token expired' || errorMsg === 'jwt expired'))
+          );
+
+        if (isCoreAuthSessionExpired) {
+          const sessionMsg = 'Your admin session has expired or is invalid. Please sign in again.';
+          logout();
+          toast(sessionMsg, 'warning');
+          const error = new Error(sessionMsg);
+          error.status = res.status;
+          error.data = errData;
+          throw error;
+        }
+
+        const error = new Error(errorMsg);
+        error.status = res.status;
+        error.data = errData;
+        throw error;
       }
       if (res.status === 204) return null;
       return res.json();
@@ -102,9 +119,28 @@
         console.error('Failed to check admins:', e);
       }
 
-      // 2. Check auth
+      // 2. Check auth & verify token with backend
       if (!state.token) {
         openLoginModal();
+        return;
+      }
+
+      try {
+        const meRes = await fetch('/api/admins/me', {
+          headers: { Authorization: `Bearer ${state.token}` },
+        });
+        if (!meRes.ok) {
+          logout();
+          return;
+        }
+        const me = await meRes.json();
+        if (me && me.email) {
+          state.admin = me;
+          localStorage.setItem('nodestack_admin', JSON.stringify(me));
+          localStorage.setItem('nodestack_last_email', me.email);
+        }
+      } catch (e) {
+        logout();
         return;
       }
 
@@ -116,20 +152,24 @@
       if (typeof renderPluginNavItems === 'function') {
         renderPluginNavItems();
       }
-      if (!state.pluginNavItems || state.pluginNavItems.length === 0) {
-        fetch('/api/plugins').then(r => r.ok ? r.json() : null).then(data => {
-          if (data?.navItems && data.navItems.length > 0) {
+      fetch('/api/plugins').then(r => r.ok ? r.json() : null).then(data => {
+        if (data) {
+          if (data.navItems) {
             state.pluginNavItems = data.navItems;
             if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
           }
-        }).catch(() => {});
-      }
+          if (data.catalog) {
+            state.pluginCatalog = data.catalog;
+          }
+        }
+      }).catch(() => {});
       initRealtime();
       selectNav('home');
     }
 
 
-    function openLoginModal() {
+    function openLoginModal(emailPrefill) {
+      const email = emailPrefill || (state.admin && state.admin.email) || localStorage.getItem('nodestack_last_email') || '';
       const modal = document.getElementById('modal-root');
       modal.innerHTML = `
         <div class="modal-backdrop">
@@ -145,11 +185,11 @@
             <div class="modal-body">
               <div class="form-group">
                 <label class="form-label">Admin Email</label>
-                <input type="email" class="form-input" id="login-email" required autofocus>
+                <input type="email" class="form-input" id="login-email" value="${escapeHtml(email)}" required ${email ? '' : 'autofocus'}>
               </div>
               <div class="form-group">
                 <label class="form-label">Password</label>
-                <input type="password" class="form-input" id="login-password" required>
+                <input type="password" class="form-input" id="login-password" required ${email ? 'autofocus' : ''}>
               </div>
             </div>
             <div class="modal-footer">
@@ -174,6 +214,9 @@
         state.admin = res.admin;
         localStorage.setItem('nodestack_token', res.token);
         localStorage.setItem('nodestack_admin', JSON.stringify(res.admin));
+        if (res.admin?.email) {
+          localStorage.setItem('nodestack_last_email', res.admin.email);
+        }
 
         closeModal();
         await loadCollections();
@@ -245,6 +288,10 @@
     }
 
     function logout() {
+      const lastEmail = state.admin?.email || localStorage.getItem('nodestack_last_email') || '';
+      if (lastEmail) {
+        localStorage.setItem('nodestack_last_email', lastEmail);
+      }
       state.token = '';
       state.admin = null;
       localStorage.removeItem('nodestack_token');
@@ -254,5 +301,5 @@
       if (state.realtimeEventSource) {
         state.realtimeEventSource.close();
       }
-      openLoginModal();
+      openLoginModal(lastEmail);
     }

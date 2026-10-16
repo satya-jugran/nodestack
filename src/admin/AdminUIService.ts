@@ -72,6 +72,20 @@ export class AdminUIService {
       .replace(/\u2029/g, '\\u2029');
   }
 
+  public removeNavItem(id: string): void {
+    this.navItems = this.navItems.filter((i) => i.id !== id);
+  }
+
+  public removePluginMeta(name: string): void {
+    this.plugins = this.plugins.filter((p) => p.name !== name);
+  }
+
+  private catalogGetter?: () => any[];
+
+  public setCatalogGetter(getter: () => any[]): void {
+    this.catalogGetter = getter;
+  }
+
   public getHtml(): string {
     let baseHtml: string;
     if (process.env.NODE_ENV !== 'production') {
@@ -81,11 +95,13 @@ export class AdminUIService {
       baseHtml = this.adminHtml;
     }
 
-    if (this.navItems.length > 0 || this.plugins.length > 0) {
+    const catalog = this.catalogGetter ? this.catalogGetter() : [];
+    if (this.navItems.length > 0 || this.plugins.length > 0 || catalog.length > 0) {
       const injection = `
   <script>
     window.__NODESTACK_PLUGINS__ = ${AdminUIService.serializeForScript(this.plugins)};
     window.__NODESTACK_NAV_ITEMS__ = ${AdminUIService.serializeForScript(this.navItems)};
+    window.__NODESTACK_PLUGIN_CATALOG__ = ${AdminUIService.serializeForScript(catalog)};
   </script>`;
       if (baseHtml.includes('</head>')) {
         return baseHtml.replace('</head>', `${injection}\n</head>`);
@@ -142,6 +158,7 @@ export class AdminUIService {
       return reply.send({
         plugins: this.getPluginsMeta(),
         navItems: this.getNavItems(),
+        catalog: this.catalogGetter ? this.catalogGetter() : [],
       });
     });
   }

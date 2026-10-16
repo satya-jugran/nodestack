@@ -1,7 +1,12 @@
 // Overview, Logs & Settings Views
     function renderHomeView() {
       const main = document.getElementById('page-view-home') || document.getElementById('main-body');
-      const collectionsCount = state.collections.length;
+      const collections = state.collections || [];
+      const collectionsCount = collections.length;
+      const isSysCol = (col) => Boolean(col.system || (col.name && col.name.startsWith('_')));
+      const userCollections = collections.filter(c => !isSysCol(c));
+      const systemCollections = collections.filter(c => isSysCol(c));
+      const quickCollections = userCollections.slice(0, 5);
       main.innerHTML = `
         <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
           
@@ -40,10 +45,13 @@
             <!-- Top: 4 Horizontal KPI Metrics (Responsive auto-fitting row) -->
             <div class="home-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 0.75rem; padding: 0.85rem 1.15rem;">
               <!-- KPI 1: Collections -->
-              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem;">
-                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.35rem;">
-                  <span style="font-size: 13px;">📦</span>
-                  <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Collections</span>
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('collections')" title="Click to view all collections directory">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 13px;">📦</span>
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Collections</span>
+                  </div>
+                  <span style="font-size: 11px; color: #60a5fa; font-weight: 600;">View ➔</span>
                 </div>
                 <div style="font-size: 22px; font-weight: 800; color: #fff;" id="home-stat-collections">${collectionsCount}</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Registered tables</div>
@@ -72,7 +80,7 @@
               <!-- KPI 4: Realtime Streams -->
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem;">
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.35rem;">
-                  <span style="font-size: 13px;">⚡</span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#c084fc;"><path d="M4.93 4.93a10 10 0 0 0 0 14.14M8.46 8.46a5 5 0 0 0 0 7.08M12 12h.01"/></svg>
                   <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Realtime Streams</span>
                 </div>
                 <div style="font-size: 22px; font-weight: 800; color: #c084fc;" id="home-stat-realtime">--</div>
@@ -101,17 +109,23 @@
             </div>
           </div>
 
-          <!-- Zone 2 (Workspace Centerpiece): Active Collections Table -->
+          <!-- Zone 2 (Workspace Centerpiece): Quick Access Collections -->
           <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
             <div style="padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="font-size: 16px;">📂</span>
-                <h3 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0;">Database Collections</h3>
-                <span class="badge badge-post" style="font-size: 11px;">${collectionsCount} Active</span>
+                <h3 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0;">Quick Access Collections</h3>
+                <span class="badge badge-post" style="font-size: 11px;">${userCollections.length} User Collection${userCollections.length === 1 ? '' : 's'}</span>
               </div>
-              <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()" style="display: inline-flex; align-items: center; gap: 5px; font-weight: 600;">
-                <span>+</span><span>New Collection</span>
-              </button>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <button class="btn btn-secondary btn-sm" onclick="selectNav('collections')" style="display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600;">
+                  <span>View All Collections (${collectionsCount})</span>
+                  <span>➔</span>
+                </button>
+                <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()" style="display: inline-flex; align-items: center; gap: 5px; font-weight: 600;">
+                  <span>+</span><span>New Collection</span>
+                </button>
+              </div>
             </div>
 
             ${collectionsCount === 0 ? `
@@ -123,6 +137,16 @@
                   <button class="btn btn-secondary btn-sm" onclick="openNewCollectionModal()">+ Create Blank Collection</button>
                 </div>
               </div>
+            ` : userCollections.length === 0 ? `
+              <div style="padding: 2.25rem 1.5rem; text-align: center; color: var(--text-muted); font-size: 13px;">
+                <p style="font-size: 14px; color: #fff; margin-bottom: 0.4rem; font-weight: 600;">No custom user collections created yet</p>
+                <p style="max-width: 480px; margin: 0 auto 1.25rem; line-height: 1.5;">Your database currently contains ${systemCollections.length} system/internal table${systemCollections.length === 1 ? '' : 's'}. Create your first custom collection or launch a starter template.</p>
+                <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
+                  <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ Create Blank Collection</button>
+                  <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('ecommerce')">🚀 Launch E-Commerce</button>
+                  <button class="btn btn-secondary btn-sm" onclick="selectNav('collections')">View System Tables (${systemCollections.length}) ➔</button>
+                </div>
+              </div>
             ` : `
               <div style="overflow-x: auto;">
                 <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
@@ -132,50 +156,46 @@
                       <th style="padding: 0.75rem 1rem;">Type</th>
                       <th style="padding: 0.75rem 1rem;">Fields</th>
                       <th style="padding: 0.75rem 1rem;">Records</th>
-                      <th style="padding: 0.75rem 1rem;">Sync Status</th>
-                      <th style="padding: 0.75rem 1.25rem; text-align: right;">Actions</th>
+                      <th style="padding: 0.75rem 1.25rem; text-align: right;">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    ${state.collections.map(c => `
+                    ${quickCollections.map(c => `
                       <tr style="border-bottom: 1px solid rgba(255,255,255,0.03); transition: background 0.15s ease; cursor: pointer;" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background='transparent'" onclick="selectCollection('${c.name}')">
-                        <td style="padding: 0.85rem 1.25rem;">
+                        <td style="padding: 0.8rem 1.25rem;">
                           <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 14px;">📄</span>
                             <span style="font-weight: 700; color: #fff;">${c.name}</span>
-                            ${c.system ? '<span class="badge" style="font-size:10px; background:rgba(255,255,255,0.06);">System</span>' : ''}
                           </div>
                         </td>
-                        <td style="padding: 0.85rem 1rem;">
+                        <td style="padding: 0.8rem 1rem;">
                           <span class="collection-badge">${c.type}</span>
                         </td>
-                        <td style="padding: 0.85rem 1rem; color: var(--text-muted);">
-                          ${c.schema.length} fields
+                        <td style="padding: 0.8rem 1rem; color: var(--text-muted);">
+                          ${(c.schema || []).length} fields
                         </td>
-                        <td style="padding: 0.85rem 1rem;">
+                        <td style="padding: 0.8rem 1rem;">
                           <span id="col-count-${c.name}" style="font-family: var(--font-mono); font-weight: 600; color: #93c5fd;">--</span>
                         </td>
-                        <td style="padding: 0.85rem 1rem;">
-                          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted);">
-                            <span class="live-dot" style="width: 6px; height: 6px;"></span>
-                            <span>Active Sync</span>
-                          </div>
-                        </td>
-                        <td style="padding: 0.85rem 1.25rem; text-align: right;" onclick="event.stopPropagation()">
-                          <div style="display: inline-flex; align-items: center; gap: 6px;">
-                            <button class="btn btn-secondary btn-sm" style="padding: 3px 8px; font-size: 11px;" onclick="selectCollection('${c.name}')">
-                              Open ➔
-                            </button>
-                            ${!c.system ? `
-                              <button class="btn btn-danger btn-sm" style="padding: 3px 7px; font-size: 11px;" onclick="openDeleteCollectionModal('${c.name}')" title="Delete collection">
-                                ✕
-                              </button>
-                            ` : ''}
-                          </div>
+                        <td style="padding: 0.8rem 1.25rem; text-align: right;" onclick="event.stopPropagation()">
+                          <button class="btn btn-secondary btn-sm" style="padding: 3px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" onclick="selectCollection('${c.name}')">
+                            Open ➔
+                          </button>
                         </td>
                       </tr>
                     `).join('')}
                   </tbody>
                 </table>
+              </div>
+              <div style="background: rgba(0, 0, 0, 0.2); border-top: 1px solid var(--border-subtle); padding: 0.65rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 12px; color: var(--text-muted);">
+                <span>
+                  Showing <strong>${quickCollections.length}</strong> of <strong>${userCollections.length}</strong> user collections
+                  ${systemCollections.length > 0 ? ` • ${systemCollections.length} system table${systemCollections.length === 1 ? '' : 's'}` : ''}
+                </span>
+                <button class="btn btn-secondary btn-sm" onclick="selectNav('collections')" style="font-size: 11px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px;">
+                  <span>Browse All Collections Directory</span>
+                  <span>➔</span>
+                </button>
               </div>
             `}
           </div>
@@ -187,7 +207,7 @@
               <div>
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
                   <div style="display: flex; align-items: center; gap: 7px;">
-                    <span style="font-size: 15px;">⚡</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#60a5fa;"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
                     <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Starter Accelerators</span>
                   </div>
                   <button class="btn btn-secondary btn-sm" onclick="openTemplatesModal()" style="font-size: 11px; padding: 2px 8px;" title="Browse all template recipes">
@@ -211,7 +231,7 @@
                   <span>👥</span><span>SaaS / CRM</span>
                 </button>
                 <button class="btn btn-secondary btn-sm" onclick="openImportJsonModal()" style="border-color: rgba(245, 158, 11, 0.35); font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Paste JSON → Auto-infer schema">
-                  <span>⚡</span><span>Import JSON</span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Import JSON</span>
                 </button>
               </div>
             </div>

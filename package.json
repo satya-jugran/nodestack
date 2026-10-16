@@ -34,7 +34,6 @@
     "build:plugins": "node scripts/build-plugins.js",
     "publish:plugins": "node scripts/publish-plugins.js",
     "dev": "tsx src/cli/cli.ts start",
-    "demo:plugins": "tsx examples/plugins-demo/server.ts",
     "start": "node bin/nodestack.js start",
     "test": "vitest run"
   },

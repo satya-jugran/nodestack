@@ -21,6 +21,11 @@ export class S3StorageService {
     this.options = { ...options };
   }
 
+  public isConfigured(): boolean {
+    const bucket = this.options.bucket?.trim();
+    return Boolean(bucket && bucket !== '');
+  }
+
   public updateOptions(newOpts: Partial<S3StoragePluginOptions>): void {
     this.options = { ...this.options, ...newOpts };
   }
@@ -65,6 +70,15 @@ export class S3StorageService {
       key?: string;
     }
   ) {
+    const bucket = this.options.bucket?.trim() || '';
+    if (!bucket) {
+      const err: any = new Error(
+        'S3 bucket name is not configured. Please set a bucket name in extension settings or S3_BUCKET environment variable before generating presigned URLs.'
+      );
+      err.status = 400;
+      throw err;
+    }
+
     const ext = filename.includes('.') ? filename.substring(filename.lastIndexOf('.')) : '';
     const safeBase = filename.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
     const key =
@@ -72,13 +86,13 @@ export class S3StorageService {
       `uploads/${Date.now()}_${safeBase}_${crypto.randomBytes(4).toString('hex')}${ext}`;
 
     const accessKeyId =
-      this.options.accessKeyId || process.env.AWS_ACCESS_KEY_ID || 'AKIAIOSFODNN7EXAMPLE';
+      this.options.accessKeyId || process.env.AWS_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || 'AKIAIOSFODNN7EXAMPLE';
     const secretAccessKey =
       this.options.secretAccessKey ||
       process.env.AWS_SECRET_ACCESS_KEY ||
+      process.env.S3_SECRET_ACCESS_KEY ||
       'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
     const region = this.options.region || 'us-east-1';
-    const bucket = this.options.bucket || '';
     const expiresIn = options?.expiresIn || 3600;
     const method = options?.method || 'PUT';
 
@@ -194,54 +208,37 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
   const s3Service = new S3StorageService({ ...options, bucket: initialBucket, region: initialRegion });
   let currentContext: NodeStackPluginContext | null = null;
 
-  const buildAdminView = (currentBucket: string, currentRegion: string): AdminCustomView => ({
-    title: 'S3 Cloud Storage',
-    description: `Connected to bucket "${currentBucket}" in region ${currentRegion}`,
-    html: `
-      <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
-        <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <div style="display: flex; align-items: center; gap: 0.75rem;">
-              <div style="width: 40px; height: 40px; border-radius: 10px; background: #eab308; display: flex; align-items: center; justify-content: center; color: #000; font-weight: 800; font-size: 18px;">
-                S3
-              </div>
-              <div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <span style="font-weight: 800; font-size: 16px; color: #fff;">S3-Compatible Storage Provider</span>
-                  <span class="badge badge-get">${escapeHtml(currentRegion)}</span>
-                </div>
-                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-                  AWS S3, MinIO, Cloudflare R2, Wasabi & S3-compatible object storage
-                </div>
-              </div>
-            </div>
-            <button class="btn btn-secondary btn-sm" onclick="selectNav('home')">← Overview</button>
+  const buildAdminView = (currentBucket: string, currentRegion: string): AdminCustomView => {
+    const isConfigured = Boolean(currentBucket && currentBucket.trim() !== '');
+    return {
+      title: 'S3-Compatible Storage Provider',
+      description: isConfigured
+        ? `Connected to bucket "${currentBucket}" in region ${currentRegion}`
+        : `Unconfigured — No S3 bucket specified (Default Region: ${currentRegion})`,
+      html: `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+            <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Bucket Name</div>
+            <div style="font-size: 13px; font-weight: 700; color: ${isConfigured ? '#60a5fa' : '#f59e0b'}; font-family: monospace; margin-top: 4px;">${escapeHtml(currentBucket || '(Not Configured)')}</div>
           </div>
-
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
-            <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
-              <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Bucket Name</div>
-              <div style="font-size: 13px; font-weight: 700; color: #60a5fa; font-family: monospace; margin-top: 4px;">${escapeHtml(currentBucket)}</div>
-            </div>
-            <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
-              <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Region</div>
-              <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${escapeHtml(currentRegion)}</div>
-            </div>
-            <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
-              <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Tracking Collection</div>
-              <div style="font-size: 13px; font-weight: 700; color: #eab308; font-family: monospace; margin-top: 4px;">${escapeHtml(collectionName)}</div>
-            </div>
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+            <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Region</div>
+            <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${escapeHtml(currentRegion)}</div>
+          </div>
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+            <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Tracking Collection</div>
+            <div style="font-size: 13px; font-weight: 700; color: #eab308; font-family: monospace; margin-top: 4px;">${escapeHtml(collectionName)}</div>
           </div>
         </div>
-      </div>
-    `,
-  });
+      `,
+    };
+  };
 
   const navItem: AdminNavItem = {
     id: 's3-storage',
     title: 'S3 Storage',
-    badge: (s3Service.options.region || 'us-east-1').toUpperCase(),
-    badgeVariant: 'info',
+    badge: s3Service.isConfigured() ? (s3Service.options.region || 'us-east-1').toUpperCase() : 'UNCONFIGURED',
+    badgeVariant: s3Service.isConfigured() ? 'info' : 'warning',
     icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>`,
     view: buildAdminView(s3Service.options.bucket || '', s3Service.options.region || 'us-east-1'),
   };
@@ -309,9 +306,11 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
     },
     onConfigUpdate(newConfig) {
       s3Service.updateOptions(newConfig);
+      const isConfigured = s3Service.isConfigured();
       const effectiveBucket = s3Service.options.bucket || '';
       const effectiveRegion = s3Service.options.region || 'us-east-1';
-      navItem.badge = effectiveRegion.toUpperCase();
+      navItem.badge = isConfigured ? effectiveRegion.toUpperCase() : 'UNCONFIGURED';
+      navItem.badgeVariant = isConfigured ? 'info' : 'warning';
       navItem.view = buildAdminView(effectiveBucket, effectiveRegion);
       if (currentContext) {
         currentContext.registerAdminNav(navItem);
@@ -343,14 +342,29 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
 
       // 2. Register custom endpoints
       ctx.registerRoute('GET', '/api/s3/status', async (_req, reply) => {
+        const isConfigured = s3Service.isConfigured();
         const effectiveBucket = s3Service.options.bucket || '';
         const effectiveRegion = s3Service.options.region || 'us-east-1';
-        return reply.send({
+
+        if (!isConfigured) {
+          return reply.status(400).send({
+            statusCode: 400,
+            configured: false,
+            connected: false,
+            bucket: '',
+            region: effectiveRegion,
+            message:
+              'S3 Cloud Storage is not configured. Please configure your S3 Bucket Name in extension settings or S3_BUCKET environment variable.',
+          });
+        }
+
+        return reply.status(200).send({
+          configured: true,
+          connected: true,
           bucket: effectiveBucket,
           region: effectiveRegion,
           endpoint: s3Service.getBucketEndpoint(),
           collection: collectionName,
-          connected: Boolean(effectiveBucket),
         });
       });
 
@@ -358,30 +372,51 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
         'POST',
         '/api/s3/sign-upload-url',
         async (req: FastifyRequest, reply: FastifyReply) => {
+          if (!s3Service.isConfigured()) {
+            return reply.status(400).send({
+              statusCode: 400,
+              error: 'Bad Request',
+              message:
+                'S3 Cloud Storage is not configured. Please configure your S3 Bucket Name in extension settings or S3_BUCKET environment variable before generating presigned URLs.',
+            });
+          }
+
           const body = (req.body as any) || {};
           const filename = body.filename || `file_${Date.now()}.bin`;
           const mimeType = body.mimeType || 'application/octet-stream';
 
-          const presigned = s3Service.getPresignedUploadUrl(filename, mimeType, {
-            expiresIn: body.expiresIn ? Number(body.expiresIn) : undefined,
-            key: body.key,
-          });
-
-          const effectiveBucket = s3Service.options.bucket || '';
-
-          // Record entry in system collection
           try {
-            await ctx.app.records.create(collectionName, {
-              key: presigned.key,
-              bucket: effectiveBucket,
-              mimeType,
-              url: s3Service.getObjectUrl(presigned.key),
+            const presigned = s3Service.getPresignedUploadUrl(filename, mimeType, {
+              expiresIn: body.expiresIn ? Number(body.expiresIn) : undefined,
+              key: body.key,
             });
-          } catch (e: any) {
-            // ignore duplicate or non-fatal
-          }
 
-          return reply.status(200).send(presigned);
+            const effectiveBucket = s3Service.options.bucket || '';
+
+            // Record entry in system collection
+            try {
+              await ctx.app.records.create(collectionName, {
+                key: presigned.key,
+                bucket: effectiveBucket,
+                mimeType,
+                url: s3Service.getObjectUrl(presigned.key),
+              });
+            } catch (e: any) {
+              // ignore duplicate or non-fatal
+            }
+
+            return reply.status(200).send(presigned);
+          } catch (err: any) {
+            const statusCode =
+              typeof err.status === 'number' && err.status >= 400 && err.status < 600
+                ? err.status
+                : 400;
+            return reply.status(statusCode).send({
+              statusCode,
+              error: 'Bad Request',
+              message: err.message || 'Failed to generate presigned upload URL',
+            });
+          }
         },
         { auth: options.authPolicy || 'admin' }
       );

@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { INodeStackPlugin, NodeStackPluginContext } from '../core/plugins/types';
+import { INodeStackPlugin, NodeStackPluginContext, AdminNavItem } from '../core/plugins/types';
 
 export interface AlgoliaPluginOptions {
   appId?: string;
@@ -42,6 +42,13 @@ export class AlgoliaSyncService {
 
   constructor(options: AlgoliaPluginOptions = {}) {
     this.options = { ...options };
+  }
+
+  public isConfigured(): boolean {
+    if (this.options.dryRun) return true;
+    const appId = this.options.appId?.trim();
+    const apiKey = this.options.apiKey?.trim();
+    return Boolean(appId && apiKey);
   }
 
   public updateOptions(newOpts: Partial<AlgoliaPluginOptions>): void {
@@ -196,7 +203,7 @@ export class AlgoliaSyncService {
   }
 
   public async processQueue(app: any, limit: number = 50): Promise<{ processed: number; succeeded: number; failed: number }> {
-    if (this.isProcessingQueue) {
+    if (!this.isConfigured() || this.isProcessingQueue) {
       return { processed: 0, succeeded: 0, failed: 0 };
     }
     this.isProcessingQueue = true;
@@ -291,95 +298,109 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
     }
   };
 
-  return {
-    name: 'algolia',
-    version: '1.0.0',
-    description: 'Algolia search index synchronization & mutation indexing queue',
-
-    codeOptions: { ...(options || {}) },
-    configSchema: {
-      fields: [
-        {
-          name: 'appId',
-          label: 'Application ID',
-          type: 'text',
-          envKey: 'ALGOLIA_APP_ID',
-          placeholder: 'latency or DEMO_APP',
-          description: 'Algolia unique Application ID',
-          required: true,
-        },
-        {
-          name: 'apiKey',
-          label: 'Admin API Key',
-          type: 'password',
-          envKey: 'ALGOLIA_API_KEY',
-          placeholder: 'Write/Admin API Key',
-          description: 'Algolia Admin API key with write permissions',
-          required: true,
-        },
-        {
-          name: 'indexPrefix',
-          label: 'Index Prefix',
-          type: 'text',
-          envKey: 'ALGOLIA_INDEX_PREFIX',
-          defaultValue: 'nodestack_',
-          placeholder: 'nodestack_',
-          description: 'Prefix prepended to collection names for index naming',
-        },
-        {
-          name: 'autoProcessIntervalMs',
-          label: 'Sync Queue Interval (ms)',
-          type: 'number',
-          envKey: 'ALGOLIA_SYNC_INTERVAL_MS',
-          defaultValue: 5000,
-          description: 'Background polling interval in ms for syncing mutation queues',
-        },
-        {
-          name: 'dryRun',
-          label: 'Dry Run Mode',
-          type: 'boolean',
-          defaultValue: false,
-          description: 'Track operations in SQLite queue without sending outbound requests to Algolia',
-        },
-      ],
-    },
-    onConfigUpdate(newConfig) {
-      algoliaService.updateOptions(newConfig);
-      if (newConfig && newConfig.autoProcessIntervalMs !== undefined) {
-        reconcileTimer(newConfig.autoProcessIntervalMs);
-      }
-    },
-
-    collections: [
-      {
-        name: collectionName,
-        type: 'base',
-        system: true,
-        schema: [
-          { id: 'f_index', name: 'indexName', type: 'text', required: true },
-          { id: 'f_col', name: 'collection', type: 'text', required: true },
-          { id: 'f_obj_id', name: 'objectId', type: 'text', required: true },
-          { id: 'f_op', name: 'operation', type: 'text', required: true },
-          { id: 'f_status', name: 'status', type: 'text', required: true },
-          { id: 'f_error', name: 'error', type: 'text', required: false },
-          { id: 'f_task_id', name: 'taskId', type: 'text', required: false },
-        ],
-      },
-    ],
-
-    adminNavItems: [
-      {
+    const buildAdminNav = (): AdminNavItem => {
+      const isConfigured = algoliaService.isConfigured();
+      return {
         id: 'algolia',
         title: 'Algolia Search',
-        badge: 'SYNC',
-        badgeVariant: 'primary',
+        badge: isConfigured ? 'SYNC' : 'UNCONFIGURED',
+        badgeVariant: isConfigured ? 'primary' : 'warning',
         icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
         view: {
           title: 'Algolia Search Sync',
-          description: `Indexing collections: ${targetCollections.join(', ')}`,
+          description: isConfigured
+            ? (targetCollections.length > 0 ? `Indexing collections: ${targetCollections.join(', ')}` : 'Configured — no collections designated for indexing')
+            : 'Unconfigured — Application ID and Admin API Key required',
         },
+      };
+    };
+
+    const navItem: AdminNavItem = buildAdminNav();
+
+    return {
+      name: 'algolia',
+      version: '1.0.0',
+      description: 'Algolia search index synchronization & mutation indexing queue',
+
+      codeOptions: { ...(options || {}) },
+      configSchema: {
+        fields: [
+          {
+            name: 'appId',
+            label: 'Application ID',
+            type: 'text',
+            envKey: 'ALGOLIA_APP_ID',
+            placeholder: 'latency or DEMO_APP',
+            description: 'Algolia unique Application ID',
+            required: true,
+          },
+          {
+            name: 'apiKey',
+            label: 'Admin API Key',
+            type: 'password',
+            envKey: 'ALGOLIA_API_KEY',
+            placeholder: 'Write/Admin API Key',
+            description: 'Algolia Admin API key with write permissions',
+            required: true,
+          },
+          {
+            name: 'indexPrefix',
+            label: 'Index Prefix',
+            type: 'text',
+            envKey: 'ALGOLIA_INDEX_PREFIX',
+            defaultValue: 'nodestack_',
+            placeholder: 'nodestack_',
+            description: 'Prefix prepended to collection names for index naming',
+          },
+          {
+            name: 'autoProcessIntervalMs',
+            label: 'Sync Queue Interval (ms)',
+            type: 'number',
+            envKey: 'ALGOLIA_SYNC_INTERVAL_MS',
+            defaultValue: 5000,
+            description: 'Background polling interval in ms for syncing mutation queues',
+          },
+          {
+            name: 'dryRun',
+            label: 'Dry Run Mode',
+            type: 'boolean',
+            defaultValue: false,
+            description: 'Track operations in SQLite queue without sending outbound requests to Algolia',
+          },
+        ],
       },
-    ],
+      onConfigUpdate(newConfig) {
+        algoliaService.updateOptions(newConfig);
+        if (newConfig && newConfig.autoProcessIntervalMs !== undefined) {
+          reconcileTimer(newConfig.autoProcessIntervalMs);
+        }
+        const updated = buildAdminNav();
+        navItem.badge = updated.badge;
+        navItem.badgeVariant = updated.badgeVariant;
+        navItem.view = updated.view;
+        if (currentContext) {
+          currentContext.registerAdminNav(navItem);
+        }
+      },
+
+      collections: [
+        {
+          name: collectionName,
+          type: 'base',
+          system: true,
+          schema: [
+            { id: 'f_index', name: 'indexName', type: 'text', required: true },
+            { id: 'f_col', name: 'collection', type: 'text', required: true },
+            { id: 'f_obj_id', name: 'objectId', type: 'text', required: true },
+            { id: 'f_op', name: 'operation', type: 'text', required: true },
+            { id: 'f_status', name: 'status', type: 'text', required: true },
+            { id: 'f_error', name: 'error', type: 'text', required: false },
+            { id: 'f_task_id', name: 'taskId', type: 'text', required: false },
+          ],
+        },
+      ],
+
+      adminNavItems: [navItem],
 
     register(ctx: NodeStackPluginContext) {
       currentContext = ctx;
@@ -432,7 +453,9 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
 
       // 4. REST endpoints
       ctx.registerRoute('GET', '/api/algolia/status', async (_req, reply) => {
+        const isConfigured = algoliaService.isConfigured();
         return reply.send({
+          configured: isConfigured,
           appId: algoliaService.options.appId,
           collections: targetCollections,
           queueCollection: collectionName,
@@ -447,6 +470,15 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
         'POST',
         '/api/algolia/process-queue',
         async (_req: FastifyRequest, reply: FastifyReply) => {
+          if (!algoliaService.isConfigured()) {
+            return reply.status(400).send({
+              statusCode: 400,
+              error: 'Bad Request',
+              message:
+                'Algolia Search is not configured. Please configure your Application ID and Admin API Key in extension settings or environment variables before processing the sync queue.',
+            });
+          }
+
           const result = await algoliaService.processQueue(ctx.app);
           return reply.status(200).send({
             success: true,
@@ -460,6 +492,15 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
         'POST',
         '/api/algolia/reindex',
         async (req: FastifyRequest, reply: FastifyReply) => {
+          if (!algoliaService.isConfigured()) {
+            return reply.status(400).send({
+              statusCode: 400,
+              error: 'Bad Request',
+              message:
+                'Algolia Search is not configured. Please configure your Application ID and Admin API Key in extension settings or environment variables before reindexing.',
+            });
+          }
+
           const body = (req.body as any) || {};
           const col = body.collection;
           if (!col || !targetCollections.includes(col)) {

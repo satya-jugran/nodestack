@@ -608,7 +608,7 @@
                     </div>
                   </button>
                   <button type="button" class="btn btn-secondary btn-sm" onclick="openImportJsonModal()" style="display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 7px 10px; border-color: rgba(147, 197, 253, 0.25); text-align: left;">
-                    <span style="font-size: 16px;">⚡</span>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#60a5fa;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     <div>
                       <div style="font-weight: 600; font-size: 12px; color: #fff;">Paste JSON → Instant API</div>
                       <div style="font-size: 10px; color: var(--text-muted);">Auto-infer schema in 1 second</div>
@@ -695,7 +695,7 @@
           <div class="modal modal-lg" style="max-width: 780px;">
             <div class="modal-header">
               <div style="display:flex; align-items:center; gap:0.6rem;">
-                <div style="width:32px; height:32px; border-radius:8px; background:rgba(59,130,246,0.15); display:flex; align-items:center; justify-content:center; color:#60a5fa; font-size:16px;">⚡</div>
+                <div style="width:32px; height:32px; border-radius:8px; background:rgba(59,130,246,0.15); display:flex; align-items:center; justify-content:center; color:#60a5fa;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
                 <div>
                   <h2 class="modal-title" style="display:flex; align-items:center; gap:8px;">
                     Import from JSON
@@ -754,7 +754,7 @@
               </div>
               <div style="display:flex; gap:0.5rem;">
                 <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-primary" id="btn-submit-import-json" onclick="submitImportJson()">⚡ Create Collection & Import Records</button>
+                <button class="btn btn-primary" id="btn-submit-import-json" onclick="submitImportJson()">Create Collection & Import Records</button>
               </div>
             </div>
           </div>
@@ -1097,7 +1097,7 @@
         toast(e.message, 'error');
         if (submitBtn) {
           submitBtn.disabled = false;
-          submitBtn.textContent = '⚡ Create Collection & Import Records';
+          submitBtn.textContent = 'Create Collection & Import Records';
         }
       }
     }

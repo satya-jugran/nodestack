@@ -70,6 +70,14 @@ export class ResendEmailService {
       };
     }
 
+    if (!this.options.apiKey) {
+      const err: any = new Error(
+        'Resend API Key is not configured. Please enter your Resend API Key (re_...) in the extension configuration.'
+      );
+      err.status = 400;
+      throw err;
+    }
+
     const fetchFn = this.options.fetch || globalThis.fetch;
     if (!fetchFn) {
       throw new Error('[ResendEmailService] Global fetch is not available');
@@ -97,7 +105,7 @@ export class ResendEmailService {
     });
 
     if (!res.ok) {
-      const errData = await res.json().catch(() => null);
+      const errData: any = await res.json().catch(() => null);
       const errMsg = errData?.message || (await res.text().catch(() => '')) || res.statusText;
       const error: any = new Error(`Resend API error (${res.status}): ${errMsg}`);
       error.status = res.status;
@@ -189,8 +197,8 @@ export function resendPlugin(options: ResendPluginOptions = {}): INodeStackPlugi
 
     adminNavItems: [
       {
-        id: 'resend-email',
-        title: 'Email Delivery',
+        id: 'resend',
+        title: 'Resend Email',
         badge: 'ACTIVE',
         badgeVariant: 'success',
         icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`,
@@ -209,7 +217,11 @@ export function resendPlugin(options: ResendPluginOptions = {}): INodeStackPlugi
       ctx.registerRoute('GET', '/api/resend/status', async (_req, reply) => {
         return reply.send({
           configured: true,
-          from: options.from || 'noreply@nodestack.io',
+          hasApiKey: Boolean(
+            (emailService.options.apiKey && emailService.options.apiKey.trim() !== '') ||
+            emailService.options.dryRun
+          ),
+          from: emailService.options.from || 'noreply@nodestack.io',
           collection: collectionName,
           endpoint: emailService.getBaseUrl(),
         });

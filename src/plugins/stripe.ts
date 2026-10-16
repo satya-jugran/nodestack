@@ -37,8 +37,16 @@ export class StripeService {
     this.options = { ...this.options, ...newOpts };
   }
 
+  public isLiveMode(): boolean {
+    return Boolean(this.options.secretKey && this.options.secretKey.startsWith('sk_live_'));
+  }
+
   public isTestMode(): boolean {
-    return (this.options.secretKey || '').startsWith('sk_test_');
+    return !this.isLiveMode();
+  }
+
+  public isConfigured(): boolean {
+    return Boolean(this.options.secretKey && this.options.secretKey.trim() !== '');
   }
 
   public getBaseUrl(): string {
@@ -72,6 +80,14 @@ export class StripeService {
         status: 'open',
         livemode: !isTest,
       };
+    }
+
+    if (!this.options.secretKey) {
+      const err: any = new Error(
+        'Stripe Secret Key is not configured. Please enter your Stripe Secret Key (sk_test_... or sk_live_...) in the extension configuration.'
+      );
+      err.status = 400;
+      throw err;
     }
 
     const fetchFn = this.options.fetch || globalThis.fetch;
@@ -113,7 +129,7 @@ export class StripeService {
     });
 
     if (!res.ok) {
-      const errData = await res.json().catch(() => null);
+      const errData: any = await res.json().catch(() => null);
       const errMsg =
         errData?.error?.message || (await res.text().catch(() => '')) || res.statusText;
       const error: any = new Error(`Stripe API error (${res.status}): ${errMsg}`);
@@ -226,7 +242,7 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
   const stripeService = new StripeService({ ...options, secretKey });
   const isTest = stripeService.isTestMode();
 
-  return {
+  const plugin: INodeStackPlugin = {
     name: 'stripe',
     version: '1.0.0',
     description: 'Stripe payments, checkout sessions, customer billing & webhook events',
@@ -279,6 +295,11 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
     },
     onConfigUpdate(newConfig) {
       stripeService.updateOptions(newConfig);
+      const isNowTest = stripeService.isTestMode();
+      if (plugin.adminNavItems && plugin.adminNavItems[0]) {
+        plugin.adminNavItems[0].badge = isNowTest ? 'TEST MODE' : 'LIVE';
+        plugin.adminNavItems[0].badgeVariant = isNowTest ? 'warning' : 'danger';
+      }
     },
 
     collections: [
@@ -314,46 +335,24 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
         id: 'stripe',
         title: 'Stripe Payments',
         badge: isTest ? 'TEST MODE' : 'LIVE',
-        badgeVariant: isTest ? 'warning' : 'success',
+        badgeVariant: isTest ? 'warning' : 'danger',
         icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>`,
         view: {
-          title: 'Stripe Payments Dashboard',
+          title: 'Stripe Payment Extension',
           description: `Configured in ${isTest ? 'Test Mode' : 'Live Mode'} with collections ${customersCol} & ${paymentsCol}.`,
           html: `
-            <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
-              <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
-                <div style="display: flex; align-items: center; justify-content: space-between;">
-                  <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <div style="width: 40px; height: 40px; border-radius: 10px; background: #635bff; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 18px;">
-                      S
-                    </div>
-                    <div>
-                      <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-weight: 800; font-size: 16px; color: #fff;">Stripe Payment Extension</span>
-                        <span class="badge ${isTest ? 'badge-warning' : 'badge-success'}">${isTest ? 'TEST MODE' : 'LIVE'}</span>
-                      </div>
-                      <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-                        Automated webhooks, customer tables, and checkout sessions
-                      </div>
-                    </div>
-                  </div>
-                  <button class="btn btn-secondary btn-sm" onclick="selectNav('home')">← Overview</button>
-                </div>
-
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
-                  <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
-                    <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Webhook Route</div>
-                    <div style="font-size: 13px; font-weight: 700; color: #60a5fa; font-family: monospace; margin-top: 4px;">POST /api/stripe/webhook</div>
-                  </div>
-                  <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
-                    <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Customer Table</div>
-                    <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${customersCol}</div>
-                  </div>
-                  <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
-                    <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Payments Table</div>
-                    <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${paymentsCol}</div>
-                  </div>
-                </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Webhook Route</div>
+                <div style="font-size: 13px; font-weight: 700; color: #60a5fa; font-family: monospace; margin-top: 4px;">POST /api/stripe/webhook</div>
+              </div>
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Customer Table</div>
+                <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${customersCol}</div>
+              </div>
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Payments Table</div>
+                <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${paymentsCol}</div>
               </div>
             </div>
           `,
@@ -367,10 +366,12 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
 
       // 2. Register custom developer endpoints
       ctx.registerRoute('GET', '/api/stripe/status', async (_req, reply) => {
+        const isCurrentTest = stripeService.isTestMode();
         return reply.send({
           enabled: true,
-          testMode: isTest,
-          currency: options.currency || 'usd',
+          testMode: isCurrentTest,
+          liveMode: !isCurrentTest,
+          currency: stripeService.options.currency || 'usd',
           customersCollection: customersCol,
           paymentsCollection: paymentsCol,
         });
@@ -466,4 +467,5 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
       );
     },
   };
+  return plugin;
 }

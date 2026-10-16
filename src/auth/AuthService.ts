@@ -124,6 +124,23 @@ export class AuthService {
     return adminSafe;
   }
 
+  public async updateAdminPassword(email: string, newPassword: string): Promise<void> {
+    const cleanEmail = email.trim().toLowerCase();
+    const admin = this.db.get<any>('SELECT id FROM _admins WHERE email = ?', [cleanEmail]);
+    if (!admin) {
+      throw new NotFoundError(`Admin with email '${cleanEmail}' not found`);
+    }
+    if (!newPassword || newPassword.length < 8) {
+      throw new AppError('Password must be at least 8 characters long', 400);
+    }
+    const passwordHash = await this.hashPassword(newPassword);
+    const tokenKey = crypto.randomBytes(16).toString('hex');
+    const now = new Date().toISOString();
+    this.db.prepare(
+      'UPDATE _admins SET passwordHash = ?, tokenKey = ?, updated = ? WHERE email = ?'
+    ).run(passwordHash, tokenKey, now, cleanEmail);
+  }
+
   // --- Collection Auth (Users / Customers etc.) ---
 
   public async authenticateRecord(
