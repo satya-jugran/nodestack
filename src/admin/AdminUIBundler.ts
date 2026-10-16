@@ -46,6 +46,10 @@ export class AdminUIBundler {
         'demo.js',
         'analytics.js',
         'views.js',
+        'collections.js',
+        'plugins.js',
+        'plugin-tester.js',
+        'command-palette.js',
         'app.js',
       ];
 
