@@ -1070,6 +1070,62 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
 
       await securedApp.stop();
     });
+
+    it('should report configured: false and badge UNCONFIGURED when Stripe is unconfigured', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8140 });
+      app.use(stripePlugin());
+
+      // 1. Status route returns configured: false and testMode: false
+      const statusRes = await app.server.inject({ method: 'GET', url: '/api/stripe/status' });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().configured).toBe(false);
+      expect(statusRes.json().testMode).toBe(false);
+      expect(statusRes.json().liveMode).toBe(false);
+
+      // 2. Nav item reflects UNCONFIGURED badge and warning variant
+      const navItem = app.adminUi.getNavItems().find((item) => item.id === 'stripe');
+      expect(navItem).toBeDefined();
+      expect(navItem?.badge).toBe('UNCONFIGURED');
+      expect(navItem?.badgeVariant).toBe('warning');
+
+      // 3. Checkout session rejected with HTTP 400 configuration error
+      const checkoutRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/stripe/checkout-session',
+        payload: {
+          email: 'buyer@example.com',
+          amount: 4900,
+        },
+      });
+      expect(checkoutRes.statusCode).toBe(400);
+      expect(checkoutRes.json().message).toContain('Stripe Secret Key is not configured');
+    });
+
+    it('should report configured: true and badge TEST MODE in dryRun mode without secretKey', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8141 });
+      app.use(stripePlugin({ dryRun: true }));
+
+      const statusRes = await app.server.inject({ method: 'GET', url: '/api/stripe/status' });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().configured).toBe(true);
+      expect(statusRes.json().testMode).toBe(true);
+      expect(statusRes.json().liveMode).toBe(false);
+
+      const navItem = app.adminUi.getNavItems().find((item) => item.id === 'stripe');
+      expect(navItem?.badge).toBe('TEST MODE');
+      expect(navItem?.badgeVariant).toBe('warning');
+
+      const checkoutRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/stripe/checkout-session',
+        payload: {
+          email: 'buyer@example.com',
+          amount: 4900,
+        },
+      });
+      expect(checkoutRes.statusCode).toBe(201);
+      expect(checkoutRes.json().id).toMatch(/^cs_test_/);
+    });
   });
 
   describe('7. Official Community Extension: S3 Cloud Storage Plugin', () => {
@@ -2507,10 +2563,13 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       const navItems = app.adminUi.getNavItems();
       expect(navItems.some((n) => n.id === 'stripe')).toBe(true);
 
-      // Verify dynamic route was registered and responds
+      // Verify dynamic route was registered and responds with unconfigured state
       const resStatus = await app.server.inject({ method: 'GET', url: '/api/stripe/status' });
       expect(resStatus.statusCode).toBe(200);
       expect(resStatus.json().currency).toBe('usd');
+      expect(resStatus.json().configured).toBe(false);
+      expect(resStatus.json().testMode).toBe(false);
+      expect(navItems.find((n) => n.id === 'stripe')?.badge).toBe('UNCONFIGURED');
 
       // 3. Simulate server restart: new NodeStack instance with same dataDir
       const restartedApp = new NodeStack({ dataDir: hubDataDir, port: 8133 });

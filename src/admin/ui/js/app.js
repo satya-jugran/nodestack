@@ -838,9 +838,19 @@
       if (cleanId === 'stripe') {
         const stripeNavItem = (state.pluginNavItems || []).find(p => p.id === 'stripe');
         const isStripeLive = stripeNavItem && (stripeNavItem.badge === 'LIVE' || stripeNavItem.badgeVariant === 'danger');
+        const isStripeConfigured = stripeNavItem && stripeNavItem.badge !== 'UNCONFIGURED' && !stripeNavItem.view?.description?.includes('Unconfigured');
 
         formHtml = `
-          ${isStripeLive ? `
+          ${!isStripeConfigured ? `
+            <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; color: #fcd34d; font-size: 11.5px;">
+              <div style="font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+                <span>⚠️</span> <span>Stripe Unconfigured</span>
+              </div>
+              <div style="color: #cbd5e1; font-size: 11px;">
+                Stripe Secret Key is not configured yet. Checkout session creation and test calls will fail until you provide a Stripe API key (<code>sk_test_...</code> or <code>sk_live_...</code>) in extension settings.
+              </div>
+            </div>
+          ` : isStripeLive ? `
             <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; color: #fca5a5; font-size: 11.5px;">
               <div style="font-weight: 800; color: #ef4444; display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
                 <span>🚨</span> <span>LIVE PRODUCTION MODE ACTIVE</span>
@@ -1185,6 +1195,14 @@
         if (cleanId === 'algolia' && (!res || res.configured === false || !res.appId)) {
           const err = new Error(
             res?.message || 'Algolia Search is not configured. Please configure your Application ID and Admin API Key in extension settings.'
+          );
+          err.status = res?.statusCode || 400;
+          err.data = res;
+          throw err;
+        }
+        if (cleanId === 'stripe' && (!res || res.configured === false)) {
+          const err = new Error(
+            res?.message || 'Stripe is not configured. Please configure your Stripe Secret Key in extension settings.'
           );
           err.status = res?.statusCode || 400;
           err.data = res;

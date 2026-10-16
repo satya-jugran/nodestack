@@ -35,7 +35,9 @@ export interface StripeCheckoutSessionResult {
 export declare class StripeService {
   readonly options: StripePluginOptions;
   constructor(options?: StripePluginOptions);
+  isLiveMode(): boolean;
   isTestMode(): boolean;
+  isConfigured(): boolean;
   getBaseUrl(): string;
   createCheckoutSession(params: {
     email: string;

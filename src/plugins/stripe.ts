@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { INodeStackPlugin, NodeStackPluginContext } from '../core/plugins/types';
+import { AdminNavItem, INodeStackPlugin, NodeStackPluginContext } from '../core/plugins/types';
 
 export interface StripePluginOptions {
   secretKey?: string;
@@ -41,12 +41,15 @@ export class StripeService {
     return Boolean(this.options.secretKey && this.options.secretKey.startsWith('sk_live_'));
   }
 
-  public isTestMode(): boolean {
-    return !this.isLiveMode();
+  public isConfigured(): boolean {
+    return Boolean(
+      (this.options.secretKey && this.options.secretKey.trim() !== '') ||
+      this.options.dryRun
+    );
   }
 
-  public isConfigured(): boolean {
-    return Boolean(this.options.secretKey && this.options.secretKey.trim() !== '');
+  public isTestMode(): boolean {
+    return this.isConfigured() && !this.isLiveMode();
   }
 
   public getBaseUrl(): string {
@@ -82,7 +85,7 @@ export class StripeService {
       };
     }
 
-    if (!this.options.secretKey) {
+    if (!this.options.secretKey || !this.options.secretKey.trim()) {
       const err: any = new Error(
         'Stripe Secret Key is not configured. Please enter your Stripe Secret Key (sk_test_... or sk_live_...) in the extension configuration.'
       );
@@ -240,7 +243,40 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
   const customersCol = options?.customersCollection || '_stripe_customers';
   const paymentsCol = options?.paymentsCollection || '_stripe_payments';
   const stripeService = new StripeService({ ...options, secretKey });
-  const isTest = stripeService.isTestMode();
+  let currentContext: NodeStackPluginContext | null = null;
+
+  const isConfigured = stripeService.isConfigured();
+  const isLive = stripeService.isLiveMode();
+
+  const navItem: AdminNavItem = {
+    id: 'stripe',
+    title: 'Stripe Payments',
+    badge: !isConfigured ? 'UNCONFIGURED' : isLive ? 'LIVE' : 'TEST MODE',
+    badgeVariant: !isConfigured ? 'warning' : isLive ? 'danger' : 'warning',
+    icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>`,
+    view: {
+      title: 'Stripe Payment Extension',
+      description: !isConfigured
+        ? 'Unconfigured — Stripe Secret Key (sk_test_... or sk_live_...) required.'
+        : `Configured in ${isLive ? 'Live Mode' : 'Test Mode'} with collections ${customersCol} & ${paymentsCol}.`,
+      html: `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+            <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Webhook Route</div>
+            <div style="font-size: 13px; font-weight: 700; color: #60a5fa; font-family: monospace; margin-top: 4px;">POST /api/stripe/webhook</div>
+          </div>
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+            <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Customer Table</div>
+            <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${customersCol}</div>
+          </div>
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+            <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Payments Table</div>
+            <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${paymentsCol}</div>
+          </div>
+        </div>
+      `,
+    },
+  };
 
   const plugin: INodeStackPlugin = {
     name: 'stripe',
@@ -295,10 +331,17 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
     },
     onConfigUpdate(newConfig) {
       stripeService.updateOptions(newConfig);
-      const isNowTest = stripeService.isTestMode();
-      if (plugin.adminNavItems && plugin.adminNavItems[0]) {
-        plugin.adminNavItems[0].badge = isNowTest ? 'TEST MODE' : 'LIVE';
-        plugin.adminNavItems[0].badgeVariant = isNowTest ? 'warning' : 'danger';
+      const isNowConfigured = stripeService.isConfigured();
+      const isNowLive = stripeService.isLiveMode();
+      navItem.badge = !isNowConfigured ? 'UNCONFIGURED' : isNowLive ? 'LIVE' : 'TEST MODE';
+      navItem.badgeVariant = !isNowConfigured ? 'warning' : isNowLive ? 'danger' : 'warning';
+      if (typeof navItem.view === 'object' && navItem.view) {
+        navItem.view.description = !isNowConfigured
+          ? 'Unconfigured — Stripe Secret Key (sk_test_... or sk_live_...) required.'
+          : `Configured in ${isNowLive ? 'Live Mode' : 'Test Mode'} with collections ${customersCol} & ${paymentsCol}.`;
+      }
+      if (currentContext) {
+        currentContext.registerAdminNav(navItem);
       }
     },
 
@@ -330,47 +373,23 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
       },
     ],
 
-    adminNavItems: [
-      {
-        id: 'stripe',
-        title: 'Stripe Payments',
-        badge: isTest ? 'TEST MODE' : 'LIVE',
-        badgeVariant: isTest ? 'warning' : 'danger',
-        icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>`,
-        view: {
-          title: 'Stripe Payment Extension',
-          description: `Configured in ${isTest ? 'Test Mode' : 'Live Mode'} with collections ${customersCol} & ${paymentsCol}.`,
-          html: `
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
-              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
-                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Webhook Route</div>
-                <div style="font-size: 13px; font-weight: 700; color: #60a5fa; font-family: monospace; margin-top: 4px;">POST /api/stripe/webhook</div>
-              </div>
-              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
-                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Customer Table</div>
-                <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${customersCol}</div>
-              </div>
-              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
-                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Payments Table</div>
-                <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${paymentsCol}</div>
-              </div>
-            </div>
-          `,
-        },
-      },
-    ],
+    adminNavItems: [navItem],
 
     register(ctx: NodeStackPluginContext) {
+      currentContext = ctx;
       // 1. Bind service into container
       ctx.bindService(Symbol.for('StripeService'), stripeService);
 
       // 2. Register custom developer endpoints
       ctx.registerRoute('GET', '/api/stripe/status', async (_req, reply) => {
+        const isCurrentConfigured = stripeService.isConfigured();
         const isCurrentTest = stripeService.isTestMode();
+        const isCurrentLive = stripeService.isLiveMode();
         return reply.send({
           enabled: true,
+          configured: isCurrentConfigured,
           testMode: isCurrentTest,
-          liveMode: !isCurrentTest,
+          liveMode: isCurrentLive,
           currency: stripeService.options.currency || 'usd',
           customersCollection: customersCol,
           paymentsCollection: paymentsCol,
