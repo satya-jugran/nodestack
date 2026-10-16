@@ -1,4 +1,5 @@
 import fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { Readable } from 'stream';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { ConfigService } from '../core/config/ConfigService';
@@ -26,9 +27,14 @@ export class HttpServer {
   public readonly chaosMiddleware: ChaosMiddleware;
   public readonly maintenanceGate?: MaintenanceGate;
   private dynamicRouteHandler?: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>;
+  private dynamicRouteMatcher?: (method: string, path: string) => any;
 
   public setDynamicRouteHandler(handler: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>): void {
     this.dynamicRouteHandler = handler;
+  }
+
+  public setDynamicRouteMatcher(matcher: (method: string, path: string) => any): void {
+    this.dynamicRouteMatcher = matcher;
   }
 
   constructor(
@@ -145,6 +151,36 @@ export class HttpServer {
           return;
         }
       }
+    });
+
+    // Dynamic Route preParsing & rawBody Capture
+    this.app.addHook('preParsing', async (req: FastifyRequest, reply: FastifyReply, payload: any) => {
+      const contentType = (req.headers['content-type'] as string) || '';
+      if (contentType.includes('multipart/form-data')) {
+        return payload;
+      }
+
+      const urlPath = (req.url || '').split('?')[0];
+      const dynamicRoute = this.dynamicRouteMatcher ? this.dynamicRouteMatcher(req.method, urlPath) : null;
+      if (!dynamicRoute) {
+        return payload;
+      }
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of payload) {
+        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+      }
+      const buf = Buffer.concat(chunks);
+      (req as any).rawBody = buf.toString('utf8');
+
+      let stream: any = Readable.from([buf]);
+      if (dynamicRoute.preParsing) {
+        const hooks = Array.isArray(dynamicRoute.preParsing) ? dynamicRoute.preParsing : [dynamicRoute.preParsing];
+        for (const hook of hooks) {
+          stream = await hook(req, reply, stream);
+        }
+      }
+      return stream;
     });
 
     this.app.addHook('onResponse', async (req: FastifyRequest, reply: FastifyReply) => {

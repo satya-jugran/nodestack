@@ -140,6 +140,12 @@ export class PluginManager {
       );
     }
 
+    if (this.app.server && typeof (this.app.server as any).setDynamicRouteMatcher === 'function') {
+      (this.app.server as any).setDynamicRouteMatcher((method: string, path: string) =>
+        this.findDynamicRoute(method, path)
+      );
+    }
+
     this.loadAutoEnabledPlugins();
   }
 
@@ -330,40 +336,46 @@ export class PluginManager {
     }
 
     // 6. Execute Lifecycle Hooks
-    const runLifecycle = async () => {
-      if (typeof plugin.register === 'function') {
-        const res = plugin.register(context);
-        if (res instanceof Promise) {
-          await res;
-        }
+    if (typeof plugin.register === 'function') {
+      const regRes = plugin.register(context);
+      if (regRes instanceof Promise) {
+        this.pendingInits.push(
+          regRes.catch((err) => {
+            const record = this.plugins.get(plugin.name);
+            if (record) {
+              record.status = 'error';
+              record.error = err;
+            }
+            console.error(`[PluginManager] Error in register hook for "${plugin.name}":`, err);
+          })
+        );
       }
+    }
 
-      if (typeof plugin.init === 'function') {
-        const res = plugin.init(context);
-        if (res instanceof Promise) {
-          await res;
+    if (typeof plugin.init === 'function') {
+      const initPromise = (async () => {
+        try {
+          await plugin.init!(context);
+          const record = this.plugins.get(plugin.name);
+          if (record) {
+            record.status = 'initialized';
+          }
+        } catch (err: any) {
+          const record = this.plugins.get(plugin.name);
+          if (record) {
+            record.status = 'error';
+            record.error = err instanceof Error ? err : new Error(String(err));
+          }
+          console.error(`[PluginManager] Error initializing plugin "${plugin.name}":`, err);
         }
+      })();
+      this.pendingInits.push(initPromise);
+    } else {
+      const record = this.plugins.get(plugin.name);
+      if (record) {
+        record.status = 'initialized';
       }
-    };
-
-    const lifecyclePromise = runLifecycle()
-      .then(() => {
-        const record = this.plugins.get(plugin.name);
-        if (record) {
-          record.status = 'initialized';
-        }
-      })
-      .catch((err) => {
-        const record = this.plugins.get(plugin.name);
-        if (record) {
-          record.status = 'error';
-          record.error = err;
-        }
-        console.error(`[PluginManager] Error initializing plugin "${plugin.name}":`, err);
-        throw err;
-      });
-
-    this.pendingInits.push(lifecyclePromise);
+    }
 
     // 7. Register Serve Hooks if present
     if (typeof plugin.onBeforeServe === 'function') {
@@ -493,6 +505,12 @@ export class PluginManager {
     return false;
   }
 
+  public findDynamicRoute(method: string, path: string): any {
+    const match = this.dynamicRouter.find(method.toUpperCase() as any, path);
+    if (!match) return null;
+    return (match.store || (match.handler as any)?.routeData || match.handler) as any;
+  }
+
   private registerDynamicRoute(
     method: HttpMethod,
     path: string,
@@ -500,13 +518,33 @@ export class PluginManager {
     options: any = {},
     pluginName?: string
   ): void {
+    // If route options contain unsupported Fastify options that cannot be honored at runtime,
+    // explicitly reject them so developers get fast, clear feedback
+    const isBooted = this.isFastifyBooted(this.app?.server?.app);
+    if (isBooted) {
+      const unsupportedOptions = ['constraints'].filter((key) => key in options);
+      if (unsupportedOptions.length > 0) {
+        throw new Error(
+          `[PluginManager] Unsupported route option(s) [${unsupportedOptions.join(', ')}] for runtime route "${method} ${path}". Runtime routes cannot use these options.`
+        );
+      }
+    }
+
     const m = method.toUpperCase();
     const routeKey = `${m}:${path}`;
     const item = {
       method: m,
       path,
       handler,
+      options,
+      preParsing: options.preParsing,
+      preValidation: options.preValidation,
       preHandler: options.preHandler,
+      preSerialization: options.preSerialization,
+      onSend: options.onSend,
+      onResponse: options.onResponse,
+      onError: options.onError,
+      schema: options.schema,
       pluginName,
     };
     (handler as any).routeData = item;
@@ -531,19 +569,66 @@ export class PluginManager {
 
     (req as any).params = { ...((req as any).params || {}), ...match.params };
 
-    if (routeData.preHandler) {
-      const handlers = Array.isArray(routeData.preHandler) ? routeData.preHandler : [routeData.preHandler];
-      for (const ph of handlers) {
-        await ph(req, reply);
-        if (reply.sent) return true;
+    try {
+      // 1. preValidation lifecycle hooks
+      if (routeData.preValidation) {
+        const preValidators = Array.isArray(routeData.preValidation) ? routeData.preValidation : [routeData.preValidation];
+        for (const pv of preValidators) {
+          await pv.call(this.app.server.app, req, reply);
+          if (reply.sent) return true;
+        }
       }
-    }
 
-    const result = await handler.call(this.app.server.app, req, reply);
-    if (!reply.sent && result !== undefined) {
-      reply.send(result);
+      // 2. preHandler lifecycle hooks
+      if (routeData.preHandler) {
+        const handlers = Array.isArray(routeData.preHandler) ? routeData.preHandler : [routeData.preHandler];
+        for (const ph of handlers) {
+          await ph.call(this.app.server.app, req, reply);
+          if (reply.sent) return true;
+        }
+      }
+
+      // 3. Route Handler
+      let result = await handler.call(this.app.server.app, req, reply);
+
+      // 4. preSerialization lifecycle hooks
+      if (!reply.sent && result !== undefined && routeData.preSerialization) {
+        const preSerializers = Array.isArray(routeData.preSerialization) ? routeData.preSerialization : [routeData.preSerialization];
+        for (const ps of preSerializers) {
+          result = await ps.call(this.app.server.app, req, reply, result);
+        }
+      }
+
+      // 5. onSend lifecycle hooks
+      if (!reply.sent && result !== undefined && routeData.onSend) {
+        const onSends = Array.isArray(routeData.onSend) ? routeData.onSend : [routeData.onSend];
+        for (const os of onSends) {
+          result = await os.call(this.app.server.app, req, reply, result);
+        }
+      }
+
+      if (!reply.sent && result !== undefined) {
+        reply.send(result);
+      }
+
+      // 6. onResponse lifecycle hooks
+      if (routeData.onResponse) {
+        const onResponses = Array.isArray(routeData.onResponse) ? routeData.onResponse : [routeData.onResponse];
+        for (const or of onResponses) {
+          await or.call(this.app.server.app, req, reply);
+        }
+      }
+
+      return true;
+    } catch (err: any) {
+      if (routeData.onError) {
+        const onErrors = Array.isArray(routeData.onError) ? routeData.onError : [routeData.onError];
+        for (const oe of onErrors) {
+          await oe.call(this.app.server.app, req, reply, err);
+        }
+      }
+      throw err;
     }
-    return true;
   }
 
   private removeDynamicRoutesForPlugin(pluginName: string): void {

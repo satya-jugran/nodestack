@@ -393,6 +393,162 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       const resStripeDisabled = await app.server.inject({ method: 'GET', url: '/api/stripe/status' });
       expect(resStripeDisabled.statusCode).toBe(404);
     });
+
+    it('should preserve full route lifecycle (preParsing, preValidation, preSerialization, onSend, onResponse, onError) and capture rawBody on runtime routes', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8189 });
+      await app.start();
+
+      let preValidationRan = false;
+      let onSendRan = false;
+      let onResponseRan = false;
+      let onErrorRan = false;
+
+      const lifecyclePlugin: INodeStackPlugin = {
+        name: 'lifecycle-plugin',
+        register(ctx) {
+          ctx.registerRoute(
+            'POST',
+            '/api/lifecycle/test',
+            async (req, reply) => {
+              expect((req as any).rawBody).toBe('{"value":123}');
+              return { echo: (req.body as any).value };
+            },
+            {
+              preValidation: async (req: any, reply: any) => {
+                preValidationRan = true;
+              },
+              preSerialization: async (req: any, reply: any, payload: any) => {
+                return { ...payload, transformed: true };
+              },
+              onSend: async (req: any, reply: any, payload: any) => {
+                onSendRan = true;
+                return payload;
+              },
+              onResponse: async (req: any, reply: any) => {
+                onResponseRan = true;
+              },
+            }
+          );
+
+          ctx.registerRoute(
+            'GET',
+            '/api/lifecycle/error',
+            async () => {
+              throw new Error('Boom in dynamic route');
+            },
+            {
+              onError: async (req: any, reply: any, err: any) => {
+                onErrorRan = true;
+              },
+            }
+          );
+        },
+      };
+
+      app.use(lifecyclePlugin);
+
+      const res = await app.server.inject({
+        method: 'POST',
+        url: '/api/lifecycle/test',
+        headers: { 'content-type': 'application/json' },
+        payload: '{"value":123}',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ echo: 123, transformed: true });
+      expect(preValidationRan).toBe(true);
+      expect(onSendRan).toBe(true);
+      expect(onResponseRan).toBe(true);
+
+      const resError = await app.server.inject({
+        method: 'GET',
+        url: '/api/lifecycle/error',
+      });
+      expect(resError.statusCode).toBe(500);
+      expect(onErrorRan).toBe(true);
+    });
+
+    it('should allow post-startup Stripe plugin to correctly validate webhook signatures via captured rawBody', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8190 });
+      await app.start();
+
+      const webhookSecret = 'whsec_postboot_test_secret_987654321';
+      const stripePlg = stripePlugin({
+        secretKey: 'sk_test_mock_secret_key',
+        webhookSecret,
+      });
+
+      // Register Stripe plugin AFTER server has booted
+      app.use(stripePlg);
+
+      const stripeService = new StripeService({
+        secretKey: 'sk_test_mock_secret_key',
+        webhookSecret,
+      });
+
+      // Raw payload containing whitespace, tabs, and indentation
+      const formattedRawPayload = JSON.stringify(
+        {
+          id: 'evt_post_boot_test',
+          type: 'payment_intent.succeeded',
+          data: {
+            object: {
+              id: 'pi_postboot_123',
+              amount: 5000,
+              currency: 'usd',
+            },
+          },
+        },
+        null,
+        2
+      );
+
+      // (a) Invalid signature -> 400
+      const resBad = await app.server.inject({
+        method: 'POST',
+        url: '/api/stripe/webhook',
+        headers: {
+          'content-type': 'application/json',
+          'stripe-signature': 't=12345,v1=bad_signature_attempt',
+        },
+        payload: formattedRawPayload,
+      });
+      expect(resBad.statusCode).toBe(400);
+      expect(resBad.json().message).toContain('Invalid stripe webhook signature');
+
+      // (b) Valid signature calculated over formattedRawPayload -> 200
+      const validSig = stripeService.generateWebhookSignature(formattedRawPayload, webhookSecret);
+      const resGood = await app.server.inject({
+        method: 'POST',
+        url: '/api/stripe/webhook',
+        headers: {
+          'content-type': 'application/json',
+          'stripe-signature': validSig,
+        },
+        payload: formattedRawPayload,
+      });
+      expect(resGood.statusCode).toBe(200);
+      expect(resGood.json()).toEqual({ received: true, event: 'payment_intent.succeeded' });
+    });
+
+    it('should explicitly reject unsupported options (e.g. constraints) for runtime routes', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8191 });
+      await app.start();
+
+      expect(() => {
+        app.use({
+          name: 'invalid-options-plugin',
+          register(ctx) {
+            ctx.registerRoute(
+              'GET',
+              '/api/unsupported-options',
+              async () => ({ ok: true }),
+              { constraints: { version: '1.0.0' } } as any
+            );
+          },
+        });
+      }).toThrow(/Unsupported route option\(s\) \[constraints\] for runtime route/);
+    });
   });
 
   describe('3. Lifecycle Hooks Registration via Plugins', () => {
