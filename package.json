@@ -58,6 +58,7 @@
     "chalk": "^4.1.2",
     "commander": "^13.1.0",
     "fastify": "^5.2.1",
+    "find-my-way": "^9.10.0",
     "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
