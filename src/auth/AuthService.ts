@@ -40,12 +40,39 @@ export class AuthService {
   }
 
   public verifyToken(token: string): AuthClaims {
+    let decoded: AuthClaims;
     try {
-      const decoded = jwt.verify(token, this.config.jwtSecret) as AuthClaims;
-      return decoded;
+      decoded = jwt.verify(token, this.config.jwtSecret) as AuthClaims;
     } catch {
       throw new UnauthorizedError('Invalid or expired authentication token');
     }
+
+    if (!decoded || !decoded.id || !decoded.collection) {
+      throw new UnauthorizedError('Invalid authentication token payload');
+    }
+
+    // Verify tokenKey against stored tokenKey to ensure revoked / rotated sessions are rejected
+    if (decoded.isAdmin || decoded.collection === '_admins') {
+      const admin = this.db.get<any>('SELECT tokenKey FROM _admins WHERE id = ?', [decoded.id]);
+      if (!admin || !admin.tokenKey || admin.tokenKey !== decoded.tokenKey) {
+        throw new UnauthorizedError('Authentication token has been revoked or expired');
+      }
+    } else {
+      const col = this.schemaService.getCollection(decoded.collection);
+      if (col && col.type === 'auth') {
+        const record = this.db.get<any>(
+          `SELECT tokenKey FROM "${col.name}" WHERE id = ?`,
+          [decoded.id]
+        );
+        if (!record || !record.tokenKey || record.tokenKey !== decoded.tokenKey) {
+          throw new UnauthorizedError('Authentication token has been revoked or expired');
+        }
+      } else {
+        throw new UnauthorizedError('Authentication token collection not found');
+      }
+    }
+
+    return decoded;
   }
 
   // --- Admin Auth ---
@@ -139,6 +166,34 @@ export class AuthService {
     this.db.prepare(
       'UPDATE _admins SET passwordHash = ?, tokenKey = ?, updated = ? WHERE email = ?'
     ).run(passwordHash, tokenKey, now, cleanEmail);
+  }
+
+  public revokeAdminSessions(idOrEmail: string): void {
+    const clean = idOrEmail.trim().toLowerCase();
+    const tokenKey = crypto.randomBytes(16).toString('hex');
+    const now = new Date().toISOString();
+    const result = this.db.prepare(
+      'UPDATE _admins SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?'
+    ).run(tokenKey, now, idOrEmail, clean);
+    if (result.changes === 0) {
+      throw new NotFoundError(`Admin '${idOrEmail}' not found`);
+    }
+  }
+
+  public revokeRecordSessions(collectionName: string, idOrEmail: string): void {
+    const col = this.schemaService.getCollectionOrThrow(collectionName);
+    if (col.type !== 'auth') {
+      throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
+    }
+    const clean = idOrEmail.trim().toLowerCase();
+    const tokenKey = crypto.randomBytes(16).toString('hex');
+    const now = new Date().toISOString();
+    const result = this.db.prepare(
+      `UPDATE "${col.name}" SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?`
+    ).run(tokenKey, now, idOrEmail, clean);
+    if (result.changes === 0) {
+      throw new NotFoundError(`Record '${idOrEmail}' not found in '${collectionName}'`);
+    }
   }
 
   // --- Collection Auth (Users / Customers etc.) ---
