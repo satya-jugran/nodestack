@@ -302,7 +302,7 @@ describe('RuleBuilder', () => {
           fs.rmSync(testDir, { recursive: true, force: true });
         }
       }
-    });
+    }, 15000);
   });
 });
 

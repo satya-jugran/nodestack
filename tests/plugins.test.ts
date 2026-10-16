@@ -319,6 +319,236 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       });
       expect(resHelperSuccess.statusCode).toBe(200);
     });
+
+    it('should correctly dispatch dynamic routes registered after app.start() (post-boot Fastify and 1-click enable)', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8188 });
+      await app.auth.createAdmin('bootadmin@nodestack.io', 'Password123!');
+      const { token } = await app.auth.authenticateAdmin('bootadmin@nodestack.io', 'Password123!');
+
+      // Start the server so Fastify completes its boot lifecycle
+      await app.start();
+
+      // Verify unhandled route returns 404 initially
+      const resInitial404 = await app.server.inject({ method: 'GET', url: '/api/postboot/user/42' });
+      expect(resInitial404.statusCode).toBe(404);
+
+      // 1. Register a custom plugin AFTER boot
+      const postBootPlugin: INodeStackPlugin = {
+        name: 'post-boot-plugin',
+        routes: [
+          {
+            method: 'GET',
+            path: '/api/postboot/user/:id',
+            handler: async (req, reply) => {
+              const id = (req.params as any)?.id;
+              return reply.status(200).send({ ok: true, userId: id });
+            },
+          },
+        ],
+        register(ctx) {
+          ctx.registerRoute('POST', '/api/postboot/action', async (req, reply) => {
+            return reply.status(201).send({ created: true, body: req.body });
+          });
+        },
+      };
+
+      app.use(postBootPlugin);
+
+      // Verify dynamic route with params is resolved
+      const resDynamicGet = await app.server.inject({ method: 'GET', url: '/api/postboot/user/42' });
+      expect(resDynamicGet.statusCode).toBe(200);
+      expect(resDynamicGet.json()).toEqual({ ok: true, userId: '42' });
+
+      // Verify dynamic POST route is resolved
+      const resDynamicPost = await app.server.inject({
+        method: 'POST',
+        url: '/api/postboot/action',
+        payload: { greeting: 'hello from post-boot' },
+      });
+      expect(resDynamicPost.statusCode).toBe(201);
+      expect(resDynamicPost.json()).toEqual({ created: true, body: { greeting: 'hello from post-boot' } });
+
+      // 2. 1-Click Enable an official plugin (stripe) while server is already booted
+      const resEnable = await app.server.inject({
+        method: 'POST',
+        url: '/api/plugins/stripe/enable',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(resEnable.statusCode).toBe(200);
+      expect(resEnable.json().success).toBe(true);
+
+      // The stripe plugin route must respond with 200 via dynamic router (not fall through to 404)
+      const resStripeStatus = await app.server.inject({ method: 'GET', url: '/api/stripe/status' });
+      expect(resStripeStatus.statusCode).toBe(200);
+      expect(resStripeStatus.json().currency).toBe('usd');
+
+      // 3. Disable official plugin: route should no longer be active (returns 404)
+      const resDisable = await app.server.inject({
+        method: 'POST',
+        url: '/api/plugins/stripe/disable',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(resDisable.statusCode).toBe(200);
+
+      const resStripeDisabled = await app.server.inject({ method: 'GET', url: '/api/stripe/status' });
+      expect(resStripeDisabled.statusCode).toBe(404);
+    });
+
+    it('should preserve full route lifecycle (preParsing, preValidation, preSerialization, onSend, onResponse, onError) and capture rawBody on runtime routes', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8189 });
+      await app.start();
+
+      let preValidationRan = false;
+      let onSendRan = false;
+      let onResponseRan = false;
+      let onErrorRan = false;
+
+      const lifecyclePlugin: INodeStackPlugin = {
+        name: 'lifecycle-plugin',
+        register(ctx) {
+          ctx.registerRoute(
+            'POST',
+            '/api/lifecycle/test',
+            async (req, reply) => {
+              expect((req as any).rawBody).toBe('{"value":123}');
+              return { echo: (req.body as any).value };
+            },
+            {
+              preValidation: async (req: any, reply: any) => {
+                preValidationRan = true;
+              },
+              preSerialization: async (req: any, reply: any, payload: any) => {
+                return { ...payload, transformed: true };
+              },
+              onSend: async (req: any, reply: any, payload: any) => {
+                onSendRan = true;
+                return payload;
+              },
+              onResponse: async (req: any, reply: any) => {
+                onResponseRan = true;
+              },
+            }
+          );
+
+          ctx.registerRoute(
+            'GET',
+            '/api/lifecycle/error',
+            async () => {
+              throw new Error('Boom in dynamic route');
+            },
+            {
+              onError: async (req: any, reply: any, err: any) => {
+                onErrorRan = true;
+              },
+            }
+          );
+        },
+      };
+
+      app.use(lifecyclePlugin);
+
+      const res = await app.server.inject({
+        method: 'POST',
+        url: '/api/lifecycle/test',
+        headers: { 'content-type': 'application/json' },
+        payload: '{"value":123}',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ echo: 123, transformed: true });
+      expect(preValidationRan).toBe(true);
+      expect(onSendRan).toBe(true);
+      expect(onResponseRan).toBe(true);
+
+      const resError = await app.server.inject({
+        method: 'GET',
+        url: '/api/lifecycle/error',
+      });
+      expect(resError.statusCode).toBe(500);
+      expect(onErrorRan).toBe(true);
+    });
+
+    it('should allow post-startup Stripe plugin to correctly validate webhook signatures via captured rawBody', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8190 });
+      await app.start();
+
+      const webhookSecret = 'whsec_postboot_test_secret_987654321';
+      const stripePlg = stripePlugin({
+        secretKey: 'sk_test_mock_secret_key',
+        webhookSecret,
+      });
+
+      // Register Stripe plugin AFTER server has booted
+      app.use(stripePlg);
+
+      const stripeService = new StripeService({
+        secretKey: 'sk_test_mock_secret_key',
+        webhookSecret,
+      });
+
+      // Raw payload containing whitespace, tabs, and indentation
+      const formattedRawPayload = JSON.stringify(
+        {
+          id: 'evt_post_boot_test',
+          type: 'payment_intent.succeeded',
+          data: {
+            object: {
+              id: 'pi_postboot_123',
+              amount: 5000,
+              currency: 'usd',
+            },
+          },
+        },
+        null,
+        2
+      );
+
+      // (a) Invalid signature -> 400
+      const resBad = await app.server.inject({
+        method: 'POST',
+        url: '/api/stripe/webhook',
+        headers: {
+          'content-type': 'application/json',
+          'stripe-signature': 't=12345,v1=bad_signature_attempt',
+        },
+        payload: formattedRawPayload,
+      });
+      expect(resBad.statusCode).toBe(400);
+      expect(resBad.json().message).toContain('Invalid stripe webhook signature');
+
+      // (b) Valid signature calculated over formattedRawPayload -> 200
+      const validSig = stripeService.generateWebhookSignature(formattedRawPayload, webhookSecret);
+      const resGood = await app.server.inject({
+        method: 'POST',
+        url: '/api/stripe/webhook',
+        headers: {
+          'content-type': 'application/json',
+          'stripe-signature': validSig,
+        },
+        payload: formattedRawPayload,
+      });
+      expect(resGood.statusCode).toBe(200);
+      expect(resGood.json()).toEqual({ received: true, event: 'payment_intent.succeeded' });
+    });
+
+    it('should explicitly reject unsupported options (e.g. constraints) for runtime routes', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8191 });
+      await app.start();
+
+      expect(() => {
+        app.use({
+          name: 'invalid-options-plugin',
+          register(ctx) {
+            ctx.registerRoute(
+              'GET',
+              '/api/unsupported-options',
+              async () => ({ ok: true }),
+              { constraints: { version: '1.0.0' } } as any
+            );
+          },
+        });
+      }).toThrow(/Unsupported route option\(s\) \[constraints\] for runtime route/);
+    });
   });
 
   describe('3. Lifecycle Hooks Registration via Plugins', () => {
@@ -552,6 +782,11 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       const html = app.adminUi.getHtml();
       expect(html).toContain('window.__NODESTACK_NAV_ITEMS__');
       expect(html).toContain('telemetry-dashboard');
+
+      // Verify Admin UI HTML includes the in-context Plugin Tester Drawer
+      expect(html).toContain('openPluginTesterDrawer');
+      expect(html).toContain('plugin-drawer');
+      expect(html).toContain('Test Plugin');
     });
 
     it('should allow plugins to access container, retrieve services, and bind new services', () => {
@@ -835,6 +1070,62 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
 
       await securedApp.stop();
     });
+
+    it('should report configured: false and badge UNCONFIGURED when Stripe is unconfigured', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8140 });
+      app.use(stripePlugin());
+
+      // 1. Status route returns configured: false and testMode: false
+      const statusRes = await app.server.inject({ method: 'GET', url: '/api/stripe/status' });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().configured).toBe(false);
+      expect(statusRes.json().testMode).toBe(false);
+      expect(statusRes.json().liveMode).toBe(false);
+
+      // 2. Nav item reflects UNCONFIGURED badge and warning variant
+      const navItem = app.adminUi.getNavItems().find((item) => item.id === 'stripe');
+      expect(navItem).toBeDefined();
+      expect(navItem?.badge).toBe('UNCONFIGURED');
+      expect(navItem?.badgeVariant).toBe('warning');
+
+      // 3. Checkout session rejected with HTTP 400 configuration error
+      const checkoutRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/stripe/checkout-session',
+        payload: {
+          email: 'buyer@example.com',
+          amount: 4900,
+        },
+      });
+      expect(checkoutRes.statusCode).toBe(400);
+      expect(checkoutRes.json().message).toContain('Stripe Secret Key is not configured');
+    });
+
+    it('should report configured: true and badge TEST MODE in dryRun mode without secretKey', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8141 });
+      app.use(stripePlugin({ dryRun: true }));
+
+      const statusRes = await app.server.inject({ method: 'GET', url: '/api/stripe/status' });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().configured).toBe(true);
+      expect(statusRes.json().testMode).toBe(true);
+      expect(statusRes.json().liveMode).toBe(false);
+
+      const navItem = app.adminUi.getNavItems().find((item) => item.id === 'stripe');
+      expect(navItem?.badge).toBe('TEST MODE');
+      expect(navItem?.badgeVariant).toBe('warning');
+
+      const checkoutRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/stripe/checkout-session',
+        payload: {
+          email: 'buyer@example.com',
+          amount: 4900,
+        },
+      });
+      expect(checkoutRes.statusCode).toBe(201);
+      expect(checkoutRes.json().id).toMatch(/^cs_test_/);
+    });
   });
 
   describe('7. Official Community Extension: S3 Cloud Storage Plugin', () => {
@@ -1037,6 +1328,71 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(s3NavItem.view.description).toContain('eu-west-1');
       expect(s3NavItem.view.html).toContain('production-assets-2026');
     });
+
+    it('should reject presigned upload URL and report unconfigured status with HTTP 400 when bucket is not configured', async () => {
+      const origBucketEnv = process.env.S3_BUCKET;
+      const origAwsBucketEnv = process.env.AWS_S3_BUCKET;
+      delete process.env.S3_BUCKET;
+      delete process.env.AWS_S3_BUCKET;
+
+      try {
+        app = new NodeStack({ dataDir: testDataDir, port: 8135 });
+        app.use(s3StoragePlugin());
+
+        // 1. Initial status returns 400 with configured: false
+        const statusRes = await app.server.inject({ method: 'GET', url: '/api/s3/status' });
+        expect(statusRes.statusCode).toBe(400);
+        const statusBody = statusRes.json();
+        expect(statusBody.configured).toBe(false);
+        expect(statusBody.connected).toBe(false);
+        expect(statusBody.message).toContain('not configured');
+
+        // 2. Admin UI nav item reflects UNCONFIGURED badge and warning variant
+        const navItemsRes = await app.server.inject({ method: 'GET', url: '/api/plugins' });
+        const s3NavItem = navItemsRes.json().navItems.find((item: any) => item.id === 's3-storage');
+        expect(s3NavItem).toBeDefined();
+        expect(s3NavItem.badge).toBe('UNCONFIGURED');
+        expect(s3NavItem.badgeVariant).toBe('warning');
+        expect(s3NavItem.view.description).toContain('Unconfigured');
+
+        // 3. Attempting to generate presigned upload URL returns 400 Bad Request
+        await app.auth.createAdmin('s3unconfig@nodestack.io', 'Password123!');
+        const { token: adminToken } = await app.auth.authenticateAdmin('s3unconfig@nodestack.io', 'Password123!');
+
+        const signRes = await app.server.inject({
+          method: 'POST',
+          url: '/api/s3/sign-upload-url',
+          headers: { authorization: `Bearer ${adminToken}` },
+          payload: { filename: 'unconfigured-test.png', mimeType: 'image/png' },
+        });
+        expect(signRes.statusCode).toBe(400);
+        expect(signRes.json().message).toContain('not configured');
+
+        // 4. Update configuration with a valid bucket name enables the plugin
+        await app.pluginManager.updatePluginConfig('s3-storage', {
+          bucket: 'my-new-configured-bucket',
+          region: 'ap-south-1',
+        });
+
+        const updatedStatusRes = await app.server.inject({ method: 'GET', url: '/api/s3/status' });
+        expect(updatedStatusRes.statusCode).toBe(200);
+        expect(updatedStatusRes.json().configured).toBe(true);
+        expect(updatedStatusRes.json().connected).toBe(true);
+        expect(updatedStatusRes.json().bucket).toBe('my-new-configured-bucket');
+
+        const updatedSignRes = await app.server.inject({
+          method: 'POST',
+          url: '/api/s3/sign-upload-url',
+          headers: { authorization: `Bearer ${adminToken}` },
+          payload: { filename: 'success.png', mimeType: 'image/png' },
+        });
+        expect(updatedSignRes.statusCode).toBe(200);
+        expect(updatedSignRes.json().uploadUrl).toContain('my-new-configured-bucket');
+      } finally {
+        if (origBucketEnv !== undefined) process.env.S3_BUCKET = origBucketEnv;
+        if (origAwsBucketEnv !== undefined) process.env.AWS_S3_BUCKET = origAwsBucketEnv;
+      }
+    });
   });
 
   describe('8. Official Community Extension: Resend Email Plugin', () => {
@@ -1169,6 +1525,68 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       const failedLog = logs.items.find((item: any) => item.to === 'invalid@unverified.com');
       expect(failedLog).toBeDefined();
       expect(failedLog.status).toBe('failed');
+    });
+
+    it('should report configured: false and reject send with HTTP 400 when Resend is unconfigured', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8138 });
+      app.use(resendPlugin());
+
+      // 1. Status route returns configured: false and hasApiKey: false
+      const statusRes = await app.server.inject({ method: 'GET', url: '/api/resend/status' });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().configured).toBe(false);
+      expect(statusRes.json().hasApiKey).toBe(false);
+
+      // 2. Admin UI navigation item reflects UNCONFIGURED badge and warning variant
+      const navItem = app.adminUi.getNavItems().find((item) => item.id === 'resend');
+      expect(navItem).toBeDefined();
+      expect(navItem?.badge).toBe('UNCONFIGURED');
+      expect(navItem?.badgeVariant).toBe('warning');
+
+      // 3. POST /api/resend/send should be rejected with HTTP 400 configuration error
+      await app.auth.createAdmin('resendadmin2@nodestack.io', 'Password123!');
+      const { token } = await app.auth.authenticateAdmin('resendadmin2@nodestack.io', 'Password123!');
+
+      const sendRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/resend/send',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          to: 'customer@example.com',
+          subject: 'Test email',
+        },
+      });
+      expect(sendRes.statusCode).toBe(400);
+      expect(sendRes.json().message).toContain('Resend API Key is not configured');
+    });
+
+    it('should report configured: true and allow dryRun mode without API key', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8139 });
+      app.use(resendPlugin({ dryRun: true }));
+
+      const statusRes = await app.server.inject({ method: 'GET', url: '/api/resend/status' });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().configured).toBe(true);
+      expect(statusRes.json().hasApiKey).toBe(true);
+
+      const navItem = app.adminUi.getNavItems().find((item) => item.id === 'resend');
+      expect(navItem?.badge).toBe('ACTIVE');
+      expect(navItem?.badgeVariant).toBe('success');
+
+      await app.auth.createAdmin('resenddry@nodestack.io', 'Password123!');
+      const { token } = await app.auth.authenticateAdmin('resenddry@nodestack.io', 'Password123!');
+
+      const sendRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/resend/send',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          to: 'customer@example.com',
+          subject: 'Dry run test email',
+        },
+      });
+      expect(sendRes.statusCode).toBe(200);
+      expect(sendRes.json().status).toBe('delivered');
     });
   });
 
@@ -1618,6 +2036,77 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(statusRes.json().workerActive).toBe(false);
       expect(statusRes.json().autoProcessIntervalMs).toBe(0);
     });
+
+    it('should reject process-queue and reindex with HTTP 400 when Algolia is unconfigured', async () => {
+      const origAppIdEnv = process.env.ALGOLIA_APP_ID;
+      const origApiKeyEnv = process.env.ALGOLIA_API_KEY;
+      delete process.env.ALGOLIA_APP_ID;
+      delete process.env.ALGOLIA_API_KEY;
+
+      try {
+        app = new NodeStack({ dataDir: testDataDir, port: 8136 });
+        app.use(algoliaPlugin());
+
+        // 1. Status route reflects configured: false
+        const statusRes = await app.server.inject({ method: 'GET', url: '/api/algolia/status' });
+        expect(statusRes.statusCode).toBe(200);
+        expect(statusRes.json().configured).toBe(false);
+
+        // 2. Nav item reflects UNCONFIGURED badge and warning variant
+        const navItemsRes = await app.server.inject({ method: 'GET', url: '/api/plugins' });
+        const algoliaNavItem = navItemsRes.json().navItems.find((item: any) => item.id === 'algolia');
+        expect(algoliaNavItem).toBeDefined();
+        expect(algoliaNavItem.badge).toBe('UNCONFIGURED');
+        expect(algoliaNavItem.badgeVariant).toBe('warning');
+        expect(algoliaNavItem.view.description).toContain('Unconfigured');
+
+        // 3. Attempting to process queue without configuration returns 400 Bad Request
+        await app.auth.createAdmin('algolia-admin@nodestack.io', 'Password123!');
+        const { token: adminToken } = await app.auth.authenticateAdmin(
+          'algolia-admin@nodestack.io',
+          'Password123!'
+        );
+
+        const processRes = await app.server.inject({
+          method: 'POST',
+          url: '/api/algolia/process-queue',
+          headers: { authorization: `Bearer ${adminToken}` },
+        });
+        expect(processRes.statusCode).toBe(400);
+        expect(processRes.json().message).toContain('not configured');
+
+        // 4. Attempting to reindex returns 400 Bad Request
+        const reindexRes = await app.server.inject({
+          method: 'POST',
+          url: '/api/algolia/reindex',
+          headers: { authorization: `Bearer ${adminToken}` },
+          payload: { collection: 'products' },
+        });
+        expect(reindexRes.statusCode).toBe(400);
+        expect(reindexRes.json().message).toContain('not configured');
+
+        // 5. Configuring dryRun mode enables the plugin
+        await app.pluginManager.updatePluginConfig('algolia', {
+          dryRun: true,
+          collections: ['products'],
+        });
+
+        const updatedStatusRes = await app.server.inject({ method: 'GET', url: '/api/algolia/status' });
+        expect(updatedStatusRes.statusCode).toBe(200);
+        expect(updatedStatusRes.json().configured).toBe(true);
+
+        const updatedProcessRes = await app.server.inject({
+          method: 'POST',
+          url: '/api/algolia/process-queue',
+          headers: { authorization: `Bearer ${adminToken}` },
+        });
+        expect(updatedProcessRes.statusCode).toBe(200);
+        expect(updatedProcessRes.json().success).toBe(true);
+      } finally {
+        if (origAppIdEnv !== undefined) process.env.ALGOLIA_APP_ID = origAppIdEnv;
+        if (origApiKeyEnv !== undefined) process.env.ALGOLIA_API_KEY = origApiKeyEnv;
+      }
+    });
   });
 
   describe('11. Workspace Package Exports under packages/plugins/* (s3, stripe, resend, etc.)', () => {
@@ -1756,6 +2245,37 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
         expect(mainBody.innerHTML).toContain('Stripe Payments Extension');
         expect(mainBody.innerHTML).toContain('Plugin ID');
         expect(mainBody.innerHTML).toContain('stripe');
+        expect(mainBody.innerHTML).toContain('Test Plugin');
+        expect(mainBody.innerHTML).toContain('Back to Plugins');
+        expect(mainBody.innerHTML).not.toContain('Developer Testing Workbench');
+
+        // Verify top header has no redundant Test button
+        const viewActions = doc.getElementById('view-actions');
+        expect(viewActions.textContent).toContain('All Plugins');
+        expect(viewActions.textContent).not.toContain('Test Plugin');
+
+        // Verify custom-html plugin views also receive the unified header consistently
+        win.state.pluginNavItems.push({
+          id: 'custom-storage',
+          title: 'Custom Storage',
+          badge: 'ACTIVE',
+          badgeVariant: 'success',
+          view: {
+            title: 'Custom Cloud Storage',
+            description: 'Custom object store connection',
+            html: '<div class="custom-metrics"><span>Storage Metric: 42GB</span></div>',
+          },
+        });
+        await win.selectNav('custom-storage');
+        expect(mainBody.innerHTML).toContain('Custom Cloud Storage');
+        expect(mainBody.innerHTML).toContain('Custom object store connection');
+        expect(mainBody.innerHTML).toContain('Test Plugin');
+        expect(mainBody.innerHTML).toContain('Back to Plugins');
+        expect(mainBody.innerHTML).toContain('Storage Metric: 42GB');
+        expect(mainBody.innerHTML).not.toContain('Developer Testing Workbench');
+
+        // Switch back to stripe
+        await win.selectNav('stripe');
 
         // 3. Verify breadcrumbs
         const breadcrumbs = doc.getElementById('breadcrumb-trail');
@@ -1767,10 +2287,193 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
         const paletteItems = win.filterCommandPaletteItems('stripe');
         expect(paletteItems.some((item: any) => item.id === 'plugin-stripe')).toBe(true);
         expect(paletteItems.find((item: any) => item.id === 'plugin-stripe').category).toBe('Plugins');
+
+        // 5. Verify in-context Plugin Tester Drawer opening & closing
+        win.openPluginTesterDrawer('stripe');
+        const drawerPanel = doc.getElementById('plugin-drawer-panel');
+        expect(drawerPanel).not.toBeNull();
+        expect(drawerPanel.innerHTML).toContain('Test Stripe Payments');
+        expect(drawerPanel.innerHTML).toContain('Create Checkout Session');
+        expect(drawerPanel.innerHTML).toContain('Simulate Incoming Webhook');
+
+        win.closePluginTesterDrawer();
       } finally {
         dom.window.close();
       }
     }, 15000);
+
+    it('should preserve admin session and display live error payload when a plugin test fails with 401 or 403', async () => {
+      const { JSDOM } = await import('jsdom');
+      const { AdminUIBundler } = await import('../src/admin/AdminUIBundler');
+      const uiDir = path.resolve(__dirname, '../src/admin/ui');
+      const bundledHtml = AdminUIBundler.bundle(uiDir);
+
+      const dom = new JSDOM(bundledHtml, {
+        url: 'http://localhost:8090/_/',
+        runScripts: 'dangerously',
+        beforeParse(window: any) {
+          window.fetch = vi.fn().mockImplementation(async (url: string) => {
+            if (url.includes('/api/admins/has-admins')) {
+              return { ok: true, json: async () => ({ hasAdmins: true }) };
+            }
+            return { ok: true, json: async () => ({}) };
+          });
+        },
+      });
+
+      try {
+        const win = dom.window as any;
+        const doc = win.document;
+
+        // Set authenticated admin state
+        win.state.token = 'mock_valid_admin_jwt_token';
+        const logoutSpy = vi.fn();
+        win.logout = logoutSpy;
+
+        // Open plugin tester drawer for stripe
+        win.openPluginTesterDrawer('stripe');
+        const drawerPanel = doc.getElementById('plugin-drawer-panel');
+        expect(drawerPanel).not.toBeNull();
+
+        // 1. Simulate Stripe test returning HTTP 401 Unauthorized (e.g. invalid test secret key)
+        win.fetch = vi.fn().mockImplementation(async (url: string) => {
+          if (url.includes('/api/stripe/checkout-session')) {
+            return {
+              ok: false,
+              status: 401,
+              json: async () => ({
+                statusCode: 401,
+                error: 'Unauthorized',
+                message: 'Invalid Stripe API Key provided: sk_test_***',
+              }),
+            };
+          }
+          return { ok: true, json: async () => ({}) };
+        });
+
+        await win.runStripeCheckoutTest();
+
+        // Admin session MUST remain intact!
+        expect(logoutSpy).not.toHaveBeenCalled();
+        expect(win.state.token).toBe('mock_valid_admin_jwt_token');
+
+        // Output drawer should display the 401 error and the payload
+        const outputEl = doc.getElementById('plugin-tester-output');
+        const badgeStatus = doc.getElementById('plugin-tester-status-badge');
+        expect(badgeStatus?.textContent).toBe('Status: 401 Error');
+        expect(outputEl?.textContent).toContain('Invalid Stripe API Key provided');
+
+        // 2. Simulate S3 test returning HTTP 403 Forbidden (e.g. AWS S3 AccessDenied)
+        win.fetch = vi.fn().mockImplementation(async (url: string) => {
+          if (url.includes('/api/s3/sign-upload-url')) {
+            return {
+              ok: false,
+              status: 403,
+              json: async () => ({
+                statusCode: 403,
+                error: 'Forbidden',
+                message: 'AccessDenied: User is not authorized to perform: s3:PutObject',
+              }),
+            };
+          }
+          return { ok: true, json: async () => ({}) };
+        });
+
+        await win.runS3PresignedUrlTest();
+
+        expect(logoutSpy).not.toHaveBeenCalled();
+        expect(win.state.token).toBe('mock_valid_admin_jwt_token');
+        expect(badgeStatus?.textContent).toBe('Status: 403 Error');
+        expect(outputEl?.textContent).toContain('AccessDenied');
+
+        // 3. Verify that genuine NodeStack admin session expiration DOES trigger logout
+        win.fetch = vi.fn().mockImplementation(async (url: string) => {
+          if (url.includes('/api/admins/me')) {
+            return {
+              ok: false,
+              status: 403,
+              json: async () => ({
+                statusCode: 403,
+                error: 'Forbidden',
+                message: 'Only admins are authorized to access this resource',
+              }),
+            };
+          }
+          return { ok: true, json: async () => ({}) };
+        });
+
+        await expect(win.api('/api/admins/me')).rejects.toThrow();
+        expect(logoutSpy).toHaveBeenCalled();
+      } finally {
+        dom.window.close();
+      }
+    }, 15000);
+
+    it('should include Third-Party Services Disclaimer in LICENSE file', () => {
+      const licensePath = path.resolve(__dirname, '../LICENSE');
+      expect(fs.existsSync(licensePath)).toBe(true);
+      const licenseContent = fs.readFileSync(licensePath, 'utf8');
+      expect(licenseContent).toContain('THIRD-PARTY SERVICES & INTEGRATIONS DISCLAIMER:');
+      expect(licenseContent).toContain('IN NO EVENT SHALL');
+      expect(licenseContent).toContain('STRIPE, AWS S3');
+    });
+
+    it('should configure Stripe LIVE danger badge when live key is used and safeguard checkout test with confirmation', async () => {
+      const livePlugin = stripePlugin({ secretKey: 'sk_live_sample_production_key_123' });
+      expect(livePlugin.adminNavItems?.[0].badge).toBe('LIVE');
+      expect(livePlugin.adminNavItems?.[0].badgeVariant).toBe('danger');
+
+      const { JSDOM } = await import('jsdom');
+      const { AdminUIBundler } = await import('../src/admin/AdminUIBundler');
+      const uiDir = path.resolve(__dirname, '../src/admin/ui');
+      const bundledHtml = AdminUIBundler.bundle(uiDir);
+
+      const dom = new JSDOM(bundledHtml, {
+        url: 'http://localhost:8090/_/',
+        runScripts: 'dangerously',
+      });
+
+      try {
+        const win = dom.window as any;
+        const doc = win.document;
+
+        win.state.pluginNavItems = [
+          {
+            id: 'stripe',
+            title: 'Stripe Payments',
+            badge: 'LIVE',
+            badgeVariant: 'danger',
+          },
+        ];
+
+        // 1. Open Stripe drawer in LIVE mode
+        win.openPluginTesterDrawer('stripe');
+        const drawerPanel = doc.getElementById('plugin-drawer-panel');
+        expect(drawerPanel?.innerHTML).toContain('LIVE PRODUCTION MODE ACTIVE');
+        expect(drawerPanel?.innerHTML).toContain('External Service Disclaimer');
+
+        // 2. Operational safeguard: reject confirmation should abort checkout
+        const fetchSpy = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({}) }));
+        win.fetch = fetchSpy;
+        win.confirm = vi.fn().mockReturnValue(false);
+
+        await win.runStripeCheckoutTest();
+        expect(fetchSpy).not.toHaveBeenCalledWith('/api/stripe/checkout-session', expect.anything());
+
+        // 3. Operational safeguard: accept confirmation allows test execution
+        win.confirm = vi.fn().mockReturnValue(true);
+        fetchSpy.mockClear();
+        fetchSpy.mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: 'cs_live_123', status: 'open' }),
+        });
+
+        await win.runStripeCheckoutTest();
+        expect(fetchSpy).toHaveBeenCalledWith('/api/stripe/checkout-session', expect.anything());
+      } finally {
+        dom.window.close();
+      }
+    });
 
     it('should safely serialize plugin data and prevent </script> tag breakouts and XSS in getHtml()', () => {
       const adminUi = new AdminUIService();
@@ -1800,4 +2503,269 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(serialized).toContain('\\u0026');
     });
   });
+
+  describe('13. Official Extensions Hub & 1-Click Runtime Installer', () => {
+    it('should expose official plugin catalog via /api/plugins and /api/plugins/available', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8131 });
+
+      await app.auth.createAdmin('admin@nodestack.io', 'Password123!');
+      const { token } = await app.auth.authenticateAdmin('admin@nodestack.io', 'Password123!');
+
+      // Public /api/plugins includes catalog
+      const resPublic = await app.server.inject({ method: 'GET', url: '/api/plugins' });
+      expect(resPublic.statusCode).toBe(200);
+      const data = resPublic.json();
+      expect(Array.isArray(data.catalog)).toBe(true);
+      expect(data.catalog.length).toBe(5);
+
+      const stripeDef = data.catalog.find((c: any) => c.id === 'stripe');
+      expect(stripeDef).toBeDefined();
+      expect(stripeDef.packageName).toBe('@nodestackapp/plugin-stripe');
+      expect(stripeDef.isInstalled).toBe(false);
+
+      // Authenticated /api/plugins/available endpoint
+      const resAvail = await app.server.inject({
+        method: 'GET',
+        url: '/api/plugins/available',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(resAvail.statusCode).toBe(200);
+      expect(resAvail.json().plugins.length).toBe(5);
+    });
+
+    it('should 1-click enable official plugin at runtime, register collections & routes, and persist across restart', async () => {
+      const hubDataDir = path.resolve(testDataDir, 'hub_test_instance');
+      app = new NodeStack({ dataDir: hubDataDir, port: 8132 });
+
+      await app.auth.createAdmin('hubadmin@nodestack.io', 'Password123!');
+      const { token } = await app.auth.authenticateAdmin('hubadmin@nodestack.io', 'Password123!');
+
+      // 1. Initial state: 0 plugins installed
+      expect(app.hasPlugin('stripe')).toBe(false);
+      expect(app.schema.getCollection('_stripe_payments')).toBeUndefined();
+
+      // 2. 1-Click Enable Stripe extension via API
+      const resEnable = await app.server.inject({
+        method: 'POST',
+        url: '/api/plugins/stripe/enable',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(resEnable.statusCode).toBe(200);
+      expect(resEnable.json().success).toBe(true);
+
+      // Verify plugin is now registered in NodeStack
+      expect(app.hasPlugin('stripe')).toBe(true);
+
+      // Verify system collection was registered
+      expect(app.schema.getCollection('_stripe_payments')).toBeDefined();
+
+      // Verify Admin UI navigation item is present
+      const navItems = app.adminUi.getNavItems();
+      expect(navItems.some((n) => n.id === 'stripe')).toBe(true);
+
+      // Verify dynamic route was registered and responds with unconfigured state
+      const resStatus = await app.server.inject({ method: 'GET', url: '/api/stripe/status' });
+      expect(resStatus.statusCode).toBe(200);
+      expect(resStatus.json().currency).toBe('usd');
+      expect(resStatus.json().configured).toBe(false);
+      expect(resStatus.json().testMode).toBe(false);
+      expect(navItems.find((n) => n.id === 'stripe')?.badge).toBe('UNCONFIGURED');
+
+      // 3. Simulate server restart: new NodeStack instance with same dataDir
+      const restartedApp = new NodeStack({ dataDir: hubDataDir, port: 8133 });
+      try {
+        // Stripe plugin must be auto-loaded on startup without code-level app.use()!
+        expect(restartedApp.hasPlugin('stripe')).toBe(true);
+        expect(restartedApp.schema.getCollection('_stripe_payments')).toBeDefined();
+
+        const restartNav = restartedApp.adminUi.getNavItems();
+        expect(restartNav.some((n) => n.id === 'stripe')).toBe(true);
+
+        const restartStatus = await restartedApp.server.inject({ method: 'GET', url: '/api/stripe/status' });
+        expect(restartStatus.statusCode).toBe(200);
+      } finally {
+        await restartedApp.stop();
+      }
+
+      // 4. Disable plugin via API
+      const resDisable = await app.server.inject({
+        method: 'POST',
+        url: '/api/plugins/stripe/disable',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(resDisable.statusCode).toBe(200);
+      expect(resDisable.json().success).toBe(true);
+
+      // Verify plugin was deactivated
+      expect(app.hasPlugin('stripe')).toBe(false);
+      expect(app.adminUi.getNavItems().some((n) => n.id === 'stripe')).toBe(false);
+    });
+
+    it('should 1-click enable Resend Transactional Email extension via /api/plugins/resend/enable', async () => {
+      const resendDataDir = path.resolve(testDataDir, 'resend_hub_instance');
+      app = new NodeStack({ dataDir: resendDataDir, port: 8134 });
+
+      await app.auth.createAdmin('resendadmin@nodestack.io', 'Password123!');
+      const { token } = await app.auth.authenticateAdmin('resendadmin@nodestack.io', 'Password123!');
+
+      // 1. Initial state: resend not installed
+      expect(app.hasPlugin('resend')).toBe(false);
+      expect(app.schema.getCollection('_email_logs')).toBeUndefined();
+
+      // 2. Enable resend extension via API
+      const resEnable = await app.server.inject({
+        method: 'POST',
+        url: '/api/plugins/resend/enable',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(resEnable.statusCode).toBe(200);
+      expect(resEnable.json().success).toBe(true);
+
+      // Verify plugin is now registered
+      expect(app.hasPlugin('resend')).toBe(true);
+      expect(app.schema.getCollection('_email_logs')).toBeDefined();
+
+      // Verify Admin UI navigation item is present with id 'resend'
+      const navItems = app.adminUi.getNavItems();
+      expect(navItems.some((n) => n.id === 'resend')).toBe(true);
+
+      // Verify catalog reflects isInstalled: true for resend
+      const resCatalog = await app.server.inject({ method: 'GET', url: '/api/plugins' });
+      const catalog = resCatalog.json().catalog;
+      const resendMeta = catalog.find((c: any) => c.id === 'resend');
+      expect(resendMeta.isInstalled).toBe(true);
+
+      // Verify dynamic route responds with unconfigured status initially
+      const resStatus = await app.server.inject({ method: 'GET', url: '/api/resend/status' });
+      expect(resStatus.statusCode).toBe(200);
+      expect(resStatus.json().configured).toBe(false);
+      expect(resStatus.json().hasApiKey).toBe(false);
+
+      // Verify sending without config returns HTTP 400
+      const resUnconfSend = await app.server.inject({
+        method: 'POST',
+        url: '/api/resend/send',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          to: 'customer@example.com',
+          subject: 'Unconfigured test',
+        },
+      });
+      expect(resUnconfSend.statusCode).toBe(400);
+      expect(resUnconfSend.json().message).toContain('Resend API Key is not configured');
+
+      // 3. Disable plugin
+      const resDisable = await app.server.inject({
+        method: 'POST',
+        url: '/api/plugins/resend/disable',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(resDisable.statusCode).toBe(200);
+      expect(app.hasPlugin('resend')).toBe(false);
+      expect(app.adminUi.getNavItems().some((n) => n.id === 'resend')).toBe(false);
+    });
+
+    it('should unsubscribe lifecycle hooks from EventBus when plugin is disabled, preventing mutation triggers', async () => {
+      const hookDataDir = path.resolve(testDataDir, 'hook_disable_instance');
+      app = new NodeStack({ dataDir: hookDataDir, port: 8135 });
+
+      await app.auth.createAdmin('hookadmin@nodestack.io', 'Password123!');
+      const { token } = await app.auth.authenticateAdmin('hookadmin@nodestack.io', 'Password123!');
+
+      // Create a test collection
+      app.schema.createCollection({
+        name: 'notes',
+        type: 'base',
+        schema: [{ id: 'f_title', name: 'title', type: 'text', required: true }],
+        listRule: '',
+        viewRule: '',
+        createRule: '',
+        updateRule: '',
+        deleteRule: '',
+      });
+
+      // 1. Register Algolia Search Sync extension targeting collection 'notes'
+      app.use(
+        algoliaPlugin({
+          appId: 'ALGOLIA_APP_ID',
+          apiKey: 'ALGOLIA_API_KEY',
+          collections: ['notes'],
+          dryRun: true,
+        })
+      );
+      expect(app.hasPlugin('algolia')).toBe(true);
+
+      // Create a note while Algolia is enabled: Algolia hook triggers and queues mutation
+      const note1 = await app.records.create('notes', { title: 'First Note' });
+      const queuedRows1 = app.db.all<{ id: string }>(
+        'SELECT id FROM _algolia_sync_queue WHERE objectId = ?',
+        [note1.id]
+      );
+      expect(queuedRows1.length).toBe(1);
+
+      // 2. Disable Algolia extension via API
+      const resDisable = await app.server.inject({
+        method: 'POST',
+        url: '/api/plugins/algolia/disable',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(resDisable.statusCode).toBe(200);
+      expect(app.hasPlugin('algolia')).toBe(false);
+
+      // Clear sync queue to verify no new operations are added
+      app.db.run('DELETE FROM _algolia_sync_queue');
+
+      // Create another note while Algolia is disabled: Hook must NOT fire!
+      const note2 = await app.records.create('notes', { title: 'Second Note While Disabled' });
+      const queuedRows2 = app.db.all<{ id: string }>(
+        'SELECT id FROM _algolia_sync_queue WHERE objectId = ?',
+        [note2.id]
+      );
+      expect(queuedRows2.length).toBe(0);
+
+      // Update and delete note2: Hooks must NOT fire!
+      await app.records.update('notes', note2.id, { title: 'Updated Note 2' });
+      await app.records.delete('notes', note2.id);
+
+      const queuedRowsTotal = app.db.all<{ id: string }>('SELECT id FROM _algolia_sync_queue');
+      expect(queuedRowsTotal.length).toBe(0);
+    });
+
+    it('should unsubscribe and guard custom plugin hooks when plugin is removed or disabled', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8136 });
+
+      app.schema.createCollection({
+        name: 'tasks',
+        type: 'base',
+        schema: [{ id: 'f_desc', name: 'desc', type: 'text', required: true }],
+        listRule: '',
+        viewRule: '',
+        createRule: '',
+      });
+
+      let hookExecutionCount = 0;
+      const customPlugin: INodeStackPlugin = {
+        name: 'custom-tracker-plugin',
+        register(ctx) {
+          ctx.registerHook('afterCreate', () => {
+            hookExecutionCount++;
+          });
+        },
+      };
+
+      app.use(customPlugin);
+
+      // While active, hook fires
+      await app.records.create('tasks', { desc: 'Task 1' });
+      expect(hookExecutionCount).toBe(1);
+
+      // Disable / remove plugin
+      await app.pluginManager.disableOfficialPlugin('custom-tracker-plugin');
+
+      // While disabled, hook must NOT fire
+      await app.records.create('tasks', { desc: 'Task 2' });
+      expect(hookExecutionCount).toBe(1);
+    });
+  });
 });
+

@@ -258,7 +258,7 @@ Design granular permission models without memorizing syntax:
   - 🔒 **Admin Only (`null`)** — Restricted strictly to authenticated superusers.
   - 🌐 **Public (`""`)** — Accessible to anyone without authentication.
   - 🔑 **Authenticated Users (`@request.auth.id != ""`)** — Requires a valid user JWT.
-  - ⚡ **Custom** — Build compound multi-field permission logic.
+  - ⚙️ **Custom** — Build compound multi-field permission logic.
 - **Interactive Visual Clause Builder**:
   - Dropdown selector for collection schema fields and auth variables (`@request.auth.id`, `@request.auth.role`, `@request.auth.email`, `@request.auth.isAdmin`).
   - Supported operators: `=` (Equals), `!=` (Not equals), `>` (Greater than), `>=` (Greater or equal), `<` (Less than), `<=` (Less or equal), `~` (Contains / Like).
@@ -391,16 +391,17 @@ Extend NodeStack capabilities with official first-party plugins for payment proc
 - 🔔 **Discord & Slack Webhooks (`@nodestackapp/plugin-webhooks`)**: Automated outbound notifications dispatched on database record mutations with audit rows in `_webhook_logs`.
 - 🔍 **Algolia Search (`@nodestackapp/plugin-algolia`)**: Automatic search index synchronization on database mutations, background worker queues, and batch re-indexing.
 
-#### 🎮 Interactive Demo & Testing Suite
-Test all 5 plugins immediately with zero configuration in the standalone demo application:
+#### In-Context Slide-Over Plugin Tester
+Test and verify active plugins directly from the Admin UI using the in-context **Plugin Tester Drawer**:
 
-```bash
-npm run demo:plugins
-```
-
-- **Interactive Portal**: [`http://localhost:8090/demo/`](http://localhost:8090/demo/) — Test checkout flows, presigned uploads, email triggers, and webhook events with live JSON activity logs.
-- **Admin Control Panel**: [`http://localhost:8090/_/`](http://localhost:8090/_/) — Live inspection of plugin audit tables and dynamic runtime configuration.
-- 📖 **Complete Documentation & Setup Guide**: [Plugins Showcase & Interactive Demo Guide](examples/plugins-demo/README.md)
+- **Integrated Drawer**: Click **`Test Plugin`** in any active plugin's dashboard or from the Plugins Hub (`http://localhost:8090/_/#plugins`) to slide open a dedicated developer tester drawer.
+- **Interactive Developer Workbenches**:
+  - 💳 **Stripe**: Create test checkout sessions and simulate incoming webhooks (`payment_intent.succeeded`).
+  - ☁️ **S3 Storage**: Generate SigV4 presigned upload URLs and test bucket connectivity.
+  - 📧 **Resend**: Send transactional test emails and inspect delivery logs.
+  - 🔔 **Webhooks**: Dispatch test payloads to Discord and Slack channels.
+  - 🔍 **Algolia**: Trigger manual index reindexing and flush background sync queues.
+- **Audit Table Links**: 1-click jump from tester output directly to corresponding tracking collections (`_stripe_payments`, `_s3_uploads`, `_email_logs`, `_webhook_logs`, `_algolia_sync_queue`).
 
 ---
 

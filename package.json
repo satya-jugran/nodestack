@@ -34,7 +34,6 @@
     "build:plugins": "node scripts/build-plugins.js",
     "publish:plugins": "node scripts/publish-plugins.js",
     "dev": "tsx src/cli/cli.ts start",
-    "demo:plugins": "tsx examples/plugins-demo/server.ts",
     "start": "node bin/nodestack.js start",
     "test": "vitest run"
   },
@@ -59,6 +58,7 @@
     "chalk": "^4.1.2",
     "commander": "^13.1.0",
     "fastify": "^5.2.1",
+    "find-my-way": "^9.10.0",
     "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {

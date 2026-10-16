@@ -1,4 +1,5 @@
 import fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { Readable } from 'stream';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { ConfigService } from '../core/config/ConfigService';
@@ -25,6 +26,16 @@ export class HttpServer {
   public readonly app: FastifyInstance;
   public readonly chaosMiddleware: ChaosMiddleware;
   public readonly maintenanceGate?: MaintenanceGate;
+  private dynamicRouteHandler?: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>;
+  private dynamicRouteMatcher?: (method: string, path: string) => any;
+
+  public setDynamicRouteHandler(handler: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>): void {
+    this.dynamicRouteHandler = handler;
+  }
+
+  public setDynamicRouteMatcher(matcher: (method: string, path: string) => any): void {
+    this.dynamicRouteMatcher = matcher;
+  }
 
   constructor(
     private config: ConfigService,
@@ -142,6 +153,36 @@ export class HttpServer {
       }
     });
 
+    // Dynamic Route preParsing & rawBody Capture
+    this.app.addHook('preParsing', async (req: FastifyRequest, reply: FastifyReply, payload: any) => {
+      const contentType = (req.headers['content-type'] as string) || '';
+      if (contentType.includes('multipart/form-data')) {
+        return payload;
+      }
+
+      const urlPath = (req.url || '').split('?')[0];
+      const dynamicRoute = this.dynamicRouteMatcher ? this.dynamicRouteMatcher(req.method, urlPath) : null;
+      if (!dynamicRoute) {
+        return payload;
+      }
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of payload) {
+        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+      }
+      const buf = Buffer.concat(chunks);
+      (req as any).rawBody = buf.toString('utf8');
+
+      let stream: any = Readable.from([buf]);
+      if (dynamicRoute.preParsing) {
+        const hooks = Array.isArray(dynamicRoute.preParsing) ? dynamicRoute.preParsing : [dynamicRoute.preParsing];
+        for (const hook of hooks) {
+          stream = await hook(req, reply, stream);
+        }
+      }
+      return stream;
+    });
+
     this.app.addHook('onResponse', async (req: FastifyRequest, reply: FastifyReply) => {
       const reqId = (req as any)._reqId;
       if (reqId && this.maintenanceGate) {
@@ -194,6 +235,32 @@ export class HttpServer {
       return reply.status(status).send({
         statusCode: status,
         message: error.message || 'Internal server error',
+      });
+    });
+
+    this.app.setNotFoundHandler(async (req: FastifyRequest, reply: FastifyReply) => {
+      if (this.dynamicRouteHandler) {
+        try {
+          const handled = await this.dynamicRouteHandler(req, reply);
+          if (handled) return;
+        } catch (err: any) {
+          const status = err.statusCode || 500;
+          return reply.status(status).send({
+            statusCode: status,
+            message: err.message || 'Internal server error',
+          });
+        }
+      }
+
+      if (req.url.startsWith('/_/')) {
+        reply.header('Content-Type', 'text/html; charset=utf-8');
+        return reply.send(this.adminUiService.getHtml());
+      }
+
+      return reply.status(404).send({
+        statusCode: 404,
+        error: 'Not Found',
+        message: `Route ${req.method}:${req.url} not found`,
       });
     });
   }

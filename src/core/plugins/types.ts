@@ -30,7 +30,7 @@ export interface AdminNavItem {
   title: string;
   icon?: string;
   badge?: string;
-  badgeVariant?: 'primary' | 'success' | 'warning' | 'info';
+  badgeVariant?: 'primary' | 'success' | 'warning' | 'info' | 'danger';
   path?: string;
   target?: '_blank' | '_self';
   view?: string | AdminCustomView;

@@ -84,7 +84,7 @@ export async function runCli(argv = process.argv): Promise<Command> {
       if (options.mockDelay || options.mockFailRate || options.mockError) {
         console.log(
           chalk.magenta(
-            `  ⚡ Latency & Chaos Simulation active: delay=${options.mockDelay ?? 0}ms, failRate=${options.mockFailRate ?? 0}, error=${options.mockError ?? 500}`
+            `  • Latency & Chaos Simulation active: delay=${options.mockDelay ?? 0}ms, failRate=${options.mockFailRate ?? 0}, error=${options.mockError ?? 500}`
           )
         );
       }
@@ -138,6 +138,46 @@ export async function runCli(argv = process.argv): Promise<Command> {
         console.log(chalk.green(`\n✓ Superuser '${admin.email}' successfully created!\n`));
       } catch (err: any) {
         console.error(chalk.red(`\n✗ Failed to create superuser: ${err.message}\n`));
+        process.exit(1);
+      } finally {
+        app.db.close();
+      }
+    });
+
+  superuserCmd
+    .command('reset-password [email] [newPassword]')
+    .alias('passwd')
+    .description('Reset password for an existing superuser/admin account')
+    .option('-d, --dir <path>', 'Data directory', './nodestack_data')
+    .action(async (emailArg, passArg, options) => {
+      const app = new NodeStack({ dataDir: options.dir });
+
+      let email = emailArg;
+      let password = passArg;
+
+      if (!email || !password) {
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+
+        const ask = (query: string): Promise<string> =>
+          new Promise((resolve) => rl.question(query, resolve));
+
+        if (!email) {
+          email = await ask('Admin Email: ');
+        }
+        if (!password) {
+          password = await ask('New Password (min 8 chars): ');
+        }
+        rl.close();
+      }
+
+      try {
+        await app.auth.updateAdminPassword(email, password);
+        console.log(chalk.green(`\n✓ Password for superuser '${email}' successfully updated!\n`));
+      } catch (err: any) {
+        console.error(chalk.red(`\n✗ Failed to update superuser password: ${err.message}\n`));
         process.exit(1);
       } finally {
         app.db.close();

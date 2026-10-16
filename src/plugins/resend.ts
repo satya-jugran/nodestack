@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { INodeStackPlugin, NodeStackPluginContext } from '../core/plugins/types';
+import { AdminNavItem, INodeStackPlugin, NodeStackPluginContext } from '../core/plugins/types';
 
 export interface ResendPluginOptions {
   apiKey?: string;
@@ -37,6 +37,13 @@ export class ResendEmailService {
     this.options = { ...this.options, ...newOpts };
   }
 
+  public isConfigured(): boolean {
+    return Boolean(
+      (this.options.apiKey && this.options.apiKey.trim() !== '') ||
+      this.options.dryRun
+    );
+  }
+
   public getBaseUrl(): string {
     if (this.options.endpoint) {
       return this.options.endpoint.replace(/\/+$/, '');
@@ -70,6 +77,14 @@ export class ResendEmailService {
       };
     }
 
+    if (!this.options.apiKey || !this.options.apiKey.trim()) {
+      const err: any = new Error(
+        'Resend API Key is not configured. Please enter your Resend API Key (re_...) in the extension configuration.'
+      );
+      err.status = 400;
+      throw err;
+    }
+
     const fetchFn = this.options.fetch || globalThis.fetch;
     if (!fetchFn) {
       throw new Error('[ResendEmailService] Global fetch is not available');
@@ -97,7 +112,7 @@ export class ResendEmailService {
     });
 
     if (!res.ok) {
-      const errData = await res.json().catch(() => null);
+      const errData: any = await res.json().catch(() => null);
       const errMsg = errData?.message || (await res.text().catch(() => '')) || res.statusText;
       const error: any = new Error(`Resend API error (${res.status}): ${errMsg}`);
       error.status = res.status;
@@ -123,6 +138,22 @@ export function resendPlugin(options: ResendPluginOptions = {}): INodeStackPlugi
   const apiKey = options?.apiKey || process.env.RESEND_API_KEY || '';
   const emailService = new ResendEmailService({ ...options, apiKey });
   const collectionName = options?.collectionName || '_email_logs';
+  let currentContext: NodeStackPluginContext | null = null;
+
+  const isInitiallyConfigured = emailService.isConfigured();
+  const navItem: AdminNavItem = {
+    id: 'resend',
+    title: 'Resend Email',
+    badge: isInitiallyConfigured ? 'ACTIVE' : 'UNCONFIGURED',
+    badgeVariant: isInitiallyConfigured ? 'success' : 'warning',
+    icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`,
+    view: {
+      title: 'Resend Email Service',
+      description: isInitiallyConfigured
+        ? `Configured with default sender "${options.from || 'noreply@nodestack.io'}"`
+        : 'Unconfigured — Resend API Key required',
+    },
+  };
 
   return {
     name: 'resend',
@@ -169,6 +200,18 @@ export function resendPlugin(options: ResendPluginOptions = {}): INodeStackPlugi
     },
     onConfigUpdate(newConfig) {
       emailService.updateOptions(newConfig);
+      const isConfigured = emailService.isConfigured();
+      navItem.badge = isConfigured ? 'ACTIVE' : 'UNCONFIGURED';
+      navItem.badgeVariant = isConfigured ? 'success' : 'warning';
+      navItem.view = {
+        title: 'Resend Email Service',
+        description: isConfigured
+          ? `Configured with default sender "${emailService.options.from || 'noreply@nodestack.io'}"`
+          : 'Unconfigured — Resend API Key required',
+      };
+      if (currentContext) {
+        currentContext.registerAdminNav(navItem);
+      }
     },
 
     collections: [
@@ -187,29 +230,20 @@ export function resendPlugin(options: ResendPluginOptions = {}): INodeStackPlugi
       },
     ],
 
-    adminNavItems: [
-      {
-        id: 'resend-email',
-        title: 'Email Delivery',
-        badge: 'ACTIVE',
-        badgeVariant: 'success',
-        icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`,
-        view: {
-          title: 'Resend Email Service',
-          description: `Configured with default sender "${options.from || 'noreply@nodestack.io'}"`,
-        },
-      },
-    ],
+    adminNavItems: [navItem],
 
     register(ctx: NodeStackPluginContext) {
+      currentContext = ctx;
       // 1. Bind service into container
       ctx.bindService(Symbol.for('ResendEmailService'), emailService);
 
       // 2. Register custom endpoints
       ctx.registerRoute('GET', '/api/resend/status', async (_req, reply) => {
+        const isConfigured = emailService.isConfigured();
         return reply.send({
-          configured: true,
-          from: options.from || 'noreply@nodestack.io',
+          configured: isConfigured,
+          hasApiKey: isConfigured,
+          from: emailService.options.from || 'noreply@nodestack.io',
           collection: collectionName,
           endpoint: emailService.getBaseUrl(),
         });
@@ -227,7 +261,7 @@ export function resendPlugin(options: ResendPluginOptions = {}): INodeStackPlugi
             });
           }
 
-          const from = body.from || options.from || 'noreply@nodestack.io';
+          const from = body.from || emailService.options.from || 'noreply@nodestack.io';
           const toStr = Array.isArray(body.to) ? body.to.join(', ') : String(body.to);
 
           try {

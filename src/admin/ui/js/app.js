@@ -71,7 +71,7 @@
         document.getElementById('view-actions').innerHTML = `
           <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ New Collection</button>
           <button class="btn btn-secondary btn-sm" onclick="openTemplatesModal()">✨ Recipes</button>
-          <button class="btn btn-secondary btn-sm" onclick="openImportModal()">⚡ Import JSON</button>
+          <button class="btn btn-secondary btn-sm" onclick="openImportModal()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:-1px; margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Import JSON</button>
         `;
         renderCollectionsHubView();
       } else if (nav === 'plugins') {
@@ -88,7 +88,6 @@
         badgeEl.className = 'badge badge-primary';
         badgeEl.style.display = pCount > 0 ? 'inline-block' : 'none';
         document.getElementById('view-actions').innerHTML = `
-          <a href="/demo/" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none;">Demo App Portal ↗</a>
           <a href="/_/docs" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">OpenAPI Specs ↗</a>
         `;
         renderPluginNavItems();
@@ -151,14 +150,14 @@
         document.getElementById('view-title').textContent = 'System & Settings';
         document.getElementById('view-actions').innerHTML = '';
         renderSettingsView();
-      } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === nav)) {
+      } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === nav || (nav === 'resend' && p.id === 'resend-email'))) {
         state.activeCollection = null;
         renderCollectionsList();
         showPageView('plugins');
         document.getElementById('collection-tabs').style.display = 'none';
         document.getElementById('nav-plugins')?.classList.add('active');
         document.getElementById('nav-' + nav)?.classList.add('active');
-        const pluginItem = state.pluginNavItems.find(p => p.id === nav);
+        const pluginItem = state.pluginNavItems.find(p => p.id === nav || (nav === 'resend' && p.id === 'resend-email'));
         renderPluginView(pluginItem);
       }
 
@@ -238,61 +237,93 @@
 
       document.getElementById('view-actions').innerHTML = `
         <button class="btn btn-secondary btn-sm" onclick="selectNav('plugins')">← All Plugins</button>
-        <a href="/demo/" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">Demo Portal ↗</a>
       `;
 
       const target = document.getElementById('plugins-detail-pane') || document.getElementById('main-body');
       if (!target) return;
 
-      let baseHtml = '';
-      if (typeof item.view === 'string') {
-        baseHtml = item.view;
-      } else if (item.view && typeof item.view === 'object' && item.view.html) {
-        baseHtml = item.view.html;
-      } else {
-        const title = (item.view && typeof item.view === 'object' && item.view.title) ? item.view.title : item.title;
-        const desc = (item.view && typeof item.view === 'object' && item.view.description) ? item.view.description : 'Configured via NodeStack formal plugin architecture.';
+      const title = (item.view && typeof item.view === 'object' && item.view.title) ? item.view.title : item.title;
+      const desc = (item.view && typeof item.view === 'object' && item.view.description) ? item.view.description : 'Configured via NodeStack formal plugin architecture.';
 
-        baseHtml = `
-          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-              <div style="display: flex; align-items: center; gap: 0.75rem;">
-                <div style="width: 40px; height: 40px; border-radius: 10px; background: #0c0e14; border: 1px solid rgba(59, 130, 246, 0.4); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                  <span style="font-size: 20px;">🧩</span>
-                </div>
-                <div>
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-weight: 800; font-size: 16px; color: #fff;">${escapeHtml(title)}</span>
-                    ${item.badge ? `<span class="badge ${item.badgeVariant ? 'badge-' + item.badgeVariant : 'badge-get'}">${escapeHtml(item.badge)}</span>` : ''}
-                  </div>
-                  <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-                    ${escapeHtml(desc)}
-                  </div>
-                </div>
+      let bodyContent = '';
+      if (typeof item.view === 'string') {
+        bodyContent = item.view;
+      } else if (item.view && typeof item.view === 'object' && item.view.html) {
+        bodyContent = item.view.html;
+      }
+
+      if (!bodyContent || !bodyContent.trim()) {
+        bodyContent = `
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1rem;">
+            <div style="font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.05em;">Plugin Status & Integration</div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
+              <div style="background: rgba(0,0,0,0.2); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                <div style="font-size: 11px; color: var(--text-muted);">Plugin ID</div>
+                <div style="font-size: 13px; font-weight: 600; color: #60a5fa; font-family: monospace;">${escapeHtml(item.id)}</div>
               </div>
-              <button class="btn btn-secondary btn-sm" onclick="selectNav('plugins')">Back to Plugins</button>
-            </div>
-            
-            <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1rem;">
-              <div style="font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.05em;">Plugin Status & Integration</div>
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
-                <div style="background: rgba(0,0,0,0.2); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                  <div style="font-size: 11px; color: var(--text-muted);">Plugin ID</div>
-                  <div style="font-size: 13px; font-weight: 600; color: #60a5fa; font-family: monospace;">${escapeHtml(item.id)}</div>
-                </div>
-                <div style="background: rgba(0,0,0,0.2); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                  <div style="font-size: 11px; color: var(--text-muted);">Lifecycle State</div>
-                  <div style="font-size: 13px; font-weight: 600; color: #34d399;">Active & Mounted</div>
-                </div>
+              <div style="background: rgba(0,0,0,0.2); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                <div style="font-size: 11px; color: var(--text-muted);">Lifecycle State</div>
+                <div style="font-size: 13px; font-weight: 600; color: #34d399;">Active & Mounted</div>
               </div>
             </div>
           </div>
         `;
       }
 
+      const cardHtml = `
+        <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <div style="width: 40px; height: 40px; border-radius: 10px; background: #0c0e14; border: 1px solid rgba(59, 130, 246, 0.4); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <span style="font-size: 20px;">🧩</span>
+              </div>
+              <div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-weight: 800; font-size: 16px; color: #fff;">${escapeHtml(title)}</span>
+                  ${item.badge ? `<span class="badge ${item.badgeVariant ? 'badge-' + item.badgeVariant : 'badge-get'}">${escapeHtml(item.badge)}</span>` : ''}
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                  ${escapeHtml(desc)}
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <button class="btn btn-primary btn-sm" onclick="openPluginTesterDrawer('${escapeHtml(item.id)}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:-1px; margin-right:4px;"><path d="M10 2v7.31L4.69 18.59A2 2 0 0 0 6.41 22h11.18a2 2 0 0 0 1.72-3.41L14 9.31V2"/><line x1="8.5" y1="2" x2="15.5" y2="2"/><line x1="14" y1="9.3" x2="10" y2="9.3"/></svg>Test Plugin</button>
+              <button class="btn btn-secondary btn-sm" onclick="selectNav('plugins')">Back to Plugins</button>
+            </div>
+          </div>
+          
+          ${bodyContent}
+        </div>
+      `;
+
+      const isStripeLive = item.id === 'stripe' && (item.badge === 'LIVE' || item.badgeVariant === 'danger');
+      const liveAlertHtml = isStripeLive ? `
+        <div class="alert alert-danger" style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 8px; padding: 0.75rem 1rem; color: #fca5a5; font-size: 11.5px; display: flex; align-items: flex-start; gap: 0.75rem;">
+          <span style="font-size: 16px; line-height: 1;">🚨</span>
+          <div>
+            <strong style="color: #ef4444; font-size: 12px; display: block; margin-bottom: 2px;">CAUTION: LIVE PRODUCTION MODE ACTIVE</strong>
+            This extension is configured with a live Stripe secret key. All checkout and payment operations will debit real payment methods and deduct real currency.
+          </div>
+        </div>
+      ` : '';
+
+      const disclaimerHtml = `
+        <div class="plugin-disclaimer-banner" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 0.75rem 1rem; font-size: 11.5px; line-height: 1.45; color: #fcd34d;">
+          <div style="font-weight: 700; display: flex; align-items: center; gap: 6px; margin-bottom: 2px; color: #fbbf24;">
+            <span>⚠️</span> <span>Third-Party Integration & Credentials Disclaimer</span>
+          </div>
+          <div style="color: #cbd5e1; font-size: 11.5px;">
+            This extension connects and transmits credentials directly to external third-party services. NodeStack operates solely as an execution harness; you are solely responsible for securing API keys, monitoring quotas, and any external account billing, charges, or data mutations incurred.
+          </div>
+        </div>
+      `;
+
       target.innerHTML = `
         <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
-          ${baseHtml}
+          ${liveAlertHtml}
+          ${disclaimerHtml}
+          ${cardHtml}
           <div id="plugin-config-container-${escapeHtml(item.id)}"></div>
         </div>
       `;
@@ -505,10 +536,138 @@
     window.loadPluginConfig = loadPluginConfig;
     window.savePluginConfig = savePluginConfig;
 
+    const DEFAULT_OFFICIAL_CATALOG = [
+      {
+        id: 'stripe',
+        name: 'stripe',
+        packageName: '@nodestackapp/plugin-stripe',
+        title: 'Stripe Payments',
+        category: 'Payments & Checkout',
+        description: 'Process checkout sessions, customer billing portals, and verify webhook signatures with audit logs.',
+        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>`,
+        badge: 'PAYMENTS',
+        collections: ['_stripe_payments'],
+      },
+      {
+        id: 's3-storage',
+        name: 's3-storage',
+        packageName: '@nodestackapp/plugin-s3',
+        title: 'S3 Cloud Storage',
+        category: 'Object Storage & CDN',
+        description: 'AWS S3, MinIO, and Cloudflare R2 object storage with SigV4 presigned upload URLs and file tracking.',
+        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>`,
+        badge: 'STORAGE',
+        collections: ['_s3_uploads'],
+      },
+      {
+        id: 'resend',
+        name: 'resend',
+        packageName: '@nodestackapp/plugin-resend',
+        title: 'Resend Transactional Email',
+        category: 'Communications',
+        description: 'Transactional email delivery via Resend API with safe dry-run mode and delivery logs in SQLite.',
+        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>`,
+        badge: 'EMAIL',
+        collections: ['_email_logs'],
+      },
+      {
+        id: 'webhooks',
+        name: 'webhooks',
+        packageName: '@nodestackapp/plugin-webhooks',
+        title: 'Discord & Slack Webhooks',
+        category: 'Automation & Alerts',
+        description: 'Real-time outbound notifications to Discord and Slack channels on database mutations with payload logs.',
+        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+        badge: 'WEBHOOKS',
+        collections: ['_webhook_logs'],
+      },
+      {
+        id: 'algolia',
+        name: 'algolia',
+        packageName: '@nodestackapp/plugin-algolia',
+        title: 'Algolia Search Sync',
+        category: 'Search & Discovery',
+        description: 'Realtime search indexing on record mutations, background sync queues, and batch re-indexing.',
+        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+        badge: 'SEARCH',
+        collections: ['_algolia_sync_queue'],
+      },
+    ];
+
+    async function enablePlugin(id) {
+      const btn = document.getElementById(`btn-enable-${id}`);
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Enabling...';
+      }
+      try {
+        const res = await api(`/api/plugins/${encodeURIComponent(id)}/enable`, { method: 'POST' });
+        toast(res?.message || `Extension "${id}" enabled successfully!`, 'success');
+
+        // Reload collections list so any new system collection appears immediately
+        try {
+          if (typeof loadCollections === 'function') {
+            await loadCollections();
+          }
+        } catch (_) {}
+
+        // Reload plugins info
+        const pluginData = await api('/api/plugins');
+        if (pluginData) {
+          state.pluginNavItems = pluginData.navItems || [];
+          state.pluginCatalog = pluginData.catalog || [];
+          renderPluginNavItems();
+          renderPluginsHubView();
+        }
+      } catch (err) {
+        toast(err.message || 'Failed to enable plugin', 'error');
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '+ Enable Extension';
+        }
+      }
+    }
+
+    async function disablePlugin(id) {
+      if (!confirm(`Are you sure you want to disable the "${id}" extension? Any background workers will stop.`)) {
+        return;
+      }
+      try {
+        const res = await api(`/api/plugins/${encodeURIComponent(id)}/disable`, { method: 'POST' });
+        toast(res?.message || `Extension "${id}" disabled successfully`, 'info');
+
+        // Reload collections list
+        try {
+          if (typeof loadCollections === 'function') {
+            await loadCollections();
+          }
+        } catch (_) {}
+
+        // Reload plugins info
+        const pluginData = await api('/api/plugins');
+        if (pluginData) {
+          state.pluginNavItems = pluginData.navItems || [];
+          state.pluginCatalog = pluginData.catalog || [];
+          renderPluginNavItems();
+          renderPluginsHubView();
+        }
+      } catch (err) {
+        toast(err.message || 'Failed to disable plugin', 'error');
+      }
+    }
+
+    window.enablePlugin = enablePlugin;
+    window.disablePlugin = disablePlugin;
+
     function renderPluginsHubView() {
       const target = document.getElementById('plugins-detail-pane') || document.getElementById('main-body');
       if (!target) return;
       const items = state.pluginNavItems || [];
+      const catalog = (state.pluginCatalog && state.pluginCatalog.length > 0)
+        ? state.pluginCatalog
+        : (window.__NODESTACK_PLUGIN_CATALOG__ && window.__NODESTACK_PLUGIN_CATALOG__.length > 0)
+          ? window.__NODESTACK_PLUGIN_CATALOG__
+          : DEFAULT_OFFICIAL_CATALOG;
 
       target.innerHTML = `
         <div class="hub-hero-banner">
@@ -520,7 +679,6 @@
               </p>
             </div>
             <div style="display:flex; align-items:center; gap:0.5rem;">
-              <a href="/demo/" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none;">Interactive Demo App ↗</a>
               <a href="/_/docs" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">OpenAPI Specs ↗</a>
             </div>
           </div>
@@ -535,24 +693,17 @@
               <span style="font-size:13px; font-weight:700; color:#34d399; margin-top:4px;">app.use(plugin)</span>
             </div>
             <div class="hub-stat-card">
-              <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Integration Status</span>
-              <span style="font-size:13px; font-weight:700; color:#10b981; margin-top:4px;">● Live & Ready</span>
+              <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Official Catalog</span>
+              <span style="font-size:13px; font-weight:700; color:#10b981; margin-top:4px;">● ${catalog.length} Available</span>
             </div>
           </div>
         </div>
 
-        <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin:0.25rem 0;">
-          Active Plugins (${items.length})
-        </div>
-
-        ${items.length === 0 ? `
-          <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:10px; padding:2rem; text-align:center; color:var(--text-muted);">
-            <div style="font-size:28px; margin-bottom:0.5rem;">🧩</div>
-            <div style="font-weight:700; font-size:15px; color:#fff;">No Plugins Registered</div>
-            <div style="font-size:12px; margin-top:4px;">Mount community extension plugins using <code>app.use(plugin)</code> in your NodeStack server code.</div>
+        ${items.length > 0 ? `
+          <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin:0.75rem 0 0.5rem 0;">
+            Active Plugins (${items.length})
           </div>
-        ` : `
-          <div class="hub-cards-grid">
+          <div class="hub-cards-grid" style="margin-bottom:1.5rem;">
             ${items.map(item => {
               const title = (item.view && typeof item.view === 'object' && item.view.title) ? item.view.title : item.title;
               const desc = (item.view && typeof item.view === 'object' && item.view.description) ? item.view.description : 'Configured via NodeStack formal plugin architecture.';
@@ -573,29 +724,646 @@
                   </div>
                   <div class="hub-card-footer">
                     <span style="font-family:monospace; font-size:11px; color:var(--text-muted);">${escapeHtml(item.id)}</span>
-                    ${isExternal ? `
-                      <span class="btn btn-secondary btn-sm" style="display:inline-flex; align-items:center; gap:4px;">
-                        <span>Open Portal</span><span>↗</span>
-                      </span>
-                    ` : `
-                      <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); selectNav('${escapeHtml(item.id)}')">
-                        Open Dashboard ➔
-                      </button>
-                    `}
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); openPluginTesterDrawer('${escapeHtml(item.id)}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:-1px; margin-right:4px;"><path d="M10 2v7.31L4.69 18.59A2 2 0 0 0 6.41 22h11.18a2 2 0 0 0 1.72-3.41L14 9.31V2"/><line x1="8.5" y1="2" x2="15.5" y2="2"/><line x1="14" y1="9.3" x2="10" y2="9.3"/></svg>Test</button>
+                      ${isExternal ? `
+                        <span class="btn btn-secondary btn-sm" style="display:inline-flex; align-items:center; gap:4px;">
+                          <span>Open Portal</span><span>↗</span>
+                        </span>
+                      ` : `
+                        <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); selectNav('${escapeHtml(item.id)}')">
+                          Dashboard ➔
+                        </button>
+                      `}
+                    </div>
                   </div>
                 </div>
               `;
             }).join('')}
           </div>
+        ` : `
+          <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:10px; padding:1.25rem; text-align:center; color:var(--text-muted); margin-bottom:1.5rem;">
+            <div style="font-size:22px; margin-bottom:0.25rem;">🧩</div>
+            <div style="font-weight:700; font-size:14px; color:#fff;">No Extensions Currently Active</div>
+            <div style="font-size:12px; margin-top:4px;">Enable any of the official community extensions below with 1-click, or mount custom plugins using <code>app.use(plugin)</code> in code.</div>
+          </div>
         `}
+
+        <div style="display:flex; align-items:center; justify-content:space-between; margin:1.5rem 0 0.5rem 0; flex-wrap:wrap; gap:0.5rem;">
+          <div>
+            <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted);">
+              Official Extensions Catalog (${catalog.length} Available)
+            </div>
+            <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">
+              Ready-to-use official extensions. Enable instantly with zero configuration or customize anytime.
+            </div>
+          </div>
+        </div>
+
+        <div class="hub-cards-grid">
+          ${catalog.map(cat => {
+            const isInstalled = Boolean(cat.isInstalled) || items.some(i => i.id === cat.id || i.id === cat.name || (cat.id === 'resend' && i.id === 'resend-email'));
+            const icon = cat.icon || '🧩';
+
+            return `
+              <div class="hub-card" style="cursor:default;" onclick="${isInstalled ? `selectNav('${escapeHtml(cat.id)}')` : ''}">
+                <div class="hub-card-header">
+                  <div class="hub-card-title">
+                    <span style="display:inline-flex; align-items:center;">${icon}</span>
+                    <span>${escapeHtml(cat.title)}</span>
+                  </div>
+                  ${cat.badge ? `<span class="badge badge-primary" style="font-size:10px;">${escapeHtml(cat.badge)}</span>` : ''}
+                </div>
+                <div style="font-size:11px; font-family:monospace; color:#93c5fa; margin-top:-4px;">
+                  ${escapeHtml(cat.packageName || `@nodestackapp/plugin-${cat.name}`)}
+                </div>
+                <div class="hub-card-desc">
+                  ${escapeHtml(cat.description)}
+                </div>
+                ${cat.collections && cat.collections.length ? `
+                  <div style="font-size:11px; color:var(--text-muted);">
+                    Creates collection: <code style="color:#a78bfa;">${escapeHtml(cat.collections.join(', '))}</code>
+                  </div>
+                ` : ''}
+                <div class="hub-card-footer">
+                  ${isInstalled ? `
+                    <span style="font-size:11px; color:#10b981; font-weight:700; display:inline-flex; align-items:center; gap:4px;">
+                      ● Active
+                    </span>
+                    <div style="display:flex; align-items:center; gap:0.4rem;">
+                      <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); openPluginTesterDrawer('${escapeHtml(cat.id)}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:-1px; margin-right:4px;"><path d="M10 2v7.31L4.69 18.59A2 2 0 0 0 6.41 22h11.18a2 2 0 0 0 1.72-3.41L14 9.31V2"/><line x1="8.5" y1="2" x2="15.5" y2="2"/><line x1="14" y1="9.3" x2="10" y2="9.3"/></svg>Test</button>
+                      <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); selectNav('${escapeHtml(cat.id)}')">
+                        Configure ⚙
+                      </button>
+                      <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); disablePlugin('${escapeHtml(cat.id)}')">
+                        Disable
+                      </button>
+                    </div>
+                  ` : `
+                    <span style="font-size:11px; color:var(--text-muted); display:inline-flex; align-items:center; gap:4px;">
+                      ○ Available
+                    </span>
+                    <button class="btn btn-primary btn-sm" id="btn-enable-${escapeHtml(cat.id)}" onclick="event.stopPropagation(); enablePlugin('${escapeHtml(cat.id)}')">
+                      + Enable Extension
+                    </button>
+                  `}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
       `;
+    }
+
+    // === Slide-Over Plugin Tester Drawer ===
+    function openPluginTesterDrawer(pluginId) {
+      const cleanId = String(pluginId || '').replace(/^nav-/, '').toLowerCase();
+      const catalog = (state.pluginCatalog && state.pluginCatalog.length > 0)
+        ? state.pluginCatalog
+        : (window.__NODESTACK_PLUGIN_CATALOG__ && window.__NODESTACK_PLUGIN_CATALOG__.length > 0)
+          ? window.__NODESTACK_PLUGIN_CATALOG__
+          : DEFAULT_OFFICIAL_CATALOG;
+
+      const meta = catalog.find(c => c.id === cleanId || c.name === cleanId) || {
+        title: cleanId.charAt(0).toUpperCase() + cleanId.slice(1),
+        icon: '🧩',
+        collections: []
+      };
+
+      const title = meta.title || cleanId;
+      const icon = meta.icon || '🧩';
+      const relatedCol = meta.collections && meta.collections.length > 0 ? meta.collections[0] : null;
+
+      let formHtml = '';
+      if (cleanId === 'stripe') {
+        const stripeNavItem = (state.pluginNavItems || []).find(p => p.id === 'stripe');
+        const isStripeLive = stripeNavItem && (stripeNavItem.badge === 'LIVE' || stripeNavItem.badgeVariant === 'danger');
+        const isStripeConfigured = stripeNavItem && stripeNavItem.badge !== 'UNCONFIGURED' && !stripeNavItem.view?.description?.includes('Unconfigured');
+
+        formHtml = `
+          ${!isStripeConfigured ? `
+            <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; color: #fcd34d; font-size: 11.5px;">
+              <div style="font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+                <span>⚠️</span> <span>Stripe Unconfigured</span>
+              </div>
+              <div style="color: #cbd5e1; font-size: 11px;">
+                Stripe Secret Key is not configured yet. Checkout session creation and test calls will fail until you provide a Stripe API key (<code>sk_test_...</code> or <code>sk_live_...</code>) in extension settings.
+              </div>
+            </div>
+          ` : isStripeLive ? `
+            <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; color: #fca5a5; font-size: 11.5px;">
+              <div style="font-weight: 800; color: #ef4444; display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+                <span>🚨</span> <span>LIVE PRODUCTION MODE ACTIVE</span>
+              </div>
+              <div>Live Stripe Secret Key (<code>sk_live_...</code>) is configured. Creating checkout sessions will initiate REAL credit card transactions and monetary deductions!</div>
+            </div>
+          ` : `
+            <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.85rem; color: #93c5fd; font-size: 11px;">
+              🛡️ <strong>Test Mode Active:</strong> Using Stripe test credentials (<code>sk_test_...</code>). Simulated charges will not debit real payment cards.
+            </div>
+          `}
+          <div class="drawer-section-title">1. Create Checkout Session</div>
+          <div class="drawer-card">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+              <div>
+                <label style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Customer Email</label>
+                <input type="email" id="test-stripe-email" class="form-control" value="customer@example.com" style="margin-top: 3px; font-size: 12px; padding: 6px 8px;" />
+              </div>
+              <div>
+                <label style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Amount (Cents)</label>
+                <input type="number" id="test-stripe-amount" class="form-control" value="4900" style="margin-top: 3px; font-size: 12px; padding: 6px 8px;" />
+              </div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="runStripeCheckoutTest()" style="margin-top: 4px;">
+              Create Checkout Session ($49.00)
+            </button>
+          </div>
+
+          <div class="drawer-section-title" style="margin-top: 0.85rem;">2. Simulate Incoming Webhook</div>
+          <div class="drawer-card">
+            <div>
+              <label style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Event Type</label>
+              <select id="test-stripe-event-type" class="form-control" style="margin-top: 3px; font-size: 12px; padding: 6px 8px;">
+                <option value="payment_intent.succeeded">payment_intent.succeeded</option>
+                <option value="checkout.session.completed">checkout.session.completed</option>
+                <option value="customer.subscription.created">customer.subscription.created</option>
+              </select>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="runStripeWebhookSimulation()" style="margin-top: 4px;">
+              Dispatch Mock Webhook
+            </button>
+          </div>
+        `;
+      } else if (cleanId === 's3' || cleanId === 's3-storage') {
+        const s3NavItem = (state.pluginNavItems || []).find(p => p.id === 's3-storage' || p.id === 's3');
+        const isS3Configured = s3NavItem && s3NavItem.badge !== 'UNCONFIGURED' && !s3NavItem.view?.description?.includes('Unconfigured');
+        formHtml = `
+          ${!isS3Configured ? `
+            <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; color: #fcd34d; font-size: 11.5px;">
+              <div style="font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+                <span>⚠️</span> <span>S3 Cloud Storage Unconfigured</span>
+              </div>
+              <div style="color: #cbd5e1; font-size: 11px;">
+                No S3 bucket has been configured yet. URL presigning and bucket connectivity tests will fail until you specify a bucket name in extension settings or environment variables.
+              </div>
+            </div>
+          ` : ''}
+          <div class="drawer-section-title">1. Generate SigV4 Presigned Upload URL</div>
+          <div class="drawer-card">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+              <div>
+                <label style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">File Key</label>
+                <input type="text" id="test-s3-key" class="form-control" value="uploads/avatar-demo.png" style="margin-top: 3px; font-size: 12px; padding: 6px 8px;" />
+              </div>
+              <div>
+                <label style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">MIME Type</label>
+                <input type="text" id="test-s3-mimetype" class="form-control" value="image/png" style="margin-top: 3px; font-size: 12px; padding: 6px 8px;" />
+              </div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="runS3PresignedUrlTest()" style="margin-top: 4px;">
+              Generate Presigned Upload URL
+            </button>
+          </div>
+
+          <div class="drawer-section-title" style="margin-top: 0.85rem;">2. Bucket Connectivity & Health</div>
+          <div class="drawer-card">
+            <div style="font-size: 12px; color: var(--text-muted);">
+              Verifies S3 bucket configuration, region, and endpoint resolution.
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="runS3StatusTest()" style="margin-top: 4px;">
+              Verify Bucket Status
+            </button>
+          </div>
+        `;
+      } else if (cleanId === 'resend' || cleanId === 'resend-email') {
+        formHtml = `
+          <div class="drawer-section-title">1. Send Transactional Email</div>
+          <div class="drawer-card">
+            <div>
+              <label style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Recipient Email (To)</label>
+              <input type="email" id="test-resend-to" class="form-control" value="developer@example.com" style="margin-top: 3px; font-size: 12px; padding: 6px 8px;" />
+            </div>
+            <div style="margin-top: 4px;">
+              <label style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Subject Line</label>
+              <input type="text" id="test-resend-subject" class="form-control" value="NodeStack Test Notification" style="margin-top: 3px; font-size: 12px; padding: 6px 8px;" />
+            </div>
+            <div style="margin-top: 4px;">
+              <label style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Email Body</label>
+              <textarea id="test-resend-body" class="form-control" rows="2" style="margin-top: 3px; font-size: 12px; padding: 6px 8px; font-family: sans-serif;">Hello from NodeStack! This is an interactive transactional test email.</textarea>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="runResendSendTest()" style="margin-top: 4px;">
+              Send Test Email
+            </button>
+          </div>
+        `;
+      } else if (cleanId === 'webhooks') {
+        formHtml = `
+          <div class="drawer-section-title">1. Dispatch Test Webhook</div>
+          <div class="drawer-card">
+            <div>
+              <label style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Target Platform</label>
+              <select id="test-webhook-platform" class="form-control" style="margin-top: 3px; font-size: 12px; padding: 6px 8px;">
+                <option value="discord">Discord</option>
+                <option value="slack">Slack</option>
+              </select>
+            </div>
+            <div style="margin-top: 4px;">
+              <label style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Notification Message</label>
+              <input type="text" id="test-webhook-message" class="form-control" value="NodeStack database mutation event" style="margin-top: 3px; font-size: 12px; padding: 6px 8px;" />
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="runWebhookDispatchTest()" style="margin-top: 4px;">
+              Dispatch Outbound Webhook
+            </button>
+          </div>
+        `;
+      } else if (cleanId === 'algolia') {
+        const algoliaNavItem = (state.pluginNavItems || []).find(p => p.id === 'algolia');
+        const isAlgoliaConfigured = algoliaNavItem && algoliaNavItem.badge !== 'UNCONFIGURED' && !algoliaNavItem.view?.description?.includes('Unconfigured');
+        const userCols = (state.collections || []).filter(c => typeof c === 'object' && !c.name.startsWith('_'));
+        const optionsHtml = userCols.length > 0
+          ? userCols.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('')
+          : '<option value="users">users</option>';
+        formHtml = `
+          ${!isAlgoliaConfigured ? `
+            <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; color: #fcd34d; font-size: 11.5px;">
+              <div style="font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+                <span>⚠️</span> <span>Algolia Search Unconfigured</span>
+              </div>
+              <div style="color: #cbd5e1; font-size: 11px;">
+                No Algolia Application ID or Admin API Key configured. Index synchronization and queue processing will fail until credentials are configured in extension settings or environment variables.
+              </div>
+            </div>
+          ` : ''}
+          <div class="drawer-section-title">1. Trigger Collection Reindex</div>
+          <div class="drawer-card">
+            <div>
+              <label style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Collection to Index</label>
+              <select id="test-algolia-col" class="form-control" style="margin-top: 3px; font-size: 12px; padding: 6px 8px;">
+                ${optionsHtml}
+              </select>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="runAlgoliaReindexTest()" style="margin-top: 4px;">
+              Trigger Full Re-index
+            </button>
+          </div>
+
+          <div class="drawer-section-title" style="margin-top: 0.85rem;">2. Process Sync Queue</div>
+          <div class="drawer-card">
+            <div style="font-size: 12px; color: var(--text-muted);">
+              Manually triggers background worker queue to flush and synchronize pending mutations.
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="runAlgoliaProcessQueueTest()" style="margin-top: 4px;">
+              Process Queue Now
+            </button>
+          </div>
+        `;
+      } else {
+        formHtml = `
+          <div class="drawer-section-title">Plugin Workbench</div>
+          <div class="drawer-card">
+            <div style="font-size: 12.5px; color: var(--text-muted);">
+              Custom registered plugin: <code style="color: #60a5fa;">${escapeHtml(cleanId)}</code>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="checkPluginTesterStatus('${escapeHtml(cleanId)}')" style="margin-top: 4px;">
+              Check Extension Status
+            </button>
+          </div>
+        `;
+      }
+
+      let root = document.getElementById('drawer-root');
+      if (!root) {
+        root = document.createElement('div');
+        root.id = 'drawer-root';
+        document.body.appendChild(root);
+      }
+
+      const activePluginNavItem = (state.pluginNavItems || []).find(
+        p => p.id === cleanId || (cleanId === 's3' && p.id === 's3-storage') || (cleanId === 'resend' && p.id === 'resend-email')
+      );
+      const isUnconfigured = activePluginNavItem && (activePluginNavItem.badge === 'UNCONFIGURED' || activePluginNavItem.badgeVariant === 'warning');
+      const statusBadgeHtml = isUnconfigured
+        ? `<span class="badge badge-warning" style="font-size: 10px; background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);">● UNCONFIGURED</span>`
+        : `<span class="badge badge-success" style="font-size: 10px;">● ACTIVE</span>`;
+
+      root.innerHTML = `
+        <div id="plugin-drawer-backdrop" class="drawer-backdrop" onclick="closePluginTesterDrawer()" aria-hidden="true"></div>
+        <aside id="plugin-drawer-panel" class="record-drawer plugin-drawer" role="dialog" aria-modal="true" aria-labelledby="plugin-drawer-title" tabindex="-1">
+          <div class="drawer-header">
+            <div class="drawer-title-area">
+              <span style="font-size: 1.2rem; display: inline-flex; align-items: center;">${icon}</span>
+              <div>
+                <h2 id="plugin-drawer-title" class="drawer-title" style="margin:0; font-size:1.05rem;">
+                  Test ${escapeHtml(title)}
+                </h2>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 1px;">
+                  Interactive In-Context Developer Tester
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              ${statusBadgeHtml}
+              <button class="btn btn-secondary btn-sm" id="plugin-drawer-close-btn" onclick="closePluginTesterDrawer()" title="Close drawer (Esc)" aria-label="Close drawer">✕</button>
+            </div>
+          </div>
+
+          <div class="drawer-quick-actions">
+            ${relatedCol ? `
+              <button class="btn btn-secondary btn-sm" onclick="selectCollection('${escapeHtml(relatedCol)}'); closePluginTesterDrawer();" style="font-size: 11.5px;">
+                View <code>${escapeHtml(relatedCol)}</code> Table ↗
+              </button>
+            ` : ''}
+            <button class="btn btn-secondary btn-sm" onclick="checkPluginTesterStatus('${escapeHtml(cleanId)}')" style="font-size: 11.5px;">
+              Check Status
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="clearPluginTesterOutput()" style="font-size: 11.5px; margin-left: auto;">
+              Clear Output
+            </button>
+          </div>
+
+          <div class="drawer-body">
+            <div class="plugin-disclaimer-banner" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; font-size: 11.5px; line-height: 1.45; color: #fcd34d;">
+              <div style="font-weight: 700; display: flex; align-items: center; gap: 5px; margin-bottom: 2px; color: #fbbf24;">
+                <span>⚠️</span> <span>External Service Disclaimer</span>
+              </div>
+              <div style="color: #cbd5e1; font-size: 11px;">
+                Actions executed here communicate directly with your configured external service provider. Live operations, resource usage, or data changes may occur. You are solely responsible for all actions triggered and any external fees or modifications incurred.
+              </div>
+            </div>
+
+            ${formHtml}
+
+            <div class="drawer-section-title" style="margin-top: 1rem; display: flex; align-items: center; justify-content: space-between;">
+              <span>Live Response Payload</span>
+              <span id="plugin-tester-latency" style="font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);">--</span>
+            </div>
+            <div class="drawer-json-container">
+              <div class="drawer-json-bar">
+                <span id="plugin-tester-status-badge" style="font-weight: 700; color: var(--text-muted);">Status: Ready</span>
+                <button class="btn btn-secondary btn-sm" style="padding: 2px 7px; font-size: 10.5px;" onclick="copyPluginTesterOutput()">Copy</button>
+              </div>
+              <pre class="drawer-json-pre"><code id="plugin-tester-output">// Run an action above to inspect live responses...</code></pre>
+            </div>
+          </div>
+        </aside>
+      `;
+
+      const triggerDrawerOpen = () => {
+        const backdrop = document.getElementById('plugin-drawer-backdrop');
+        const panel = document.getElementById('plugin-drawer-panel');
+        if (backdrop) backdrop.classList.add('open');
+        if (panel) {
+          panel.classList.add('open');
+          if (typeof panel.focus === 'function') panel.focus();
+        }
+      };
+
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(triggerDrawerOpen);
+      } else {
+        setTimeout(triggerDrawerOpen, 16);
+      }
+    }
+
+    function closePluginTesterDrawer() {
+      const backdrop = document.getElementById('plugin-drawer-backdrop');
+      const panel = document.getElementById('plugin-drawer-panel');
+      if (backdrop) backdrop.classList.remove('open');
+      if (panel) panel.classList.remove('open');
+      setTimeout(() => {
+        const root = document.getElementById('drawer-root');
+        if (root && root.querySelector('#plugin-drawer-panel')) {
+          root.innerHTML = '';
+        }
+      }, 250);
+    }
+
+    async function executePluginTest(actionFn) {
+      const badge = document.getElementById('plugin-tester-status-badge');
+      const latency = document.getElementById('plugin-tester-latency');
+      const output = document.getElementById('plugin-tester-output');
+      if (badge) {
+        badge.textContent = 'Status: Executing...';
+        badge.style.color = '#60a5fa';
+      }
+      if (output) output.textContent = '// Sending request...';
+      const start = performance.now();
+      try {
+        const data = await actionFn();
+        const duration = Math.round(performance.now() - start);
+        if (latency) latency.textContent = `${duration}ms`;
+        if (badge) {
+          badge.textContent = 'Status: 200 OK';
+          badge.style.color = '#34d399';
+        }
+        if (output) output.textContent = JSON.stringify(data, null, 2);
+        toast('Action completed successfully!', 'success');
+      } catch (err) {
+        const duration = Math.round(performance.now() - start);
+        if (latency) latency.textContent = `${duration}ms`;
+        if (badge) {
+          badge.textContent = `Status: ${err.status ? err.status + ' Error' : 'Error'}`;
+          badge.style.color = '#ef4444';
+        }
+        const errPayload = err.data || { error: err.message };
+        if (output) output.textContent = JSON.stringify(errPayload, null, 2);
+        toast(err.message || 'Action failed', 'danger');
+      }
+    }
+
+    function checkPluginTesterStatus(pluginId) {
+      const cleanId = String(pluginId || '').replace(/^nav-/, '').toLowerCase();
+      const endpoints = {
+        stripe: '/api/stripe/status',
+        s3: '/api/s3/status',
+        's3-storage': '/api/s3/status',
+        resend: '/api/resend/status',
+        webhooks: '/api/webhooks/status',
+        algolia: '/api/algolia/status',
+      };
+      const ep = endpoints[cleanId] || `/api/plugins/${encodeURIComponent(cleanId)}/config`;
+      return executePluginTest(async () => {
+        const res = await api(ep, { skipAuthRedirect: true });
+        if ((cleanId === 's3' || cleanId === 's3-storage') && (!res || !res.connected || !res.bucket)) {
+          const err = new Error(
+            res?.message || 'S3 Cloud Storage is not configured. Please configure your bucket name in extension settings.'
+          );
+          err.status = res?.statusCode || 400;
+          err.data = res;
+          throw err;
+        }
+        if (cleanId === 'algolia' && (!res || res.configured === false || !res.appId)) {
+          const err = new Error(
+            res?.message || 'Algolia Search is not configured. Please configure your Application ID and Admin API Key in extension settings.'
+          );
+          err.status = res?.statusCode || 400;
+          err.data = res;
+          throw err;
+        }
+        if (cleanId === 'stripe' && (!res || res.configured === false)) {
+          const err = new Error(
+            res?.message || 'Stripe is not configured. Please configure your Stripe Secret Key in extension settings.'
+          );
+          err.status = res?.statusCode || 400;
+          err.data = res;
+          throw err;
+        }
+        if ((cleanId === 'resend' || cleanId === 'resend-email') && (!res || res.configured === false)) {
+          const err = new Error(
+            res?.message || 'Resend Email is not configured. Please configure your Resend API Key in extension settings.'
+          );
+          err.status = res?.statusCode || 400;
+          err.data = res;
+          throw err;
+        }
+        return res;
+      });
+    }
+
+    function runStripeCheckoutTest() {
+      const email = document.getElementById('test-stripe-email')?.value || 'customer@example.com';
+      const amount = Number(document.getElementById('test-stripe-amount')?.value || 4900);
+      const stripeNavItem = (state.pluginNavItems || []).find(p => p.id === 'stripe');
+      const isStripeLive = stripeNavItem && (stripeNavItem.badge === 'LIVE' || stripeNavItem.badgeVariant === 'danger');
+
+      if (isStripeLive && typeof window.confirm === 'function') {
+        const confirmed = window.confirm(
+          `⚠️ WARNING: LIVE STRIPE CREDENTIALS DETECTED!\n\nYou are in LIVE Production Mode. This test will create a real Stripe checkout session for $${(amount / 100).toFixed(2)} USD.\n\nAre you sure you want to proceed?`
+        );
+        if (!confirmed) {
+          toast('Checkout session creation canceled', 'info');
+          return Promise.resolve();
+        }
+      }
+
+      return executePluginTest(() => api('/api/stripe/checkout-session', {
+        method: 'POST',
+        body: JSON.stringify({ email, amount }),
+        skipAuthRedirect: true,
+      }));
+    }
+
+    function runStripeWebhookSimulation() {
+      const type = document.getElementById('test-stripe-event-type')?.value || 'payment_intent.succeeded';
+      return executePluginTest(() => api('/api/stripe/webhook', {
+        method: 'POST',
+        body: JSON.stringify({
+          type,
+          data: {
+            object: {
+              id: 'pi_mock_' + Math.random().toString(36).substring(2, 9),
+              amount: 4900,
+              currency: 'usd',
+              status: 'succeeded'
+            }
+          }
+        }),
+        skipAuthRedirect: true,
+      }));
+    }
+
+    function runS3PresignedUrlTest() {
+      const filename = document.getElementById('test-s3-key')?.value || 'uploads/avatar-demo.png';
+      const mimeType = document.getElementById('test-s3-mimetype')?.value || 'image/png';
+      return executePluginTest(() => api('/api/s3/sign-upload-url', {
+        method: 'POST',
+        body: JSON.stringify({ filename, mimeType }),
+        skipAuthRedirect: true,
+      }));
+    }
+
+    function runS3StatusTest() {
+      return executePluginTest(async () => {
+        const res = await api('/api/s3/status', { skipAuthRedirect: true });
+        if (!res || !res.connected || !res.bucket) {
+          const err = new Error(
+            res?.message || 'S3 Cloud Storage is not configured. Please configure your bucket name in extension settings.'
+          );
+          err.status = res?.statusCode || 400;
+          err.data = res;
+          throw err;
+        }
+        return res;
+      });
+    }
+
+    function runResendSendTest() {
+      const to = document.getElementById('test-resend-to')?.value || 'developer@example.com';
+      const subject = document.getElementById('test-resend-subject')?.value || 'NodeStack Notification';
+      const body = document.getElementById('test-resend-body')?.value || 'Test message';
+      return executePluginTest(() => api('/api/resend/send', {
+        method: 'POST',
+        body: JSON.stringify({
+          to,
+          subject,
+          html: `<p>${escapeHtml(body)}</p>`,
+          text: body
+        }),
+        skipAuthRedirect: true,
+      }));
+    }
+
+    function runWebhookDispatchTest() {
+      const platform = document.getElementById('test-webhook-platform')?.value || 'discord';
+      const message = document.getElementById('test-webhook-message')?.value || 'Test webhook message';
+      return executePluginTest(() => api('/api/webhooks/test', {
+        method: 'POST',
+        body: JSON.stringify({
+          platform,
+          payload: { message }
+        }),
+        skipAuthRedirect: true,
+      }));
+    }
+
+    function runAlgoliaReindexTest() {
+      const collection = document.getElementById('test-algolia-col')?.value;
+      if (!collection) {
+        toast('Please select a collection to reindex', 'warning');
+        return Promise.resolve();
+      }
+      return executePluginTest(() => api('/api/algolia/reindex', {
+        method: 'POST',
+        body: JSON.stringify({ collection }),
+        skipAuthRedirect: true,
+      }));
+    }
+
+    function runAlgoliaProcessQueueTest() {
+      return executePluginTest(() => api('/api/algolia/process-queue', {
+        method: 'POST',
+        skipAuthRedirect: true,
+      }));
+    }
+
+    function copyPluginTesterOutput() {
+      const output = document.getElementById('plugin-tester-output');
+      if (output && navigator.clipboard) {
+        navigator.clipboard.writeText(output.textContent || '');
+        toast('Payload copied to clipboard!', 'info');
+      }
+    }
+
+    function clearPluginTesterOutput() {
+      const output = document.getElementById('plugin-tester-output');
+      const badge = document.getElementById('plugin-tester-status-badge');
+      const latency = document.getElementById('plugin-tester-latency');
+      if (output) output.textContent = '// Ready';
+      if (badge) {
+        badge.textContent = 'Status: Ready';
+        badge.style.color = 'var(--text-muted)';
+      }
+      if (latency) latency.textContent = '--';
     }
 
     function renderCollectionsHubView() {
       const target = document.getElementById('collections-detail-pane') || document.getElementById('main-body');
       if (!target) return;
-      const userCols = (state.collections || []).filter(c => !isSystemCollection(c));
-      const systemCols = (state.collections || []).filter(c => isSystemCollection(c));
+      const allCols = Array.isArray(state.collections)
+        ? state.collections
+        : (state.collections && Array.isArray(state.collections.items) ? state.collections.items : []);
+      const userCols = allCols.filter(c => !isSystemCollection(c));
+      const systemCols = allCols.filter(c => isSystemCollection(c));
 
       target.innerHTML = `
         <div class="hub-hero-banner">
@@ -609,14 +1377,14 @@
             <div style="display:flex; align-items:center; gap:0.5rem;">
               <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ New Collection</button>
               <button class="btn btn-secondary btn-sm" onclick="openTemplatesModal()">✨ Starter Recipes</button>
-              <button class="btn btn-secondary btn-sm" onclick="openImportModal()">⚡ Import JSON</button>
+              <button class="btn btn-secondary btn-sm" onclick="openImportModal()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:-1px; margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Import JSON</button>
             </div>
           </div>
 
           <div class="hub-stats-row" style="margin-top:0.5rem;">
             <div class="hub-stat-card">
               <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Total Collections</span>
-              <span style="font-size:20px; font-weight:800; color:#fff;">${(state.collections || []).length}</span>
+              <span style="font-size:20px; font-weight:800; color:#fff;">${allCols.length}</span>
             </div>
             <div class="hub-stat-card">
               <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">User Collections</span>
@@ -630,11 +1398,11 @@
         </div>
 
         <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin:0.25rem 0;">
-          All Registered Collections (${(state.collections || []).length})
+          All Registered Collections (${allCols.length})
         </div>
 
         <div class="hub-cards-grid">
-          ${(state.collections || []).map(col => {
+          ${allCols.map(col => {
             const isSys = isSystemCollection(col);
             const fieldCount = col.schema ? col.schema.length : 0;
             return `
@@ -734,9 +1502,14 @@
       const container = document.getElementById('collections-list');
       if (!container) return;
 
+      const rawCols = state.collections;
+      const allCols = Array.isArray(rawCols)
+        ? rawCols
+        : (rawCols && Array.isArray(rawCols.items) ? rawCols.items : []);
+
       const filterTerm = (state.collectionFilterTerm || '').toLowerCase();
-      const userCols = (state.collections || []).filter(c => !isSystemCollection(c));
-      const systemCols = (state.collections || []).filter(c => isSystemCollection(c));
+      const userCols = allCols.filter(c => !isSystemCollection(c));
+      const systemCols = allCols.filter(c => isSystemCollection(c));
 
       const filteredUserCols = filterTerm
         ? userCols.filter(c => c.name.toLowerCase().includes(filterTerm))
@@ -816,7 +1589,10 @@
     // Select Collection
     async function selectCollection(name) {
       state.activeNav = 'collection';
-      state.activeCollection = state.collections.find(c => c.name === name);
+      const allCols = Array.isArray(state.collections)
+        ? state.collections
+        : (state.collections && Array.isArray(state.collections.items) ? state.collections.items : []);
+      state.activeCollection = allCols.find(c => c.name === name);
       // Reset collection-specific records state
       state.recordsPage = 1;
       state.recordsFilter = '';
@@ -1114,7 +1890,7 @@
           description: `Download ${state.activeCollection.name} records as JSON format`,
           category: 'Actions',
           badge: 'EXPORT',
-          icon: '⚡',
+          icon: '📥',
           keywords: ['export', 'export json', 'download', 'json', 'current collection', state.activeCollection.name],
           action: () => {
             if (typeof exportData === 'function') {
@@ -1143,7 +1919,7 @@
           description: 'Trigger data export (requires active collection)',
           category: 'Actions',
           badge: 'EXPORT',
-          icon: '⚡',
+          icon: '📥',
           keywords: ['export', 'download', 'json', 'csv'],
           action: () => {
             toast('Please select a collection first to export records', 'info');
@@ -1294,7 +2070,7 @@
           tabindex="-1"
         >
           <div class="command-palette-item-left">
-            <div class="command-palette-item-icon" aria-hidden="true">${item.icon || '⚡'}</div>
+            <div class="command-palette-item-icon" aria-hidden="true">${item.icon || '▶'}</div>
             <div class="command-palette-item-text">
               <div class="command-palette-item-title">${escapeHtml(item.title)}</div>
               <div class="command-palette-item-desc">${escapeHtml(item.description)}</div>
@@ -1507,6 +2283,18 @@
           closeCommandPalette();
           return;
         }
+        const drawerRoot = document.getElementById('drawer-root');
+        if (drawerRoot && drawerRoot.innerHTML.trim().length > 0) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          if (typeof closePluginTesterDrawer === 'function') {
+            closePluginTesterDrawer();
+          }
+          if (typeof closeRecordDrawer === 'function') {
+            closeRecordDrawer();
+          }
+          return;
+        }
         const modalRoot = document.getElementById('modal-root');
         if (modalRoot && modalRoot.innerHTML.trim().length > 0) {
           e.preventDefault();
@@ -1541,6 +2329,18 @@
       window.setCommandPaletteActiveIndex = setCommandPaletteActiveIndex;
       window.renderPluginNavItems = renderPluginNavItems;
       window.renderPluginView = renderPluginView;
+      window.openPluginTesterDrawer = openPluginTesterDrawer;
+      window.closePluginTesterDrawer = closePluginTesterDrawer;
+      window.executePluginTest = executePluginTest;
+      window.checkPluginTesterStatus = checkPluginTesterStatus;
+      window.runStripeCheckoutTest = runStripeCheckoutTest;
+      window.runStripeWebhookSimulation = runStripeWebhookSimulation;
+      window.runS3PresignedUrlTest = runS3PresignedUrlTest;
+      window.runS3StatusTest = runS3StatusTest;
+      window.runResendSendTest = runResendSendTest;
+      window.runWebhookDispatchTest = runWebhookDispatchTest;
+      window.runAlgoliaReindexTest = runAlgoliaReindexTest;
+      window.runAlgoliaProcessQueueTest = runAlgoliaProcessQueueTest;
     }
 
 // Run on startup
