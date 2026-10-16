@@ -2529,6 +2529,108 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(app.hasPlugin('resend')).toBe(false);
       expect(app.adminUi.getNavItems().some((n) => n.id === 'resend')).toBe(false);
     });
+
+    it('should unsubscribe lifecycle hooks from EventBus when plugin is disabled, preventing mutation triggers', async () => {
+      const hookDataDir = path.resolve(testDataDir, 'hook_disable_instance');
+      app = new NodeStack({ dataDir: hookDataDir, port: 8135 });
+
+      await app.auth.createAdmin('hookadmin@nodestack.io', 'Password123!');
+      const { token } = await app.auth.authenticateAdmin('hookadmin@nodestack.io', 'Password123!');
+
+      // Create a test collection
+      app.schema.createCollection({
+        name: 'notes',
+        type: 'base',
+        schema: [{ id: 'f_title', name: 'title', type: 'text', required: true }],
+        listRule: '',
+        viewRule: '',
+        createRule: '',
+        updateRule: '',
+        deleteRule: '',
+      });
+
+      // 1. Register Algolia Search Sync extension targeting collection 'notes'
+      app.use(
+        algoliaPlugin({
+          appId: 'ALGOLIA_APP_ID',
+          apiKey: 'ALGOLIA_API_KEY',
+          collections: ['notes'],
+          dryRun: true,
+        })
+      );
+      expect(app.hasPlugin('algolia')).toBe(true);
+
+      // Create a note while Algolia is enabled: Algolia hook triggers and queues mutation
+      const note1 = await app.records.create('notes', { title: 'First Note' });
+      const queuedRows1 = app.db.all<{ id: string }>(
+        'SELECT id FROM _algolia_sync_queue WHERE objectId = ?',
+        [note1.id]
+      );
+      expect(queuedRows1.length).toBe(1);
+
+      // 2. Disable Algolia extension via API
+      const resDisable = await app.server.inject({
+        method: 'POST',
+        url: '/api/plugins/algolia/disable',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(resDisable.statusCode).toBe(200);
+      expect(app.hasPlugin('algolia')).toBe(false);
+
+      // Clear sync queue to verify no new operations are added
+      app.db.run('DELETE FROM _algolia_sync_queue');
+
+      // Create another note while Algolia is disabled: Hook must NOT fire!
+      const note2 = await app.records.create('notes', { title: 'Second Note While Disabled' });
+      const queuedRows2 = app.db.all<{ id: string }>(
+        'SELECT id FROM _algolia_sync_queue WHERE objectId = ?',
+        [note2.id]
+      );
+      expect(queuedRows2.length).toBe(0);
+
+      // Update and delete note2: Hooks must NOT fire!
+      await app.records.update('notes', note2.id, { title: 'Updated Note 2' });
+      await app.records.delete('notes', note2.id);
+
+      const queuedRowsTotal = app.db.all<{ id: string }>('SELECT id FROM _algolia_sync_queue');
+      expect(queuedRowsTotal.length).toBe(0);
+    });
+
+    it('should unsubscribe and guard custom plugin hooks when plugin is removed or disabled', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8136 });
+
+      app.schema.createCollection({
+        name: 'tasks',
+        type: 'base',
+        schema: [{ id: 'f_desc', name: 'desc', type: 'text', required: true }],
+        listRule: '',
+        viewRule: '',
+        createRule: '',
+      });
+
+      let hookExecutionCount = 0;
+      const customPlugin: INodeStackPlugin = {
+        name: 'custom-tracker-plugin',
+        register(ctx) {
+          ctx.registerHook('afterCreate', () => {
+            hookExecutionCount++;
+          });
+        },
+      };
+
+      app.use(customPlugin);
+
+      // While active, hook fires
+      await app.records.create('tasks', { desc: 'Task 1' });
+      expect(hookExecutionCount).toBe(1);
+
+      // Disable / remove plugin
+      await app.pluginManager.disableOfficialPlugin('custom-tracker-plugin');
+
+      // While disabled, hook must NOT fire
+      await app.records.create('tasks', { desc: 'Task 2' });
+      expect(hookExecutionCount).toBe(1);
+    });
   });
 });
 

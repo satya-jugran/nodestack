@@ -122,6 +122,7 @@ export class PluginManager {
     string,
     { method: string; path: string; handler: RouteHandlerMethod; preHandler?: any; pluginName?: string }
   >();
+  private pluginHookUnsubscribers = new Map<string, Array<() => void>>();
 
   constructor(
     private readonly app: NodeStack,
@@ -268,35 +269,67 @@ export class PluginManager {
         handler: any,
         collection?: string
       ) => {
+        // Guard handler with the plugin's active status
+        const guardedHandler = async (...args: any[]) => {
+          if (!this.plugins.has(plugin.name)) {
+            return;
+          }
+          return handler(...args);
+        };
+
+        let unsubscribe: () => void;
         switch (event) {
           case 'beforeCreate':
-            this.app.onRecordBeforeCreate(collection ? collection : handler, collection ? handler : undefined);
+            unsubscribe = this.app.eventBus.onRecordBeforeCreate(
+              collection ? collection : guardedHandler,
+              collection ? guardedHandler : undefined
+            );
             break;
           case 'afterCreate':
-            this.app.onRecordAfterCreate(collection ? collection : handler, collection ? handler : undefined);
+            unsubscribe = this.app.eventBus.onRecordAfterCreate(
+              collection ? collection : guardedHandler,
+              collection ? guardedHandler : undefined
+            );
             break;
           case 'beforeUpdate':
-            this.app.onRecordBeforeUpdate(collection ? collection : handler, collection ? handler : undefined);
+            unsubscribe = this.app.eventBus.onRecordBeforeUpdate(
+              collection ? collection : guardedHandler,
+              collection ? guardedHandler : undefined
+            );
             break;
           case 'afterUpdate':
-            this.app.onRecordAfterUpdate(collection ? collection : handler, collection ? handler : undefined);
+            unsubscribe = this.app.eventBus.onRecordAfterUpdate(
+              collection ? collection : guardedHandler,
+              collection ? guardedHandler : undefined
+            );
             break;
           case 'beforeDelete':
-            this.app.onRecordBeforeDelete(collection ? collection : handler, collection ? handler : undefined);
+            unsubscribe = this.app.eventBus.onRecordBeforeDelete(
+              collection ? collection : guardedHandler,
+              collection ? guardedHandler : undefined
+            );
             break;
           case 'afterDelete':
-            this.app.onRecordAfterDelete(collection ? collection : handler, collection ? handler : undefined);
+            unsubscribe = this.app.eventBus.onRecordAfterDelete(
+              collection ? collection : guardedHandler,
+              collection ? guardedHandler : undefined
+            );
             break;
           case 'beforeServe':
-            this.app.onBeforeServe(handler);
+            unsubscribe = this.app.eventBus.onBeforeServe(guardedHandler);
             break;
           case 'afterServe':
-            this.app.onAfterServe(handler);
+            unsubscribe = this.app.eventBus.onAfterServe(guardedHandler);
             break;
           default:
-            this.app.eventBus.on(event, handler);
+            unsubscribe = this.app.eventBus.on(event, guardedHandler);
             break;
         }
+
+        if (!this.pluginHookUnsubscribers.has(plugin.name)) {
+          this.pluginHookUnsubscribers.set(plugin.name, []);
+        }
+        this.pluginHookUnsubscribers.get(plugin.name)!.push(unsubscribe);
       },
       registerSystemCollection: (dto) => {
         return this.app.schema.registerSystemCollection(dto);
@@ -379,11 +412,25 @@ export class PluginManager {
 
     // 7. Register Serve Hooks if present
     if (typeof plugin.onBeforeServe === 'function') {
-      this.app.onBeforeServe((ctx) => plugin.onBeforeServe!(ctx));
+      const unsub = this.app.eventBus.onBeforeServe(async (ctx) => {
+        if (!this.plugins.has(plugin.name)) return;
+        return plugin.onBeforeServe!(ctx);
+      });
+      if (!this.pluginHookUnsubscribers.has(plugin.name)) {
+        this.pluginHookUnsubscribers.set(plugin.name, []);
+      }
+      this.pluginHookUnsubscribers.get(plugin.name)!.push(unsub);
     }
 
     if (typeof plugin.onAfterServe === 'function') {
-      this.app.onAfterServe((ctx) => plugin.onAfterServe!(ctx));
+      const unsub = this.app.eventBus.onAfterServe(async (ctx) => {
+        if (!this.plugins.has(plugin.name)) return;
+        return plugin.onAfterServe!(ctx);
+      });
+      if (!this.pluginHookUnsubscribers.has(plugin.name)) {
+        this.pluginHookUnsubscribers.set(plugin.name, []);
+      }
+      this.pluginHookUnsubscribers.get(plugin.name)!.push(unsub);
     }
 
     // 8. Register Admin UI Plugin Metadata
@@ -646,6 +693,18 @@ export class PluginManager {
     }
   }
 
+  private removeHooksForPlugin(pluginName: string): void {
+    const unsubs = this.pluginHookUnsubscribers.get(pluginName);
+    if (unsubs) {
+      for (const unsub of unsubs) {
+        try {
+          unsub();
+        } catch {}
+      }
+      this.pluginHookUnsubscribers.delete(pluginName);
+    }
+  }
+
   /**
    * Return catalog of official first-party extensions and their installation status
    */
@@ -729,7 +788,7 @@ export class PluginManager {
         }
       }
       this.app.adminUi.removePluginMeta(name);
-
+      this.removeHooksForPlugin(name);
       this.removeDynamicRoutesForPlugin(name);
       this.plugins.delete(name);
     }

@@ -22,86 +22,204 @@ export class EventBus {
   public onRecordBeforeCreate(
     collectionOrHandler: string | HookHandler<RecordBeforeEventContext>,
     handler?: HookHandler<RecordBeforeEventContext>
-  ): void {
+  ): () => void {
+    let item: { collection?: string; handler: HookHandler<RecordBeforeEventContext> };
     if (typeof collectionOrHandler === 'string' && handler) {
-      this.beforeCreateHooks.push({ collection: collectionOrHandler, handler });
+      item = { collection: collectionOrHandler, handler };
     } else if (typeof collectionOrHandler === 'function') {
-      this.beforeCreateHooks.push({ handler: collectionOrHandler });
+      item = { handler: collectionOrHandler };
+    } else {
+      return () => {};
     }
+    this.beforeCreateHooks.push(item);
+    return () => {
+      const idx = this.beforeCreateHooks.indexOf(item);
+      if (idx !== -1) {
+        this.beforeCreateHooks.splice(idx, 1);
+      }
+    };
+  }
+
+  public offRecordBeforeCreate(handler: HookHandler<RecordBeforeEventContext>): void {
+    this.beforeCreateHooks = this.beforeCreateHooks.filter((h) => h.handler !== handler);
   }
 
   public onRecordAfterCreate(
     collectionOrHandler: string | HookHandler<RecordAfterEventContext>,
     handler?: HookHandler<RecordAfterEventContext>
-  ): void {
+  ): () => void {
+    let item: { collection?: string; handler: HookHandler<RecordAfterEventContext> };
     if (typeof collectionOrHandler === 'string' && handler) {
-      this.afterCreateHooks.push({ collection: collectionOrHandler, handler });
+      item = { collection: collectionOrHandler, handler };
     } else if (typeof collectionOrHandler === 'function') {
-      this.afterCreateHooks.push({ handler: collectionOrHandler });
+      item = { handler: collectionOrHandler };
+    } else {
+      return () => {};
     }
+    this.afterCreateHooks.push(item);
+    return () => {
+      const idx = this.afterCreateHooks.indexOf(item);
+      if (idx !== -1) {
+        this.afterCreateHooks.splice(idx, 1);
+      }
+    };
+  }
+
+  public offRecordAfterCreate(handler: HookHandler<RecordAfterEventContext>): void {
+    this.afterCreateHooks = this.afterCreateHooks.filter((h) => h.handler !== handler);
   }
 
   public onRecordBeforeUpdate(
     collectionOrHandler: string | HookHandler<RecordBeforeEventContext>,
     handler?: HookHandler<RecordBeforeEventContext>
-  ): void {
+  ): () => void {
+    let item: { collection?: string; handler: HookHandler<RecordBeforeEventContext> };
     if (typeof collectionOrHandler === 'string' && handler) {
-      this.beforeUpdateHooks.push({ collection: collectionOrHandler, handler });
+      item = { collection: collectionOrHandler, handler };
     } else if (typeof collectionOrHandler === 'function') {
-      this.beforeUpdateHooks.push({ handler: collectionOrHandler });
+      item = { handler: collectionOrHandler };
+    } else {
+      return () => {};
     }
+    this.beforeUpdateHooks.push(item);
+    return () => {
+      const idx = this.beforeUpdateHooks.indexOf(item);
+      if (idx !== -1) {
+        this.beforeUpdateHooks.splice(idx, 1);
+      }
+    };
+  }
+
+  public offRecordBeforeUpdate(handler: HookHandler<RecordBeforeEventContext>): void {
+    this.beforeUpdateHooks = this.beforeUpdateHooks.filter((h) => h.handler !== handler);
   }
 
   public onRecordAfterUpdate(
     collectionOrHandler: string | HookHandler<RecordAfterEventContext>,
     handler?: HookHandler<RecordAfterEventContext>
-  ): void {
+  ): () => void {
+    let item: { collection?: string; handler: HookHandler<RecordAfterEventContext> };
     if (typeof collectionOrHandler === 'string' && handler) {
-      this.afterUpdateHooks.push({ collection: collectionOrHandler, handler });
+      item = { collection: collectionOrHandler, handler };
     } else if (typeof collectionOrHandler === 'function') {
-      this.afterUpdateHooks.push({ handler: collectionOrHandler });
+      item = { handler: collectionOrHandler };
+    } else {
+      return () => {};
     }
+    this.afterUpdateHooks.push(item);
+    return () => {
+      const idx = this.afterUpdateHooks.indexOf(item);
+      if (idx !== -1) {
+        this.afterUpdateHooks.splice(idx, 1);
+      }
+    };
+  }
+
+  public offRecordAfterUpdate(handler: HookHandler<RecordAfterEventContext>): void {
+    this.afterUpdateHooks = this.afterUpdateHooks.filter((h) => h.handler !== handler);
   }
 
   public onRecordBeforeDelete(
     collectionOrHandler: string | HookHandler<RecordBeforeEventContext>,
     handler?: HookHandler<RecordBeforeEventContext>
-  ): void {
+  ): () => void {
+    let item: { collection?: string; handler: HookHandler<RecordBeforeEventContext> };
     if (typeof collectionOrHandler === 'string' && handler) {
-      this.beforeDeleteHooks.push({ collection: collectionOrHandler, handler });
+      item = { collection: collectionOrHandler, handler };
     } else if (typeof collectionOrHandler === 'function') {
-      this.beforeDeleteHooks.push({ handler: collectionOrHandler });
+      item = { handler: collectionOrHandler };
+    } else {
+      return () => {};
     }
+    this.beforeDeleteHooks.push(item);
+    return () => {
+      const idx = this.beforeDeleteHooks.indexOf(item);
+      if (idx !== -1) {
+        this.beforeDeleteHooks.splice(idx, 1);
+      }
+    };
+  }
+
+  public offRecordBeforeDelete(handler: HookHandler<RecordBeforeEventContext>): void {
+    this.beforeDeleteHooks = this.beforeDeleteHooks.filter((h) => h.handler !== handler);
   }
 
   public onRecordAfterDelete(
     collectionOrHandler: string | HookHandler<RecordAfterEventContext>,
     handler?: HookHandler<RecordAfterEventContext>
-  ): void {
+  ): () => void {
+    let item: { collection?: string; handler: HookHandler<RecordAfterEventContext> };
     if (typeof collectionOrHandler === 'string' && handler) {
-      this.afterDeleteHooks.push({ collection: collectionOrHandler, handler });
+      item = { collection: collectionOrHandler, handler };
     } else if (typeof collectionOrHandler === 'function') {
-      this.afterDeleteHooks.push({ handler: collectionOrHandler });
+      item = { handler: collectionOrHandler };
+    } else {
+      return () => {};
     }
+    this.afterDeleteHooks.push(item);
+    return () => {
+      const idx = this.afterDeleteHooks.indexOf(item);
+      if (idx !== -1) {
+        this.afterDeleteHooks.splice(idx, 1);
+      }
+    };
   }
 
-  public onBeforeServe(handler: HookHandler<ServeEventContext>): void {
+  public offRecordAfterDelete(handler: HookHandler<RecordAfterEventContext>): void {
+    this.afterDeleteHooks = this.afterDeleteHooks.filter((h) => h.handler !== handler);
+  }
+
+  public onBeforeServe(handler: HookHandler<ServeEventContext>): () => void {
     this.beforeServeHooks.push(handler);
+    return () => {
+      const idx = this.beforeServeHooks.indexOf(handler);
+      if (idx !== -1) {
+        this.beforeServeHooks.splice(idx, 1);
+      }
+    };
   }
 
-  public onAfterServe(handler: HookHandler<ServeEventContext>): void {
+  public offBeforeServe(handler: HookHandler<ServeEventContext>): void {
+    this.beforeServeHooks = this.beforeServeHooks.filter((h) => h !== handler);
+  }
+
+  public onAfterServe(handler: HookHandler<ServeEventContext>): () => void {
     this.afterServeHooks.push(handler);
+    return () => {
+      const idx = this.afterServeHooks.indexOf(handler);
+      if (idx !== -1) {
+        this.afterServeHooks.splice(idx, 1);
+      }
+    };
+  }
+
+  public offAfterServe(handler: HookHandler<ServeEventContext>): void {
+    this.afterServeHooks = this.afterServeHooks.filter((h) => h !== handler);
   }
 
   public onRecordAuthRequest(
     collectionOrHandler: string | HookHandler<AuthEventContext>,
     handler?: HookHandler<AuthEventContext>
-  ): void {
+  ): () => void {
+    let item: { collection?: string; handler: HookHandler<AuthEventContext> };
     if (typeof collectionOrHandler === 'string' && handler) {
-      this.authHooks.push({ collection: collectionOrHandler, handler });
+      item = { collection: collectionOrHandler, handler };
     } else if (typeof collectionOrHandler === 'function') {
-      this.authHooks.push({ handler: collectionOrHandler });
+      item = { handler: collectionOrHandler };
+    } else {
+      return () => {};
     }
+    this.authHooks.push(item);
+    return () => {
+      const idx = this.authHooks.indexOf(item);
+      if (idx !== -1) {
+        this.authHooks.splice(idx, 1);
+      }
+    };
+  }
+
+  public offRecordAuthRequest(handler: HookHandler<AuthEventContext>): void {
+    this.authHooks = this.authHooks.filter((h) => h.handler !== handler);
   }
 
   // Dispatchers
@@ -276,11 +394,25 @@ export class EventBus {
   // --- Generic Custom Events ---
   private customEventHandlers = new Map<string, Array<(data?: any) => Promise<void> | void>>();
 
-  public on(event: string, handler: (data?: any) => Promise<void> | void): void {
+  public on(event: string, handler: (data?: any) => Promise<void> | void): () => void {
     if (!this.customEventHandlers.has(event)) {
       this.customEventHandlers.set(event, []);
     }
     this.customEventHandlers.get(event)!.push(handler);
+    return () => this.off(event, handler);
+  }
+
+  public off(event: string, handler: (data?: any) => Promise<void> | void): void {
+    const handlers = this.customEventHandlers.get(event);
+    if (handlers) {
+      const idx = handlers.indexOf(handler);
+      if (idx !== -1) {
+        handlers.splice(idx, 1);
+      }
+      if (handlers.length === 0) {
+        this.customEventHandlers.delete(event);
+      }
+    }
   }
 
   public async emit(event: string, data?: any): Promise<void> {
