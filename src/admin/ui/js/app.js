@@ -1190,6 +1190,14 @@
           err.data = res;
           throw err;
         }
+        if ((cleanId === 'resend' || cleanId === 'resend-email') && (!res || res.configured === false)) {
+          const err = new Error(
+            res?.message || 'Resend Email is not configured. Please configure your Resend API Key in extension settings.'
+          );
+          err.status = res?.statusCode || 400;
+          err.data = res;
+          throw err;
+        }
         return res;
       });
     }

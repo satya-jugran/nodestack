@@ -135,6 +135,7 @@ export interface ResendEmailResult {
 export declare class ResendEmailService {
   readonly options: ResendPluginOptions;
   constructor(options?: ResendPluginOptions);
+  isConfigured(): boolean;
   getBaseUrl(): string;
   sendEmail(params: {
     to: string | string[];

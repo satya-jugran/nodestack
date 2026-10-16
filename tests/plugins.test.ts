@@ -1470,6 +1470,68 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(failedLog).toBeDefined();
       expect(failedLog.status).toBe('failed');
     });
+
+    it('should report configured: false and reject send with HTTP 400 when Resend is unconfigured', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8138 });
+      app.use(resendPlugin());
+
+      // 1. Status route returns configured: false and hasApiKey: false
+      const statusRes = await app.server.inject({ method: 'GET', url: '/api/resend/status' });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().configured).toBe(false);
+      expect(statusRes.json().hasApiKey).toBe(false);
+
+      // 2. Admin UI navigation item reflects UNCONFIGURED badge and warning variant
+      const navItem = app.adminUi.getNavItems().find((item) => item.id === 'resend');
+      expect(navItem).toBeDefined();
+      expect(navItem?.badge).toBe('UNCONFIGURED');
+      expect(navItem?.badgeVariant).toBe('warning');
+
+      // 3. POST /api/resend/send should be rejected with HTTP 400 configuration error
+      await app.auth.createAdmin('resendadmin2@nodestack.io', 'Password123!');
+      const { token } = await app.auth.authenticateAdmin('resendadmin2@nodestack.io', 'Password123!');
+
+      const sendRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/resend/send',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          to: 'customer@example.com',
+          subject: 'Test email',
+        },
+      });
+      expect(sendRes.statusCode).toBe(400);
+      expect(sendRes.json().message).toContain('Resend API Key is not configured');
+    });
+
+    it('should report configured: true and allow dryRun mode without API key', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8139 });
+      app.use(resendPlugin({ dryRun: true }));
+
+      const statusRes = await app.server.inject({ method: 'GET', url: '/api/resend/status' });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().configured).toBe(true);
+      expect(statusRes.json().hasApiKey).toBe(true);
+
+      const navItem = app.adminUi.getNavItems().find((item) => item.id === 'resend');
+      expect(navItem?.badge).toBe('ACTIVE');
+      expect(navItem?.badgeVariant).toBe('success');
+
+      await app.auth.createAdmin('resenddry@nodestack.io', 'Password123!');
+      const { token } = await app.auth.authenticateAdmin('resenddry@nodestack.io', 'Password123!');
+
+      const sendRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/resend/send',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          to: 'customer@example.com',
+          subject: 'Dry run test email',
+        },
+      });
+      expect(sendRes.statusCode).toBe(200);
+      expect(sendRes.json().status).toBe('delivered');
+    });
   });
 
   describe('9. Official Community Extension: Discord/Slack Webhooks Plugin', () => {
@@ -2514,10 +2576,24 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       const resendMeta = catalog.find((c: any) => c.id === 'resend');
       expect(resendMeta.isInstalled).toBe(true);
 
-      // Verify dynamic route responds
+      // Verify dynamic route responds with unconfigured status initially
       const resStatus = await app.server.inject({ method: 'GET', url: '/api/resend/status' });
       expect(resStatus.statusCode).toBe(200);
-      expect(resStatus.json().configured).toBe(true);
+      expect(resStatus.json().configured).toBe(false);
+      expect(resStatus.json().hasApiKey).toBe(false);
+
+      // Verify sending without config returns HTTP 400
+      const resUnconfSend = await app.server.inject({
+        method: 'POST',
+        url: '/api/resend/send',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          to: 'customer@example.com',
+          subject: 'Unconfigured test',
+        },
+      });
+      expect(resUnconfSend.statusCode).toBe(400);
+      expect(resUnconfSend.json().message).toContain('Resend API Key is not configured');
 
       // 3. Disable plugin
       const resDisable = await app.server.inject({
