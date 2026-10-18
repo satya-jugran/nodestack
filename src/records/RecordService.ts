@@ -314,9 +314,10 @@ export class RecordService {
 
     const updatedRaw = this.db.get<any>(`SELECT * FROM "${col.name}" WHERE id = ?`, [id]);
     const updatedRecord = this.sanitizeRecord(updatedRaw, col, auth);
+    const sanitizedCurrent = this.sanitizeRecord(current, col, auth);
 
     // Lifecycle hook: onRecordAfterUpdate
-    await this.eventBus.triggerRecordAfterUpdate(col.name, updatedRecord, auth, httpContext);
+    await this.eventBus.triggerRecordAfterUpdate(col.name, updatedRecord, sanitizedCurrent, auth, httpContext);
 
     // Broadcast realtime event
     this.realtimeService.broadcast('update', col.name, updatedRecord);

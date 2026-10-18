@@ -306,12 +306,14 @@ export class EventBus {
   public async triggerRecordAfterUpdate(
     collection: string,
     record: Record<string, any>,
+    originalRecord?: Record<string, any>,
     auth?: any,
     httpContext?: any
   ): Promise<void> {
     const ctx: RecordAfterEventContext = {
       collection,
       record,
+      originalRecord,
       auth,
       httpContext,
     };

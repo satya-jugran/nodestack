@@ -16,6 +16,7 @@ import { HealthController } from './controllers/HealthController';
 import { AnalyticsController } from './controllers/AnalyticsController';
 import { TemplateController } from './controllers/TemplateController';
 import { DemoController } from './controllers/DemoController';
+import { AuditLogController } from './controllers/AuditLogController';
 import { AdminUIService } from '../admin/AdminUIService';
 import { DocsService } from '../admin/DocsService';
 import { TypeGenerator } from '../schema/TypeGenerator';
@@ -55,7 +56,8 @@ export class HttpServer {
     chaosMiddleware?: ChaosMiddleware,
     private templateController?: TemplateController,
     private demoController?: DemoController,
-    maintenanceGate?: MaintenanceGate
+    maintenanceGate?: MaintenanceGate,
+    private auditLogController?: AuditLogController
   ) {
     this.maintenanceGate = maintenanceGate;
 
@@ -379,6 +381,19 @@ export class HttpServer {
     app.delete('/api/logs', { preHandler: requireAdmin }, (req, reply) =>
       this.logController.clearLogs(req, reply)
     );
+
+    // 7.5 Data Mutation Audit Logs (Admin only)
+    if (this.auditLogController) {
+      app.get('/api/audit-logs', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.auditLogController!.getGlobalLogs(req, reply)
+      );
+      app.get('/api/collections/:collection/records/:id/history', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.auditLogController!.getRecordHistory(req, reply)
+      );
+      app.post('/api/audit-logs/prune', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.auditLogController!.pruneLogs(req, reply)
+      );
+    }
 
     // 8. Analytics & Metrics (Admin only)
     if (this.analyticsController) {

@@ -34,6 +34,8 @@ import { TemplateService } from './templates/TemplateService';
 import { TemplateController } from './http/controllers/TemplateController';
 import { DemoService } from './demo/DemoService';
 import { DemoController } from './http/controllers/DemoController';
+import { AuditLogService } from './audit/AuditLogService';
+import { AuditLogController } from './http/controllers/AuditLogController';
 import { MaintenanceGate } from './core/maintenance/MaintenanceGate';
 import { PluginManager } from './core/plugins/PluginManager';
 import { INodeStackPlugin, NodeStackPlugin } from './core/plugins/types';
@@ -74,6 +76,7 @@ export class NodeStack {
   public readonly authMiddleware: AuthMiddleware;
   public readonly server: HttpServer;
   public readonly pluginManager: PluginManager;
+  public readonly auditLogs: AuditLogService;
 
   constructor(options: NodeStackOptions = {}) {
     this.container = new Container();
@@ -206,6 +209,23 @@ export class NodeStack {
     const demoCtrl = new DemoController(this.demo);
     this.container.bindInstance(TOKENS.DemoController, demoCtrl);
 
+    // 17.5 Audit Log Service ("Read-Only Audit Trail")
+    this.auditLogs = new AuditLogService(this.db);
+    this.container.bindInstance(TOKENS.AuditLogService, this.auditLogs);
+
+    this.eventBus.onRecordAfterCreate(async (ctx) => {
+      await this.auditLogs.handleRecordEvent('create', ctx);
+    });
+    this.eventBus.onRecordAfterUpdate(async (ctx) => {
+      await this.auditLogs.handleRecordEvent('update', ctx);
+    });
+    this.eventBus.onRecordAfterDelete(async (ctx) => {
+      await this.auditLogs.handleRecordEvent('delete', ctx);
+    });
+
+    const auditLogCtrl = new AuditLogController(this.auditLogs);
+    this.container.bindInstance(TOKENS.AuditLogController, auditLogCtrl);
+
     // 18. HTTP Server
     this.server = new HttpServer(
       this.config,
@@ -225,7 +245,8 @@ export class NodeStack {
       this.chaos,
       templateCtrl,
       demoCtrl,
-      this.maintenanceGate
+      this.maintenanceGate,
+      auditLogCtrl
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
 

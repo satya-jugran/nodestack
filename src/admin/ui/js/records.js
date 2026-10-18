@@ -686,6 +686,10 @@
             <span style="color:#34d399; font-weight:bold; font-size:11px;">{ }</span>
             <span>Copy JSON</span>
           </button>
+          <button class="btn btn-secondary btn-sm" id="btn-drawer-history" data-id="${safeRecId}" onclick="handleToggleDrawerHistory(this)" title="View audit history">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <span id="drawer-history-btn-text">History</span>
+          </button>
           <button class="btn btn-danger btn-sm" data-id="${safeRecId}" onclick="handleDrawerDeleteRecord(this)" title="Delete record" style="margin-left:auto;">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             <span>Delete</span>
@@ -694,8 +698,10 @@
 
         <!-- Drawer Body -->
         <div class="drawer-body">
-          <!-- System Metadata Section -->
-          <div>
+          <div id="drawer-history-container" style="display:none;"></div>
+          <div id="drawer-details-content">
+            <!-- System Metadata Section -->
+            <div>
             <div class="drawer-section-title">System Metadata</div>
             <div class="drawer-card">
               <div class="drawer-field-item">
@@ -785,6 +791,7 @@
                 `;
               }).join('')}
             </div>
+          </div>
           </div>
         </div>
       `;
@@ -909,6 +916,121 @@
       if (!btnEl) return;
       const email = btnEl.getAttribute('data-email');
       copyToClipboard(email || '', btnEl, 'Copied email!');
+    }
+
+    async function handleToggleDrawerHistory(btnEl) {
+      const historyContainer = document.getElementById('drawer-history-container');
+      const detailsContent = document.getElementById('drawer-details-content');
+      const btnText = document.getElementById('drawer-history-btn-text');
+      if (!historyContainer || !detailsContent) return;
+
+      const isShowing = historyContainer.style.display !== 'none';
+      if (isShowing) {
+        historyContainer.style.display = 'none';
+        detailsContent.style.display = 'block';
+        if (btnText) btnText.textContent = 'History';
+        btnEl.classList.remove('btn-primary');
+        btnEl.classList.add('btn-secondary');
+      } else {
+        historyContainer.style.display = 'block';
+        detailsContent.style.display = 'none';
+        if (btnText) btnText.textContent = '← Back';
+        btnEl.classList.remove('btn-secondary');
+        btnEl.classList.add('btn-primary');
+
+        const col = state.activeCollection;
+        const recId = btnEl.getAttribute('data-id');
+        if (col && recId) {
+          historyContainer.innerHTML = '<div style="text-align:center; padding:2rem; color:var(--text-muted);">Loading audit history...</div>';
+          try {
+            const res = await api('/api/collections/' + encodeURIComponent(col.name) + '/records/' + encodeURIComponent(recId) + '/history');
+            renderDrawerHistoryTimeline(historyContainer, res.items);
+          } catch (err) {
+            historyContainer.innerHTML = '<div class="audit-card" style="color:#fca5a5; padding:1rem;">Failed to load history: ' + escapeHtml(err.message) + '</div>';
+          }
+        }
+      }
+    }
+
+    function formatAuditValue(val) {
+      if (val === null || val === undefined) return '<em style="color:#64748b;">null</em>';
+      if (typeof val === 'object') return escapeHtml(JSON.stringify(val));
+      return escapeHtml(String(val));
+    }
+
+    function renderDrawerHistoryTimeline(container, items) {
+      if (!items || items.length === 0) {
+        container.innerHTML = `
+          <div class="audit-card" style="text-align:center; padding:2rem; color:var(--text-muted);">
+            <div style="font-size:1.5rem; margin-bottom:0.5rem;">🕒</div>
+            <div style="font-weight:600; color:#fff; margin-bottom:0.25rem;">No History Logged</div>
+            <div style="font-size:12px;">No recorded field modifications found for this record.</div>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = `
+        <div style="margin-bottom:1rem; display:flex; align-items:center; justify-content:space-between;">
+          <h3 style="margin:0; font-size:13px; font-weight:700; color:#fff; text-transform:uppercase; letter-spacing:0.05em;">
+            Audit History (${items.length})
+          </h3>
+          <span style="font-size:11px; color:var(--text-muted);">Immutable Append-Only Log</span>
+        </div>
+        <div class="audit-timeline">
+          ${items.map(item => {
+            const action = (item.action || '').toLowerCase();
+            const dotClass = action === 'create' ? 'dot-create' : action === 'delete' ? 'dot-delete' : 'dot-update';
+            const actionBadgeClass = action === 'create' ? 'badge-get' : action === 'delete' ? 'badge-delete' : 'badge-post';
+            const actorLabel = item.authEmail || (item.authId ? 'User: ' + item.authId : 'System');
+            const diffKeys = Object.keys(item.diff || {});
+
+            return `
+              <div class="audit-timeline-item">
+                <div class="audit-timeline-dot ${dotClass}"></div>
+                <div class="audit-card">
+                  <div class="audit-card-header">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <span class="badge ${actionBadgeClass}" style="text-transform:uppercase; font-size:10px;">${escapeHtml(item.action)}</span>
+                      <span class="audit-actor" title="${escapeHtml(item.authCollection || '')}">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                        <span>${escapeHtml(actorLabel)}</span>
+                      </span>
+                    </div>
+                    <span style="color:var(--text-muted); font-size:11px;" title="${escapeHtml(item.created)}">
+                      ${new Date(item.created).toLocaleString()}
+                    </span>
+                  </div>
+                  ${diffKeys.length === 0 ? `
+                    <div style="font-size:12px; color:var(--text-muted); font-style:italic;">No field changes recorded</div>
+                  ` : `
+                    <table class="audit-diff-table">
+                      <thead>
+                        <tr>
+                          <th>Field</th>
+                          <th>Before</th>
+                          <th></th>
+                          <th>After</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${diffKeys.map(k => `
+                          <tr>
+                            <td class="audit-diff-key">${escapeHtml(k)}</td>
+                            <td><span class="audit-diff-val-old">${formatAuditValue(item.diff[k]?.old)}</span></td>
+                            <td class="audit-diff-arrow">➔</td>
+                            <td><span class="audit-diff-val-new">${formatAuditValue(item.diff[k]?.new)}</span></td>
+                          </tr>
+                        `).join('')}
+                      </tbody>
+                    </table>
+                  `}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
     }
 
     function handleDrawerCopyJsonField(btnEl) {
