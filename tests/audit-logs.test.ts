@@ -192,6 +192,48 @@ describe('Audit Log & Change History System', () => {
       expect(deleteEntry?.diff.title.new).toBeNull();
       expect(deleteEntry?.authEmail).toBe('audit_admin@nodestack.io');
     });
+
+    it('should record an audit entry when an auth user updates ONLY their password', async () => {
+      // 1. Create a user
+      const userRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/collections/users/records',
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: {
+          email: 'pw_test@nodestack.io',
+          password: 'initialpassword123',
+          name: 'Password Test User',
+        },
+      });
+      expect(userRes.statusCode).toBe(201);
+      const user = JSON.parse(userRes.body);
+      const userId = user.id;
+
+      // 2. Update ONLY the password
+      const updateRes = await app.server.inject({
+        method: 'PATCH',
+        url: `/api/collections/users/records/${userId}`,
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: {
+          password: 'newpassword45678',
+        },
+      });
+      expect(updateRes.statusCode).toBe(200);
+
+      // 3. Verify audit history captures the password change
+      const history = app.auditLogs.getRecordHistory('users', userId);
+      const pwUpdate = history.items.find((i) => i.action === 'update');
+
+      expect(pwUpdate).toBeDefined();
+      expect(pwUpdate?.changedFields).toContain('password');
+      expect(pwUpdate?.diff.password).toEqual({
+        old: '[REDACTED]',
+        new: '[REDACTED]',
+      });
+      // Raw hash or tokenKey must NEVER be present in the diff
+      expect(pwUpdate?.diff.passwordHash).toBeUndefined();
+      expect(pwUpdate?.diff.tokenKey).toBeUndefined();
+    });
   });
 
   describe('3. REST API Endpoints', () => {

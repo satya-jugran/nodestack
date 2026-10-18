@@ -227,9 +227,12 @@ export class RecordService {
     this.db.run(sql, values);
 
     const insertedRecord = this.sanitizeRecord(recordToInsert, col, auth, true);
+    const hookRecord = (col.type === 'auth' && recordToInsert.passwordHash)
+      ? { ...insertedRecord, password: '[SET]' }
+      : insertedRecord;
 
     // Lifecycle hook: onRecordAfterCreate
-    await this.eventBus.triggerRecordAfterCreate(col.name, insertedRecord, auth, httpContext);
+    await this.eventBus.triggerRecordAfterCreate(col.name, hookRecord, auth, httpContext);
 
     // Broadcast realtime event
     this.realtimeService.broadcast('create', col.name, insertedRecord);
@@ -316,8 +319,20 @@ export class RecordService {
     const updatedRecord = this.sanitizeRecord(updatedRaw, col, auth);
     const sanitizedCurrent = this.sanitizeRecord(current, col, auth);
 
+    // If password changed on auth record, preserve a redacted password marker so audit diff captures it without leaking hashes
+    const passwordChanged = Boolean(
+      updates.passwordHash ||
+      (current.passwordHash && updatedRaw.passwordHash && current.passwordHash !== updatedRaw.passwordHash)
+    );
+    const hookRecord = passwordChanged
+      ? { ...updatedRecord, password: '[UPDATED]' }
+      : updatedRecord;
+    const hookOriginalRecord = passwordChanged
+      ? { ...sanitizedCurrent, password: '[ORIGINAL]' }
+      : sanitizedCurrent;
+
     // Lifecycle hook: onRecordAfterUpdate
-    await this.eventBus.triggerRecordAfterUpdate(col.name, updatedRecord, auth, httpContext, sanitizedCurrent);
+    await this.eventBus.triggerRecordAfterUpdate(col.name, hookRecord, auth, httpContext, hookOriginalRecord);
 
     // Broadcast realtime event
     this.realtimeService.broadcast('update', col.name, updatedRecord);
@@ -352,9 +367,12 @@ export class RecordService {
     this.db.run(`DELETE FROM "${col.name}" WHERE id = ?`, [id]);
 
     const deletedRecord = this.sanitizeRecord(current, col, auth);
+    const hookRecord = (col.type === 'auth' && current.passwordHash)
+      ? { ...deletedRecord, password: '[REDACTED]' }
+      : deletedRecord;
 
     // Lifecycle hook: onRecordAfterDelete
-    await this.eventBus.triggerRecordAfterDelete(col.name, deletedRecord, auth, httpContext);
+    await this.eventBus.triggerRecordAfterDelete(col.name, hookRecord, auth, httpContext);
 
     // Broadcast realtime event
     this.realtimeService.broadcast('delete', col.name, deletedRecord);
