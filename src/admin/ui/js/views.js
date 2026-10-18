@@ -345,9 +345,77 @@
       }).catch(() => {});
     }
 
+    let auditState = {
+      subTab: 'traffic', // 'traffic' | 'audit'
+      collection: '',
+      action: 'all',
+      search: '',
+      page: 1,
+      perPage: 25,
+      totalItems: 0,
+      totalPages: 1,
+    };
+    if (typeof window !== 'undefined') {
+      window.auditState = auditState;
+    }
+
+    function loadLogsSubTab() {
+      if (typeof auditState !== 'undefined' && auditState.subTab === 'audit') {
+        if (typeof loadAuditLogs === 'function') loadAuditLogs();
+      } else {
+        if (typeof loadLogs === 'function') loadLogs();
+      }
+    }
+    if (typeof window !== 'undefined') {
+      window.loadLogsSubTab = loadLogsSubTab;
+    }
+
+    function switchLogsSubTab(subTab) {
+      auditState.subTab = subTab;
+      renderLogsView();
+      loadLogsSubTab();
+    }
+
     function renderLogsView() {
       const main = document.getElementById('page-view-logs') || document.getElementById('main-body');
+      const isAudit = auditState.subTab === 'audit';
+
+      // Update top actions
+      const viewActions = document.getElementById('view-actions');
+      if (viewActions) {
+        if (isAudit) {
+          viewActions.innerHTML = `
+            <button class="btn btn-secondary btn-sm" onclick="loadAuditLogs()">Refresh Audit</button>
+            <button class="btn btn-danger btn-sm" onclick="handlePruneAuditLogs()">Prune &gt; 90 Days</button>
+          `;
+        } else {
+          viewActions.innerHTML = `
+            <button class="btn btn-secondary btn-sm" onclick="loadLogs()">Refresh</button>
+            <button class="btn btn-danger btn-sm" onclick="clearLogs()">Clear Logs</button>
+          `;
+        }
+      }
+
       main.innerHTML = `
+        <div class="audit-subtabs-bar">
+          <button class="audit-subtab-btn ${!isAudit ? 'active' : ''}" onclick="switchLogsSubTab('traffic')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            <span>🌐 HTTP Traffic Logs</span>
+          </button>
+          <button class="audit-subtab-btn ${isAudit ? 'active' : ''}" onclick="switchLogsSubTab('audit')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span>🛡️ Data Audit Trail</span>
+          </button>
+        </div>
+
+        <div id="logs-content-area">
+          ${isAudit ? renderAuditLogsContentShell() : renderTrafficLogsContentShell()}
+        </div>
+      `;
+    }
+
+    function renderTrafficLogsContentShell() {
+      return `
         <div class="table-container">
           <table>
             <thead>
@@ -366,6 +434,181 @@
           </table>
         </div>
       `;
+    }
+
+    function renderAuditLogsContentShell() {
+      const collections = state.collections || [];
+
+      return `
+        <div class="audit-filter-bar">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text-muted);">Collection:</label>
+            <select class="form-input" style="padding:4px 8px; font-size:12px; width:auto;" id="audit-filter-col" onchange="handleAuditFilterChange()">
+              <option value="" ${auditState.collection === '' ? 'selected' : ''}>All Collections</option>
+              ${collections.map(c => `<option value="${escapeHtml(c.name)}" ${auditState.collection === c.name ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+            </select>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:8px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text-muted);">Action:</label>
+            <select class="form-input" style="padding:4px 8px; font-size:12px; width:auto;" id="audit-filter-action" onchange="handleAuditFilterChange()">
+              <option value="all" ${auditState.action === 'all' ? 'selected' : ''}>All Actions</option>
+              <option value="create" ${auditState.action === 'create' ? 'selected' : ''}>CREATE</option>
+              <option value="update" ${auditState.action === 'update' ? 'selected' : ''}>UPDATE</option>
+              <option value="delete" ${auditState.action === 'delete' ? 'selected' : ''}>DELETE</option>
+            </select>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:8px; margin-left:auto;">
+            <input type="text" class="form-input" id="audit-filter-search" style="padding:4px 10px; font-size:12px; min-width:220px;" placeholder="Search records, actors..." value="${escapeHtml(auditState.search)}" onkeydown="if(event.key==='Enter')handleAuditFilterChange()">
+            <button class="btn btn-secondary btn-sm" onclick="handleAuditFilterChange()">Filter</button>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:140px;">Time</th>
+                <th style="width:90px;">Action</th>
+                <th style="width:130px;">Collection</th>
+                <th style="width:140px;">Record ID</th>
+                <th style="width:180px;">Actor</th>
+                <th>Changes (Diff)</th>
+              </tr>
+            </thead>
+            <tbody id="audit-logs-body">
+              <tr><td colspan="6" style="text-align:center;padding:2rem;">Loading audit trail...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination-footer" id="audit-pagination-footer" style="display:none; margin-top:1rem; align-items:center; justify-content:space-between;">
+          <div style="font-size:12px; color:var(--text-muted);" id="audit-page-info"></div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button class="btn btn-secondary btn-sm" id="btn-audit-prev" onclick="changeAuditPage(-1)">Previous</button>
+            <button class="btn btn-secondary btn-sm" id="btn-audit-next" onclick="changeAuditPage(1)">Next</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function handleAuditFilterChange() {
+      const colEl = document.getElementById('audit-filter-col');
+      const actionEl = document.getElementById('audit-filter-action');
+      const searchEl = document.getElementById('audit-filter-search');
+
+      if (colEl) auditState.collection = colEl.value;
+      if (actionEl) auditState.action = actionEl.value;
+      if (searchEl) auditState.search = searchEl.value;
+      auditState.page = 1;
+
+      loadAuditLogs();
+    }
+
+    function changeAuditPage(delta) {
+      const newPage = auditState.page + delta;
+      if (newPage >= 1 && newPage <= auditState.totalPages) {
+        auditState.page = newPage;
+        loadAuditLogs();
+      }
+    }
+
+    async function loadAuditLogs() {
+      const tb = document.getElementById('audit-logs-body');
+      if (!tb) return;
+
+      try {
+        const queryParams = new URLSearchParams();
+        queryParams.set('page', String(auditState.page));
+        queryParams.set('perPage', String(auditState.perPage));
+        if (auditState.collection) queryParams.set('collection', auditState.collection);
+        if (auditState.action && auditState.action !== 'all') queryParams.set('action', auditState.action);
+        if (auditState.search) queryParams.set('search', auditState.search);
+
+        const res = await api('/api/audit-logs?' + queryParams.toString());
+        auditState.totalItems = res.totalItems;
+        auditState.totalPages = Math.max(1, res.totalPages);
+
+        const paginationFooter = document.getElementById('audit-pagination-footer');
+        const pageInfo = document.getElementById('audit-page-info');
+        const btnPrev = document.getElementById('btn-audit-prev');
+        const btnNext = document.getElementById('btn-audit-next');
+
+        if (paginationFooter && pageInfo) {
+          paginationFooter.style.display = 'flex';
+          pageInfo.textContent = `Showing page ${res.page} of ${auditState.totalPages} (${res.totalItems} total change${res.totalItems === 1 ? '' : 's'})`;
+          if (btnPrev) btnPrev.disabled = res.page <= 1;
+          if (btnNext) btnNext.disabled = res.page >= auditState.totalPages;
+        }
+
+        if (!res.items || res.items.length === 0) {
+          tb.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2.5rem;color:var(--text-muted);">No audit logs found matching your filters.</td></tr>';
+          return;
+        }
+
+        tb.innerHTML = res.items.map(log => {
+          const action = (log.action || '').toLowerCase();
+          const actionClass = action === 'create' ? 'badge-get' : action === 'delete' ? 'badge-delete' : 'badge-post';
+          const actorText = log.authEmail || (log.authId ? 'User: ' + log.authId : 'System / Public');
+          const safeRecId = escapeHtml(log.recordId);
+          const safeCol = escapeHtml(log.collection);
+          const changedKeys = log.changedFields || Object.keys(log.diff || {});
+
+          const diffSummary = changedKeys.length === 0
+            ? '<span style="color:var(--text-muted); font-size:11px;">No field changes</span>'
+            : changedKeys.map(k => {
+                const fieldDiff = log.diff?.[k];
+                const oldVal = fieldDiff?.old;
+                const newVal = fieldDiff?.new;
+                return `
+                  <span style="display:inline-flex; align-items:center; gap:4px; margin:2px 4px; font-size:11px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px;">
+                    <strong style="color:#e2e8f0;">${escapeHtml(k)}:</strong>
+                    <span class="audit-diff-val-old">${formatAuditValue(oldVal)}</span>
+                    <span class="audit-diff-arrow">➔</span>
+                    <span class="audit-diff-val-new">${formatAuditValue(newVal)}</span>
+                  </span>
+                `;
+              }).join('');
+
+          return `
+            <tr>
+              <td style="color:var(--text-muted);font-size:12px;white-space:nowrap;" title="${escapeHtml(log.created)}">
+                ${new Date(log.created).toLocaleString()}
+              </td>
+              <td><span class="badge ${actionClass}" style="text-transform:uppercase; font-size:10px;">${escapeHtml(log.action)}</span></td>
+              <td><span class="badge badge-post">${safeCol}</span></td>
+              <td><span class="id-pill" title="${safeRecId}">${safeRecId}</span></td>
+              <td>
+                <span style="color:#93c5fd; font-size:12px; font-weight:600;" title="${escapeHtml(log.authCollection || '')}">
+                  ${escapeHtml(actorText)}
+                </span>
+              </td>
+              <td style="font-size:12px;">
+                <div style="display:flex; flex-wrap:wrap; max-width:480px;">
+                  ${diffSummary}
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tb.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:2rem;color:#fca5a5;">Failed to load audit logs: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    async function handlePruneAuditLogs() {
+      if (!confirm('Prune audit logs older than 90 days? Historical records older than 90 days will be removed.')) return;
+      try {
+        const res = await api('/api/audit-logs/prune', {
+          method: 'POST',
+          body: JSON.stringify({ olderThanDays: 90 })
+        });
+        toast(`Pruned ${res.deletedCount || 0} old audit records`, 'success');
+        loadAuditLogs();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
     }
 
     async function loadLogs() {

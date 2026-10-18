@@ -307,11 +307,13 @@ export class EventBus {
     collection: string,
     record: Record<string, any>,
     auth?: any,
-    httpContext?: any
+    httpContext?: any,
+    originalRecord?: Record<string, any>
   ): Promise<void> {
     const ctx: RecordAfterEventContext = {
       collection,
       record,
+      originalRecord,
       auth,
       httpContext,
     };

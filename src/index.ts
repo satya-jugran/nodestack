@@ -60,6 +60,14 @@ export { FileStorageService, SavedFileMeta } from './files/FileStorageService';
 // Realtime & Logging
 export { RealtimeService, RealtimeAction, RealtimeClient } from './realtime/RealtimeService';
 export { LogService, LogEntry } from './logger/LogService';
+export {
+  AuditLogService,
+  AuditLogEntry,
+  AuditDiffMap,
+  AuditFieldDiff,
+  AuditQueryOptions,
+  AuditListResult,
+} from './audit/AuditLogService';
 
 // Analytics & Metrics
 export {

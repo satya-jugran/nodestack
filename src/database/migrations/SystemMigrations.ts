@@ -62,6 +62,28 @@ export class SystemMigrations {
         );
       `);
 
+      // 5. Data mutation audit logs table
+      driver.exec(`
+        CREATE TABLE IF NOT EXISTS _audit_logs (
+          id TEXT PRIMARY KEY,
+          collection TEXT NOT NULL,
+          recordId TEXT NOT NULL,
+          action TEXT NOT NULL,
+          diff TEXT NOT NULL,
+          changedFields TEXT NOT NULL,
+          authId TEXT,
+          authEmail TEXT,
+          authCollection TEXT,
+          isAdmin INTEGER NOT NULL DEFAULT 0,
+          ip TEXT,
+          userAgent TEXT,
+          created TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_record ON _audit_logs(collection, recordId, created DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_created ON _audit_logs(created DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_action ON _audit_logs(action);
+      `);
+
       // Create default "users" auth collection if not already existing
       const usersExists = driver.prepare('SELECT id FROM _collections WHERE name = ?').get('users');
       if (!usersExists) {

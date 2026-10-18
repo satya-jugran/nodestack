@@ -68,6 +68,16 @@ describe('AdminUIBundler', () => {
     expect(bundled).toContain('function handleDrawerKeyDown');
     expect(bundled).toContain('function focusDrawerOnOpen');
 
+    // Audit Trail & Change History enhancements
+    expect(bundled).toContain('audit-subtabs-bar');
+    expect(bundled).toContain('Data Audit Trail');
+    expect(bundled).toContain('audit-timeline');
+    expect(bundled).toContain('function handleToggleDrawerHistory');
+    expect(bundled).toContain('function renderAuditLogsContentShell');
+    expect(bundled).toContain('function loadAuditLogs');
+    expect(bundled).toContain('function loadLogsSubTab');
+    expect(bundled).toContain('btn-drawer-history');
+
     // Navigation, Spatial Awareness & Wayfinding enhancements
     expect(bundled).toContain('id="sidebar-collection-filter"');
     expect(bundled).toContain('id="collection-filter-input"');

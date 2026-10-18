@@ -20,7 +20,9 @@ export interface RecordBeforeEventContext extends RecordEventContext {
   cancelReason?: string;
 }
 
-export interface RecordAfterEventContext extends RecordEventContext {}
+export interface RecordAfterEventContext extends RecordEventContext {
+  originalRecord?: Record<string, any>;
+}
 
 export interface AuthEventContext {
   collection: string;

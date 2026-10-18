@@ -1840,4 +1840,172 @@
       }
     }
 
+    /* === Data Mutation Audit Trail & Timeline === */
+    .audit-subtabs-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 0.5rem;
+    }
+    .audit-subtab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .audit-subtab-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .audit-subtab-btn.active {
+      color: #fff;
+      background: var(--bg-card-hover);
+      border-color: var(--border-subtle);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+
+    .audit-filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      padding: 10px 14px;
+      border-radius: 8px;
+    }
+
+    .audit-timeline {
+      position: relative;
+      padding-left: 20px;
+      margin: 1rem 0;
+    }
+    .audit-timeline::before {
+      content: '';
+      position: absolute;
+      left: 7px;
+      top: 6px;
+      bottom: 6px;
+      width: 2px;
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .audit-timeline-item {
+      position: relative;
+      margin-bottom: 1.25rem;
+    }
+    .audit-timeline-dot {
+      position: absolute;
+      left: -20px;
+      top: 6px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent-primary, #3b82f6);
+      border: 2px solid var(--bg-main, #0f172a);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+    }
+    .audit-timeline-dot.dot-create {
+      background: #10b981;
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3);
+    }
+    .audit-timeline-dot.dot-update {
+      background: #f59e0b;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3);
+    }
+    .audit-timeline-dot.dot-delete {
+      background: #ef4444;
+      box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
+    }
+
+    .audit-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 12px 14px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+    .audit-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+    .audit-actor {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #93c5fd;
+      font-weight: 600;
+    }
+
+    .audit-diff-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+      font-size: 12px;
+    }
+    .audit-diff-table th {
+      text-align: left;
+      padding: 4px 8px;
+      color: var(--text-muted);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .audit-diff-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      vertical-align: top;
+    }
+    .audit-diff-key {
+      font-family: var(--font-mono);
+      color: #e2e8f0;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .audit-diff-val-old {
+      background: rgba(239, 68, 68, 0.12);
+      color: #fca5a5;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      display: inline-block;
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .audit-diff-val-new {
+      background: rgba(16, 185, 129, 0.12);
+      color: #6ee7b7;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      display: inline-block;
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .audit-diff-arrow {
+      color: var(--text-muted);
+      margin: 0 4px;
+      font-weight: bold;
+    }
+
 
