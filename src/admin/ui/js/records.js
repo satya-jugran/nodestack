@@ -623,6 +623,16 @@
     }
 
     function closeRecordDrawer() {
+      drawerHistoryState = {
+        colName: '',
+        recId: '',
+        page: 1,
+        perPage: 25,
+        items: [],
+        totalItems: 0,
+        totalPages: 1,
+        isLoading: false,
+      };
       state.selectedRecordId = null;
       document.querySelectorAll('#records-table tr.record-row').forEach(tr => {
         tr.classList.remove('row-selected');
@@ -918,6 +928,17 @@
       copyToClipboard(email || '', btnEl, 'Copied email!');
     }
 
+    let drawerHistoryState = {
+      colName: '',
+      recId: '',
+      page: 1,
+      perPage: 25,
+      items: [],
+      totalItems: 0,
+      totalPages: 1,
+      isLoading: false,
+    };
+
     async function handleToggleDrawerHistory(btnEl) {
       const historyContainer = document.getElementById('drawer-history-container');
       const detailsContent = document.getElementById('drawer-details-content');
@@ -941,15 +962,82 @@
         const col = state.activeCollection;
         const recId = btnEl.getAttribute('data-id');
         if (col && recId) {
+          drawerHistoryState = {
+            colName: col.name,
+            recId: recId,
+            page: 1,
+            perPage: 25,
+            items: [],
+            totalItems: 0,
+            totalPages: 1,
+            isLoading: true,
+          };
           historyContainer.innerHTML = '<div style="text-align:center; padding:2rem; color:var(--text-muted);">Loading audit history...</div>';
           try {
-            const res = await api('/api/collections/' + encodeURIComponent(col.name) + '/records/' + encodeURIComponent(recId) + '/history');
-            renderDrawerHistoryTimeline(historyContainer, res.items);
+            const res = await api('/api/collections/' + encodeURIComponent(col.name) + '/records/' + encodeURIComponent(recId) + '/history?page=1&perPage=25');
+            drawerHistoryState.items = res.items || [];
+            drawerHistoryState.totalItems = res.totalItems ?? (res.items || []).length;
+            drawerHistoryState.totalPages = res.totalPages ?? 1;
+            drawerHistoryState.page = res.page ?? 1;
+            drawerHistoryState.isLoading = false;
+            renderDrawerHistoryTimeline(
+              historyContainer,
+              drawerHistoryState.items,
+              drawerHistoryState.totalItems,
+              drawerHistoryState.page < drawerHistoryState.totalPages
+            );
           } catch (err) {
+            drawerHistoryState.isLoading = false;
             historyContainer.innerHTML = '<div class="audit-card" style="color:#fca5a5; padding:1rem;">Failed to load history: ' + escapeHtml(err.message) + '</div>';
           }
         }
       }
+    }
+
+    async function handleDrawerHistoryLoadMore() {
+      if (drawerHistoryState.isLoading) return;
+      if (drawerHistoryState.page >= drawerHistoryState.totalPages) return;
+
+      const loadMoreBtn = document.getElementById('btn-drawer-history-load-more');
+      if (loadMoreBtn) {
+        loadMoreBtn.disabled = true;
+        loadMoreBtn.innerHTML = '<span style="display:inline-block; animation:spin 1s linear infinite; margin-right:6px;">⏳</span> Loading more changes...';
+      }
+
+      drawerHistoryState.isLoading = true;
+      const nextPage = drawerHistoryState.page + 1;
+
+      try {
+        const res = await api('/api/collections/' + encodeURIComponent(drawerHistoryState.colName) + '/records/' + encodeURIComponent(drawerHistoryState.recId) + '/history?page=' + nextPage + '&perPage=' + drawerHistoryState.perPage);
+        const newItems = res.items || [];
+        drawerHistoryState.items = drawerHistoryState.items.concat(newItems);
+        drawerHistoryState.page = res.page ?? nextPage;
+        drawerHistoryState.totalItems = res.totalItems ?? drawerHistoryState.totalItems;
+        drawerHistoryState.totalPages = res.totalPages ?? drawerHistoryState.totalPages;
+        drawerHistoryState.isLoading = false;
+
+        const historyContainer = document.getElementById('drawer-history-container');
+        if (historyContainer) {
+          renderDrawerHistoryTimeline(
+            historyContainer,
+            drawerHistoryState.items,
+            drawerHistoryState.totalItems,
+            drawerHistoryState.page < drawerHistoryState.totalPages
+          );
+        }
+      } catch (err) {
+        drawerHistoryState.isLoading = false;
+        if (loadMoreBtn) {
+          loadMoreBtn.disabled = false;
+          loadMoreBtn.textContent = 'Retry Loading More';
+        }
+        if (typeof toast === 'function') {
+          toast('Failed to load more audit history: ' + err.message, 'error');
+        }
+      }
+    }
+    if (typeof window !== 'undefined') {
+      window.handleDrawerHistoryLoadMore = handleDrawerHistoryLoadMore;
     }
 
     function formatAuditValue(val) {
@@ -958,7 +1046,7 @@
       return escapeHtml(String(val));
     }
 
-    function renderDrawerHistoryTimeline(container, items) {
+    function renderDrawerHistoryTimeline(container, items, totalItems, hasMore) {
       if (!items || items.length === 0) {
         container.innerHTML = `
           <div class="audit-card" style="text-align:center; padding:2rem; color:var(--text-muted);">
@@ -970,10 +1058,13 @@
         return;
       }
 
+      const total = typeof totalItems === 'number' ? totalItems : items.length;
+      const countLabel = total > items.length ? `${items.length} of ${total}` : `${items.length}`;
+
       container.innerHTML = `
-        <div style="margin-bottom:1rem; display:flex; align-items:center; justify-content:space-between;">
+        <div style="margin-bottom:1rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
           <h3 style="margin:0; font-size:13px; font-weight:700; color:#fff; text-transform:uppercase; letter-spacing:0.05em;">
-            Audit History (${items.length})
+            Audit History (${countLabel})
           </h3>
           <span style="font-size:11px; color:var(--text-muted);">Immutable Append-Only Log</span>
         </div>
@@ -1030,6 +1121,21 @@
             `;
           }).join('')}
         </div>
+        ${hasMore ? `
+          <div style="text-align:center; margin-top:1.25rem; padding-top:0.75rem; border-top:1px solid rgba(255,255,255,0.08);">
+            <div style="font-size:11px; color:var(--text-muted); margin-bottom:0.5rem;">
+              Showing ${items.length} of ${total} recorded changes
+            </div>
+            <button class="btn btn-secondary btn-sm" id="btn-drawer-history-load-more" onclick="handleDrawerHistoryLoadMore()" style="width:100%; justify-content:center; padding:8px 12px; font-weight:600;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              Load Older Changes (${total - items.length} remaining)
+            </button>
+          </div>
+        ` : total > 25 ? `
+          <div style="text-align:center; margin-top:1.25rem; padding:0.75rem; font-size:11px; color:var(--text-muted); border-top:1px solid rgba(255,255,255,0.08);">
+            ✓ All ${total} audit log entries loaded
+          </div>
+        ` : ''}
       `;
     }
 

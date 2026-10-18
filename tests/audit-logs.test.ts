@@ -295,6 +295,38 @@ describe('Audit Log & Change History System', () => {
       expect(updateData.items.every((i: any) => i.action === 'update')).toBe(true);
     });
 
+    it('should paginate record history when there are multiple mutations', async () => {
+      for (let i = 1; i <= 30; i++) {
+        await app.server.inject({
+          method: 'PATCH',
+          url: `/api/collections/posts/records/${postId}`,
+          headers: { Authorization: `Bearer ${adminToken}` },
+          payload: { views: i },
+        });
+      }
+
+      const page1Res = await app.server.inject({
+        method: 'GET',
+        url: `/api/collections/posts/records/${postId}/history?page=1&perPage=10`,
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      const p1 = JSON.parse(page1Res.body);
+      expect(p1.items.length).toBe(10);
+      expect(p1.totalItems).toBeGreaterThanOrEqual(32);
+      expect(p1.totalPages).toBeGreaterThanOrEqual(4);
+      expect(p1.page).toBe(1);
+
+      const page2Res = await app.server.inject({
+        method: 'GET',
+        url: `/api/collections/posts/records/${postId}/history?page=2&perPage=10`,
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      const p2 = JSON.parse(page2Res.body);
+      expect(p2.items.length).toBe(10);
+      expect(p2.page).toBe(2);
+      expect(p2.items[0].id).not.toBe(p1.items[0].id);
+    });
+
     it('should prune logs via POST /api/audit-logs/prune', async () => {
       const res = await app.server.inject({
         method: 'POST',
@@ -318,6 +350,8 @@ describe('Audit Log & Change History System', () => {
       expect(html).toContain('Data Audit Trail');
       expect(html).toContain('audit-timeline');
       expect(html).toContain('handleToggleDrawerHistory');
+      expect(html).toContain('handleDrawerHistoryLoadMore');
+      expect(html).toContain('btn-drawer-history-load-more');
       expect(html).toContain('renderAuditLogsContentShell');
       expect(html).toContain('loadAuditLogs');
       expect(html).toContain('btn-drawer-history');
