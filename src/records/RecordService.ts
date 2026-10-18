@@ -317,7 +317,7 @@ export class RecordService {
     const sanitizedCurrent = this.sanitizeRecord(current, col, auth);
 
     // Lifecycle hook: onRecordAfterUpdate
-    await this.eventBus.triggerRecordAfterUpdate(col.name, updatedRecord, sanitizedCurrent, auth, httpContext);
+    await this.eventBus.triggerRecordAfterUpdate(col.name, updatedRecord, auth, httpContext, sanitizedCurrent);
 
     // Broadcast realtime event
     this.realtimeService.broadcast('update', col.name, updatedRecord);
