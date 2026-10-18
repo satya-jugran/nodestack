@@ -75,6 +75,7 @@ describe('AdminUIBundler', () => {
     expect(bundled).toContain('function handleToggleDrawerHistory');
     expect(bundled).toContain('function renderAuditLogsContentShell');
     expect(bundled).toContain('function loadAuditLogs');
+    expect(bundled).toContain('function loadLogsSubTab');
     expect(bundled).toContain('btn-drawer-history');
 
     // Navigation, Spatial Awareness & Wayfinding enhancements

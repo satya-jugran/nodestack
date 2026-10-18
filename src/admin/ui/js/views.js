@@ -355,10 +355,25 @@
       totalItems: 0,
       totalPages: 1,
     };
+    if (typeof window !== 'undefined') {
+      window.auditState = auditState;
+    }
+
+    function loadLogsSubTab() {
+      if (typeof auditState !== 'undefined' && auditState.subTab === 'audit') {
+        if (typeof loadAuditLogs === 'function') loadAuditLogs();
+      } else {
+        if (typeof loadLogs === 'function') loadLogs();
+      }
+    }
+    if (typeof window !== 'undefined') {
+      window.loadLogsSubTab = loadLogsSubTab;
+    }
 
     function switchLogsSubTab(subTab) {
       auditState.subTab = subTab;
       renderLogsView();
+      loadLogsSubTab();
     }
 
     function renderLogsView() {
@@ -397,12 +412,6 @@
           ${isAudit ? renderAuditLogsContentShell() : renderTrafficLogsContentShell()}
         </div>
       `;
-
-      if (isAudit) {
-        loadAuditLogs();
-      } else {
-        loadLogs();
-      }
     }
 
     function renderTrafficLogsContentShell() {

@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import { JSDOM } from 'jsdom';
 import { NodeStack } from '../src/NodeStack';
 import { AuditLogService } from '../src/audit/AuditLogService';
 
@@ -354,7 +355,51 @@ describe('Audit Log & Change History System', () => {
       expect(html).toContain('btn-drawer-history-load-more');
       expect(html).toContain('renderAuditLogsContentShell');
       expect(html).toContain('loadAuditLogs');
+      expect(html).toContain('function loadLogsSubTab');
       expect(html).toContain('btn-drawer-history');
+    });
+
+    it('should only load active subtab data without duplicate or unrelated requests', () => {
+      const html = app.adminUi.getHtml();
+      const dom = new JSDOM(html, {
+        runScripts: 'dangerously',
+        url: 'http://localhost:8097/_/',
+        beforeParse(win: any) {
+          win.fetch = vi.fn().mockImplementation(async () => ({
+            ok: true,
+            json: async () => ({ hasAdmins: true }),
+          }));
+        },
+      });
+      const win = dom.window as any;
+
+      win.loadLogs = vi.fn();
+      win.loadAuditLogs = vi.fn();
+
+      // Case 1: Initial navigation to logs with default 'traffic' subtab
+      win.auditState.subTab = 'traffic';
+      win.selectNav('logs');
+      expect(win.loadLogs).toHaveBeenCalledTimes(1);
+      expect(win.loadAuditLogs).toHaveBeenCalledTimes(0);
+
+      // Reset mocks
+      win.loadLogs.mockClear();
+      win.loadAuditLogs.mockClear();
+
+      // Case 2: Switch to 'audit' subtab
+      win.switchLogsSubTab('audit');
+      expect(win.auditState.subTab).toBe('audit');
+      expect(win.loadAuditLogs).toHaveBeenCalledTimes(1);
+      expect(win.loadLogs).toHaveBeenCalledTimes(0);
+
+      // Reset mocks
+      win.loadLogs.mockClear();
+      win.loadAuditLogs.mockClear();
+
+      // Case 3: Re-navigate to logs when audit subtab is already active
+      win.selectNav('logs');
+      expect(win.loadAuditLogs).toHaveBeenCalledTimes(1);
+      expect(win.loadLogs).toHaveBeenCalledTimes(0);
     });
   });
 });
