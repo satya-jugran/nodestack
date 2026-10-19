@@ -8,6 +8,27 @@ export interface FtsQueryOptions {
   snippetEllipsis?: string;
 }
 
+export const FTS_SCORE_ALIAS = '__fts_score';
+export const FTS_SNIPPET_ALIAS = '__fts_snippet';
+export const FTS_SNIPPET_FIELD_PREFIX = '__fts_snippet_';
+export const RESERVED_FTS_FIELDS = ['_score', '_snippet', '_snippets'] as const;
+
+/**
+ * Checks whether a field name collides with full-text search metadata or internal aliases.
+ * Reserved names include _score, _snippet, _snippets, and any field starting with _snippet_ or __fts_.
+ */
+export function isReservedFtsFieldName(name: string): boolean {
+  if (!name || typeof name !== 'string') return false;
+  const lower = name.toLowerCase().trim();
+  if (lower === '_score' || lower === '_snippet' || lower === '_snippets') {
+    return true;
+  }
+  if (lower.startsWith('_snippet_') || lower.startsWith('__fts_')) {
+    return true;
+  }
+  return false;
+}
+
 export function isFtsField(field: SchemaField): boolean {
   if (field.fts === true || field.options?.fts === true) {
     return true;
@@ -207,15 +228,15 @@ export class FtsService {
     const ellipsis = rawEllipsis.replace(/'/g, "''");
 
     const selects: string[] = [
-      `bm25("${ftsTable}") AS "_score"`,
-      `snippet("${ftsTable}", -1, '${startTag}', '${endTag}', '${ellipsis}', ${length}) AS "_snippet"`,
+      `bm25("${ftsTable}") AS "${FTS_SCORE_ALIAS}"`,
+      `snippet("${ftsTable}", -1, '${startTag}', '${endTag}', '${ellipsis}', ${length}) AS "${FTS_SNIPPET_ALIAS}"`,
     ];
 
     ftsFields.forEach((field, idx) => {
       // Column 0 in FTS table is 'id', so fields start at index 1
       const colIdx = idx + 1;
       selects.push(
-        `snippet("${ftsTable}", ${colIdx}, '${startTag}', '${endTag}', '${ellipsis}', ${length}) AS "_snippet_${field.name}"`
+        `snippet("${ftsTable}", ${colIdx}, '${startTag}', '${endTag}', '${ellipsis}', ${length}) AS "${FTS_SNIPPET_FIELD_PREFIX}${field.name}"`
       );
     });
 
@@ -228,15 +249,28 @@ export class FtsService {
   public attachSnippetsAndScore(rows: any[], ftsFields: SchemaField[]): void {
     for (const row of rows) {
       if (!row) continue;
-      if (row._score !== undefined) {
+      if (row[FTS_SCORE_ALIAS] !== undefined) {
+        row._score = Number(row[FTS_SCORE_ALIAS]);
+        delete row[FTS_SCORE_ALIAS];
+      } else if (row._score !== undefined) {
         row._score = Number(row._score);
       }
+
+      if (row[FTS_SNIPPET_ALIAS] !== undefined) {
+        row._snippet = row[FTS_SNIPPET_ALIAS];
+        delete row[FTS_SNIPPET_ALIAS];
+      }
+
       const snippets: Record<string, string> = {};
       for (const field of ftsFields) {
-        const key = `_snippet_${field.name}`;
-        if (row[key] !== undefined) {
-          snippets[field.name] = row[key];
-          delete row[key];
+        const namespacedKey = `${FTS_SNIPPET_FIELD_PREFIX}${field.name}`;
+        const legacyKey = `_snippet_${field.name}`;
+        if (row[namespacedKey] !== undefined) {
+          snippets[field.name] = row[namespacedKey];
+          delete row[namespacedKey];
+        } else if (row[legacyKey] !== undefined) {
+          snippets[field.name] = row[legacyKey];
+          delete row[legacyKey];
         }
       }
       row._snippets = snippets;

@@ -203,6 +203,76 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       const matches = app.db.all('SELECT * FROM _fts_published_posts WHERE _fts_published_posts MATCH ?', ['"Draft"']);
       expect(matches.length).toBe(1);
     });
+
+    it('should reject collection creation when schema uses reserved search metadata names', () => {
+      // 1. _score
+      expect(() => {
+        app.schema.createCollection({
+          name: 'invalid_score_col',
+          schema: [{ id: 'f1', name: '_score', type: 'number' }],
+        });
+      }).toThrow(/reserved for search metadata/i);
+
+      // 2. _snippet
+      expect(() => {
+        app.schema.createCollection({
+          name: 'invalid_snippet_col',
+          schema: [{ id: 'f2', name: '_snippet', type: 'text' }],
+        });
+      }).toThrow(/reserved for search metadata/i);
+
+      // 3. _snippets
+      expect(() => {
+        app.schema.createCollection({
+          name: 'invalid_snippets_col',
+          schema: [{ id: 'f3', name: '_snippets', type: 'json' }],
+        });
+      }).toThrow(/reserved for search metadata/i);
+
+      // 4. _snippet_<field> prefix
+      expect(() => {
+        app.schema.createCollection({
+          name: 'invalid_snippet_prefix_col',
+          schema: [{ id: 'f4', name: '_snippet_title', type: 'text' }],
+        });
+      }).toThrow(/reserved for search metadata/i);
+
+      // 5. Internal __fts_ prefix
+      expect(() => {
+        app.schema.createCollection({
+          name: 'invalid_fts_prefix_col',
+          schema: [{ id: 'f5', name: '__fts_rank', type: 'number' }],
+        });
+      }).toThrow(/reserved for search metadata/i);
+    });
+
+    it('should reject schema updates that add reserved search metadata names', () => {
+      const col = app.schema.createCollection({
+        name: 'valid_articles',
+        schema: [{ id: 'f1', name: 'title', type: 'text' }],
+      });
+
+      expect(() => {
+        app.schema.updateCollection(col.id, {
+          schema: [
+            { id: 'f1', name: 'title', type: 'text' },
+            { id: 'f2', name: '_snippet_body', type: 'text' },
+          ],
+        });
+      }).toThrow(/reserved for search metadata/i);
+    });
+
+    it('should reject schema inference overrides that collide with reserved search metadata', async () => {
+      const payload = [{ title: 'Doc 1', score_val: 10 }];
+
+      await expect(
+        app.schemaInference.importJson({
+          name: 'inference_override_collision',
+          data: payload,
+          schemaOverrides: [{ oldName: 'score_val', name: '_score' }],
+        })
+      ).rejects.toThrow(/reserved for search metadata/i);
+    });
   });
 
   describe('2. Query Sanitization & Robustness', () => {
@@ -490,6 +560,61 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       const parsed = JSON.parse(exportRes.data);
       expect(parsed.length).toBe(2);
       expect(parsed.some((r: any) => r.id === 'post_high_relevance')).toBe(true);
+    });
+
+    it('should safely preserve user fields such as score and snippetLength without column collisions or corruption', async () => {
+      const client = new NodeStackClient(`http://127.0.0.1:${PORT}`);
+
+      // Create a collection with user fields named 'score' and 'snippetLength'
+      app.schema.createCollection({
+        name: 'scored_articles',
+        listRule: '',
+        viewRule: '',
+        createRule: '',
+        updateRule: '',
+        deleteRule: '',
+        schema: [
+          { id: 'fa1', name: 'title', type: 'text' },
+          { id: 'fa2', name: 'content', type: 'text' },
+          { id: 'fa3', name: 'score', type: 'number' },
+          { id: 'fa4', name: 'snippetLength', type: 'number' },
+          { id: 'fa5', name: 'metadata_info', type: 'text' },
+        ],
+      });
+
+      await app.records.create('scored_articles', {
+        title: 'Full-text Search and Scoring Deep Dive',
+        content: 'Analyzing SQLite FTS5 relevance scoring mechanisms and BM25 ranking algorithms.',
+        score: 95.5,
+        snippetLength: 42,
+        metadata_info: 'safe-user-data',
+      });
+
+      const res = await client.collection('scored_articles').getList(1, 10, {
+        search: 'scoring',
+      });
+
+      expect(res.items.length).toBe(1);
+      const item = res.items[0];
+
+      // 1. Verify user's own fields are intact and NOT corrupted or overwritten
+      expect(item.score).toBe(95.5);
+      expect(item.snippetLength).toBe(42);
+      expect(item.metadata_info).toBe('safe-user-data');
+
+      // 2. Verify search metadata fields are properly populated
+      expect(item._score).toBeDefined();
+      expect(typeof item._score).toBe('number');
+      expect(item._snippet).toBeDefined();
+      expect(item._snippet.toLowerCase()).toContain('<mark>scoring</mark>');
+      expect(item._snippets).toBeDefined();
+      expect(item._snippets.content.toLowerCase()).toContain('<mark>scoring</mark>');
+
+      // 3. Verify internal namespaced columns are cleaned up and do not leak
+      expect((item as any).__fts_score).toBeUndefined();
+      expect((item as any).__fts_snippet).toBeUndefined();
+      expect((item as any).__fts_snippet_title).toBeUndefined();
+      expect((item as any).__fts_snippet_content).toBeUndefined();
     });
   });
 });

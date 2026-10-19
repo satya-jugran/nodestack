@@ -6,6 +6,7 @@ import { RealtimeService } from '../realtime/RealtimeService';
 import { CollectionModel, CollectionType } from './models/Collection';
 import { SchemaField, FieldType } from './models/Field';
 import { AppError, ConflictError, ValidationError } from '../core/errors/AppError';
+import { isReservedFtsFieldName } from '../records/FtsService';
 
 /**
  * Checks whether a given string is a valid ISO 8601 or standard date string.
@@ -322,8 +323,8 @@ export class SchemaInferenceService {
 
     for (const rawKey of rawKeys) {
       const lower = rawKey.toLowerCase().trim();
-      // Skip system fields in collection schema (they are managed automatically by SQLite/NodeStack)
-      if (reservedSystemFields.has(lower)) {
+      // Skip system fields and search metadata in collection schema (they are managed automatically by SQLite/NodeStack)
+      if (reservedSystemFields.has(lower) || isReservedFtsFieldName(lower)) {
         rawKeyToFieldMap[rawKey] = lower;
         continue;
       }
@@ -441,7 +442,11 @@ export class SchemaInferenceService {
             throw new ValidationError(`Field name '${rawNewName}' cannot start with a number`);
           }
 
-          // 2. Validate against reserved system fields
+          // 2. Validate against reserved search metadata and system fields
+          if (isReservedFtsFieldName(rawNewName)) {
+            throw new ConflictError(`Field name '${rawNewName}' is reserved for search metadata`);
+          }
+
           const reserved = new Set(['id', 'created', 'updated']);
           if (options.type === 'auth') {
             reserved.add('email');
