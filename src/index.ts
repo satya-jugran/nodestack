@@ -38,6 +38,14 @@ export { MockDataService, MockGenerateOptions, MockGenerateResult } from './reco
 export { FakerEngine, FakerContext, GeneratedFilePayload } from './records/FakerEngine';
 export { QueryFilterParser, ParsedFilter, ParsedSort } from './records/QueryFilterParser';
 export { CsvHelper } from './records/CsvHelper';
+export {
+  FtsService,
+  FtsQueryOptions,
+  sanitizeFtsQuery,
+  isFtsField,
+  getFtsFields,
+  getFtsTableName,
+} from './records/FtsService';
 
 // Rules
 export { RuleEngine, RuleEvaluationContext } from './rules/RuleEngine';

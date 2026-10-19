@@ -12,6 +12,7 @@ import { DocsService } from './admin/DocsService';
 import { RuleEngine } from './rules/RuleEngine';
 import { AuthService } from './auth/AuthService';
 import { RecordService } from './records/RecordService';
+import { FtsService } from './records/FtsService';
 import { MockDataService } from './records/MockDataService';
 import { FileStorageService } from './files/FileStorageService';
 import { RealtimeService } from './realtime/RealtimeService';
@@ -77,6 +78,7 @@ export class NodeStack {
   public readonly server: HttpServer;
   public readonly pluginManager: PluginManager;
   public readonly auditLogs: AuditLogService;
+  public readonly fts: FtsService;
 
   constructor(options: NodeStackOptions = {}) {
     this.container = new Container();
@@ -98,9 +100,16 @@ export class NodeStack {
     this.eventBus = new EventBus();
     this.container.bindInstance(TOKENS.EventBus, this.eventBus);
 
+    // 3.5 FTS Service
+    this.fts = new FtsService(this.db);
+    this.container.bindInstance(TOKENS.FtsService, this.fts);
+
     // 4. Schema Service
-    this.schema = new SchemaService(this.db);
+    this.schema = new SchemaService(this.db, this.fts);
     this.container.bindInstance(TOKENS.SchemaService, this.schema);
+
+    // Sync all existing collections with FTS
+    this.fts.syncAll(this.schema.getAllCollections());
 
     // 5. Type Generator
     this.typegen = new TypeGenerator(this.schema);
@@ -139,7 +148,8 @@ export class NodeStack {
       ruleEngine,
       this.eventBus,
       this.realtime,
-      this.files
+      this.files,
+      this.fts
     );
     this.container.bindInstance(TOKENS.RecordService, this.records);
 

@@ -43,6 +43,10 @@ export interface QueryOptions {
   perPage?: number;
   sort?: string;
   filter?: string;
+  search?: string;
+  snippetTag?: string;
+  snippetLength?: number;
+  snippetEllipsis?: string;
   expand?: string;
   fields?: string;
   mock_delay?: number | string;
