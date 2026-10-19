@@ -195,11 +195,16 @@ export class FtsService {
     ftsFields: SchemaField[],
     options: FtsQueryOptions = {}
   ): string {
-    const tag = (options.snippetTag || 'mark').replace(/[^a-zA-Z0-9_-]/g, '');
+    const tag = (options.snippetTag ? String(options.snippetTag).replace(/[^a-zA-Z0-9_-]/g, '') : '') || 'mark';
     const startTag = `<${tag}>`;
     const endTag = `</${tag}>`;
     const length = Math.max(5, Math.min(100, Number(options.snippetLength) || 15));
-    const ellipsis = options.snippetEllipsis || '...';
+    const rawEllipsis =
+      options.snippetEllipsis !== undefined && typeof options.snippetEllipsis === 'string'
+        ? options.snippetEllipsis
+        : '...';
+    // Escape single quotes to prevent SQL syntax errors and injection
+    const ellipsis = rawEllipsis.replace(/'/g, "''");
 
     const selects: string[] = [
       `bm25("${ftsTable}") AS "_score"`,

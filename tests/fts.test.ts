@@ -396,6 +396,36 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       expect(res.items[0]._snippet).toContain('</b>');
     });
 
+    it('should support custom snippetEllipsis and safely escape single quotes and SQL injection attempts', async () => {
+      const client = new NodeStackClient(`http://127.0.0.1:${PORT}`);
+
+      // 1. Custom ellipsis
+      const resCustom = await client.collection('posts').getList(1, 10, {
+        search: 'typescript',
+        snippetEllipsis: ' ~~~ ',
+      });
+      expect(resCustom.items.length).toBeGreaterThan(0);
+      expect(resCustom.items[0]._snippet).toBeDefined();
+
+      // 2. Ellipsis with apostrophe (e.g. "it's...")
+      const resApostrophe = await client.collection('posts').getList(1, 10, {
+        search: 'typescript',
+        snippetEllipsis: "it's...",
+      });
+      expect(resApostrophe.items.length).toBeGreaterThan(0);
+      expect(resApostrophe.items[0]._snippet).toBeDefined();
+
+      // 3. Ellipsis with SQL injection attempt
+      const resInjection = await client.collection('posts').getList(1, 10, {
+        search: 'typescript',
+        snippetEllipsis: "'); DROP TABLE posts; --",
+      });
+      expect(resInjection.items.length).toBeGreaterThan(0);
+      expect(resInjection.items[0]._snippet).toBeDefined();
+      // Ensure posts table still exists and is intact
+      expect(app.db.get('SELECT COUNT(*) as count FROM posts')).toBeDefined();
+    });
+
     it('should handle queries with zero matches gracefully', async () => {
       const client = new NodeStackClient(`http://127.0.0.1:${PORT}`);
 
