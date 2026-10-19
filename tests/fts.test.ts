@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
@@ -244,6 +244,53 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
           schema: [{ id: 'f5', name: '__fts_rank', type: 'number' }],
         });
       }).toThrow(/reserved for search metadata/i);
+
+      // 6. SQLite FTS5 reserved column names 'rank' and 'rowid'
+      expect(() => {
+        app.schema.createCollection({
+          name: 'invalid_rank_col',
+          schema: [{ id: 'f6', name: 'rank', type: 'text' }],
+        });
+      }).toThrow(/reserved for search metadata|FTS5/i);
+
+      // Verify that invalid_rank_col was NOT created in SQLite or _collections
+      expect(app.schema.getCollection('invalid_rank_col')).toBeUndefined();
+      const rankTable = app.db.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'invalid_rank_col'");
+      expect(rankTable).toBeUndefined();
+
+      expect(() => {
+        app.schema.createCollection({
+          name: 'invalid_rowid_col',
+          schema: [{ id: 'f7', name: 'rowid', type: 'number' }],
+        });
+      }).toThrow(/reserved for search metadata|FTS5/i);
+      expect(app.schema.getCollection('invalid_rowid_col')).toBeUndefined();
+    });
+
+    it('should rollback collection creation transaction if FTS setup fails', () => {
+      // Spy on syncCollection and force it to throw
+      const originalSync = app.fts.syncCollection.bind(app.fts);
+      const syncSpy = vi.spyOn(app.fts, 'syncCollection').mockImplementationOnce(() => {
+        throw new Error('Simulated SQLite FTS5 virtual table provisioning failure');
+      });
+
+      expect(() => {
+        app.schema.createCollection({
+          name: 'atomic_rollback_test',
+          schema: [{ id: 'f1', name: 'headline', type: 'text' }],
+        });
+      }).toThrow(/Simulated SQLite FTS5 virtual table provisioning failure/);
+
+      // Verify base table was rolled back and does NOT exist
+      const tableCheck = app.db.get(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'atomic_rollback_test'"
+      );
+      expect(tableCheck).toBeUndefined();
+
+      // Verify _collections row was rolled back and does NOT exist
+      expect(app.schema.getCollection('atomic_rollback_test')).toBeUndefined();
+
+      syncSpy.mockRestore();
     });
 
     it('should reject schema updates that add reserved search metadata names', () => {
@@ -260,6 +307,15 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
           ],
         });
       }).toThrow(/reserved for search metadata/i);
+
+      expect(() => {
+        app.schema.updateCollection(col.id, {
+          schema: [
+            { id: 'f1', name: 'title', type: 'text' },
+            { id: 'f3', name: 'rank', type: 'text' },
+          ],
+        });
+      }).toThrow(/reserved for search metadata|FTS5/i);
     });
 
     it('should reject schema inference overrides that collide with reserved search metadata', async () => {
@@ -270,6 +326,14 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
           name: 'inference_override_collision',
           data: payload,
           schemaOverrides: [{ oldName: 'score_val', name: '_score' }],
+        })
+      ).rejects.toThrow(/reserved for search metadata/i);
+
+      await expect(
+        app.schemaInference.importJson({
+          name: 'inference_override_rank',
+          data: payload,
+          schemaOverrides: [{ oldName: 'score_val', name: 'rank' }],
         })
       ).rejects.toThrow(/reserved for search metadata/i);
     });

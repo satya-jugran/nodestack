@@ -90,9 +90,10 @@ export class SchemaService {
         now
       );
 
-      return this.getCollectionOrThrow(id);
+      const created = this.getCollectionOrThrow(id);
+      this.ftsService?.syncCollection(created);
+      return created;
     });
-    this.ftsService?.syncCollection(col);
     return col;
   }
 
@@ -212,9 +213,10 @@ export class SchemaService {
         current.id
       );
 
-      return this.getCollectionOrThrow(current.id);
+      const updated = this.getCollectionOrThrow(current.id);
+      this.ftsService?.syncCollection(updated);
+      return updated;
     });
-    this.ftsService?.syncCollection(res);
     return res;
   }
 
@@ -266,7 +268,9 @@ export class SchemaService {
       }
 
       if (isReservedFtsFieldName(rawName)) {
-        throw new ConflictError(`Field name '${rawName}' is reserved for search metadata`);
+        throw new ConflictError(
+          `Field name '${rawName}' is reserved for search metadata or FTS5 keywords (rank, rowid, _score, _snippet)`
+        );
       }
 
       const lower = rawName.toLowerCase();
