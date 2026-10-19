@@ -30,4 +30,5 @@ export const TOKENS = {
   AuthMiddleware: Symbol('AuthMiddleware'),
   AuditLogService: Symbol('AuditLogService'),
   AuditLogController: Symbol('AuditLogController'),
+  FtsService: Symbol('FtsService'),
 } as const;

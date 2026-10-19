@@ -20,6 +20,7 @@ export interface FieldOptions {
   min?: number;
   max?: number;
   pattern?: string;
+  fts?: boolean;
   [key: string]: any;
 }
 
@@ -31,4 +32,5 @@ export interface SchemaField {
   unique?: boolean;
   defaultValue?: any;
   options?: FieldOptions;
+  fts?: boolean;
 }

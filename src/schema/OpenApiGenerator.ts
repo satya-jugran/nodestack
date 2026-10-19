@@ -438,6 +438,12 @@ export class OpenApiGenerator {
             description: 'Filter expression (e.g. `status = "active" && views > 10`).',
           },
           {
+            name: 'search',
+            in: 'query',
+            schema: { type: 'string' },
+            description: 'Full-text search query across indexed text fields with BM25 ranking (e.g. `typescript backend`).',
+          },
+          {
             name: 'expand',
             in: 'query',
             schema: { type: 'string' },

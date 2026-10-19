@@ -3,9 +3,14 @@ import { DatabaseService } from '../database/DatabaseService';
 import { CollectionModel, CreateCollectionDto, UpdateCollectionDto } from './models/Collection';
 import { SchemaField, FieldType } from './models/Field';
 import { AppError, ConflictError, NotFoundError } from '../core/errors/AppError';
+import { FtsService } from '../records/FtsService';
 
 export class SchemaService {
-  constructor(private db: DatabaseService) {}
+  constructor(private db: DatabaseService, private ftsService?: FtsService) {}
+
+  public setFtsService(ftsService: FtsService): void {
+    this.ftsService = ftsService;
+  }
 
   public getAllCollections(): CollectionModel[] {
     const rows = this.db.all<any>('SELECT * FROM _collections ORDER BY name ASC');
@@ -55,7 +60,7 @@ export class SchemaService {
     const indexes = dto.indexes || [];
     const options = dto.options || {};
 
-    return this.db.transaction(() => {
+    const col = this.db.transaction(() => {
       // 1. Create SQL table
       this.createSqlTable(cleanName, type, schema);
 
@@ -83,6 +88,8 @@ export class SchemaService {
 
       return this.getCollectionOrThrow(id);
     });
+    this.ftsService?.syncCollection(col);
+    return col;
   }
 
   /**
@@ -139,7 +146,7 @@ export class SchemaService {
       // Allow modifying rules and non-system fields on system collections like users
     }
 
-    return this.db.transaction(() => {
+    const res = this.db.transaction(() => {
       const now = new Date().toISOString();
       let targetName = current.name;
 
@@ -153,6 +160,7 @@ export class SchemaService {
         if (existing && existing.id !== current.id) {
           throw new ConflictError(`Collection '${cleanNewName}' already exists`);
         }
+        this.ftsService?.dropCollectionFts(current.name);
         this.db.exec(`ALTER TABLE "${current.name}" RENAME TO "${cleanNewName}";`);
         targetName = cleanNewName;
       }
@@ -200,6 +208,8 @@ export class SchemaService {
 
       return this.getCollectionOrThrow(current.id);
     });
+    this.ftsService?.syncCollection(res);
+    return res;
   }
 
   public deleteCollection(nameOrId: string): void {
@@ -213,6 +223,7 @@ export class SchemaService {
     }
 
     this.db.transaction(() => {
+      this.ftsService?.dropCollectionFts(current.name);
       this.db.exec(`DROP TABLE IF EXISTS "${current.name}";`);
       this.db.prepare('DELETE FROM _collections WHERE id = ?').run(current.id);
     });

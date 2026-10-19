@@ -27,9 +27,14 @@ export class QueryFilterParser {
   /**
    * Parses a sort string like "-created,title,+views" into SQL ORDER BY
    */
-  public static parseSort(sortStr?: string, allowedFields?: Set<string>): string {
+  public static parseSort(
+    sortStr?: string,
+    allowedFields?: Set<string>,
+    tablePrefix?: string
+  ): string {
+    const defaultPrefix = tablePrefix ? `"${tablePrefix}".` : '';
     if (!sortStr || !sortStr.trim()) {
-      return 'ORDER BY created DESC';
+      return tablePrefix ? `ORDER BY ${defaultPrefix}"created" DESC` : 'ORDER BY created DESC';
     }
 
     const parts = sortStr.split(',').map((s) => s.trim()).filter(Boolean);
@@ -50,19 +55,25 @@ export class QueryFilterParser {
       // Sanitize field name: only alphanumeric and underscores allowed
       if (/^[a-zA-Z0-9_]+$/.test(field)) {
         if (!allowedFields || allowedFields.has(field) || ['id', 'created', 'updated'].includes(field)) {
-          orderClauses.push(`"${field}" ${direction}`);
+          orderClauses.push(`${defaultPrefix}"${field}" ${direction}`);
         }
       }
     }
 
-    return orderClauses.length > 0 ? `ORDER BY ${orderClauses.join(', ')}` : 'ORDER BY created DESC';
+    return orderClauses.length > 0
+      ? `ORDER BY ${orderClauses.join(', ')}`
+      : (tablePrefix ? `ORDER BY ${defaultPrefix}"created" DESC` : 'ORDER BY created DESC');
   }
 
   /**
    * Safely converts filter string into a parameterized SQL WHERE clause
    * Example: status = 'active' && age >= 18 -> ("status" = ? AND "age" >= ?), params: ['active', 18]
    */
-  public static parseFilter(filterStr?: string, allowedFields?: Set<string>): ParsedFilter {
+  public static parseFilter(
+    filterStr?: string,
+    allowedFields?: Set<string>,
+    tablePrefix?: string
+  ): ParsedFilter {
     if (!filterStr || !filterStr.trim()) {
       return { clause: '', params: [] };
     }
@@ -70,7 +81,7 @@ export class QueryFilterParser {
     const trimmed = filterStr.trim();
     const params: any[] = [];
 
-    const parsedSql = this.convertFilterExpression(trimmed, params, allowedFields);
+    const parsedSql = this.convertFilterExpression(trimmed, params, allowedFields, tablePrefix);
     return {
       clause: parsedSql ? `WHERE ${parsedSql}` : '',
       params,
@@ -80,13 +91,14 @@ export class QueryFilterParser {
   private static convertFilterExpression(
     expr: string,
     params: any[],
-    allowedFields?: Set<string>
+    allowedFields?: Set<string>,
+    tablePrefix?: string
   ): string {
     // 1. Split top-level ||
     const orParts = this.splitTopLevel(expr, '||');
     if (orParts.length > 1) {
       const sqlParts = orParts
-        .map((p) => this.convertFilterExpression(p.trim(), params, allowedFields))
+        .map((p) => this.convertFilterExpression(p.trim(), params, allowedFields, tablePrefix))
         .filter(Boolean);
       return sqlParts.length ? `(${sqlParts.join(' OR ')})` : '';
     }
@@ -95,7 +107,7 @@ export class QueryFilterParser {
     const andParts = this.splitTopLevel(expr, '&&');
     if (andParts.length > 1) {
       const sqlParts = andParts
-        .map((p) => this.convertFilterExpression(p.trim(), params, allowedFields))
+        .map((p) => this.convertFilterExpression(p.trim(), params, allowedFields, tablePrefix))
         .filter(Boolean);
       return sqlParts.length ? `(${sqlParts.join(' AND ')})` : '';
     }
@@ -104,20 +116,22 @@ export class QueryFilterParser {
     const trimmed = expr.trim();
     if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
       if (this.isFullyEnclosed(trimmed)) {
-        return `(${this.convertFilterExpression(trimmed.slice(1, -1).trim(), params, allowedFields)})`;
+        return `(${this.convertFilterExpression(trimmed.slice(1, -1).trim(), params, allowedFields, tablePrefix)})`;
       }
     }
 
     // 4. Comparison parsing
-    return this.parseSingleComparison(trimmed, params, allowedFields);
+    return this.parseSingleComparison(trimmed, params, allowedFields, tablePrefix);
   }
 
   private static parseSingleComparison(
     str: string,
     params: any[],
-    allowedFields?: Set<string>
+    allowedFields?: Set<string>,
+    tablePrefix?: string
   ): string {
     const operators = ['!=', '>=', '<=', '=', '>', '<', '!~', '~'];
+    const prefix = tablePrefix ? `"${tablePrefix}".` : '';
 
     for (const op of operators) {
       const idx = this.findOperatorIndex(str, op);
@@ -138,31 +152,31 @@ export class QueryFilterParser {
 
         switch (op) {
           case '=':
-            if (value === null) return `"${fieldName}" IS NULL`;
+            if (value === null) return `${prefix}"${fieldName}" IS NULL`;
             params.push(value);
-            return `"${fieldName}" = ?`;
+            return `${prefix}"${fieldName}" = ?`;
           case '!=':
-            if (value === null) return `"${fieldName}" IS NOT NULL`;
+            if (value === null) return `${prefix}"${fieldName}" IS NOT NULL`;
             params.push(value);
-            return `"${fieldName}" != ?`;
+            return `${prefix}"${fieldName}" != ?`;
           case '>':
             params.push(value);
-            return `"${fieldName}" > ?`;
+            return `${prefix}"${fieldName}" > ?`;
           case '>=':
             params.push(value);
-            return `"${fieldName}" >= ?`;
+            return `${prefix}"${fieldName}" >= ?`;
           case '<':
             params.push(value);
-            return `"${fieldName}" < ?`;
+            return `${prefix}"${fieldName}" < ?`;
           case '<=':
             params.push(value);
-            return `"${fieldName}" <= ?`;
+            return `${prefix}"${fieldName}" <= ?`;
           case '~':
             params.push(`%${value}%`);
-            return `"${fieldName}" LIKE ?`;
+            return `${prefix}"${fieldName}" LIKE ?`;
           case '!~':
             params.push(`%${value}%`);
-            return `"${fieldName}" NOT LIKE ?`;
+            return `${prefix}"${fieldName}" NOT LIKE ?`;
         }
       }
     }

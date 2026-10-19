@@ -8,6 +8,7 @@ import { RealtimeService } from '../realtime/RealtimeService';
 import { FileStorageService } from '../files/FileStorageService';
 import { QueryFilterParser } from './QueryFilterParser';
 import { CsvHelper } from './CsvHelper';
+import { FtsService } from './FtsService';
 import { AppError, ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../core/errors/AppError';
 import { CollectionModel } from '../schema/models/Collection';
 import { SchemaField } from '../schema/models/Field';
@@ -27,6 +28,10 @@ export interface QueryOptions {
   filter?: string;
   expand?: string;
   fields?: string;
+  search?: string;
+  snippetTag?: string;
+  snippetLength?: number;
+  snippetEllipsis?: string;
   mock_delay?: number | string;
   mock_error?: number | string;
   mock_fail_rate?: number;
@@ -59,14 +64,19 @@ export interface ImportResult {
 }
 
 export class RecordService {
+  private ftsService: FtsService;
+
   constructor(
     private db: DatabaseService,
     private schemaService: SchemaService,
     private ruleEngine: RuleEngine,
     private eventBus: EventBus,
     private realtimeService: RealtimeService,
-    private fileStorageService: FileStorageService
-  ) {}
+    private fileStorageService: FileStorageService,
+    ftsService?: FtsService
+  ) {
+    this.ftsService = ftsService || new FtsService(this.db);
+  }
 
   public async getList(
     collectionName: string,
@@ -92,8 +102,106 @@ export class RecordService {
       allowedFields.add('emailVisibility');
       allowedFields.add('verified');
     }
+
+    const searchTerm = typeof options.search === 'string' ? options.search.trim() : '';
+    const ftsFields = this.ftsService.getFtsFields(col);
+    const hasFts = Boolean(searchTerm && ftsFields.length > 0 && this.ftsService.hasFtsIndex(col.name));
+
+    if (hasFts) {
+      const sanitizedQuery = this.ftsService.sanitizeQuery(searchTerm);
+      if (!sanitizedQuery) {
+        return {
+          page,
+          perPage,
+          totalItems: 0,
+          totalPages: 0,
+          items: [],
+        };
+      }
+
+      const ftsTable = this.ftsService.getFtsTableName(col.name);
+      const whereConditions: string[] = [`"${ftsTable}" MATCH ?`];
+      const queryParams: any[] = [sanitizedQuery];
+
+      if (options.filter && options.filter.trim()) {
+        const { clause: filterClause, params: filterParams } = QueryFilterParser.parseFilter(
+          options.filter,
+          allowedFields,
+          't'
+        );
+        if (filterClause) {
+          const innerClause = filterClause.replace(/^WHERE\s+/i, '');
+          whereConditions.push(`(${innerClause})`);
+          queryParams.push(...filterParams);
+        }
+      }
+
+      const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
+
+      // Ordering: default to BM25 relevance score (ORDER BY rank ASC in SQLite FTS5)
+      let orderClause: string;
+      if (options.sort && options.sort.trim()) {
+        const cleanSort = options.sort.trim();
+        if (cleanSort === '-_score' || cleanSort === '_score' || cleanSort === 'rank') {
+          orderClause = 'ORDER BY rank ASC';
+        } else {
+          orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, 't');
+        }
+      } else {
+        orderClause = 'ORDER BY rank ASC';
+      }
+
+      // Count query
+      const countSql = `SELECT COUNT(*) as count FROM "${ftsTable}" fts JOIN "${col.name}" t ON t.id = fts.id ${whereClause}`;
+      const totalRow = this.db.get<any>(countSql, queryParams);
+      const totalItems = totalRow?.count || 0;
+      const totalPages = Math.ceil(totalItems / perPage);
+
+      // Records query with BM25 score and snippet generation
+      const snippetSelect = this.ftsService.buildSnippetSelect(ftsTable, ftsFields, {
+        snippetTag: options.snippetTag,
+        snippetLength: options.snippetLength,
+        snippetEllipsis: options.snippetEllipsis,
+      });
+
+      const querySql = `SELECT t.*, ${snippetSelect} FROM "${ftsTable}" fts JOIN "${col.name}" t ON t.id = fts.id ${whereClause} ${orderClause} LIMIT ? OFFSET ?`;
+      const rawItems = this.db.all<any>(querySql, [...queryParams, perPage, offset]);
+
+      this.ftsService.attachSnippetsAndScore(rawItems, ftsFields);
+
+      // Sanitize and expand
+      const items = await Promise.all(
+        rawItems.map(async (item) => {
+          const clean = this.sanitizeRecord(item, col, auth);
+          if (options.expand) {
+            await this.expandRecord(clean, col, options.expand, auth);
+          }
+          return clean;
+        })
+      );
+
+      return {
+        page,
+        perPage,
+        totalItems,
+        totalPages,
+        items,
+      };
+    }
+
+    // Fallback if search was passed but no FTS table is available
+    let effectiveFilter = options.filter;
+    if (searchTerm && !hasFts) {
+      const textFields = col.schema.filter((f) => f.type === 'text' || f.type === 'email' || f.type === 'url');
+      if (textFields.length > 0) {
+        const encoded = QueryFilterParser.encodeFilterString(searchTerm);
+        const searchFilter = textFields.map((f) => `${f.name} ~ ${encoded}`).join(' || ');
+        effectiveFilter = effectiveFilter ? `(${effectiveFilter}) && (${searchFilter})` : searchFilter;
+      }
+    }
+
     const { clause: whereClause, params: filterParams } = QueryFilterParser.parseFilter(
-      options.filter,
+      effectiveFilter,
       allowedFields
     );
     const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields);
@@ -399,14 +507,59 @@ export class RecordService {
       allowedFields.add('emailVisibility');
       allowedFields.add('verified');
     }
-    const { clause: whereClause, params: filterParams } = QueryFilterParser.parseFilter(
-      options.filter,
-      allowedFields
-    );
-    const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields);
+    const searchTerm = typeof options.search === 'string' ? options.search.trim() : '';
+    const ftsFields = this.ftsService.getFtsFields(col);
+    const hasFts = Boolean(searchTerm && ftsFields.length > 0 && this.ftsService.hasFtsIndex(col.name));
 
-    const querySql = `SELECT * FROM "${col.name}" ${whereClause} ${orderClause}`;
-    const rawItems = this.db.all<any>(querySql, filterParams);
+    let rawItems: any[];
+    if (hasFts) {
+      const sanitizedQuery = this.ftsService.sanitizeQuery(searchTerm);
+      if (!sanitizedQuery) {
+        rawItems = [];
+      } else {
+        const ftsTable = this.ftsService.getFtsTableName(col.name);
+        const whereConditions: string[] = [`"${ftsTable}" MATCH ?`];
+        const queryParams: any[] = [sanitizedQuery];
+
+        if (options.filter && options.filter.trim()) {
+          const { clause: filterClause, params: filterParams } = QueryFilterParser.parseFilter(
+            options.filter,
+            allowedFields,
+            't'
+          );
+          if (filterClause) {
+            const innerClause = filterClause.replace(/^WHERE\s+/i, '');
+            whereConditions.push(`(${innerClause})`);
+            queryParams.push(...filterParams);
+          }
+        }
+
+        const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
+        const orderClause = options.sort
+          ? QueryFilterParser.parseSort(options.sort, allowedFields, 't')
+          : 'ORDER BY rank ASC';
+        const querySql = `SELECT t.* FROM "${ftsTable}" fts JOIN "${col.name}" t ON t.id = fts.id ${whereClause} ${orderClause}`;
+        rawItems = this.db.all<any>(querySql, queryParams);
+      }
+    } else {
+      let effectiveFilter = options.filter;
+      if (searchTerm && !hasFts) {
+        const textFields = col.schema.filter((f) => f.type === 'text' || f.type === 'email' || f.type === 'url');
+        if (textFields.length > 0) {
+          const encoded = QueryFilterParser.encodeFilterString(searchTerm);
+          const searchFilter = textFields.map((f) => `${f.name} ~ ${encoded}`).join(' || ');
+          effectiveFilter = effectiveFilter ? `(${effectiveFilter}) && (${searchFilter})` : searchFilter;
+        }
+      }
+
+      const { clause: whereClause, params: filterParams } = QueryFilterParser.parseFilter(
+        effectiveFilter,
+        allowedFields
+      );
+      const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields);
+      const querySql = `SELECT * FROM "${col.name}" ${whereClause} ${orderClause}`;
+      rawItems = this.db.all<any>(querySql, filterParams);
+    }
 
     const items = await Promise.all(
       rawItems.map(async (item) => {
