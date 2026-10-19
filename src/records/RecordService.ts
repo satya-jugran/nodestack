@@ -138,17 +138,24 @@ export class RecordService {
 
       const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
 
-      // Ordering: default to BM25 relevance score (ORDER BY rank ASC in SQLite FTS5)
+      // Ordering: default to BM25 relevance score (ORDER BY fts.rank ASC in SQLite FTS5)
       let orderClause: string;
       if (options.sort && options.sort.trim()) {
         const cleanSort = options.sort.trim();
-        if (cleanSort === '-_score' || cleanSort === '_score' || cleanSort === 'rank') {
-          orderClause = 'ORDER BY rank ASC';
+        if (
+          cleanSort === '-_score' ||
+          cleanSort === '_score' ||
+          cleanSort === '+_score' ||
+          (cleanSort === 'rank' && !allowedFields.has('rank'))
+        ) {
+          orderClause = 'ORDER BY fts.rank ASC';
+        } else if (cleanSort === '-rank' && !allowedFields.has('rank')) {
+          orderClause = 'ORDER BY fts.rank DESC';
         } else {
           orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, 't');
         }
       } else {
-        orderClause = 'ORDER BY rank ASC';
+        orderClause = 'ORDER BY fts.rank ASC';
       }
 
       // Count query
@@ -535,9 +542,25 @@ export class RecordService {
         }
 
         const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
-        const orderClause = options.sort
-          ? QueryFilterParser.parseSort(options.sort, allowedFields, 't')
-          : 'ORDER BY rank ASC';
+
+        let orderClause: string;
+        if (options.sort && options.sort.trim()) {
+          const cleanSort = options.sort.trim();
+          if (
+            cleanSort === '-_score' ||
+            cleanSort === '_score' ||
+            cleanSort === '+_score' ||
+            (cleanSort === 'rank' && !allowedFields.has('rank'))
+          ) {
+            orderClause = 'ORDER BY fts.rank ASC';
+          } else if (cleanSort === '-rank' && !allowedFields.has('rank')) {
+            orderClause = 'ORDER BY fts.rank DESC';
+          } else {
+            orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, 't');
+          }
+        } else {
+          orderClause = 'ORDER BY fts.rank ASC';
+        }
         const querySql = `SELECT t.* FROM "${ftsTable}" fts JOIN "${col.name}" t ON t.id = fts.id ${whereClause} ${orderClause}`;
         rawItems = this.db.all<any>(querySql, queryParams);
       }

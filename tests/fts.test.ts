@@ -245,13 +245,13 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
         });
       }).toThrow(/reserved for search metadata/i);
 
-      // 6. SQLite FTS5 reserved column names 'rank' and 'rowid'
+      // 6. SQLite FTS5 reserved column names 'rank' and 'rowid' with explicit fts: true
       expect(() => {
         app.schema.createCollection({
           name: 'invalid_rank_col',
-          schema: [{ id: 'f6', name: 'rank', type: 'text' }],
+          schema: [{ id: 'f6', name: 'rank', type: 'text', fts: true }],
         });
-      }).toThrow(/reserved for search metadata|FTS5/i);
+      }).toThrow(/reserved SQLite FTS5 column name/i);
 
       // Verify that invalid_rank_col was NOT created in SQLite or _collections
       expect(app.schema.getCollection('invalid_rank_col')).toBeUndefined();
@@ -261,9 +261,9 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       expect(() => {
         app.schema.createCollection({
           name: 'invalid_rowid_col',
-          schema: [{ id: 'f7', name: 'rowid', type: 'number' }],
+          schema: [{ id: 'f7', name: 'rowid', type: 'text', fts: true }],
         });
-      }).toThrow(/reserved for search metadata|FTS5/i);
+      }).toThrow(/reserved SQLite FTS5 column name/i);
       expect(app.schema.getCollection('invalid_rowid_col')).toBeUndefined();
     });
 
@@ -312,10 +312,10 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
         app.schema.updateCollection(col.id, {
           schema: [
             { id: 'f1', name: 'title', type: 'text' },
-            { id: 'f3', name: 'rank', type: 'text' },
+            { id: 'f3', name: 'rank', type: 'text', fts: true },
           ],
         });
-      }).toThrow(/reserved for search metadata|FTS5/i);
+      }).toThrow(/reserved SQLite FTS5 column name/i);
     });
 
     it('should reject schema inference overrides that collide with reserved search metadata', async () => {
@@ -326,14 +326,6 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
           name: 'inference_override_collision',
           data: payload,
           schemaOverrides: [{ oldName: 'score_val', name: '_score' }],
-        })
-      ).rejects.toThrow(/reserved for search metadata/i);
-
-      await expect(
-        app.schemaInference.importJson({
-          name: 'inference_override_rank',
-          data: payload,
-          schemaOverrides: [{ oldName: 'score_val', name: 'rank' }],
         })
       ).rejects.toThrow(/reserved for search metadata/i);
     });
@@ -679,6 +671,85 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       expect((item as any).__fts_snippet).toBeUndefined();
       expect((item as any).__fts_snippet_title).toBeUndefined();
       expect((item as any).__fts_snippet_content).toBeUndefined();
+    });
+
+    it('should support search and custom sorting on collections with user-defined rank field without ambiguous column errors', async () => {
+      const client = new NodeStackClient(`http://127.0.0.1:${PORT}`);
+
+      // Create a collection with a user-defined 'rank' field
+      app.schema.createCollection({
+        name: 'ranked_players',
+        listRule: '',
+        viewRule: '',
+        createRule: '',
+        updateRule: '',
+        deleteRule: '',
+        schema: [
+          { id: 'fp1', name: 'name', type: 'text' },
+          { id: 'fp2', name: 'bio', type: 'text' },
+          { id: 'fp3', name: 'rank', type: 'number' },
+        ],
+      });
+
+      await app.records.create('ranked_players', {
+        id: 'player_1',
+        name: 'Alice Developer',
+        bio: 'Senior backend architect specializing in search and distributed systems.',
+        rank: 10,
+      });
+
+      await app.records.create('ranked_players', {
+        id: 'player_2',
+        name: 'Bob Searcher',
+        bio: 'Search engineer building high-performance search clusters.',
+        rank: 1,
+      });
+
+      // 1. Default search (emits ORDER BY fts.rank ASC): must not fail with "ambiguous column name: rank"
+      const resDefault = await client.collection('ranked_players').getList(1, 10, {
+        search: 'search',
+      });
+      expect(resDefault.items.length).toBe(2);
+      expect(resDefault.items[0]._score).toBeDefined();
+      expect(resDefault.items[0].rank).toBeDefined();
+
+      // 2. User sorts by their own 'rank' field ascending: must order player_2 (rank 1) before player_1 (rank 10)
+      const resUserSortAsc = await client.collection('ranked_players').getList(1, 10, {
+        search: 'search',
+        sort: 'rank',
+      });
+      expect(resUserSortAsc.items.length).toBe(2);
+      expect(resUserSortAsc.items[0].id).toBe('player_2');
+      expect(resUserSortAsc.items[0].rank).toBe(1);
+      expect(resUserSortAsc.items[1].id).toBe('player_1');
+      expect(resUserSortAsc.items[1].rank).toBe(10);
+
+      // 3. User sorts by their own 'rank' field descending: must order player_1 (rank 10) before player_2 (rank 1)
+      const resUserSortDesc = await client.collection('ranked_players').getList(1, 10, {
+        search: 'search',
+        sort: '-rank',
+      });
+      expect(resUserSortDesc.items.length).toBe(2);
+      expect(resUserSortDesc.items[0].id).toBe('player_1');
+      expect(resUserSortDesc.items[0].rank).toBe(10);
+      expect(resUserSortDesc.items[1].id).toBe('player_2');
+      expect(resUserSortDesc.items[1].rank).toBe(1);
+
+      // 4. User explicitly sorts by relevance score using _score
+      const resScoreSort = await client.collection('ranked_players').getList(1, 10, {
+        search: 'search',
+        sort: '-_score',
+      });
+      expect(resScoreSort.items.length).toBe(2);
+      expect(resScoreSort.items[0]._score).toBeDefined();
+
+      // 5. exportRecords with search on collection with user rank field
+      const exportRes = await app.records.exportRecords('ranked_players', 'json', {
+        search: 'search',
+      });
+      expect(exportRes.data).toBeDefined();
+      const parsedExport = JSON.parse(exportRes.data);
+      expect(parsedExport.length).toBe(2);
     });
   });
 });

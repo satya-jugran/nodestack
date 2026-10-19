@@ -268,12 +268,15 @@ export class SchemaService {
       }
 
       if (isReservedFtsFieldName(rawName)) {
-        throw new ConflictError(
-          `Field name '${rawName}' is reserved for search metadata or FTS5 keywords (rank, rowid, _score, _snippet)`
-        );
+        throw new ConflictError(`Field name '${rawName}' is reserved for search metadata`);
       }
 
       const lower = rawName.toLowerCase();
+      if ((field.fts === true || field.options?.fts === true) && (lower === 'rank' || lower === 'rowid')) {
+        throw new ConflictError(
+          `Field '${rawName}' cannot have FTS indexing enabled because it is a reserved SQLite FTS5 column name`
+        );
+      }
       if (reservedSys.has(lower)) {
         throw new ConflictError(`Field name '${rawName}' collides with reserved system field`);
       }

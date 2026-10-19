@@ -11,22 +11,16 @@ export interface FtsQueryOptions {
 export const FTS_SCORE_ALIAS = '__fts_score';
 export const FTS_SNIPPET_ALIAS = '__fts_snippet';
 export const FTS_SNIPPET_FIELD_PREFIX = '__fts_snippet_';
-export const RESERVED_FTS_FIELDS = ['_score', '_snippet', '_snippets', 'rank', 'rowid'] as const;
+export const RESERVED_FTS_FIELDS = ['_score', '_snippet', '_snippets'] as const;
 
 /**
- * Checks whether a field name collides with full-text search metadata, SQLite FTS5 reserved keywords, or internal aliases.
- * Reserved names include _score, _snippet, _snippets, rank, rowid, and any field starting with _snippet_ or __fts_.
+ * Checks whether a field name collides with full-text search metadata or internal aliases.
+ * Reserved names include _score, _snippet, _snippets, and any field starting with _snippet_ or __fts_.
  */
 export function isReservedFtsFieldName(name: string): boolean {
   if (!name || typeof name !== 'string') return false;
   const lower = name.toLowerCase().trim();
-  if (
-    lower === '_score' ||
-    lower === '_snippet' ||
-    lower === '_snippets' ||
-    lower === 'rank' ||
-    lower === 'rowid'
-  ) {
+  if (lower === '_score' || lower === '_snippet' || lower === '_snippets') {
     return true;
   }
   if (lower.startsWith('_snippet_') || lower.startsWith('__fts_')) {
@@ -36,7 +30,9 @@ export function isReservedFtsFieldName(name: string): boolean {
 }
 
 export function isFtsField(field: SchemaField): boolean {
-  if (isReservedFtsFieldName(field.name)) {
+  const lower = (field.name || '').toLowerCase().trim();
+  // SQLite FTS5 explicitly reserves 'rank' and 'rowid' as virtual table column names
+  if (lower === 'rank' || lower === 'rowid' || isReservedFtsFieldName(field.name)) {
     return false;
   }
   if (field.fts === true || field.options?.fts === true) {
