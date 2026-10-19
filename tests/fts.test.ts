@@ -751,5 +751,76 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       const parsedExport = JSON.parse(exportRes.data);
       expect(parsedExport.length).toBe(2);
     });
+
+    it('should return 0 matches when searching a collection with no FTS index and no searchable fields', async () => {
+      const client = new NodeStackClient(`http://127.0.0.1:${PORT}`);
+
+      // Collection with only number and boolean fields (no text, email, or url fields)
+      app.schema.createCollection({
+        name: 'sensor_metrics',
+        listRule: '',
+        viewRule: '',
+        createRule: '',
+        schema: [
+          { id: 'f1', name: 'sensor_id', type: 'number' },
+          { id: 'f2', name: 'reading', type: 'number' },
+          { id: 'f3', name: 'is_active', type: 'bool' },
+        ],
+      });
+
+      // Confirm no FTS index was created
+      expect(app.fts.hasFtsIndex('sensor_metrics')).toBe(false);
+
+      await app.records.create('sensor_metrics', {
+        sensor_id: 101,
+        reading: 42.5,
+        is_active: true,
+      });
+
+      await app.records.create('sensor_metrics', {
+        sensor_id: 102,
+        reading: 99.1,
+        is_active: false,
+      });
+
+      // 1. Without search: all records are returned normally
+      const resAll = await client.collection('sensor_metrics').getList(1, 10);
+      expect(resAll.totalItems).toBe(2);
+      expect(resAll.items.length).toBe(2);
+
+      // 2. With search: getList via client should return 0 results instead of all records
+      const resSearch = await client.collection('sensor_metrics').getList(1, 10, {
+        search: 'anything',
+      });
+      expect(resSearch.totalItems).toBe(0);
+      expect(resSearch.totalPages).toBe(0);
+      expect(resSearch.items).toEqual([]);
+
+      // 3. getList directly via RecordService
+      const directList = await app.records.getList('sensor_metrics', {
+        search: 'temperature',
+      });
+      expect(directList.totalItems).toBe(0);
+      expect(directList.totalPages).toBe(0);
+      expect(directList.items).toEqual([]);
+
+      // 4. exportRecords JSON with search: returns empty array
+      const exportJson = await app.records.exportRecords('sensor_metrics', 'json', {
+        search: 'temperature',
+      });
+      expect(JSON.parse(exportJson.data)).toEqual([]);
+
+      // 5. exportRecords CSV with search: returns header row only
+      const exportCsv = await app.records.exportRecords('sensor_metrics', 'csv', {
+        search: 'temperature',
+      });
+      const lines = exportCsv.data.trim().split(/\r?\n/);
+      expect(lines.length).toBe(1); // Header row only
+      expect(lines[0]).toContain('sensor_id');
+
+      // 6. exportRecords without search: returns records normally
+      const exportAll = await app.records.exportRecords('sensor_metrics', 'json');
+      expect(JSON.parse(exportAll.data).length).toBe(2);
+    });
   });
 });

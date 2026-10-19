@@ -200,11 +200,18 @@ export class RecordService {
     let effectiveFilter = options.filter;
     if (searchTerm && !hasFts) {
       const textFields = col.schema.filter((f) => f.type === 'text' || f.type === 'email' || f.type === 'url');
-      if (textFields.length > 0) {
-        const encoded = QueryFilterParser.encodeFilterString(searchTerm);
-        const searchFilter = textFields.map((f) => `${f.name} ~ ${encoded}`).join(' || ');
-        effectiveFilter = effectiveFilter ? `(${effectiveFilter}) && (${searchFilter})` : searchFilter;
+      if (textFields.length === 0) {
+        return {
+          page,
+          perPage,
+          totalItems: 0,
+          totalPages: 0,
+          items: [],
+        };
       }
+      const encoded = QueryFilterParser.encodeFilterString(searchTerm);
+      const searchFilter = textFields.map((f) => `${f.name} ~ ${encoded}`).join(' || ');
+      effectiveFilter = effectiveFilter ? `(${effectiveFilter}) && (${searchFilter})` : searchFilter;
     }
 
     const { clause: whereClause, params: filterParams } = QueryFilterParser.parseFilter(
@@ -568,20 +575,29 @@ export class RecordService {
       let effectiveFilter = options.filter;
       if (searchTerm && !hasFts) {
         const textFields = col.schema.filter((f) => f.type === 'text' || f.type === 'email' || f.type === 'url');
-        if (textFields.length > 0) {
+        if (textFields.length === 0) {
+          rawItems = [];
+        } else {
           const encoded = QueryFilterParser.encodeFilterString(searchTerm);
           const searchFilter = textFields.map((f) => `${f.name} ~ ${encoded}`).join(' || ');
           effectiveFilter = effectiveFilter ? `(${effectiveFilter}) && (${searchFilter})` : searchFilter;
+          const { clause: whereClause, params: filterParams } = QueryFilterParser.parseFilter(
+            effectiveFilter,
+            allowedFields
+          );
+          const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields);
+          const querySql = `SELECT * FROM "${col.name}" ${whereClause} ${orderClause}`;
+          rawItems = this.db.all<any>(querySql, filterParams);
         }
+      } else {
+        const { clause: whereClause, params: filterParams } = QueryFilterParser.parseFilter(
+          effectiveFilter,
+          allowedFields
+        );
+        const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields);
+        const querySql = `SELECT * FROM "${col.name}" ${whereClause} ${orderClause}`;
+        rawItems = this.db.all<any>(querySql, filterParams);
       }
-
-      const { clause: whereClause, params: filterParams } = QueryFilterParser.parseFilter(
-        effectiveFilter,
-        allowedFields
-      );
-      const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields);
-      const querySql = `SELECT * FROM "${col.name}" ${whereClause} ${orderClause}`;
-      rawItems = this.db.all<any>(querySql, filterParams);
     }
 
     const items = await Promise.all(
