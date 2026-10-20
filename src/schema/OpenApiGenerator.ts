@@ -276,6 +276,114 @@ export class OpenApiGenerator {
       required: ['items', 'totalItems'],
     };
 
+    schemas.WebhookModel = {
+      type: 'object',
+      properties: {
+        id: { type: 'string', readOnly: true },
+        name: { type: 'string' },
+        url: { type: 'string', format: 'uri' },
+        collection: { type: 'string', description: 'Collection name or *' },
+        event: { type: 'string', description: 'Event e.g. created, updated, deleted, or *' },
+        action: { type: 'string' },
+        method: { type: 'string', enum: ['POST', 'PUT', 'PATCH', 'DELETE', 'GET', 'HEAD'] },
+        headers: { type: 'object', additionalProperties: { type: 'string' } },
+        secret: { type: 'string', nullable: true, description: 'HMAC-SHA256 signature secret for X-NodeStack-Signature' },
+        enabled: { type: 'boolean' },
+        created: { type: 'string', format: 'date-time', readOnly: true },
+        updated: { type: 'string', format: 'date-time', readOnly: true },
+      },
+      required: ['id', 'name', 'url', 'collection', 'event'],
+    };
+
+    schemas.WebhookCreateRequest = {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        url: { type: 'string', format: 'uri' },
+        collection: { type: 'string', default: '*' },
+        event: { type: 'string', default: 'created' },
+        action: { type: 'string' },
+        method: { type: 'string', default: 'POST', enum: ['POST', 'PUT', 'PATCH', 'DELETE', 'GET', 'HEAD'] },
+        headers: { type: 'object', additionalProperties: { type: 'string' } },
+        secret: { type: 'string', nullable: true },
+        enabled: { type: 'boolean', default: true },
+      },
+      required: ['name', 'url'],
+    };
+
+    schemas.WebhookUpdateRequest = {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        url: { type: 'string', format: 'uri' },
+        collection: { type: 'string' },
+        event: { type: 'string' },
+        action: { type: 'string' },
+        method: { type: 'string', enum: ['POST', 'PUT', 'PATCH', 'DELETE', 'GET', 'HEAD'] },
+        headers: { type: 'object', additionalProperties: { type: 'string' } },
+        secret: { type: 'string', nullable: true },
+        enabled: { type: 'boolean' },
+      },
+    };
+
+    schemas.WebhookDeliveryModel = {
+      type: 'object',
+      properties: {
+        id: { type: 'string', readOnly: true },
+        webhookId: { type: 'string' },
+        webhookName: { type: 'string' },
+        event: { type: 'string' },
+        collection: { type: 'string' },
+        url: { type: 'string', format: 'uri' },
+        status: { type: 'string', enum: ['success', 'failed'] },
+        responseStatus: { type: 'integer', description: 'HTTP response status code returned by target endpoint' },
+        durationMs: { type: 'integer', description: 'Delivery duration in milliseconds' },
+        attempt: { type: 'integer' },
+        requestHeaders: { type: 'object', additionalProperties: true },
+        requestPayload: { type: 'object', additionalProperties: true },
+        responseHeaders: { type: 'object', additionalProperties: true, nullable: true },
+        responseBody: { type: 'string', nullable: true },
+        error: { type: 'string', nullable: true },
+        created: { type: 'string', format: 'date-time', readOnly: true },
+      },
+      required: ['id', 'webhookId', 'status', 'responseStatus', 'durationMs', 'created'],
+    };
+
+    schemas.WebhookDeliveryListResult = {
+      type: 'object',
+      properties: {
+        items: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/WebhookDeliveryModel' },
+        },
+        totalItems: { type: 'integer' },
+        totalPages: { type: 'integer' },
+        page: { type: 'integer' },
+        perPage: { type: 'integer' },
+      },
+      required: ['items', 'totalItems', 'totalPages', 'page', 'perPage'],
+    };
+
+    schemas.WebhookStatsResponse = {
+      type: 'object',
+      properties: {
+        totalWebhooks: { type: 'integer' },
+        activeWebhooks: { type: 'integer' },
+        totalDeliveries: { type: 'integer' },
+        successDeliveries: { type: 'integer' },
+        failedDeliveries: { type: 'integer' },
+        successRate: { type: 'string' },
+      },
+      required: ['totalWebhooks', 'activeWebhooks', 'totalDeliveries', 'successDeliveries', 'failedDeliveries', 'successRate'],
+    };
+
+    schemas.WebhookTestRequest = {
+      type: 'object',
+      properties: {
+        payload: { type: 'object', additionalProperties: true, description: 'Optional sample payload to dispatch' },
+      },
+    };
+
     // 2. Collection-Specific Schemas & Paths
     for (const col of collections) {
       const pascal = this.toPascalCase(col.name);
@@ -1264,6 +1372,384 @@ export class OpenApiGenerator {
             },
           },
           '403': { description: 'Forbidden (Admin only)' },
+        },
+      },
+    };
+
+    // 8.5 Webhooks Endpoints (Admin only)
+    tags.push({ name: 'Webhooks', description: 'Outbound webhooks management, delivery tracking, and manual retry' });
+
+    paths['/api/webhooks'] = {
+      get: {
+        tags: ['Webhooks'],
+        summary: 'List configured webhooks',
+        description: 'Returns all outbound webhooks configured in NodeStack (Admin only).',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'collection', in: 'query', schema: { type: 'string' }, description: 'Filter by collection' },
+          { name: 'event', in: 'query', schema: { type: 'string' }, description: 'Filter by event' },
+          { name: 'enabled', in: 'query', schema: { type: 'boolean' }, description: 'Filter by enabled status' },
+        ],
+        responses: {
+          '200': {
+            description: 'Webhooks list',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'array',
+                  items: { $ref: '#/components/schemas/WebhookModel' },
+                },
+              },
+            },
+          },
+          '401': {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '403': {
+            description: 'Forbidden (Admin only)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Create outbound webhook',
+        description: 'Registers a new outbound webhook with collection, event, endpoint URL, custom headers, and HMAC-SHA256 secret (Admin only).',
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/WebhookCreateRequest' },
+            },
+          },
+        },
+        responses: {
+          '201': {
+            description: 'Webhook created successfully',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/WebhookModel' },
+              },
+            },
+          },
+          '400': {
+            description: 'Invalid request',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '401': {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '403': {
+            description: 'Forbidden (Admin only)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    };
+
+    paths['/api/webhooks/stats'] = {
+      get: {
+        tags: ['Webhooks'],
+        summary: 'Get webhook statistics',
+        description: 'Returns aggregate webhook and delivery metrics including active count, total deliveries, and success rate (Admin only).',
+        security: [{ BearerAuth: [] }],
+        responses: {
+          '200': {
+            description: 'Webhook statistics',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/WebhookStatsResponse' },
+              },
+            },
+          },
+          '401': {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '403': {
+            description: 'Forbidden (Admin only)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    };
+
+    paths['/api/webhooks/{id}'] = {
+      get: {
+        tags: ['Webhooks'],
+        summary: 'Get webhook by ID',
+        description: 'Fetches details of a specific configured webhook by its ID (Admin only).',
+        security: [{ BearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          '200': {
+            description: 'Webhook configuration',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/WebhookModel' },
+              },
+            },
+          },
+          '401': {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '403': {
+            description: 'Forbidden (Admin only)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '404': {
+            description: 'Webhook not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      patch: {
+        tags: ['Webhooks'],
+        summary: 'Update webhook',
+        description: 'Updates configuration of an existing webhook (Admin only).',
+        security: [{ BearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/WebhookUpdateRequest' },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Webhook updated successfully',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/WebhookModel' },
+              },
+            },
+          },
+          '400': {
+            description: 'Invalid request',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '401': {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '403': {
+            description: 'Forbidden (Admin only)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '404': {
+            description: 'Webhook not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['Webhooks'],
+        summary: 'Delete webhook',
+        description: 'Permanently removes a webhook configuration (Admin only).',
+        security: [{ BearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          '204': { description: 'Webhook deleted successfully' },
+          '401': {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '403': {
+            description: 'Forbidden (Admin only)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '404': {
+            description: 'Webhook not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    };
+
+    paths['/api/webhooks/{id}/test'] = {
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Test webhook dispatch',
+        description: 'Sends a sample test payload to the webhook endpoint and logs the response (Admin only).',
+        security: [{ BearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/WebhookTestRequest' },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Test delivery result',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/WebhookDeliveryModel' },
+              },
+            },
+          },
+          '401': {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '403': {
+            description: 'Forbidden (Admin only)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '404': {
+            description: 'Webhook not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    };
+
+    paths['/api/webhooks/deliveries'] = {
+      get: {
+        tags: ['Webhooks'],
+        summary: 'List webhook delivery logs',
+        description: 'Returns paginated delivery logs with response codes, duration, headers, and payload (Admin only).',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'webhookId', in: 'query', schema: { type: 'string' }, description: 'Filter by webhook ID' },
+          { name: 'collection', in: 'query', schema: { type: 'string' }, description: 'Filter by collection' },
+          { name: 'status', in: 'query', schema: { type: 'string', enum: ['all', 'success', 'failed'] }, description: 'Filter by status' },
+          { name: 'search', in: 'query', schema: { type: 'string' }, description: 'Search query' },
+          { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+          { name: 'perPage', in: 'query', schema: { type: 'integer', default: 25 } },
+        ],
+        responses: {
+          '200': {
+            description: 'Delivery logs',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/WebhookDeliveryListResult' },
+              },
+            },
+          },
+          '401': {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '403': {
+            description: 'Forbidden (Admin only)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['Webhooks'],
+        summary: 'Clear delivery logs',
+        description: 'Deletes delivery log records from the delivery history table (Admin only). Can optionally clear only logs older than a specified number of days.',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'olderThanDays',
+            in: 'query',
+            required: false,
+            schema: { type: 'number', minimum: 0 },
+            description: 'Optionally clear only delivery logs older than this number of days. If omitted, all delivery logs are cleared.',
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Delivery logs cleared',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean' },
+                    deletedCount: { type: 'integer' },
+                  },
+                },
+              },
+            },
+          },
+          '400': {
+            description: 'Bad Request (invalid olderThanDays parameter)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '401': {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '403': {
+            description: 'Forbidden (Admin only)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    };
+
+    paths['/api/webhooks/deliveries/{id}'] = {
+      get: {
+        tags: ['Webhooks'],
+        summary: 'Get delivery log details',
+        description: 'Fetches complete request and response payload data for a single delivery log (Admin only).',
+        security: [{ BearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          '200': {
+            description: 'Delivery log details',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/WebhookDeliveryModel' },
+              },
+            },
+          },
+          '401': {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '403': {
+            description: 'Forbidden (Admin only)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '404': {
+            description: 'Delivery log not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    };
+
+    paths['/api/webhooks/deliveries/{id}/retry'] = {
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Retry webhook delivery',
+        description: 'Manually re-dispatches a delivery attempt to the target endpoint (Admin only).',
+        security: [{ BearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          '200': {
+            description: 'Retried delivery result',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/WebhookDeliveryModel' },
+              },
+            },
+          },
+          '401': {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '403': {
+            description: 'Forbidden (Admin only)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '404': {
+            description: 'Delivery log not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
         },
       },
     };

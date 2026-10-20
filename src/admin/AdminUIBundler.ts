@@ -17,7 +17,7 @@ export class AdminUIBundler {
     // 1. Inline CSS files if css directory exists
     const cssDir = path.join(uiDir, 'css');
     if (fs.existsSync(cssDir)) {
-      const cssFiles = ['main.css', 'rules.css', 'analytics.css'];
+      const cssFiles = ['main.css', 'rules.css', 'analytics.css', 'webhooks.css'];
       let combinedCss = '';
       for (const file of cssFiles) {
         const filePath = path.join(cssDir, file);
@@ -50,6 +50,7 @@ export class AdminUIBundler {
         'plugins.js',
         'plugin-tester.js',
         'command-palette.js',
+        'webhooks.js',
         'app.js',
       ];
 

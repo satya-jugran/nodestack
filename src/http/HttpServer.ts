@@ -17,6 +17,7 @@ import { AnalyticsController } from './controllers/AnalyticsController';
 import { TemplateController } from './controllers/TemplateController';
 import { DemoController } from './controllers/DemoController';
 import { AuditLogController } from './controllers/AuditLogController';
+import { WebhookController } from './controllers/WebhookController';
 import { AdminUIService } from '../admin/AdminUIService';
 import { DocsService } from '../admin/DocsService';
 import { TypeGenerator } from '../schema/TypeGenerator';
@@ -57,7 +58,8 @@ export class HttpServer {
     private templateController?: TemplateController,
     private demoController?: DemoController,
     maintenanceGate?: MaintenanceGate,
-    private auditLogController?: AuditLogController
+    private auditLogController?: AuditLogController,
+    private webhookController?: WebhookController
   ) {
     this.maintenanceGate = maintenanceGate;
 
@@ -151,6 +153,15 @@ export class HttpServer {
             this.maintenanceGate.trackRequestEnd(reqId);
           }
           return;
+        }
+      }
+
+      // Fast-path dispatch for dynamic plugin routes that might otherwise be intercepted by static/parametric routes
+      if (req.method === 'GET') {
+        const urlPath = (req.url || '').split('?')[0];
+        if (urlPath === '/api/webhooks/status' && this.dynamicRouteMatcher && this.dynamicRouteMatcher('GET', urlPath) && this.dynamicRouteHandler) {
+          const handled = await this.dynamicRouteHandler(req, reply);
+          if (handled || reply.sent) return;
         }
       }
     });
@@ -392,6 +403,75 @@ export class HttpServer {
       );
       app.post('/api/audit-logs/prune', { preHandler: requireAdmin }, (req: any, reply) =>
         this.auditLogController!.pruneLogs(req, reply)
+      );
+    }
+
+    // 7.6 Outbound Webhooks & Delivery Logs (Admin only)
+    if (this.webhookController) {
+      app.get('/api/webhooks', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getWebhooks(req, reply)
+      );
+      app.post('/api/webhooks', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.createWebhook(req, reply)
+      );
+      app.get('/api/webhooks/stats', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getStats(req, reply)
+      );
+      app.get('/api/webhooks/deliveries', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getDeliveries(req, reply)
+      );
+      app.delete('/api/webhooks/deliveries', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.clearDeliveries(req, reply)
+      );
+      app.get('/api/webhooks/deliveries/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getDelivery(req, reply)
+      );
+      app.post('/api/webhooks/deliveries/:id/retry', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.retryDelivery(req, reply)
+      );
+      app.get('/api/webhooks/:id', async (req: any, reply) => {
+        const id = req.params.id;
+        const urlPath = (req.url || '').split('?')[0];
+
+        // 1. Coordinate with dynamic plugin route (e.g. GET /api/webhooks/status)
+        if (this.dynamicRouteMatcher && this.dynamicRouteMatcher('GET', urlPath) && this.dynamicRouteHandler) {
+          const handled = await this.dynamicRouteHandler(req, reply);
+          if (handled || reply.sent) return;
+        }
+
+        // 2. Reserve /api/webhooks/status for the official webhooks plugin
+        if (id === 'status') {
+          if (this.dynamicRouteHandler) {
+            const handled = await this.dynamicRouteHandler(req, reply);
+            if (handled || reply.sent) return;
+          }
+          return reply.status(404).send({
+            statusCode: 404,
+            error: 'Not Found',
+            message: 'Webhooks plugin status endpoint not found (plugin disabled or unconfigured)',
+          });
+        }
+
+        // 3. Core webhook by ID requires admin authorization
+        await requireAdmin(req, reply);
+        if (reply.sent) return;
+
+        return this.webhookController!.getWebhook(req, reply);
+      });
+      app.patch('/api/webhooks/:id', { preHandler: requireAdmin }, async (req: any, reply) => {
+        if (req.params.id === 'status') {
+          return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Reserved plugin path' });
+        }
+        return this.webhookController!.updateWebhook(req, reply);
+      });
+      app.delete('/api/webhooks/:id', { preHandler: requireAdmin }, async (req: any, reply) => {
+        if (req.params.id === 'status') {
+          return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Reserved plugin path' });
+        }
+        return this.webhookController!.deleteWebhook(req, reply);
+      });
+      app.post('/api/webhooks/:id/test', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.testWebhook(req, reply)
       );
     }
 

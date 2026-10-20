@@ -1,7 +1,7 @@
 // Application Navigation & Lifecycle
 
 function showPageView(viewName) {
-  const views = ['home', 'collections', 'plugins', 'analytics', 'snapshots', 'logs', 'settings'];
+  const views = ['home', 'collections', 'plugins', 'webhooks', 'analytics', 'snapshots', 'logs', 'settings'];
   for (const v of views) {
     const el = document.getElementById('page-view-' + v);
     if (el) {
@@ -15,7 +15,7 @@ function showPageView(viewName) {
 }
 
 function clearSidebarNavActive() {
-  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-analytics', 'nav-snapshots', 'nav-logs', 'nav-settings'];
+  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-analytics', 'nav-snapshots', 'nav-logs', 'nav-settings'];
   for (const id of navIds) {
     document.getElementById(id)?.classList.remove('active');
   }
@@ -92,6 +92,20 @@ async function selectNav(nav) {
     `;
     if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
     if (typeof renderPluginsHubView === 'function') renderPluginsHubView();
+  } else if (nav === 'webhooks') {
+    state.activeCollection = null;
+    if (typeof renderCollectionsList === 'function') renderCollectionsList();
+    showPageView('webhooks');
+    document.getElementById('collection-tabs').style.display = 'none';
+    document.getElementById('view-badge').style.display = 'none';
+    document.getElementById('nav-webhooks')?.classList.add('active');
+    document.getElementById('view-title').textContent = 'Webhooks Manager';
+    document.getElementById('view-title').style.display = 'inline-block';
+    document.getElementById('view-actions').innerHTML = `
+      <button class="btn btn-secondary btn-sm" onclick="refreshWebhooksView()">Refresh</button>
+      <button class="btn btn-primary btn-sm" onclick="openCreateWebhookModal()">+ New Webhook</button>
+    `;
+    if (typeof renderWebhooksView === 'function') renderWebhooksView();
   } else if (nav === 'analytics') {
     state.activeCollection = null;
     if (typeof renderCollectionsList === 'function') renderCollectionsList();
@@ -202,12 +216,18 @@ window.addEventListener('keydown', (e) => {
       if (typeof closeRecordDrawer === 'function') {
         closeRecordDrawer();
       }
+      if (typeof closeWebhookDrawer === 'function') {
+        closeWebhookDrawer();
+      }
       return;
     }
     const modalRoot = document.getElementById('modal-root');
     if (modalRoot && modalRoot.innerHTML.trim().length > 0) {
       e.preventDefault();
       e.stopImmediatePropagation();
+      if (typeof closeWebhookModal === 'function') {
+        closeWebhookModal();
+      }
       if (typeof closeModal === 'function') {
         closeModal();
       }

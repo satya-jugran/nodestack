@@ -84,6 +84,49 @@ export class SystemMigrations {
         CREATE INDEX IF NOT EXISTS idx_audit_action ON _audit_logs(action);
       `);
 
+      // 6. Outbound Webhooks and Delivery Logs
+      driver.exec(`
+        CREATE TABLE IF NOT EXISTS _webhooks (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          url TEXT NOT NULL,
+          event TEXT NOT NULL,
+          collection TEXT NOT NULL,
+          action TEXT NOT NULL DEFAULT '*',
+          method TEXT NOT NULL DEFAULT 'POST',
+          headers TEXT,
+          secret TEXT,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_webhooks_collection ON _webhooks(collection);
+        CREATE INDEX IF NOT EXISTS idx_webhooks_enabled ON _webhooks(enabled);
+
+        CREATE TABLE IF NOT EXISTS _webhook_deliveries (
+          id TEXT PRIMARY KEY,
+          webhookId TEXT NOT NULL,
+          webhookName TEXT NOT NULL,
+          url TEXT NOT NULL,
+          event TEXT NOT NULL,
+          collection TEXT NOT NULL,
+          recordId TEXT,
+          requestHeaders TEXT NOT NULL,
+          requestPayload TEXT NOT NULL,
+          responseStatus INTEGER NOT NULL DEFAULT 0,
+          responseHeaders TEXT,
+          responseBody TEXT,
+          durationMs INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL,
+          error TEXT,
+          attempt INTEGER NOT NULL DEFAULT 1,
+          created TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_webhook_del_wh ON _webhook_deliveries(webhookId, created DESC);
+        CREATE INDEX IF NOT EXISTS idx_webhook_del_created ON _webhook_deliveries(created DESC);
+        CREATE INDEX IF NOT EXISTS idx_webhook_del_status ON _webhook_deliveries(status);
+      `);
+
       // Create default "users" auth collection if not already existing
       const usersExists = driver.prepare('SELECT id FROM _collections WHERE name = ?').get('users');
       if (!usersExists) {

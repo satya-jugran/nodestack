@@ -140,6 +140,7 @@ export class AuditLogService {
     ctx: RecordAfterEventContext
   ): Promise<void> {
     try {
+      if (this.db.isDatabaseLocked() || !this.db.isOpen()) return;
       const recordId = ctx.record?.id || ctx.originalRecord?.id;
       if (!recordId) return;
 

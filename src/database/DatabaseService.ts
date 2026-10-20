@@ -25,6 +25,10 @@ export class DatabaseService {
     return this.driver;
   }
 
+  public isOpen(): boolean {
+    return this.driver.isOpen();
+  }
+
   public lock(): void {
     this.isLocked = true;
   }

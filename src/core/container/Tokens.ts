@@ -31,4 +31,6 @@ export const TOKENS = {
   AuditLogService: Symbol('AuditLogService'),
   AuditLogController: Symbol('AuditLogController'),
   FtsService: Symbol('FtsService'),
+  WebhookService: Symbol('WebhookService'),
+  WebhookController: Symbol('WebhookController'),
 } as const;

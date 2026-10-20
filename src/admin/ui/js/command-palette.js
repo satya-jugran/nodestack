@@ -62,6 +62,17 @@ function getAllCommandPaletteItems() {
   });
 
   items.push({
+    id: 'nav-webhooks',
+    title: 'Webhooks Manager',
+    description: 'Configure outbound webhooks, signatures and retry delivery logs',
+    category: 'Navigation',
+    badge: 'PAGE',
+    icon: '🔗',
+    keywords: ['webhooks', 'webhook', 'outbound', 'events', 'deliveries', 'retry'],
+    action: () => selectNav('webhooks')
+  });
+
+  items.push({
     id: 'nav-analytics',
     title: 'Analytics & Metrics',
     description: 'Realtime telemetry, latency and request throughput',
@@ -179,6 +190,22 @@ function getAllCommandPaletteItems() {
       if (typeof openNewCollectionModal === 'function') {
         openNewCollectionModal();
       }
+    }
+  });
+
+  items.push({
+    id: 'action-new-webhook',
+    title: 'New Webhook',
+    description: 'Configure an outbound HTTP webhook on collection events',
+    category: 'Actions',
+    badge: 'CREATE',
+    icon: '⚡',
+    keywords: ['new webhook', 'create webhook', 'webhook', 'outbound', 'signature'],
+    action: () => {
+      selectNav('webhooks');
+      setTimeout(() => {
+        if (typeof openCreateWebhookModal === 'function') openCreateWebhookModal();
+      }, 50);
     }
   });
 

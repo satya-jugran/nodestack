@@ -216,6 +216,33 @@ describe('OpenAPI 3.0 Specification & Interactive Viewer Tests', () => {
       expect(paths['/api/types']?.get).toBeDefined();
       expect(paths['/api/openapi.json']?.get).toBeDefined();
     });
+
+    it('should generate complete OpenAPI specifications for all webhook endpoints and schemas', () => {
+      const spec = OpenApiGenerator.generateFromCollections([]);
+      const { paths, components } = spec;
+
+      // 1. Webhook Schemas
+      expect(components.schemas.WebhookModel).toBeDefined();
+      expect(components.schemas.WebhookCreateRequest).toBeDefined();
+      expect(components.schemas.WebhookUpdateRequest).toBeDefined();
+      expect(components.schemas.WebhookDeliveryModel).toBeDefined();
+      expect(components.schemas.WebhookDeliveryListResult).toBeDefined();
+      expect(components.schemas.WebhookStatsResponse).toBeDefined();
+      expect(components.schemas.WebhookTestRequest).toBeDefined();
+
+      // 2. Webhook endpoints
+      expect(paths['/api/webhooks'].get).toBeDefined();
+      expect(paths['/api/webhooks'].post).toBeDefined();
+      expect(paths['/api/webhooks/stats'].get).toBeDefined();
+      expect(paths['/api/webhooks/{id}'].get).toBeDefined();
+      expect(paths['/api/webhooks/{id}'].patch).toBeDefined();
+      expect(paths['/api/webhooks/{id}'].delete).toBeDefined();
+      expect(paths['/api/webhooks/{id}/test'].post).toBeDefined();
+      expect(paths['/api/webhooks/deliveries'].get).toBeDefined();
+      expect(paths['/api/webhooks/deliveries'].delete).toBeDefined();
+      expect(paths['/api/webhooks/deliveries/{id}'].get).toBeDefined();
+      expect(paths['/api/webhooks/deliveries/{id}/retry'].post).toBeDefined();
+    });
   });
 
   describe('NodeStack Programmatic API & HTTP Server Endpoints', () => {

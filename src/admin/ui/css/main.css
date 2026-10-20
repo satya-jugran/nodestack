@@ -1285,7 +1285,8 @@
 
     /* Slide-Over Drawer Container */
     .record-drawer,
-    .plugin-drawer {
+    .plugin-drawer,
+    .webhook-drawer {
       position: fixed;
       top: 0;
       right: 0;
@@ -1302,11 +1303,13 @@
       transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .record-drawer.open,
-    .plugin-drawer.open {
+    .plugin-drawer.open,
+    .webhook-drawer.open {
       transform: translateX(0);
     }
     .record-drawer:focus,
-    .plugin-drawer:focus {
+    .plugin-drawer:focus,
+    .webhook-drawer:focus {
       outline: none;
     }
 
