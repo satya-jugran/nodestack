@@ -898,7 +898,7 @@ async function openDeliveryDetailDrawer(deliveryId) {
           <div>
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
               <span style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted);">Target Endpoint URL</span>
-              <button class="btn btn-secondary btn-sm" data-url="${escapeHtml(del.url)}" onclick="copyWebhookText(this.getAttribute('data-url'), 'URL copied!')" style="padding:2px 8px; font-size:10px;">Copy URL</button>
+              <button class="btn btn-secondary btn-sm" id="btn-copy-webhook-url" data-url="${escapeHtml(del.url)}" onclick="handleCopyWebhookUrl(this)" style="padding:2px 8px; font-size:10px;">Copy URL</button>
             </div>
             <div style="background:#090d16; border:1px solid var(--border-subtle); border-radius:6px; padding:8px 12px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--text-main); word-break:break-all;">
               POST ${escapeHtml(del.url)}
@@ -909,7 +909,7 @@ async function openDeliveryDetailDrawer(deliveryId) {
           <div class="webhook-drawer-card">
             <div class="webhook-drawer-card-header">
               <span style="font-size:11px; font-weight:700; text-transform:uppercase; color:#93c5fd;">Outbound Request</span>
-              <button class="btn btn-secondary btn-sm" onclick="copyWebhookText(document.getElementById('wh-req-payload-code')?.textContent || '', 'Payload copied!')" style="padding:2px 8px; font-size:10px;">Copy Payload</button>
+              <button class="btn btn-secondary btn-sm" id="btn-copy-webhook-payload" onclick="handleCopyWebhookPayload()" style="padding:2px 8px; font-size:10px;">Copy Payload</button>
             </div>
             <div class="webhook-drawer-card-body">
               <div>
@@ -986,6 +986,17 @@ function closeWebhookDrawer() {
   }, 280);
 }
 
+function handleCopyWebhookUrl(btnEl) {
+  if (!btnEl) return;
+  const url = btnEl.getAttribute('data-url') || '';
+  copyWebhookText(url, 'URL copied!');
+}
+
+function handleCopyWebhookPayload() {
+  const codeEl = document.getElementById('wh-req-payload-code');
+  copyWebhookText(codeEl?.textContent || '', 'Payload copied!');
+}
+
 function copyWebhookText(text, msg) {
   if (!text) return;
   if (navigator && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
@@ -1045,4 +1056,7 @@ if (typeof window !== 'undefined') {
   window.changeDeliveryPage = changeDeliveryPage;
   window.closeModalDirect = closeModalDirect;
   window.viewWebhookDeliveries = viewWebhookDeliveries;
+  window.handleCopyWebhookUrl = handleCopyWebhookUrl;
+  window.handleCopyWebhookPayload = handleCopyWebhookPayload;
+  window.copyWebhookText = copyWebhookText;
 }

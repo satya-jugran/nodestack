@@ -600,6 +600,8 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       expect(bundled).toContain('function openDeliveryDetailDrawer');
       expect(bundled).toContain('openDeliveryDetailModal');
       expect(bundled).toContain('function handleDeleteWebhookClick');
+      expect(bundled).toContain('function handleCopyWebhookUrl');
+      expect(bundled).toContain('function handleCopyWebhookPayload');
 
       // HTML elements verification
       expect(bundled).toContain('id="nav-webhooks"');
@@ -660,7 +662,7 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
             id: 'del_sample_1',
             webhookId: 'whk_sample_1',
             webhookName: 'Order Fulfillment Webhook',
-            url: 'https://orders.service.com/webhook',
+            url: "https://orders.service.com/webhook?param=it's_safe&break=');alert(1);('",
             event: 'order.updated',
             collection: 'orders',
             responseStatus: 200,
@@ -769,6 +771,19 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       expect(drawer?.classList.contains('webhook-drawer')).toBe(true);
       expect(document.getElementById('webhook-drawer-title')?.textContent).toContain('order.updated');
       expect(document.getElementById('drawer-retry-btn')).not.toBeNull();
+
+      // Test safe Copy URL button with apostrophe in URL
+      const copyUrlBtn = document.getElementById('btn-copy-webhook-url') as HTMLButtonElement;
+      expect(copyUrlBtn).not.toBeNull();
+      expect(copyUrlBtn.getAttribute('data-url')).toContain("it's_safe");
+      expect(copyUrlBtn.getAttribute('onclick')).toBe('handleCopyWebhookUrl(this)');
+      expect(() => copyUrlBtn.click()).not.toThrow();
+
+      // Test safe Copy Payload button
+      const copyPayloadBtn = document.getElementById('btn-copy-webhook-payload') as HTMLButtonElement;
+      expect(copyPayloadBtn).not.toBeNull();
+      expect(copyPayloadBtn.getAttribute('onclick')).toBe('handleCopyWebhookPayload()');
+      expect(() => copyPayloadBtn.click()).not.toThrow();
 
       // Close drawer
       window.closeWebhookDrawer();
