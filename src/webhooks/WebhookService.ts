@@ -447,8 +447,12 @@ export class WebhookService {
   }
 
   public clearDeliveries(olderThanDays?: number): number {
-    if (olderThanDays && olderThanDays > 0) {
-      const cutoff = new Date(Date.now() - olderThanDays * 86400000).toISOString();
+    if (olderThanDays !== undefined && olderThanDays !== null) {
+      const days = typeof olderThanDays === 'number' ? olderThanDays : Number(olderThanDays);
+      if (!Number.isFinite(days) || days < 0) {
+        throw new Error('Invalid olderThanDays parameter: must be a non-negative finite number');
+      }
+      const cutoff = new Date(Date.now() - days * 86400000).toISOString();
       const res = this.db.prepare('DELETE FROM _webhook_deliveries WHERE created < ?').run(cutoff);
       return Number(res.changes);
     }
@@ -751,6 +755,9 @@ export class WebhookService {
       if (!ctx || !ctx.collection) return;
       // Skip internal system collections
       if (ctx.collection.startsWith('_')) return;
+
+      // Skip if database is closed or locked for maintenance / reset
+      if (this.db.isDatabaseLocked() || !this.db.isOpen()) return;
 
       const normalizedAction: 'created' | 'updated' | 'deleted' =
         action === 'create' ? 'created' : action === 'update' ? 'updated' : 'deleted';

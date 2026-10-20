@@ -125,10 +125,26 @@ export class WebhookController extends BaseController {
   }
 
   public async clearDeliveries(
-    req: FastifyRequest<{ Querystring: { olderThanDays?: number } }>,
+    req: FastifyRequest<{ Querystring: { olderThanDays?: string | number } }>,
     reply: FastifyReply
   ): Promise<void> {
-    const deletedCount = this.webhookService.clearDeliveries(req.query?.olderThanDays);
-    this.ok(reply, { success: true, deletedCount });
+    const rawOlderThan = req.query?.olderThanDays;
+    let olderThanDays: number | undefined = undefined;
+
+    if (rawOlderThan !== undefined && rawOlderThan !== null && String(rawOlderThan).trim() !== '') {
+      const parsed = Number(rawOlderThan);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        this.error(reply, 'Invalid olderThanDays parameter. Must be a non-negative number.', 400);
+        return;
+      }
+      olderThanDays = parsed;
+    }
+
+    try {
+      const deletedCount = this.webhookService.clearDeliveries(olderThanDays);
+      this.ok(reply, { success: true, deletedCount });
+    } catch (err: any) {
+      this.error(reply, err.message || 'Failed to clear deliveries', 400);
+    }
   }
 }

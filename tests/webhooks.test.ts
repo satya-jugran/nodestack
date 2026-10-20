@@ -594,6 +594,57 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       expect(attempt2.attempt).toBe(2);
     });
 
+    it('should reject malformed or negative olderThanDays parameter with 400 without deleting logs', async () => {
+      // 1. Check non-empty before test
+      const beforeRes = await app.server.inject({
+        method: 'GET',
+        url: '/api/webhooks/deliveries',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      const initialCount = beforeRes.json().items.length;
+      expect(initialCount).toBeGreaterThan(0);
+
+      // 2. Reject string non-numeric input (?olderThanDays=abc)
+      const malformedRes = await app.server.inject({
+        method: 'DELETE',
+        url: '/api/webhooks/deliveries?olderThanDays=abc',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(malformedRes.statusCode).toBe(400);
+      expect(malformedRes.json().message).toContain('olderThanDays');
+
+      // 3. Reject negative input (?olderThanDays=-5)
+      const negativeRes = await app.server.inject({
+        method: 'DELETE',
+        url: '/api/webhooks/deliveries?olderThanDays=-5',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(negativeRes.statusCode).toBe(400);
+
+      // 4. Verify WebhookService throws on non-finite input directly
+      expect(() => app.webhooks.clearDeliveries(NaN)).toThrow();
+      expect(() => app.webhooks.clearDeliveries('invalid' as any)).toThrow();
+      expect(() => app.webhooks.clearDeliveries(-10)).toThrow();
+
+      // 5. Verify NO logs were erased by malformed attempts
+      const afterRes = await app.server.inject({
+        method: 'GET',
+        url: '/api/webhooks/deliveries',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(afterRes.json().items.length).toBe(initialCount);
+
+      // 6. Test valid positive olderThanDays (e.g. 30 days) -> only deletes logs older than 30 days
+      const olderThanRes = await app.server.inject({
+        method: 'DELETE',
+        url: '/api/webhooks/deliveries?olderThanDays=30',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(olderThanRes.statusCode).toBe(200);
+      expect(olderThanRes.json().success).toBe(true);
+      expect(olderThanRes.json().deletedCount).toBe(0); // none older than 30 days
+    });
+
     it('should clear delivery logs via DELETE /api/webhooks/deliveries', async () => {
       const res = await app.server.inject({
         method: 'DELETE',

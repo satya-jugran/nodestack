@@ -1647,9 +1647,18 @@ export class OpenApiGenerator {
       },
       delete: {
         tags: ['Webhooks'],
-        summary: 'Clear all delivery logs',
-        description: 'Deletes all delivery log records from the delivery history table (Admin only).',
+        summary: 'Clear delivery logs',
+        description: 'Deletes delivery log records from the delivery history table (Admin only). Can optionally clear only logs older than a specified number of days.',
         security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'olderThanDays',
+            in: 'query',
+            required: false,
+            schema: { type: 'number', minimum: 0 },
+            description: 'Optionally clear only delivery logs older than this number of days. If omitted, all delivery logs are cleared.',
+          },
+        ],
         responses: {
           '200': {
             description: 'Delivery logs cleared',
@@ -1664,6 +1673,10 @@ export class OpenApiGenerator {
                 },
               },
             },
+          },
+          '400': {
+            description: 'Bad Request (invalid olderThanDays parameter)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
           },
           '401': {
             description: 'Unauthorized',
