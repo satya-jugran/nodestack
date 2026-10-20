@@ -779,7 +779,20 @@ export class WebhookService {
 
     const colLower = collection.toLowerCase();
     const actLower = action.toLowerCase();
-    const baseAction = actLower.replace(/ed$/, ''); // 'create', 'update', 'delete'
+
+    // Explicitly normalize the three lifecycle names to both past ('created') and present ('create')
+    let pastAction = actLower;
+    let presentAction = actLower;
+    if (actLower === 'create' || actLower === 'created') {
+      pastAction = 'created';
+      presentAction = 'create';
+    } else if (actLower === 'update' || actLower === 'updated') {
+      pastAction = 'updated';
+      presentAction = 'update';
+    } else if (actLower === 'delete' || actLower === 'deleted') {
+      pastAction = 'deleted';
+      presentAction = 'delete';
+    }
 
     // 1. Check Collection Match
     const webhookCol = webhook.collection.toLowerCase();
@@ -799,13 +812,23 @@ export class WebhookService {
     if (webhookEvent === '*' || webhookEvent === '*.*') return true;
 
     // Direct action match (e.g. event = 'created' or 'create')
-    if (webhookEvent === actLower || webhookEvent === baseAction) return true;
+    if (webhookEvent === pastAction || webhookEvent === presentAction) return true;
+
+    // Direct webhook.action match if defined
+    if (webhook.action) {
+      const act = webhook.action.toLowerCase();
+      if (act === pastAction || act === presentAction || act === '*') return true;
+    }
 
     // Composite event match (e.g. 'post.created', 'order.updated', 'posts.create')
     if (webhookEvent.includes('.')) {
       const [eCol, eAct] = webhookEvent.split('.');
-      const eColMatches = eCol === '*' || eCol === colLower || (colLower.endsWith('s') && colLower.slice(0, -1) === eCol) || (eCol.endsWith('s') && eCol.slice(0, -1) === colLower);
-      const eActMatches = eAct === '*' || eAct === actLower || eAct === baseAction;
+      const eColMatches =
+        eCol === '*' ||
+        eCol === colLower ||
+        (colLower.endsWith('s') && colLower.slice(0, -1) === eCol) ||
+        (eCol.endsWith('s') && eCol.slice(0, -1) === colLower);
+      const eActMatches = eAct === '*' || eAct === pastAction || eAct === presentAction;
       return eColMatches && eActMatches;
     }
 

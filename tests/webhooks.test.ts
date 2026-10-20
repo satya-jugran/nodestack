@@ -175,7 +175,28 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       expect(service.matchesEvent(wildcardWebhook, 'orders', 'updated')).toBe(true);
       expect(service.matchesEvent(wildcardWebhook, 'anything', 'deleted')).toBe(true);
 
-      // 4. Disabled webhook should never match
+      // 4. Singular / present-tense forms (create, update, delete, post.create, order.update)
+      const createWebhook = { collection: 'posts', event: 'create', action: 'create', enabled: true };
+      expect(service.matchesEvent(createWebhook, 'posts', 'created')).toBe(true);
+      expect(service.matchesEvent(createWebhook, 'post', 'created')).toBe(true);
+      expect(service.matchesEvent(createWebhook, 'posts', 'updated')).toBe(false);
+
+      const postCreateWebhook = { collection: 'posts', event: 'post.create', action: 'create', enabled: true };
+      expect(service.matchesEvent(postCreateWebhook, 'posts', 'created')).toBe(true);
+
+      const updateWebhook = { collection: 'orders', event: 'update', action: 'update', enabled: true };
+      expect(service.matchesEvent(updateWebhook, 'orders', 'updated')).toBe(true);
+
+      const orderUpdateWebhook = { collection: 'orders', event: 'order.update', action: 'update', enabled: true };
+      expect(service.matchesEvent(orderUpdateWebhook, 'orders', 'updated')).toBe(true);
+
+      const deleteWebhook = { collection: 'posts', event: 'delete', action: 'delete', enabled: true };
+      expect(service.matchesEvent(deleteWebhook, 'posts', 'deleted')).toBe(true);
+
+      const postDeleteWebhook = { collection: 'posts', event: 'post.delete', action: 'delete', enabled: true };
+      expect(service.matchesEvent(postDeleteWebhook, 'posts', 'deleted')).toBe(true);
+
+      // 5. Disabled webhook should never match
       const disabledWebhook = { ...postWebhook, enabled: false };
       expect(service.matchesEvent(disabledWebhook, 'posts', 'created')).toBe(false);
     });
@@ -515,6 +536,49 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
           'whsec_order_secret_555'
         )
       ).toBe(true);
+    });
+
+    it('should fire webhook configured with singular/present-tense event ("create") on record creation', async () => {
+      capturedOutboundRequests = [];
+
+      // Create a webhook specifically configured with event: "create" (present tense)
+      await app.server.inject({
+        method: 'POST',
+        url: '/api/webhooks',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          name: 'Present Tense Create Hook',
+          url: 'https://example-present-listener.com/create-events',
+          collection: 'posts',
+          event: 'create',
+          enabled: true,
+        },
+      });
+
+      // Insert record
+      await app.server.inject({
+        method: 'POST',
+        url: '/api/collections/posts/records',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          title: 'Testing Present Tense Hook',
+        },
+      });
+
+      // Allow background dispatch tick
+      await new Promise((r) => setTimeout(r, 80));
+
+      const hookReq = capturedOutboundRequests.find(
+        (r) => r.url === 'https://example-present-listener.com/create-events'
+      );
+      expect(hookReq).toBeDefined();
+      expect(hookReq!.body.event).toBe('posts.created');
     });
 
     it('should dispatch GET and HEAD webhooks body-free with query encoding without fetch throwing', async () => {
