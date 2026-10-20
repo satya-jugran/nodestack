@@ -100,7 +100,7 @@ async function selectNav(nav) {
     document.getElementById('view-badge').style.display = 'none';
     document.getElementById('nav-webhooks')?.classList.add('active');
     document.getElementById('view-title').textContent = 'Webhooks Manager';
-    document.getElementById('view-title').style.display = 'inline-block';
+    document.getElementById('view-title').style.display = 'none';
     document.getElementById('view-actions').innerHTML = `
       <button class="btn btn-secondary btn-sm" onclick="refreshWebhooksView()">Refresh</button>
       <button class="btn btn-primary btn-sm" onclick="openCreateWebhookModal()">+ New Webhook</button>
@@ -161,7 +161,7 @@ async function selectNav(nav) {
     document.getElementById('collection-tabs').style.display = 'none';
     document.getElementById('view-badge').style.display = 'none';
     document.getElementById('nav-settings')?.classList.add('active');
-    document.getElementById('view-title').textContent = 'System & Settings';
+    document.getElementById('view-title').textContent = 'System Info';
     document.getElementById('view-actions').innerHTML = '';
     if (typeof renderSettingsView === 'function') renderSettingsView();
   } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === nav || (nav === 'resend' && p.id === 'resend-email'))) {

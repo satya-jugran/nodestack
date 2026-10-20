@@ -18,6 +18,11 @@ export { RealtimeService } from './services/RealtimeService';
 export { AdminService } from './services/AdminService';
 export { CollectionService } from './services/CollectionService';
 export { DemoService } from './services/DemoService';
+export {
+  WebhookService,
+  computeWebhookSignature,
+  verifyWebhookSignature,
+} from './services/WebhookService';
 
 // Types & Models
 export * from './types';

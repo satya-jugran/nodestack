@@ -2,7 +2,14 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
-import { NodeStackClient, ClientResponseError, MemoryAuthStore } from '../packages/client/src';
+import {
+  NodeStackClient,
+  ClientResponseError,
+  MemoryAuthStore,
+  WebhookService,
+  verifyWebhookSignature,
+  computeWebhookSignature,
+} from '../packages/client/src';
 
 describe('NodeStackClient End-to-End Integration Tests', () => {
   const testDir = path.resolve(__dirname, '../.test_client_e2e_data');
@@ -229,5 +236,149 @@ describe('NodeStackClient End-to-End Integration Tests', () => {
     const parsed = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed.length).toBeGreaterThan(0);
+  });
+
+  describe('WebhookService via Client SDK (client.webhooks)', () => {
+    let createdWebhookId = '';
+
+    it('should manage webhook configurations via client.webhooks CRUD', async () => {
+      // 1. Create a new outbound webhook
+      const created = await client.webhooks.create({
+        name: 'Order Notifications',
+        url: 'https://api.example.com/webhooks/orders',
+        collection: 'products',
+        event: 'products.created',
+        method: 'POST',
+        headers: { 'X-Custom-Env': 'production' },
+        secret: 'whsec_sample_secret_key_123',
+        enabled: true,
+      });
+
+      expect(created.id).toBeDefined();
+      expect(created.name).toBe('Order Notifications');
+      expect(created.url).toBe('https://api.example.com/webhooks/orders');
+      expect(created.collection).toBe('products');
+      expect(created.secret).toBe('whsec_sample_secret_key_123');
+      createdWebhookId = created.id;
+
+      // 2. List webhooks
+      const list = await client.webhooks.getList();
+      expect(Array.isArray(list)).toBe(true);
+      expect(list.some((w) => w.id === createdWebhookId)).toBe(true);
+
+      // 3. Get single webhook by ID
+      const single = await client.webhooks.getOne(createdWebhookId);
+      expect(single.id).toBe(createdWebhookId);
+      expect(single.name).toBe('Order Notifications');
+
+      // 4. Update webhook
+      const updated = await client.webhooks.update(createdWebhookId, {
+        name: 'Order & Product Notifications',
+        enabled: false,
+      });
+      expect(updated.name).toBe('Order & Product Notifications');
+      expect(updated.enabled).toBe(false);
+
+      // Re-enable for subsequent delivery tests
+      await client.webhooks.update(createdWebhookId, { enabled: true });
+
+      // 5. Query stats
+      const stats = await client.webhooks.getStats();
+      expect(stats.totalWebhooks).toBeGreaterThanOrEqual(1);
+      expect(stats.activeWebhooks).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should dispatch test events and track delivery logs with manual retry and clear', async () => {
+      // Mock fetch on server webhook service to simulate successful endpoint response
+      const serverWebhooks = (server as any).webhooks;
+      if (serverWebhooks) {
+        serverWebhooks.setFetch(async () => ({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          text: async () => '{"received":true}',
+        }));
+      }
+
+      // 1. Test dispatch
+      const testResult = await client.webhooks.test(createdWebhookId, {
+        sampleKey: 'sampleValue',
+      });
+      expect(testResult.id).toBeDefined();
+      expect(testResult.webhookId).toBe(createdWebhookId);
+      expect(testResult.responseStatus).toBe(200);
+      expect(testResult.status).toBe('success');
+
+      // 2. Query delivery logs
+      const deliveries = await client.webhooks.getDeliveries({
+        webhookId: createdWebhookId,
+        page: 1,
+        perPage: 10,
+      });
+      expect(deliveries.items.length).toBeGreaterThan(0);
+      expect(deliveries.totalItems).toBeGreaterThan(0);
+
+      // 3. Get single delivery log
+      const delivery = await client.webhooks.getDelivery(testResult.id);
+      expect(delivery.id).toBe(testResult.id);
+      expect(delivery.url).toBe('https://api.example.com/webhooks/orders');
+
+      // 4. Manual retry
+      const retryResult = await client.webhooks.retryDelivery(testResult.id);
+      expect(retryResult.id).toBeDefined();
+      expect(retryResult.attempt).toBeGreaterThanOrEqual(2);
+
+      // 5. Clear delivery logs
+      const clearRes = await client.webhooks.clearDeliveries();
+      expect(clearRes.success).toBe(true);
+      expect(clearRes.deletedCount).toBeGreaterThanOrEqual(1);
+
+      const afterClear = await client.webhooks.getDeliveries({ webhookId: createdWebhookId });
+      expect(afterClear.items.length).toBe(0);
+
+      // 6. Delete webhook
+      const deleted = await client.webhooks.delete(createdWebhookId);
+      expect(deleted).toBe(true);
+
+      const remainingList = await client.webhooks.getList();
+      expect(remainingList.some((w) => w.id === createdWebhookId)).toBe(false);
+    });
+
+    it('should compute and verify HMAC-SHA256 signatures via WebhookService helper', () => {
+      const secret = 'whsec_my_super_secure_secret_987';
+      const payload = {
+        event: 'posts.created',
+        action: 'create',
+        collection: 'posts',
+        record: { id: 'rec_123', title: 'Hello World' },
+        timestamp: '2026-10-20T12:00:00.000Z',
+      };
+
+      // 1. Compute signature
+      const sig = client.webhooks.computeSignature(payload, secret);
+      expect(typeof sig).toBe('string');
+      expect(sig.length).toBe(64);
+
+      // 2. Verify raw hex signature
+      expect(client.webhooks.verifySignature(payload, sig, secret)).toBe(true);
+      expect(WebhookService.verifySignature(payload, sig, secret)).toBe(true);
+      expect(verifyWebhookSignature(payload, sig, secret)).toBe(true);
+
+      // 3. Verify signature with "sha256=" prefix (standard Stripe/GitHub/NodeStack header)
+      expect(client.webhooks.verifySignature(payload, `sha256=${sig}`, secret)).toBe(true);
+      expect(verifyWebhookSignature(payload, `sha256=${sig}`, secret)).toBe(true);
+
+      // 4. Reject tampered payload
+      const tamperedPayload = { ...payload, record: { ...payload.record, title: 'Hacked Title' } };
+      expect(client.webhooks.verifySignature(tamperedPayload, sig, secret)).toBe(false);
+
+      // 5. Reject wrong secret
+      expect(client.webhooks.verifySignature(payload, sig, 'wrong_secret')).toBe(false);
+
+      // 6. Reject empty or invalid signature headers
+      expect(client.webhooks.verifySignature(payload, '', secret)).toBe(false);
+      expect(client.webhooks.verifySignature(payload, 'invalid_sig', secret)).toBe(false);
+    });
   });
 });

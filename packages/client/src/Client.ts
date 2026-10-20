@@ -7,6 +7,7 @@ import { RealtimeService } from './services/RealtimeService';
 import { AdminService } from './services/AdminService';
 import { CollectionService } from './services/CollectionService';
 import { DemoService } from './services/DemoService';
+import { WebhookService } from './services/WebhookService';
 import type {
   ClientOptions,
   SendOptions,
@@ -25,6 +26,7 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
   public readonly admins: AdminService;
   public readonly collections: CollectionService;
   public readonly demo: DemoService;
+  public readonly webhooks: WebhookService;
 
   private customFetch?: typeof fetch;
   private defaultHeaders: Record<string, string>;
@@ -45,6 +47,7 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
     this.admins = new AdminService(this);
     this.collections = new CollectionService(this);
     this.demo = new DemoService(this);
+    this.webhooks = new WebhookService(this);
   }
 
   /**

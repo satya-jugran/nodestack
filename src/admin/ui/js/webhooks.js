@@ -132,6 +132,7 @@ function switchWebhooksTab(tab) {
   } else {
     loadWebhookDeliveries();
   }
+  if (typeof updateBreadcrumbs === 'function') updateBreadcrumbs();
 }
 
 async function loadWebhookStats() {
@@ -153,8 +154,10 @@ async function loadWebhookStats() {
 
       const sidebarBadge = document.getElementById('sidebar-webhooks-count');
       if (sidebarBadge) {
-        sidebarBadge.textContent = stats.activeWebhooks;
-        sidebarBadge.style.display = stats.activeWebhooks > 0 ? 'inline-block' : 'none';
+        const count = stats.totalWebhooks !== undefined ? stats.totalWebhooks : stats.activeWebhooks;
+        sidebarBadge.textContent = String(count);
+        sidebarBadge.title = `${stats.activeWebhooks || 0} active / ${stats.totalWebhooks || 0} total`;
+        sidebarBadge.style.display = count > 0 ? 'inline-block' : 'none';
       }
     }
   } catch (err) {
@@ -191,15 +194,15 @@ async function loadWebhooksList() {
     }
 
     content.innerHTML = `
-      <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden;">
+      <div class="webhook-table-wrapper">
         <table class="webhook-table">
           <thead>
             <tr>
-              <th style="width: 25%;">Webhook Name</th>
-              <th style="width: 20%;">Collection & Event</th>
-              <th style="width: 30%;">Target Endpoint</th>
-              <th style="width: 10%;">Security</th>
-              <th style="width: 15%; text-align: right;">Actions</th>
+              <th style="min-width: 180px; width: 25%;">Webhook Name</th>
+              <th style="min-width: 150px; width: 20%;">Collection & Event</th>
+              <th style="min-width: 200px; width: 30%;">Target Endpoint</th>
+              <th style="min-width: 130px; width: 10%;">Security</th>
+              <th style="min-width: 160px; width: 15%; text-align: right; white-space: nowrap;">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -212,9 +215,9 @@ async function loadWebhooksList() {
                 <tr>
                   <td>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                      <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${wh.enabled ? '#10b981' : '#64748b'};" title="${wh.enabled ? 'Active' : 'Disabled'}"></span>
-                      <div>
-                        <div style="font-weight: 600; color: var(--text-main);">${escapeHtml(wh.name)}</div>
+                      <span class="webhook-status-dot ${wh.enabled ? 'active' : 'paused'}" style="display: inline-block; width: 8px; height: 8px; min-width: 8px; min-height: 8px; flex-shrink: 0; border-radius: 50%; background: ${wh.enabled ? '#10b981' : '#64748b'};" title="${wh.enabled ? 'Active' : 'Disabled'}"></span>
+                      <div style="min-width: 0;">
+                        <div style="font-weight: 600; color: var(--text-main); word-break: break-word;">${escapeHtml(wh.name)}</div>
                         <div style="font-size: 11px; color: var(--text-muted);">${wh.enabled ? 'Active' : 'Paused'} • ${wh.method}</div>
                       </div>
                     </div>
@@ -240,8 +243,8 @@ async function loadWebhooksList() {
                       <span style="font-size: 11px; color: var(--text-muted);">No secret</span>
                     `}
                   </td>
-                  <td style="text-align: right;">
-                    <div style="display: inline-flex; align-items: center; gap: 4px;">
+                  <td style="text-align: right; white-space: nowrap;">
+                    <div style="display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;">
                       <button class="btn btn-secondary btn-sm" data-id="${escapeHtml(wh.id)}" onclick="triggerTestWebhook(this.getAttribute('data-id'))" title="Test Webhook with Live Sample Event" style="padding: 3px 8px; font-size: 11px;">
                         ⚡ Test
                       </button>
@@ -328,16 +331,16 @@ async function loadWebhookDeliveries() {
     </div>
 
     <!-- Deliveries Table Container -->
-    <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden;">
+    <div class="webhook-table-wrapper">
       <table class="webhook-table">
         <thead>
           <tr>
-            <th style="width: 14%;">Response Code</th>
-            <th style="width: 16%;">Event</th>
-            <th style="width: 32%;">Target Endpoint</th>
-            <th style="width: 14%;">Duration / Attempt</th>
-            <th style="width: 12%;">Delivered At</th>
-            <th style="width: 12%; text-align: right;">Actions</th>
+            <th style="min-width: 130px; width: 14%; white-space: nowrap;">Response Code</th>
+            <th style="min-width: 150px; width: 16%;">Event</th>
+            <th style="min-width: 200px; width: 30%;">Target Endpoint</th>
+            <th style="min-width: 120px; width: 14%; white-space: nowrap;">Duration / Attempt</th>
+            <th style="min-width: 120px; width: 12%; white-space: nowrap;">Delivered At</th>
+            <th style="min-width: 130px; width: 14%; text-align: right; white-space: nowrap;">Actions</th>
           </tr>
         </thead>
         <tbody id="wh-deliveries-table-body">
@@ -427,8 +430,8 @@ async function fetchAndRenderDeliveriesRows() {
               ${formatRelativeTime(del.created)}
             </div>
           </td>
-          <td style="text-align: right;">
-            <div style="display: inline-flex; align-items: center; gap: 4px;">
+          <td style="text-align: right; white-space: nowrap;">
+            <div style="display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;">
               <button class="btn btn-secondary btn-sm" data-id="${escapeHtml(del.id)}" onclick="openDeliveryDetailModal(this.getAttribute('data-id'))" title="Inspect Request Payload & Response" style="padding: 3px 8px; font-size: 11px;">
                 👁 View
               </button>
@@ -1075,4 +1078,9 @@ if (typeof window !== 'undefined') {
   window.handleCopyWebhookUrl = handleCopyWebhookUrl;
   window.handleCopyWebhookPayload = handleCopyWebhookPayload;
   window.copyWebhookText = copyWebhookText;
+}
+
+// Automatically load webhook stats if admin token exists
+if (typeof state !== 'undefined' && state.token) {
+  loadWebhookStats();
 }

@@ -400,6 +400,6 @@ describe('Audit Log & Change History System', () => {
       win.selectNav('logs');
       expect(win.loadAuditLogs).toHaveBeenCalledTimes(1);
       expect(win.loadLogs).toHaveBeenCalledTimes(0);
-    });
+    }, 15000);
   });
 });

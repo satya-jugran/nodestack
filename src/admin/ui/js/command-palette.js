@@ -107,12 +107,12 @@ function getAllCommandPaletteItems() {
 
   items.push({
     id: 'nav-settings',
-    title: 'System & Settings',
-    description: 'Database maintenance, token secrets and security',
+    title: 'System Info',
+    description: 'System specifications, runtime version, and server hooks',
     category: 'Navigation',
     badge: 'PAGE',
     icon: '⚙️',
-    keywords: ['settings', 'system', 'config', 'configuration'],
+    keywords: ['settings', 'system', 'system info', 'info', 'runtime', 'uptime', 'version', 'hooks'],
     action: () => selectNav('settings')
   });
 

@@ -200,7 +200,7 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
   });
 
   describe('Breadcrumb Top Bar Navigation', () => {
-    it('should render "Dashboard / Collections / products / Records" when in collection records view', async () => {
+    it('should render "NodeStack / Collections / products / Records" when in collection records view', async () => {
       const { win, doc } = createTestDOM();
 
       await win.selectCollection('products');
@@ -210,14 +210,14 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(trail).not.toBeNull();
 
       const items = Array.from(trail.querySelectorAll('.breadcrumb-item')).map((el: any) => el.textContent.replace('/', '').trim());
-      expect(items).toEqual(['Dashboard', 'Collections', 'products', 'Records']);
+      expect(items).toEqual(['NodeStack', 'Collections', 'products', 'Records']);
 
       // The last item (Records) should be active
       const activeItem = trail.querySelector('.breadcrumb-item.active');
       expect(activeItem?.textContent).toBe('Records');
     });
 
-    it('should render "Dashboard / Collections / products / Schema & Rules" when in schema view', async () => {
+    it('should render "NodeStack / Collections / products / Schema & Rules" when in schema view', async () => {
       const { win, doc } = createTestDOM();
 
       await win.selectCollection('products');
@@ -227,7 +227,7 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(trail).not.toBeNull();
 
       const items = Array.from(trail.querySelectorAll('.breadcrumb-item')).map((el: any) => el.textContent.replace('/', '').trim());
-      expect(items).toEqual(['Dashboard', 'Collections', 'products', 'Schema & Rules']);
+      expect(items).toEqual(['NodeStack', 'Collections', 'products', 'Schema & Rules']);
 
       const activeItem = trail.querySelector('.breadcrumb-item.active');
       expect(activeItem?.textContent).toBe('Schema & Rules');
@@ -239,17 +239,17 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       await win.selectCollection('products');
       win.switchCollectionTab('schema');
 
-      // Click "Dashboard" breadcrumb link
-      const dashboardLink = doc.querySelector('.breadcrumb-trail a.breadcrumb-link') as HTMLElement;
-      expect(dashboardLink).not.toBeNull();
-      expect(dashboardLink.textContent).toBe('Dashboard');
+      // Click "NodeStack" breadcrumb link
+      const nodeStackLink = doc.querySelector('.breadcrumb-trail a.breadcrumb-link') as HTMLElement;
+      expect(nodeStackLink).not.toBeNull();
+      expect(nodeStackLink.textContent).toBe('NodeStack');
 
-      dashboardLink.click();
+      nodeStackLink.click();
       expect(win.state.activeNav).toBe('home');
       expect(win.state.activeCollection).toBeNull();
 
       const homeTrail = doc.getElementById('breadcrumb-trail') as HTMLElement;
-      expect(homeTrail.textContent).toContain('Dashboard');
+      expect(homeTrail.textContent).toContain('NodeStack');
       expect(homeTrail.textContent).toContain('Overview');
     });
 

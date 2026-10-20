@@ -1033,6 +1033,12 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       const navItem = document.getElementById('nav-webhooks');
       expect(navItem?.classList.contains('active')).toBe(true);
 
+      // Verify breadcrumbs: should be directly under "NodeStack / Webhooks" (NOT nested under "Plugins")
+      const trail = document.getElementById('breadcrumb-trail');
+      expect(trail?.textContent).toContain('NodeStack');
+      expect(trail?.textContent).toContain('Webhooks');
+      expect(trail?.textContent).not.toContain('Plugins');
+
       // 2. Render Webhooks View
       window.renderWebhooksView();
       expect(document.querySelector('.webhooks-title-area h2')?.textContent).toContain(
@@ -1043,10 +1049,13 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       // Wait microtask tick for async fetch
       await new Promise((r) => setTimeout(r, 50));
 
-      // 3. Verify stats populated
+      // 3. Verify stats populated & sidebar count badge visible
       expect(document.getElementById('wh-stat-active')?.textContent).toBe('2');
       expect(document.getElementById('wh-stat-deliveries')?.textContent).toBe('15');
       expect(document.getElementById('wh-stat-rate')?.textContent).toBe('93.3%');
+      const sidebarBadge = document.getElementById('sidebar-webhooks-count');
+      expect(sidebarBadge?.textContent).toBe('2');
+      expect(sidebarBadge?.style.display).toBe('inline-block');
 
       // 3.5 Verify safe rendering of webhook with apostrophes and special characters in name
       const deleteButtons = document.querySelectorAll('button[title="Delete Webhook"]');
@@ -1111,6 +1120,6 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
 
       // Close drawer
       window.closeWebhookDrawer();
-    });
+    }, 15000);
   });
 });

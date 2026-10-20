@@ -14,13 +14,13 @@ execSync('npx tsc --project tsconfig.json', { stdio: 'inherit', cwd: __dirname }
 console.log('[nodestack-client] Bundling ESM & CJS modules with esbuild...');
 // Build ESM
 execSync(
-  'npx esbuild src/index.ts --bundle --format=esm --target=es2022 --outfile=dist/index.mjs --sourcemap',
+  'npx esbuild src/index.ts --bundle --format=esm --target=es2022 --outfile=dist/index.mjs --sourcemap --external:crypto',
   { stdio: 'inherit', cwd: __dirname }
 );
 
 // Build CJS
 execSync(
-  'npx esbuild src/index.ts --bundle --format=cjs --target=es2022 --outfile=dist/index.cjs --sourcemap',
+  'npx esbuild src/index.ts --bundle --format=cjs --target=es2022 --outfile=dist/index.cjs --sourcemap --external:crypto',
   { stdio: 'inherit', cwd: __dirname }
 );
 

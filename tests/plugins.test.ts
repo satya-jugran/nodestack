@@ -2279,7 +2279,7 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
 
         // 3. Verify breadcrumbs
         const breadcrumbs = doc.getElementById('breadcrumb-trail');
-        expect(breadcrumbs.textContent).toContain('Dashboard');
+        expect(breadcrumbs.textContent).toContain('NodeStack');
         expect(breadcrumbs.textContent).toContain('Plugins');
         expect(breadcrumbs.textContent).toContain('Stripe Payments');
 

@@ -82,6 +82,9 @@
         if (typeof fetchDemoStatus === 'function') {
           fetchDemoStatus();
         }
+        if (typeof loadWebhookStats === 'function') {
+          loadWebhookStats();
+        }
         loadCollections().then(() => {
           if (state.activeCollection) {
             if (state.collectionTab === 'records') loadRecords();
@@ -152,6 +155,9 @@
       if (typeof renderPluginNavItems === 'function') {
         renderPluginNavItems();
       }
+      if (typeof loadWebhookStats === 'function') {
+        loadWebhookStats();
+      }
       fetch('/api/plugins').then(r => r.ok ? r.json() : null).then(data => {
         if (data) {
           if (data.navItems) {
@@ -220,6 +226,8 @@
 
         closeModal();
         await loadCollections();
+        if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
+        if (typeof loadWebhookStats === 'function') loadWebhookStats();
         initRealtime();
         selectNav('home');
         toast('Logged in successfully', 'success');
@@ -280,6 +288,8 @@
 
         closeModal();
         await loadCollections();
+        if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
+        if (typeof loadWebhookStats === 'function') loadWebhookStats();
         initRealtime();
         toast('Admin account created! Welcome to NodeStack.', 'success');
       } catch (e) {

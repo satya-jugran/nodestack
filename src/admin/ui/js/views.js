@@ -693,22 +693,6 @@
           </div>
 
           <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:1.5rem;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem;">
-              <div style="display:flex; align-items:center; gap:8px;">
-                <span style="font-size:18px;">🎯</span>
-                <h3 style="font-size:16px; font-weight:700; margin:0;">Demo State & Presentations</h3>
-              </div>
-              <span class="badge badge-get" style="font-size:11px;">1-Click Restore</span>
-            </div>
-            <p style="font-size:13px; color:var(--text-muted); margin-bottom:1rem; line-height:1.4;">
-              Freeze a pristine snapshot of your database and files before client demos or investor pitches. Restore it anytime in one click.
-            </p>
-            <div id="demo-settings-panel">
-              <!-- Dynamically populated by updateDemoSettingsUI() -->
-            </div>
-          </div>
-
-          <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:1.5rem;">
             <h3 style="font-size:16px; font-weight:700; margin-bottom:0.5rem;">TypeScript Server Hooks</h3>
             <p style="color:var(--text-muted); font-size:13px; margin-bottom:1rem;">
               Extend your backend using standard TypeScript with full access to npm:
@@ -727,8 +711,4 @@ await app.start(8090);</pre>
           </div>
         </div>
       `;
-
-      if (typeof fetchDemoStatus === 'function') {
-        fetchDemoStatus();
-      }
     }

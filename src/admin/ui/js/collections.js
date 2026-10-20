@@ -303,9 +303,9 @@ function updateBreadcrumbs() {
 
   const crumbs = [];
 
-  // 1. Dashboard Root
+  // 1. NodeStack Root
   crumbs.push({
-    label: 'Dashboard',
+    label: 'NodeStack',
     clickable: true,
     action: () => selectNav('home')
   });
@@ -336,6 +336,13 @@ function updateBreadcrumbs() {
     crumbs.push({ label: 'Collections', active: true });
   } else if (state.activeNav === 'plugins') {
     crumbs.push({ label: 'Plugins', active: true });
+  } else if (state.activeNav === 'webhooks') {
+    if (typeof webhooksState !== 'undefined' && webhooksState.subTab === 'deliveries') {
+      crumbs.push({ label: 'Webhooks', clickable: true, action: () => { if (typeof switchWebhooksTab === 'function') switchWebhooksTab('webhooks'); } });
+      crumbs.push({ label: 'Delivery Logs', active: true });
+    } else {
+      crumbs.push({ label: 'Webhooks', active: true });
+    }
   } else if (state.activeNav === 'home') {
     crumbs.push({ label: 'Overview', active: true });
   } else if (state.activeNav === 'analytics') {
@@ -345,7 +352,7 @@ function updateBreadcrumbs() {
   } else if (state.activeNav === 'logs') {
     crumbs.push({ label: 'Traffic & Logs', active: true });
   } else if (state.activeNav === 'settings') {
-    crumbs.push({ label: 'System & Settings', active: true });
+    crumbs.push({ label: 'System Info', active: true });
   } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === state.activeNav)) {
     const item = state.pluginNavItems.find(p => p.id === state.activeNav);
     crumbs.push({ label: 'Plugins', clickable: true, action: () => selectNav('plugins') });

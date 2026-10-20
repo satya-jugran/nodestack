@@ -163,3 +163,110 @@ export interface DemoResetResult {
   snapshot: DemoSnapshotMetadata;
   restoredAt: string;
 }
+
+// ==========================================
+// Webhook Types & Models
+// ==========================================
+
+export type WebhookMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'GET' | 'HEAD';
+
+export interface WebhookModel extends BaseSystemFields {
+  name: string;
+  url: string;
+  collection: string;
+  event: string;
+  action: string;
+  method: string;
+  headers: Record<string, string>;
+  secret: string | null;
+  enabled: boolean;
+}
+
+export interface WebhookCreateOptions {
+  name: string;
+  url: string;
+  collection?: string;
+  event?: string;
+  action?: string;
+  method?: string;
+  headers?: Record<string, string> | string;
+  secret?: string | null;
+  enabled?: boolean;
+}
+
+export interface WebhookUpdateOptions {
+  name?: string;
+  url?: string;
+  collection?: string;
+  event?: string;
+  action?: string;
+  method?: string;
+  headers?: Record<string, string> | string;
+  secret?: string | null;
+  enabled?: boolean;
+}
+
+export interface WebhookDeliveryLog {
+  id: string;
+  webhookId: string;
+  webhookName: string;
+  url: string;
+  event: string;
+  collection: string;
+  recordId: string | null;
+  requestHeaders: Record<string, string>;
+  requestPayload: any;
+  responseStatus: number;
+  responseHeaders: Record<string, string>;
+  responseBody: string;
+  durationMs: number;
+  status: 'success' | 'failed';
+  error: string | null;
+  attempt: number;
+  created: string;
+}
+
+export interface WebhookQueryOptions {
+  collection?: string;
+  event?: string;
+  enabled?: boolean;
+}
+
+export interface DeliveryQueryOptions {
+  webhookId?: string;
+  collection?: string;
+  status?: 'success' | 'failed' | 'all';
+  search?: string;
+  page?: number;
+  perPage?: number;
+}
+
+export interface DeliveryListResult {
+  items: WebhookDeliveryLog[];
+  totalItems: number;
+  totalPages: number;
+  page: number;
+  perPage: number;
+}
+
+export interface WebhookStatsResult {
+  totalWebhooks: number;
+  activeWebhooks: number;
+  totalDeliveries: number;
+  successDeliveries: number;
+  failedDeliveries: number;
+  successRate: string;
+}
+
+export interface WebhookPayload<T = any> {
+  event: string;
+  action: string;
+  collection: string;
+  record: T;
+  timestamp: string;
+}
+
+export interface WebhookClearDeliveriesResult {
+  success: boolean;
+  deletedCount: number;
+}
