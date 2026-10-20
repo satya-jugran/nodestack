@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-10-20
+
+Release v1.3.0 delivers three major backend subsystems: Native SQLite FTS5 Full-Text Search (FTSS), an Outbound Webhooks & Delivery Log Engine, and an Immutable Audit Logging subsystem with visual record timeline diffs. It also introduces an official Docusaurus-powered developer documentation site, in-server static docs serving, and Client SDK integrations for webhooks and search.
+
+### Added
+
+#### 1. Native SQLite FTS5 Full-Text Search Subsystem (FTSS)
+* **Embedded Virtual Table Indexing**:
+  * Automatically provisions `_fts_<collection>` SQLite virtual tables utilizing SQLite's native `FTS5` engine.
+  * Real-time index synchronization via atomic SQLite `AFTER INSERT`, `AFTER UPDATE`, and `AFTER DELETE` database triggers.
+  * Schema-level configurable toggle (`fts: true` or `fts: false`) on any text field.
+* **BM25 Relevance Scoring & Ranking**:
+  * Real-time BM25 statistical ranking (`ORDER BY rank ASC`) returning an enriched `_score` attribute on query items.
+* **Keyword Matching & Highlighting**:
+  * Prefix matching (e.g. `type*` matches "typescript", "typedef", "types"), phrase searches (`"exact phrase"`), and multi-token intersections.
+  * Contextual highlight snippets (`_snippet`, `_snippets`) with configurable excerpt word length (`snippetLength`) and HTML wrapper tags (`snippetTag`).
+* **Query Sanitization**:
+  * `sanitizeFtsQuery()` cleanses raw user search input into valid FTS5 MATCH expressions, preventing malformed syntax errors.
+
+#### 2. Outbound Webhooks & Delivery Retries
+* **Automated Webhook Subsystem (`WebhookService`)**:
+  * Automated HTTP callback dispatch triggered by collection mutations (`create`, `update`, `delete`, or wildcard `*`).
+  * Cryptographic HMAC-SHA256 signature generation sent in the `x-nodestack-signature` HTTP request header for downstream verification.
+  * Exponential backoff retry engine for failed delivery attempts (status 500+ or network timeouts).
+* **Webhooks Management REST API (`/api/webhooks`)**:
+  * Full administrative CRUD for registering webhook endpoints, setting secret tokens, and toggling active status.
+  * Test payload dispatch endpoint (`POST /api/webhooks/:id/test`) with latency and status code reporting.
+  * Delivery audit history inspection (`GET /api/webhooks/deliveries`, `GET /api/webhooks/:id/deliveries`) and manual delivery retry (`POST /api/webhooks/deliveries/:id/retry`).
+* **Webhooks Manager in Web Admin UI**:
+  * Visual interface for creating webhooks, testing connectivity, and inspecting chronological delivery attempt drawers.
+* **Client SDK Integration (`client.webhooks`)**:
+  * Methods for `create`, `update`, `delete`, `test`, `getDeliveries`, `retryDelivery`, and `verifySignature(rawBody, signature, secret)`.
+
+#### 3. Immutable Audit Logs & Record History
+* **Mutation Audit Engine (`AuditLogService`)**:
+  * Automatic capture of all collection mutation operations (`create`, `update`, `delete`) in the `_audit_logs` system collection.
+  * Deep field-level `{ old, new }` diff computation identifying exact attribute modifications.
+  * Actor attribution tracking (`actorId`, auth collection, client IP, timestamp).
+  * Sensitive data masking: automatic password redaction and support for `auditMask: true` on private fields.
+* **Record History Timeline Drawer in Admin UI**:
+  * Chronological visual audit trail drawer accessible directly from any record in the data grid.
+  * Formatted visual diffs highlighting added, modified, and removed attributes.
+* **Audit API**:
+  * Administrative query endpoints (`GET /api/audit-logs`, `GET /api/collections/:collection/records/:id/history`) and retention pruning (`POST /api/audit-logs/prune`).
+
+#### 4. Developer Documentation & In-App Server Serving
+* **Docusaurus v3 Documentation Portal (`docs/`)**:
+  * Complete documentation site with Getting Started, Core Concepts, Auth & Security, Realtime, File Storage, Webhooks, TypeScript Server SDK, Client SDK, and Deployment guides.
+  * Offline client-side full-text search powered by `@easyops-cn/docusaurus-search-local`.
+  * GitHub Pages automated deployment workflow (`.github/workflows/deploy-docs.yml`).
+* **In-App Static Documentation Serving (`/documentation/`)**:
+  * NodeStack server directly serves the compiled static documentation portal at `http://localhost:8090/documentation/` via `@fastify/static`.
+  * Sidebar link in the Web Admin Dashboard for one-click access to the full documentation site.
+
+### Changed
+* **Client SDK (`nodestack-client@1.3.0`)**:
+  * Added `search`, `snippetTag`, and `snippetLength` parameters to `collection.getList()` for FTS5 queries.
+  * Added first-class `client.webhooks` service for endpoint management and HMAC-SHA256 signature verification.
+* **Schema Designer**:
+  * Added "Enable FTS5" toggle for text fields in the visual Schema Designer.
+* **OpenAPI 3.0 Generation**:
+  * Dynamic inclusion of Webhooks and Audit Log schemas, request/response models, and parameter descriptions.
+
+### Fixed
+* **SQL Query Filter & Search**: Fixed table qualification, namespaced internal SQL column aliases, and query string escaping.
+* **Lifecycle Normalization**: Ensured clean EventBus unsubscription and lifecycle hook normalization when disabling extensions.
+* **Route Validation**: Added strict HTTP method validation and resolved route shadowing between dynamic plugin routes and core endpoints.
+
+---
+
 ## [1.2.0] - 2026-10-14
 
 Release v1.2.0 introduces a modular Plugin Architecture with official community extensions (Stripe, S3, Resend, Webhooks, Algolia), comprehensive Admin UI usability improvements (multi-column search, interactive sorting, command palette, schema drag-and-drop reordering, and action-aware rule summaries), enhanced modal forms with keyboard shortcuts, and responsive layout refinements.
