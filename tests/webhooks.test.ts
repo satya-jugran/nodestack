@@ -196,7 +196,17 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       const postDeleteWebhook = { collection: 'posts', event: 'post.delete', action: 'delete', enabled: true };
       expect(service.matchesEvent(postDeleteWebhook, 'posts', 'deleted')).toBe(true);
 
-      // 5. Disabled webhook should never match
+      // 5. Webhook with event: '*' and specific action constraint (e.g. action: 'updated')
+      const actionConstrainedWebhook = { collection: '*', event: '*', action: 'updated', enabled: true };
+      expect(service.matchesEvent(actionConstrainedWebhook, 'posts', 'updated')).toBe(true);
+      expect(service.matchesEvent(actionConstrainedWebhook, 'posts', 'created')).toBe(false); // must NOT match created!
+      expect(service.matchesEvent(actionConstrainedWebhook, 'posts', 'deleted')).toBe(false); // must NOT match deleted!
+
+      const actionCreateConstrained = { collection: 'posts', event: '*', action: 'create', enabled: true };
+      expect(service.matchesEvent(actionCreateConstrained, 'posts', 'created')).toBe(true);
+      expect(service.matchesEvent(actionCreateConstrained, 'posts', 'updated')).toBe(false);
+
+      // 6. Disabled webhook should never match
       const disabledWebhook = { ...postWebhook, enabled: false };
       expect(service.matchesEvent(disabledWebhook, 'posts', 'created')).toBe(false);
     });
@@ -579,6 +589,68 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       );
       expect(hookReq).toBeDefined();
       expect(hookReq!.body.event).toBe('posts.created');
+    });
+
+    it('should respect action constraint when event is wildcard (event: "*", action: "updated")', async () => {
+      capturedOutboundRequests = [];
+
+      // Create a webhook with event: "*" but action: "updated"
+      await app.server.inject({
+        method: 'POST',
+        url: '/api/webhooks',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          name: 'Wildcard Event Action Updated Hook',
+          url: 'https://example-action-listener.com/update-only',
+          collection: 'posts',
+          event: '*',
+          action: 'updated',
+          enabled: true,
+        },
+      });
+
+      // 1. Insert record -> should NOT trigger this webhook
+      const createRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/collections/posts/records',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          title: 'Action Constraint Test Post',
+        },
+      });
+      const createdPost = createRes.json();
+      await new Promise((r) => setTimeout(r, 80));
+
+      const createDispatched = capturedOutboundRequests.find(
+        (r) => r.url === 'https://example-action-listener.com/update-only'
+      );
+      expect(createDispatched).toBeUndefined(); // Did not fire for create!
+
+      // 2. Update record -> SHOULD trigger this webhook!
+      await app.server.inject({
+        method: 'PATCH',
+        url: `/api/collections/posts/records/${createdPost.id}`,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          title: 'Action Constraint Test Post (Updated)',
+        },
+      });
+      await new Promise((r) => setTimeout(r, 80));
+
+      const updateDispatched = capturedOutboundRequests.find(
+        (r) => r.url === 'https://example-action-listener.com/update-only'
+      );
+      expect(updateDispatched).toBeDefined();
+      expect(updateDispatched!.body.event).toBe('posts.updated');
     });
 
     it('should dispatch GET and HEAD webhooks body-free with query encoding without fetch throwing', async () => {

@@ -795,7 +795,7 @@ export class WebhookService {
     }
 
     // 1. Check Collection Match
-    const webhookCol = webhook.collection.toLowerCase();
+    const webhookCol = (webhook.collection || '*').toLowerCase();
     let colMatches = webhookCol === '*' || webhookCol === colLower;
     if (!colMatches) {
       // Tolerate singular/plural differences (e.g. 'post' vs 'posts', 'order' vs 'orders')
@@ -807,18 +807,20 @@ export class WebhookService {
     }
     if (!colMatches) return false;
 
-    // 2. Check Event/Action Match
-    const webhookEvent = webhook.event.toLowerCase();
+    // 2. Check Action Constraint (if explicitly specified and non-wildcard)
+    if (webhook.action && webhook.action !== '*') {
+      const act = webhook.action.toLowerCase();
+      if (act !== pastAction && act !== presentAction) {
+        return false;
+      }
+    }
+
+    // 3. Check Event Match
+    const webhookEvent = (webhook.event || '*').toLowerCase();
     if (webhookEvent === '*' || webhookEvent === '*.*') return true;
 
     // Direct action match (e.g. event = 'created' or 'create')
     if (webhookEvent === pastAction || webhookEvent === presentAction) return true;
-
-    // Direct webhook.action match if defined
-    if (webhook.action) {
-      const act = webhook.action.toLowerCase();
-      if (act === pastAction || act === presentAction || act === '*') return true;
-    }
 
     // Composite event match (e.g. 'post.created', 'order.updated', 'posts.create')
     if (webhookEvent.includes('.')) {
