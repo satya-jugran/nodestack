@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
+import { AppError } from '../../core/errors/AppError';
 import {
   WebhookService,
   WebhookQueryOptions,
@@ -35,8 +36,16 @@ export class WebhookController extends BaseController {
     }>,
     reply: FastifyReply
   ): Promise<void> {
-    const created = this.webhookService.createWebhook(req.body);
-    this.ok(reply, created, 201);
+    try {
+      const created = this.webhookService.createWebhook(req.body);
+      this.ok(reply, created, 201);
+    } catch (err: any) {
+      if (err instanceof AppError) {
+        this.error(reply, err.message, err.statusCode);
+        return;
+      }
+      this.error(reply, err.message || 'Failed to create webhook', 400);
+    }
   }
 
   public async getWebhook(
@@ -68,8 +77,16 @@ export class WebhookController extends BaseController {
     }>,
     reply: FastifyReply
   ): Promise<void> {
-    const updated = this.webhookService.updateWebhook(req.params.id, req.body);
-    this.ok(reply, updated);
+    try {
+      const updated = this.webhookService.updateWebhook(req.params.id, req.body);
+      this.ok(reply, updated);
+    } catch (err: any) {
+      if (err instanceof AppError) {
+        this.error(reply, err.message, err.statusCode);
+        return;
+      }
+      this.error(reply, err.message || 'Failed to update webhook', 400);
+    }
   }
 
   public async deleteWebhook(

@@ -4,6 +4,9 @@ import { EventBus } from '../core/events/EventBus';
 import { RecordAfterEventContext } from '../core/events/types';
 import { AppError } from '../core/errors/AppError';
 
+export const ALLOWED_WEBHOOK_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE', 'GET', 'HEAD'] as const;
+export type WebhookMethod = (typeof ALLOWED_WEBHOOK_METHODS)[number];
+
 export interface WebhookConfig {
   id: string;
   name: string;
@@ -208,6 +211,12 @@ export class WebhookService {
     const enabled = data.enabled !== undefined ? (data.enabled ? 1 : 0) : 1;
     const secret = data.secret && data.secret.trim() ? data.secret.trim() : null;
     const method = (data.method || 'POST').trim().toUpperCase();
+    if (!ALLOWED_WEBHOOK_METHODS.includes(method as any)) {
+      throw new AppError(
+        `Invalid HTTP method '${method}'. Allowed methods are: ${ALLOWED_WEBHOOK_METHODS.join(', ')}`,
+        400
+      );
+    }
 
     this.db.prepare(`
       INSERT INTO _webhooks (
@@ -318,7 +327,16 @@ export class WebhookService {
     }
 
     const action = updates.action !== undefined ? updates.action.trim() : event !== '*' ? event : existing.action;
-    const method = updates.method !== undefined ? updates.method.trim().toUpperCase() : existing.method;
+    let method = existing.method;
+    if (updates.method !== undefined) {
+      method = updates.method.trim().toUpperCase();
+      if (!ALLOWED_WEBHOOK_METHODS.includes(method as any)) {
+        throw new AppError(
+          `Invalid HTTP method '${method}'. Allowed methods are: ${ALLOWED_WEBHOOK_METHODS.join(', ')}`,
+          400
+        );
+      }
+    }
 
     let headers = existing.headers;
     if (updates.headers !== undefined) {
@@ -512,17 +530,63 @@ export class WebhookService {
     const recordId = payload?.record?.id || payload?.recordId || null;
 
     const payloadString = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    const method = (webhook.method || 'POST').trim().toUpperCase();
+    const isBodyAllowed = method !== 'GET' && method !== 'HEAD';
+
+    let targetUrl = webhook.url;
+    if (!isBodyAllowed) {
+      try {
+        const urlObj = new URL(webhook.url);
+        if (!urlObj.searchParams.has('event') && eventName) {
+          urlObj.searchParams.set('event', eventName);
+        }
+        if (!urlObj.searchParams.has('collection') && collectionName) {
+          urlObj.searchParams.set('collection', collectionName);
+        }
+        if (!urlObj.searchParams.has('action') && payload?.action) {
+          urlObj.searchParams.set('action', String(payload.action));
+        }
+        if (!urlObj.searchParams.has('recordId') && recordId) {
+          urlObj.searchParams.set('recordId', String(recordId));
+        }
+        if (!urlObj.searchParams.has('timestamp') && payload?.timestamp) {
+          urlObj.searchParams.set('timestamp', String(payload.timestamp));
+        }
+        targetUrl = urlObj.toString();
+      } catch {
+        targetUrl = webhook.url;
+      }
+    }
 
     // Prepare Request Headers
     const requestHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
       'User-Agent': 'NodeStack-Webhooks/1.2.0',
       ...(webhook.headers || {}),
     };
 
+    if (isBodyAllowed) {
+      if (!requestHeaders['Content-Type']) {
+        requestHeaders['Content-Type'] = 'application/json';
+      }
+    } else {
+      // For body-free methods (GET/HEAD), avoid default Content-Type unless explicitly supplied in custom headers
+      if (!webhook.headers || !webhook.headers['Content-Type']) {
+        delete requestHeaders['Content-Type'];
+      }
+    }
+
     // Calculate HMAC-SHA256 Secret Signature (X-NodeStack-Signature)
     if (webhook.secret) {
-      const signature = WebhookService.computeSignature(payloadString, webhook.secret);
+      let signContent = payloadString;
+      if (!isBodyAllowed) {
+        try {
+          const u = new URL(targetUrl);
+          signContent = u.search ? u.search.slice(1) : '';
+        } catch {
+          signContent = '';
+        }
+      }
+      const signature = WebhookService.computeSignature(signContent, webhook.secret);
       requestHeaders['X-NodeStack-Signature'] = signature;
     }
 
@@ -543,12 +607,16 @@ export class WebhookService {
         const controller = new AbortController();
         timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
 
-        const res = await fetchFn(webhook.url, {
-          method: webhook.method || 'POST',
+        const fetchOptions: any = {
+          method,
           headers: requestHeaders,
-          body: payloadString,
           signal: controller.signal,
-        });
+        };
+        if (isBodyAllowed) {
+          fetchOptions.body = payloadString;
+        }
+
+        const res = await fetchFn(targetUrl, fetchOptions);
 
         responseStatus = res.status;
         res.headers.forEach((val, key) => {
@@ -589,7 +657,7 @@ export class WebhookService {
         deliveryId,
         webhook.id,
         webhook.name,
-        webhook.url,
+        targetUrl,
         eventName,
         collectionName,
         recordId,
@@ -612,7 +680,7 @@ export class WebhookService {
       id: deliveryId,
       webhookId: webhook.id,
       webhookName: webhook.name,
-      url: webhook.url,
+      url: targetUrl,
       event: eventName,
       collection: collectionName,
       recordId,

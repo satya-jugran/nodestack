@@ -600,12 +600,25 @@ function openCreateWebhookModal(webhookToEdit = null) {
             <input type="text" id="wh-form-name" class="form-control" placeholder="e.g. Order Notification Service" value="${escapeHtml(initialName)}" />
           </div>
 
-          <!-- Target Endpoint URL -->
-          <div class="form-group">
-            <label class="form-label" for="wh-form-url">Target HTTP Endpoint URL *</label>
-            <input type="url" id="wh-form-url" class="form-control" placeholder="https://api.example.com/webhooks" value="${escapeHtml(initialUrl)}" />
-            <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Outbound POST request will be sent to this URL on matching events.</div>
+          <!-- Target Endpoint URL & Method -->
+          <div style="display: grid; grid-template-columns: 130px 1fr; gap: 12px;">
+            <div class="form-group">
+              <label class="form-label" for="wh-form-method">Method *</label>
+              <select id="wh-form-method" class="form-control">
+                <option value="POST" ${initialMethod === 'POST' ? 'selected' : ''}>POST</option>
+                <option value="PUT" ${initialMethod === 'PUT' ? 'selected' : ''}>PUT</option>
+                <option value="PATCH" ${initialMethod === 'PATCH' ? 'selected' : ''}>PATCH</option>
+                <option value="DELETE" ${initialMethod === 'DELETE' ? 'selected' : ''}>DELETE</option>
+                <option value="GET" ${initialMethod === 'GET' ? 'selected' : ''}>GET</option>
+                <option value="HEAD" ${initialMethod === 'HEAD' ? 'selected' : ''}>HEAD</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="wh-form-url">Target Endpoint URL *</label>
+              <input type="url" id="wh-form-url" class="form-control" placeholder="https://api.example.com/webhooks" value="${escapeHtml(initialUrl)}" />
+            </div>
           </div>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: -6px;">Outbound request dispatched to this URL on matching events (POST/PUT/PATCH/DELETE carry JSON body, GET/HEAD are dispatched body-free with query encoding).</div>
 
           <!-- Collection & Event Selection -->
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -713,6 +726,7 @@ async function submitWebhookForm(existingId) {
   const targetId = existingId || webhooksState.activeWebhookForEdit?.id || null;
   const nameEl = document.getElementById('wh-form-name');
   const urlEl = document.getElementById('wh-form-url');
+  const methodEl = document.getElementById('wh-form-method');
   const colEl = document.getElementById('wh-form-collection');
   const evEl = document.getElementById('wh-form-event');
   const secretEl = document.getElementById('wh-form-secret');
@@ -722,6 +736,7 @@ async function submitWebhookForm(existingId) {
 
   const name = nameEl?.value?.trim();
   const url = urlEl?.value?.trim();
+  const method = methodEl?.value || 'POST';
   const collection = colEl?.value || '*';
   const event = evEl?.value || 'created';
   const secret = secretEl?.value?.trim() || null;
@@ -752,6 +767,7 @@ async function submitWebhookForm(existingId) {
   const payload = {
     name,
     url,
+    method,
     collection,
     event,
     headers,

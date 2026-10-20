@@ -15,6 +15,11 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
   let capturedOutboundRequests: Array<{ url: string; options: any; body: any }> = [];
 
   const mockFetch = vi.fn(async (url: string, options: any) => {
+    // Mirror WHATWG Fetch: reject body on GET and HEAD
+    if ((options.method === 'GET' || options.method === 'HEAD') && options.body !== undefined) {
+      throw new TypeError('Request with GET/HEAD method cannot have body');
+    }
+
     let bodyObj = null;
     try {
       bodyObj = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
@@ -308,6 +313,32 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       expect(resMissingName.statusCode).toBe(400);
     });
 
+    it('should reject webhook creation and update with invalid HTTP method', async () => {
+      const resInvalidMethod = await app.server.inject({
+        method: 'POST',
+        url: '/api/webhooks',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          name: 'Invalid Method Webhook',
+          url: 'https://example.com/webhook',
+          method: 'INVALID_VERB',
+        },
+      });
+      expect(resInvalidMethod.statusCode).toBe(400);
+      expect(resInvalidMethod.json().message).toContain('Invalid HTTP method');
+
+      expect(() => {
+        app.webhooks.createWebhook({
+          name: 'Bad Method',
+          url: 'https://example.com/webhook',
+          method: 'CONNECT',
+        });
+      }).toThrow();
+    });
+
     it('should coordinate with existing webhooks plugin without shadowing GET /api/webhooks/status', async () => {
       // 1. Without plugin, GET /api/webhooks/status reports plugin endpoint not found (not "Webhook not found for id status")
       const noPluginRes = await app.server.inject({
@@ -484,6 +515,74 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
           'whsec_order_secret_555'
         )
       ).toBe(true);
+    });
+
+    it('should dispatch GET and HEAD webhooks body-free with query encoding without fetch throwing', async () => {
+      capturedOutboundRequests = [];
+
+      // 1. Create a GET webhook with a secret
+      const getWhRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/webhooks',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          name: 'Query Notification Ping',
+          url: 'https://example-listener.com/ping',
+          collection: 'posts',
+          event: 'created',
+          method: 'GET',
+          secret: 'whsec_get_secret_123',
+          enabled: true,
+        },
+      });
+      expect(getWhRes.statusCode).toBe(201);
+      const getWebhook = getWhRes.json();
+      expect(getWebhook.method).toBe('GET');
+
+      // 2. Trigger test dispatch
+      const testRes = await app.server.inject({
+        method: 'POST',
+        url: `/api/webhooks/${getWebhook.id}/test`,
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(testRes.statusCode).toBe(200);
+      const delivery = testRes.json();
+      expect(delivery.status).toBe('success');
+
+      // 3. Verify mockFetch received body-free request without TypeError
+      const req = capturedOutboundRequests.find((r) => r.url.startsWith('https://example-listener.com/ping'));
+      expect(req).toBeDefined();
+      expect(req!.options.method).toBe('GET');
+      expect(req!.options.body).toBeUndefined(); // Body-free!
+      expect(req!.options.headers['Content-Type']).toBeUndefined(); // No JSON content-type on body-free GET
+      expect(req!.url).toContain('event='); // Query encoded!
+      expect(req!.url).toContain('collection=posts');
+
+      // 4. Verify HMAC signature over the query string
+      const sig = req!.options.headers['X-NodeStack-Signature'];
+      expect(sig).toBeDefined();
+      const parsedUrl = new URL(req!.url);
+      expect(WebhookService.verifySignature(parsedUrl.search.slice(1), sig, 'whsec_get_secret_123')).toBe(true);
+
+      // 5. Verify HEAD webhook dispatches body-free without error
+      const headWh = app.webhooks.createWebhook({
+        name: 'Heartbeat Check',
+        url: 'https://example-listener.com/heartbeat',
+        method: 'HEAD',
+        enabled: true,
+      });
+      expect(headWh.method).toBe('HEAD');
+
+      const headDelivery = await app.webhooks.dispatch(headWh, { event: 'heartbeat', collection: 'system' });
+      expect(headDelivery.status).toBe('success');
+
+      const headReq = capturedOutboundRequests.find((r) => r.url.startsWith('https://example-listener.com/heartbeat'));
+      expect(headReq).toBeDefined();
+      expect(headReq!.options.method).toBe('HEAD');
+      expect(headReq!.options.body).toBeUndefined(); // Body-free!
     });
   });
 
