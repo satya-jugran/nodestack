@@ -6,6 +6,7 @@ import { JSDOM } from 'jsdom';
 import { NodeStack } from '../src/NodeStack';
 import { WebhookService } from '../src/webhooks/WebhookService';
 import { AdminUIBundler } from '../src/admin/AdminUIBundler';
+import { webhookPlugin } from '../src/plugins/webhooks';
 
 describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
   const testDir = path.resolve(__dirname, '../.test_webhooks_nodestack_data');
@@ -305,6 +306,43 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
         },
       });
       expect(resMissingName.statusCode).toBe(400);
+    });
+
+    it('should coordinate with existing webhooks plugin without shadowing GET /api/webhooks/status', async () => {
+      // 1. Without plugin, GET /api/webhooks/status reports plugin endpoint not found (not "Webhook not found for id status")
+      const noPluginRes = await app.server.inject({
+        method: 'GET',
+        url: '/api/webhooks/status',
+      });
+      expect(noPluginRes.statusCode).toBe(404);
+      expect(noPluginRes.json().message).toContain('Webhooks plugin');
+
+      // 2. Install webhooks plugin dynamically after server boot
+      app.use(
+        webhookPlugin({
+          collections: ['posts'],
+        })
+      );
+
+      // 3. GET /api/webhooks/status is now handled by the dynamic plugin route rather than /api/webhooks/:id
+      const pluginRes = await app.server.inject({
+        method: 'GET',
+        url: '/api/webhooks/status',
+      });
+      expect(pluginRes.statusCode).toBe(200);
+      const pluginBody = pluginRes.json();
+      expect(pluginBody.hasDiscord).toBe(false);
+      expect(pluginBody.monitoredCollections).toContain('posts');
+      expect(pluginBody.listenedEvents).toBeDefined();
+
+      // 4. GET /api/webhooks/:id for actual webhook still returns the webhook config
+      const whRes = await app.server.inject({
+        method: 'GET',
+        url: `/api/webhooks/${createdWebhookId}`,
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(whRes.statusCode).toBe(200);
+      expect(whRes.json().id).toBe(createdWebhookId);
     });
   });
 
