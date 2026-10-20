@@ -37,6 +37,8 @@ import { DemoService } from './demo/DemoService';
 import { DemoController } from './http/controllers/DemoController';
 import { AuditLogService } from './audit/AuditLogService';
 import { AuditLogController } from './http/controllers/AuditLogController';
+import { WebhookService } from './webhooks/WebhookService';
+import { WebhookController } from './http/controllers/WebhookController';
 import { MaintenanceGate } from './core/maintenance/MaintenanceGate';
 import { PluginManager } from './core/plugins/PluginManager';
 import { INodeStackPlugin, NodeStackPlugin } from './core/plugins/types';
@@ -79,6 +81,7 @@ export class NodeStack {
   public readonly pluginManager: PluginManager;
   public readonly auditLogs: AuditLogService;
   public readonly fts: FtsService;
+  public readonly webhooks: WebhookService;
 
   constructor(options: NodeStackOptions = {}) {
     this.container = new Container();
@@ -236,6 +239,23 @@ export class NodeStack {
     const auditLogCtrl = new AuditLogController(this.auditLogs);
     this.container.bindInstance(TOKENS.AuditLogController, auditLogCtrl);
 
+    // 17.6 Webhook Service ("Outbound Webhooks Manager")
+    this.webhooks = new WebhookService(this.db, this.eventBus);
+    this.container.bindInstance(TOKENS.WebhookService, this.webhooks);
+
+    this.eventBus.onRecordAfterCreate(async (ctx) => {
+      await this.webhooks.handleRecordEvent('create', ctx);
+    });
+    this.eventBus.onRecordAfterUpdate(async (ctx) => {
+      await this.webhooks.handleRecordEvent('update', ctx);
+    });
+    this.eventBus.onRecordAfterDelete(async (ctx) => {
+      await this.webhooks.handleRecordEvent('delete', ctx);
+    });
+
+    const webhookCtrl = new WebhookController(this.webhooks);
+    this.container.bindInstance(TOKENS.WebhookController, webhookCtrl);
+
     // 18. HTTP Server
     this.server = new HttpServer(
       this.config,
@@ -256,7 +276,8 @@ export class NodeStack {
       templateCtrl,
       demoCtrl,
       this.maintenanceGate,
-      auditLogCtrl
+      auditLogCtrl,
+      webhookCtrl
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
 

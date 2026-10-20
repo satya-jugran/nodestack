@@ -17,6 +17,7 @@ import { AnalyticsController } from './controllers/AnalyticsController';
 import { TemplateController } from './controllers/TemplateController';
 import { DemoController } from './controllers/DemoController';
 import { AuditLogController } from './controllers/AuditLogController';
+import { WebhookController } from './controllers/WebhookController';
 import { AdminUIService } from '../admin/AdminUIService';
 import { DocsService } from '../admin/DocsService';
 import { TypeGenerator } from '../schema/TypeGenerator';
@@ -57,7 +58,8 @@ export class HttpServer {
     private templateController?: TemplateController,
     private demoController?: DemoController,
     maintenanceGate?: MaintenanceGate,
-    private auditLogController?: AuditLogController
+    private auditLogController?: AuditLogController,
+    private webhookController?: WebhookController
   ) {
     this.maintenanceGate = maintenanceGate;
 
@@ -392,6 +394,43 @@ export class HttpServer {
       );
       app.post('/api/audit-logs/prune', { preHandler: requireAdmin }, (req: any, reply) =>
         this.auditLogController!.pruneLogs(req, reply)
+      );
+    }
+
+    // 7.6 Outbound Webhooks & Delivery Logs (Admin only)
+    if (this.webhookController) {
+      app.get('/api/webhooks', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getWebhooks(req, reply)
+      );
+      app.post('/api/webhooks', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.createWebhook(req, reply)
+      );
+      app.get('/api/webhooks/stats', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getStats(req, reply)
+      );
+      app.get('/api/webhooks/deliveries', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getDeliveries(req, reply)
+      );
+      app.delete('/api/webhooks/deliveries', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.clearDeliveries(req, reply)
+      );
+      app.get('/api/webhooks/deliveries/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getDelivery(req, reply)
+      );
+      app.post('/api/webhooks/deliveries/:id/retry', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.retryDelivery(req, reply)
+      );
+      app.get('/api/webhooks/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getWebhook(req, reply)
+      );
+      app.patch('/api/webhooks/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.updateWebhook(req, reply)
+      );
+      app.delete('/api/webhooks/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.deleteWebhook(req, reply)
+      );
+      app.post('/api/webhooks/:id/test', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.testWebhook(req, reply)
       );
     }
 

@@ -1268,6 +1268,57 @@ export class OpenApiGenerator {
       },
     };
 
+    // 8.5 Webhooks Endpoints (Admin only)
+    tags.push({ name: 'Webhooks', description: 'Outbound webhooks management, delivery tracking, and manual retry' });
+
+    paths['/api/webhooks'] = {
+      get: {
+        tags: ['Webhooks'],
+        summary: 'List configured webhooks',
+        description: 'Returns all outbound webhooks configured in NodeStack (Admin only).',
+        security: [{ BearerAuth: [] }],
+        responses: {
+          '200': { description: 'Webhooks list' },
+          '401': { description: 'Unauthorized' },
+        },
+      },
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Create outbound webhook',
+        description: 'Registers a new outbound webhook with collection, event, endpoint URL, custom headers, and HMAC-SHA256 secret (Admin only).',
+        security: [{ BearerAuth: [] }],
+        responses: {
+          '201': { description: 'Webhook created successfully' },
+          '400': { description: 'Invalid request' },
+        },
+      },
+    };
+
+    paths['/api/webhooks/deliveries'] = {
+      get: {
+        tags: ['Webhooks'],
+        summary: 'List webhook delivery logs',
+        description: 'Returns paginated delivery logs with response codes, duration, headers, and payload (Admin only).',
+        security: [{ BearerAuth: [] }],
+        responses: {
+          '200': { description: 'Delivery logs' },
+        },
+      },
+    };
+
+    paths['/api/webhooks/deliveries/{id}/retry'] = {
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Retry webhook delivery',
+        description: 'Manually re-dispatches a delivery attempt to the target endpoint (Admin only).',
+        security: [{ BearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          '200': { description: 'Retried delivery result' },
+        },
+      },
+    };
+
     paths['/api/types'] = {
       get: {
         tags: ['System'],

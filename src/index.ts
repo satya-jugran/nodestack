@@ -77,6 +77,17 @@ export {
   AuditListResult,
 } from './audit/AuditLogService';
 
+// Webhooks
+export {
+  WebhookService,
+  WebhookConfig,
+  WebhookDeliveryLog,
+  WebhookQueryOptions,
+  DeliveryQueryOptions,
+  DeliveryListResult,
+  WebhookStatsResult,
+} from './webhooks/WebhookService';
+
 // Analytics & Metrics
 export {
   AnalyticsService,
