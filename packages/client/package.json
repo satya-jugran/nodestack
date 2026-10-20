@@ -39,6 +39,7 @@
     "sqlite",
     "typescript"
   ],
+  "funding": "https://ko-fi.com/satyajugran",
   "author": "NodeStack Contributors",
   "license": "MIT",
   "dependencies": {},

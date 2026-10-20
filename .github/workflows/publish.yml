@@ -19,7 +19,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
@@ -30,6 +30,11 @@ jobs:
 
       - name: Build server, client, and plugins
         run: npm run build
+
+      - name: Publish nodestack-client
+        run: npm --workspace=packages/client publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @nodestackapp plugins
         run: node scripts/publish-plugins.js
