@@ -242,16 +242,16 @@ async function loadWebhooksList() {
                   </td>
                   <td style="text-align: right;">
                     <div style="display: inline-flex; align-items: center; gap: 4px;">
-                      <button class="btn btn-secondary btn-sm" onclick="triggerTestWebhook('${wh.id}')" title="Test Webhook with Live Sample Event" style="padding: 3px 8px; font-size: 11px;">
+                      <button class="btn btn-secondary btn-sm" data-id="${escapeHtml(wh.id)}" onclick="triggerTestWebhook(this.getAttribute('data-id'))" title="Test Webhook with Live Sample Event" style="padding: 3px 8px; font-size: 11px;">
                         ⚡ Test
                       </button>
-                      <button class="btn btn-secondary btn-sm" onclick="viewWebhookDeliveries('${wh.id}')" title="View Delivery Logs" style="padding: 3px 8px; font-size: 11px;">
+                      <button class="btn btn-secondary btn-sm" data-id="${escapeHtml(wh.id)}" onclick="viewWebhookDeliveries(this.getAttribute('data-id'))" title="View Delivery Logs" style="padding: 3px 8px; font-size: 11px;">
                         Logs
                       </button>
-                      <button class="btn btn-secondary btn-sm" onclick="openEditWebhookModal('${wh.id}')" title="Edit Webhook" style="padding: 3px 8px; font-size: 11px;">
+                      <button class="btn btn-secondary btn-sm" data-id="${escapeHtml(wh.id)}" onclick="openEditWebhookModal(this.getAttribute('data-id'))" title="Edit Webhook" style="padding: 3px 8px; font-size: 11px;">
                         Edit
                       </button>
-                      <button class="btn btn-secondary btn-sm" onclick="deleteWebhook('${wh.id}', '${escapeHtml(wh.name)}')" title="Delete Webhook" style="padding: 3px 6px; font-size: 11px; color: #f87171;">
+                      <button class="btn btn-secondary btn-sm" data-id="${escapeHtml(wh.id)}" data-name="${escapeHtml(wh.name)}" onclick="handleDeleteWebhookClick(this)" title="Delete Webhook" style="padding: 3px 6px; font-size: 11px; color: #f87171;">
                         ✕
                       </button>
                     </div>
@@ -429,10 +429,10 @@ async function fetchAndRenderDeliveriesRows() {
           </td>
           <td style="text-align: right;">
             <div style="display: inline-flex; align-items: center; gap: 4px;">
-              <button class="btn btn-secondary btn-sm" onclick="openDeliveryDetailModal('${del.id}')" title="Inspect Request Payload & Response" style="padding: 3px 8px; font-size: 11px;">
+              <button class="btn btn-secondary btn-sm" data-id="${escapeHtml(del.id)}" onclick="openDeliveryDetailModal(this.getAttribute('data-id'))" title="Inspect Request Payload & Response" style="padding: 3px 8px; font-size: 11px;">
                 👁 View
               </button>
-              <button class="btn-retry-action" id="btn-retry-${del.id}" onclick="retryWebhookDelivery('${del.id}', this)" title="Manual Retry: Re-send Payload to Target Endpoint">
+              <button class="btn-retry-action" id="btn-retry-${escapeHtml(del.id)}" data-id="${escapeHtml(del.id)}" onclick="retryWebhookDelivery(this.getAttribute('data-id'), this)" title="Manual Retry: Re-send Payload to Target Endpoint">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                 Retry
               </button>
@@ -668,7 +668,7 @@ function openCreateWebhookModal(webhookToEdit = null) {
 
         <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
           <button class="btn btn-secondary btn-sm" onclick="closeWebhookModal()">Cancel</button>
-          <button class="btn btn-primary btn-sm" id="btn-save-webhook" onclick="submitWebhookForm('${webhookToEdit?.id || ''}')">
+          <button class="btn btn-primary btn-sm" id="btn-save-webhook" data-id="${escapeHtml(webhookToEdit?.id || '')}" onclick="submitWebhookForm(this.getAttribute('data-id'))">
             ${isEdit ? 'Save Changes' : 'Create Webhook'}
           </button>
         </div>
@@ -710,6 +710,7 @@ function generateRandomWebhookSecret() {
 }
 
 async function submitWebhookForm(existingId) {
+  const targetId = existingId || webhooksState.activeWebhookForEdit?.id || null;
   const nameEl = document.getElementById('wh-form-name');
   const urlEl = document.getElementById('wh-form-url');
   const colEl = document.getElementById('wh-form-collection');
@@ -764,8 +765,8 @@ async function submitWebhookForm(existingId) {
   }
 
   try {
-    if (existingId) {
-      await api(`/api/webhooks/${existingId}`, {
+    if (targetId) {
+      await api(`/api/webhooks/${targetId}`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
       });
@@ -785,7 +786,7 @@ async function submitWebhookForm(existingId) {
     if (typeof toast === 'function') toast(err.message || 'Failed to save webhook', 'error');
     if (saveBtn) {
       saveBtn.disabled = false;
-      saveBtn.textContent = existingId ? 'Save Changes' : 'Create Webhook';
+      saveBtn.textContent = targetId ? 'Save Changes' : 'Create Webhook';
     }
   }
 }
@@ -801,8 +802,17 @@ async function openEditWebhookModal(id) {
   }
 }
 
+function handleDeleteWebhookClick(btnEl) {
+  if (!btnEl) return;
+  const id = btnEl.getAttribute('data-id');
+  const name = btnEl.getAttribute('data-name');
+  deleteWebhook(id, name);
+}
+
 async function deleteWebhook(id, name) {
-  if (!confirm(`Are you sure you want to delete webhook "${name}"?`)) {
+  const webhook = (webhooksState.webhooks || []).find(w => w.id === id);
+  const webhookName = name || webhook?.name || 'this webhook';
+  if (!confirm(`Are you sure you want to delete webhook "${webhookName}"?`)) {
     return;
   }
   try {
@@ -888,7 +898,7 @@ async function openDeliveryDetailDrawer(deliveryId) {
           <div>
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
               <span style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted);">Target Endpoint URL</span>
-              <button class="btn btn-secondary btn-sm" onclick="copyWebhookText('${escapeHtml(del.url)}', 'URL copied!')" style="padding:2px 8px; font-size:10px;">Copy URL</button>
+              <button class="btn btn-secondary btn-sm" data-url="${escapeHtml(del.url)}" onclick="copyWebhookText(this.getAttribute('data-url'), 'URL copied!')" style="padding:2px 8px; font-size:10px;">Copy URL</button>
             </div>
             <div style="background:#090d16; border:1px solid var(--border-subtle); border-radius:6px; padding:8px 12px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--text-main); word-break:break-all;">
               POST ${escapeHtml(del.url)}
@@ -936,7 +946,7 @@ async function openDeliveryDetailDrawer(deliveryId) {
 
         <!-- Drawer Footer -->
         <div class="drawer-footer" style="padding:1rem 1.5rem; border-top:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center; background:#11141d; flex-shrink:0;">
-          <button class="btn-retry-action" id="drawer-retry-btn" onclick="retryWebhookDelivery('${del.id}', this)">
+          <button class="btn-retry-action" id="drawer-retry-btn" data-id="${escapeHtml(del.id)}" onclick="retryWebhookDelivery(this.getAttribute('data-id'), this)">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Retry Delivery Now
           </button>
@@ -1019,6 +1029,7 @@ if (typeof window !== 'undefined') {
   window.openCreateWebhookModal = openCreateWebhookModal;
   window.openEditWebhookModal = openEditWebhookModal;
   window.deleteWebhook = deleteWebhook;
+  window.handleDeleteWebhookClick = handleDeleteWebhookClick;
   window.updateWebhookEventPreview = updateWebhookEventPreview;
   window.generateRandomWebhookSecret = generateRandomWebhookSecret;
   window.submitWebhookForm = submitWebhookForm;

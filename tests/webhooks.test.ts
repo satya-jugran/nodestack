@@ -599,6 +599,7 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       expect(bundled).toContain('function retryWebhookDelivery');
       expect(bundled).toContain('function openDeliveryDetailDrawer');
       expect(bundled).toContain('openDeliveryDetailModal');
+      expect(bundled).toContain('function handleDeleteWebhookClick');
 
       // HTML elements verification
       expect(bundled).toContain('id="nav-webhooks"');
@@ -638,6 +639,17 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
               event: 'order.updated',
               headers: { 'X-Auth': 'Bearer token' },
               secret: 'whsec_sample_secret',
+              enabled: true,
+              created: '2026-10-19T10:00:00Z',
+            },
+            {
+              id: 'whk_sample_2',
+              name: "O'Reilly's Hook'); alert(1); ('",
+              url: 'https://example.com/api?q=it\'s_test',
+              collection: 'orders',
+              event: 'created',
+              headers: {},
+              secret: '',
               enabled: true,
               created: '2026-10-19T10:00:00Z',
             },
@@ -709,6 +721,20 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       expect(document.getElementById('wh-stat-active')?.textContent).toBe('2');
       expect(document.getElementById('wh-stat-deliveries')?.textContent).toBe('15');
       expect(document.getElementById('wh-stat-rate')?.textContent).toBe('93.3%');
+
+      // 3.5 Verify safe rendering of webhook with apostrophes and special characters in name
+      const deleteButtons = document.querySelectorAll('button[title="Delete Webhook"]');
+      expect(deleteButtons.length).toBe(2);
+      const dangerousBtn = Array.from(deleteButtons).find((b: any) => b.getAttribute('data-id') === 'whk_sample_2') as HTMLButtonElement;
+      expect(dangerousBtn).toBeDefined();
+      expect(dangerousBtn.getAttribute('data-name')).toBe("O'Reilly's Hook'); alert(1); ('");
+      expect(dangerousBtn.getAttribute('onclick')).toBe('handleDeleteWebhookClick(this)');
+      // Verify clicking triggers confirm without JS execution error or string breakout
+      window.confirm = vi.fn(() => false);
+      dangerousBtn.click();
+      expect(window.confirm).toHaveBeenCalledWith(
+        expect.stringContaining("O'Reilly's Hook'); alert(1); ('")
+      );
 
       // 4. Test Create Webhook Modal
       window.openCreateWebhookModal();
