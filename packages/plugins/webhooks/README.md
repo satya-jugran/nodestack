@@ -1,6 +1,6 @@
 # @nodestackapp/plugin-webhooks
 
-Official Discord & Slack realtime database mutation alerts and webhook audit logger for [NodeStack](https://github.com/satya-jugran/nodebase).
+Official Discord & Slack realtime database mutation alerts and webhook audit logger for [NodeStack](https://github.com/satya-jugran/nodestack).
 
 ## Features
 

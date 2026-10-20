@@ -22,13 +22,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/satya-jugran/nodebase.git",
+    "url": "git+https://github.com/satya-jugran/nodestack.git",
     "directory": "packages/client"
   },
   "bugs": {
-    "url": "https://github.com/satya-jugran/nodebase/issues"
+    "url": "https://github.com/satya-jugran/nodestack/issues"
   },
-  "homepage": "https://github.com/satya-jugran/nodebase#readme",
+  "homepage": "https://github.com/satya-jugran/nodestack#readme",
   "keywords": [
     "nodestack",
     "nodestack-client",

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="ns-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <filter id="ns-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#38bdf8" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="#0c0e14"/>
+  <path d="M7 21L16 26L25 21" stroke="url(#ns-grad)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M7 16L16 21L25 16" stroke="url(#ns-grad)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M16 6L25 11L16 16L7 11L16 6Z" fill="url(#ns-grad)" stroke="#60a5fa" stroke-width="0.8"/>
+  <circle cx="16" cy="11" r="2.2" fill="#ffffff" filter="url(#ns-glow)"/>
+</svg>

@@ -29,7 +29,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/satya-jugran/nodebase.git",
+    "url": "git+https://github.com/satya-jugran/nodestack.git",
     "directory": "packages/plugins/stripe"
   },
   "keywords": [

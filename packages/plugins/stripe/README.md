@@ -1,6 +1,6 @@
 # @nodestackapp/plugin-stripe
 
-Official Stripe payments, checkout sessions, customer billing, and webhook integration plugin for [NodeStack](https://github.com/satya-jugran/nodebase).
+Official Stripe payments, checkout sessions, customer billing, and webhook integration plugin for [NodeStack](https://github.com/satya-jugran/nodestack).
 
 ## Features
 

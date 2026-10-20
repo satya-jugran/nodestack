@@ -133,7 +133,7 @@ export class AdminUIService {
 
     // Admin UI route and SPA fallback
     server.get('/_/*', async (req: FastifyRequest, reply: FastifyReply) => {
-      if (req.url.startsWith('/_/docs') || req.url.startsWith('/_/openapi')) {
+      if (req.url.startsWith('/_/docs') || req.url.startsWith('/_/openapi') || req.url.startsWith('/_/documentation')) {
         return reply.callNotFound();
       }
       reply.header('Content-Type', 'text/html; charset=utf-8');

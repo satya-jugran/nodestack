@@ -1,6 +1,6 @@
 # @nodestackapp/plugin-algolia
 
-Official Algolia instant search synchronization and automated index pipeline plugin for [NodeStack](https://github.com/satya-jugran/nodebase).
+Official Algolia instant search synchronization and automated index pipeline plugin for [NodeStack](https://github.com/satya-jugran/nodestack).
 
 ## Features
 

@@ -1,6 +1,6 @@
 # @nodestackapp/plugin-s3
 
-Official S3 & S3-compatible cloud storage plugin (AWS S3, Cloudflare R2, MinIO, Backblaze B2) for [NodeStack](https://github.com/satya-jugran/nodebase).
+Official S3 & S3-compatible cloud storage plugin (AWS S3, Cloudflare R2, MinIO, Backblaze B2) for [NodeStack](https://github.com/satya-jugran/nodestack).
 
 ## Features
 

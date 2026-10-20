@@ -26,6 +26,9 @@ Building modern web and mobile apps often requires managing complex database ser
 - **One-Click CSV & JSON Import / Export**: RFC 4180-compliant import with auto-delimiter detection and filtered exports.
 - **Visual Access Rule Builder**: Intuitive visual clause builder with prebuilt security presets and live syntax validation.
 - **Realtime Analytics & Metrics Dashboard**: High-level KPI cards, 24-hour traffic throughput and error rate graphs, database disk usage, and client connection counts.
+- **Native SQLite FTS5 Full-Text Search**: Embedded BM25 relevance ranking, keyword prefix matching, and contextual snippet highlighting without external search services.
+- **Outbound Webhooks Engine**: Automated HTTP callbacks for collection mutations, HMAC-SHA256 signature verification, and delivery retry tracking.
+- **Immutable Audit Logs & Change History**: Field-level `{ old, new }` diff computation, actor attribution, sensitive data masking, and visual record timeline.
 - **First-Party Client SDK (`nodestack-client`)**: Zero-dependency, lightweight (<10KB) TypeScript/JavaScript client for web apps, React/Next.js, React Native, Node.js, Bun, and Deno.
 - **Full TypeScript & npm Extensibility**: Write server hooks, custom routes, and business logic with direct access to the entire 2-million-package npm ecosystem.
 - **OOP Architecture with DI / IoC**: Built with Clean Architecture, Inversion of Control, and SOLID principles.
@@ -172,7 +175,9 @@ For every collection created, NodeStack automatically generates:
 - **Pagination**: `?page=1&perPage=25`
 - **Sorting**: `?sort=-created,title` (`-` for descending, `+` for ascending)
 - **Filtering**: `?filter=(status = 'active' && views >= 100)`
-- **Search (Like)**: `?filter=title ~ 'node'`
+- **Full-Text Search (FTS5)**: `?search=typescript+backend` (BM25 relevance scored)
+- **Keyword Highlighting & Snippets**: `?search=node&snippetTag=mark&snippetLength=25`
+- **Pattern Search (Like)**: `?filter=title ~ 'node'`
 - **Expand Relations**: `?expand=author,category`
 
 ### 3. Collection Access Rules
@@ -199,6 +204,8 @@ Served directly at `/_/`:
 - **First-run onboarding**: Create the first superuser account in seconds.
 - **Schema Designer**: Visual table designer with text, number, bool, email, url, date, select, json, file, and relation fields.
 - **Data Grid / Record Explorer**: Search, filter, edit, delete, and add records.
+- **Audit History Timeline Drawer**: Inspect chronological data mutations per record with old-to-new field diffs and actor attribution.
+- **Webhooks Manager**: Visual management of webhook endpoints, test payload dispatch, and delivery log inspection with manual retry.
 - **Visual Access Rule Builder**: Interactive rule builder with security presets and live syntax validation.
 - **Analytics & Metrics Dashboard**: Visual KPI cards and 24-hour traffic charts.
 - **CSV & JSON Import / Export**: Drag-and-drop CSV importer and one-click filtered dataset exporter.
@@ -403,6 +410,105 @@ Test and verify active plugins directly from the Admin UI using the in-context *
   - 🔍 **Algolia**: Trigger manual index reindexing and flush background sync queues.
 - **Audit Table Links**: 1-click jump from tester output directly to corresponding tracking collections (`_stripe_payments`, `_s3_uploads`, `_email_logs`, `_webhook_logs`, `_algolia_sync_queue`).
 
+### 15. Native SQLite FTS5 Full-Text Search Engine (FTSS)
+
+NodeStack includes an embedded, high-performance Full-Text Search Subsystem (FTSS) powered by SQLite's native `FTS5` virtual table engine. Delivers lightning-fast search without requiring heavy external dependencies like Elasticsearch, Meilisearch, or Algolia:
+
+- **Automatic FTS Virtual Tables & Synchronization**:
+  - Automatically provisions `_fts_<collection>` virtual tables for text fields.
+  - Keeps search indices synchronized in real time via atomic SQLite `AFTER INSERT`, `AFTER UPDATE`, and `AFTER DELETE` database triggers.
+  - Configurable schema-level inclusion/exclusion (`fts: true` or `fts: false`).
+- **BM25 Relevance Scoring & Ranking**:
+  - Automatically ranks search results by BM25 relevance score (`ORDER BY rank ASC`).
+  - Search queries return an enriched `_score` field reflecting match quality.
+- **Robust & Safe Query Sanitization**:
+  - `sanitizeFtsQuery()` safely cleans raw user search input into valid FTS5 MATCH expressions.
+  - Supports prefix matching (e.g. `type*` matches "typescript", "types"), quoted phrases (`"exact phrase"`), and multi-token intersections while stripping malformed punctuation that could trigger SQL syntax errors.
+- **Contextual Keyword Highlighting & Snippets**:
+  - Extracts matching text excerpts with customizable highlighting tags and snippet lengths.
+  - Injects `_snippet` (best match across fields) and `_snippets` (field-level dictionary of snippets).
+- **REST API Usage**:
+  ```http
+  GET /api/collections/articles/records?search=typescript+backend&snippetTag=mark&snippetLength=30
+  ```
+- **First-Party Client SDK (`nodestack-client`)**:
+  ```typescript
+  const results = await client.collection('articles').getList(1, 10, {
+    search: 'distributed systems',
+    snippetTag: 'em',
+    snippetLength: 20,
+  });
+
+  console.log(results.items[0]._score);    // e.g. -2.48 (BM25 relevance score)
+  console.log(results.items[0]._snippet);  // "Deep dive into <em>distributed</em> <em>systems</em> architecture..."
+  ```
+
+### 16. Outbound Webhooks Engine & Delivery Tracking
+
+Automatically notify third-party services and microservices when collection data changes:
+
+- **Event-Driven Dispatch**:
+  - Subscribes to collection lifecycle mutations (`create`, `update`, `delete`, or wildcard `*`).
+  - Dispatches non-blocking HTTP `POST` requests with serialized JSON payload envelopes.
+- **HMAC-SHA256 Cryptographic Signatures**:
+  - Every outbound payload is signed using an optional shared secret via HMAC-SHA256.
+  - Verifiable through standard headers:
+    - `X-NodeStack-Signature: sha256=<hex_hmac>`
+    - `X-NodeStack-Delivery: <delivery_uuid>`
+    - `X-NodeStack-Event: <action>`
+- **Delivery Logging, Inspection & Manual Retry**:
+  - Full request/response logging stored in `_webhook_deliveries` (`status`, `httpStatus`, `requestPayload`, `responseBody`, `durationMs`, `attempt`, `nextRetryAt`).
+  - 1-click delivery retry via Admin UI or REST API (`POST /api/webhooks/deliveries/:id/retry`).
+  - Automated retry scheduling for transient network errors.
+- **REST API Endpoints**:
+  - `GET /api/webhooks` — List configured webhooks
+  - `POST /api/webhooks` — Create webhook (`name`, `url`, `collection`, `action`, `secret`, `headers`, `enabled`)
+  - `GET /api/webhooks/:id` — View webhook configuration
+  - `PATCH /api/webhooks/:id` — Update webhook
+  - `DELETE /api/webhooks/:id` — Delete webhook
+  - `POST /api/webhooks/:id/test` — Trigger instant test payload
+  - `GET /api/webhooks/stats` — High-level delivery statistics & health metrics
+  - `GET /api/webhooks/deliveries` — Paginated delivery history logs
+  - `POST /api/webhooks/deliveries/:id/retry` — Manually retry a delivery
+  - `DELETE /api/webhooks/deliveries/prune?days=30` — Prune historical delivery logs
+- **First-Party Client SDK (`nodestack-client`)**:
+  ```typescript
+  // 1. Register a webhook
+  const webhook = await client.webhooks.create({
+    name: 'Order Fulfillment Webhook',
+    url: 'https://api.myapp.com/webhooks/orders',
+    collection: 'orders',
+    action: 'create',
+    secret: 'whsec_9948a8cf38b1e42c',
+  });
+
+  // 2. Dispatch a test ping
+  await client.webhooks.test(webhook.id);
+
+  // 3. Verify signature in your receiver endpoint
+  const isValid = client.webhooks.verifySignature(rawPayloadString, signatureHeader, 'whsec_9948a8cf38b1e42c');
+  ```
+
+### 17. Immutable Data Mutation Audit Logs & Change History
+
+Track every data mutation with full before-and-after audit trails for enterprise compliance, security, and debugging:
+
+- **Granular Field-Level Diffing**:
+  - Computes precise `{ old, new }` diffs for modified columns on every `update`.
+  - Captures full initial snapshots on `create` and final states on `delete`.
+- **Sensitive Credential Redaction**:
+  - Passwords and auth secret tokens (`passwordHash`, `tokenKey`) are never recorded in plain text or leaked into diffs.
+  - Auth credential updates safely register a redacted diff marker (`[redacted]`).
+- **Comprehensive Attribution Metadata**:
+  - Tracks actor details (`actorId`, `actorEmail`, `authCollection`), client IP address (`ipAddress`), timestamp (`created`), and target collection/record.
+- **Admin UI Record Timeline & System Inspector**:
+  - **Record History Drawer**: Open any record in the Admin UI and click **"History"** to inspect a visual chronological timeline with directional diff tables (`old` ➔ `new`).
+  - **System Info Audit View**: Filter global audit logs by collection, action type, actor, or date range directly within the Admin UI under `/_/#system`.
+- **REST API Endpoints** (Admin only):
+  - `GET /api/audit-logs` — Global audit logs with pagination and filters (`collection`, `action`, `actorId`, `recordId`, `dateFrom`, `dateTo`)
+  - `GET /api/collections/:collection/records/:id/audit-logs` — Chronological audit timeline for a single record
+  - `POST /api/audit-logs/prune?days=90` — Data retention pruning
+
 ---
 
 ## 🛠️ CLI Reference
@@ -441,7 +547,7 @@ Test and verify active plugins directly from the Admin UI using the in-context *
 npm test
 ```
 
-Includes 90+ tests across 11 test suites covering IoC DI resolution, RuleEngine AST evaluation, Visual Rule Builder, SQL query filter parser, CSV/JSON import & export, OpenAPI generation, TypeScript typegen, Analytics metrics, REST API, Auth, File uploads, and the Web Admin UI.
+Includes 440+ tests across 26 test suites covering IoC DI resolution, RuleEngine AST evaluation, Visual Rule Builder, SQLite FTS5 full-text search, Outbound Webhooks & delivery retries, Data mutation audit logging, SQL query filter parser, CSV/JSON import & export, OpenAPI generation, TypeScript typegen, Analytics metrics, REST API, Auth session revocation, File uploads, and the Web Admin UI.
 
 ---
 

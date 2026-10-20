@@ -1,6 +1,6 @@
 # @nodestackapp/plugin-resend
 
-Official Resend transactional email delivery and dispatch audit logging plugin for [NodeStack](https://github.com/satya-jugran/nodebase).
+Official Resend transactional email delivery and dispatch audit logging plugin for [NodeStack](https://github.com/satya-jugran/nodestack).
 
 ## Features
 

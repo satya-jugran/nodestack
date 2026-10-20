@@ -1,6 +1,6 @@
 # 🚀 nodestack-client
 
-> **The Official Lightweight, Type-Safe JavaScript & TypeScript Client SDK for [NodeStack](https://github.com/satya-jugran/nodebase)**
+> **The Official Lightweight, Type-Safe JavaScript & TypeScript Client SDK for [NodeStack](https://github.com/satya-jugran/nodestack)**
 >
 > Published on npm: [`nodestack-client`](https://www.npmjs.com/package/nodestack-client)
 
@@ -13,6 +13,8 @@ A zero-dependency, isomorphic JavaScript and TypeScript client for NodeStack wit
 - 🪶 **Ultra-lightweight footprint**: `< 10 KB` minified + gzipped.
 - 🔒 **Pluggable & Reactive Auth**: `LocalAuthStore` (localStorage), `MemoryAuthStore` (Node/SSR/testing), and reactive `onChange` state subscriptions.
 - 📦 **Fluent Record CRUD & Batch Pagination**: `getList`, `getFullList`, `getFirstListItem`, `create`, `update`, `delete`, `export`, and `import`.
+- 🔍 **SQLite FTS5 Full-Text Search**: Embedded BM25 relevance ranking, keyword prefix matching, and contextual snippet highlighting.
+- 🔔 **Outbound Webhooks Service**: Programmatic webhook registration, test dispatch, delivery inspection, and HMAC-SHA256 signature verification (`client.webhooks`).
 - 📁 **File Uploads & Protected File URLs**: Seamless `FormData` file uploads and URL generation with automatic token appending.
 - 📡 **Multiplexed Realtime SSE**: Single persistent connection with auto-handshake (`NS_CONNECT`), dynamic subscription sync, and automatic reconnection.
 - 🎯 **100% Type Safety**: Works seamlessly with `nodestack typegen` and `GET /api/types.d.ts` for autocompleted collection names and typed record returns.
@@ -110,7 +112,21 @@ const result = await client.collection('posts').getList(1, 10, {
 console.log(result.page, result.totalPages, result.items);
 ```
 
-### 2. Fetch All Records Across Pages (`getFullList`)
+### 2. Full-Text Search with BM25 Scoring & Snippets (`search`)
+Query records using embedded SQLite FTS5 with BM25 relevance ranking and keyword highlight snippets:
+```typescript
+const searchResults = await client.collection('posts').getList(1, 10, {
+  search: 'distributed systems',
+  snippetTag: 'mark',     // Highlight tag (default: <mark>)
+  snippetLength: 25,       // Max words per snippet excerpt
+});
+
+console.log(searchResults.items[0]._score);    // BM25 relevance score
+console.log(searchResults.items[0]._snippet);  // Best matching snippet excerpt
+console.log(searchResults.items[0]._snippets); // Per-field snippet map: { title: "...", content: "..." }
+```
+
+### 3. Fetch All Records Across Pages (`getFullList`)
 Auto-paginates in batches and returns all matching records as a single array:
 ```typescript
 const allPosts = await client.collection('posts').getFullList({
@@ -119,13 +135,13 @@ const allPosts = await client.collection('posts').getFullList({
 });
 ```
 
-### 3. Find First Matching Record (`getFirstListItem`)
+### 4. Find First Matching Record (`getFirstListItem`)
 ```typescript
 // Throws ClientResponseError(404) if no match is found
 const post = await client.collection('posts').getFirstListItem("slug = 'hello-world'");
 ```
 
-### 4. Create Record (JSON or File Uploads)
+### 5. Create Record (JSON or File Uploads)
 ```typescript
 // Plain JSON
 const newPost = await client.collection('posts').create({
@@ -141,7 +157,7 @@ formData.append('coverImage', fileInput.files[0]);
 const postWithImage = await client.collection('posts').create(formData);
 ```
 
-### 5. Update & Delete Records
+### 6. Update & Delete Records
 ```typescript
 // Update
 const updated = await client.collection('posts').update('rec_123', {
@@ -276,6 +292,45 @@ client.setChaos({
 
 // Disable chaos
 client.setChaos(null);
+```
+
+---
+
+## 🔔 Outbound Webhooks Management & Signature Verification
+
+Manage outbound webhook subscriptions, inspect delivery logs, and cryptographically verify incoming webhook payloads:
+
+```typescript
+// 1. Create a webhook subscription
+const webhook = await client.webhooks.create({
+  name: 'Slack Order Dispatcher',
+  url: 'https://api.myapp.com/webhooks/orders',
+  collection: 'orders',
+  action: 'create', // 'create' | 'update' | 'delete' | '*'
+  secret: 'whsec_9948a8cf38b1e42c',
+  enabled: true,
+});
+
+// 2. Dispatch an instant test payload
+await client.webhooks.test(webhook.id, { test: true });
+
+// 3. Inspect delivery history logs
+const deliveries = await client.webhooks.getDeliveries({
+  webhookId: webhook.id,
+  status: 'failed',
+});
+
+// 4. Retry a failed delivery attempt
+if (deliveries.items.length > 0) {
+  await client.webhooks.retryDelivery(deliveries.items[0].id);
+}
+
+// 5. Verify HMAC-SHA256 signature in your receiving server/microservice
+const isValid = client.webhooks.verifySignature(
+  rawRequestBodyString,
+  requestHeaders['x-nodestack-signature'],
+  'whsec_9948a8cf38b1e42c'
+);
 ```
 
 ---

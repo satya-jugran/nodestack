@@ -1,4 +1,7 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import fastifyStatic from '@fastify/static';
+import * as fs from 'fs';
+import * as path from 'path';
 import { ConfigService } from '../core/config/ConfigService';
 import { OpenApiGenerator } from '../schema/OpenApiGenerator';
 
@@ -41,6 +44,150 @@ export class DocsService {
     server.get('/api/docs/', async (_req: FastifyRequest, reply: FastifyReply) => {
       return reply.redirect('/_/docs');
     });
+
+    // 3. Compiled Docusaurus Documentation Portal
+    const docsDir = this.resolveDocsDir();
+    if (docsDir) {
+      server.register(fastifyStatic, {
+        root: docsDir,
+        prefix: '/documentation/',
+        extensions: ['html'],
+        decorateReply: false,
+      });
+
+      const redirectToDocs = async (_req: FastifyRequest, reply: FastifyReply) => {
+        return reply.redirect('/documentation/');
+      };
+
+      server.get('/docs', redirectToDocs);
+      server.get('/docs/', redirectToDocs);
+      server.get('/_/documentation', redirectToDocs);
+      server.get('/_/documentation/', redirectToDocs);
+    } else {
+      const sendNotBuiltHtml = async (_req: FastifyRequest, reply: FastifyReply) => {
+        reply.header('Content-Type', 'text/html; charset=utf-8');
+        return reply.send(this.renderDocsNotBuiltHtml());
+      };
+
+      server.get('/documentation', sendNotBuiltHtml);
+      server.get('/documentation/', sendNotBuiltHtml);
+      server.get('/documentation/*', sendNotBuiltHtml);
+      server.get('/_/documentation', sendNotBuiltHtml);
+      server.get('/_/documentation/*', sendNotBuiltHtml);
+    }
+  }
+
+  /**
+   * Resolves the path to the compiled Docusaurus static build directory.
+   */
+  public resolveDocsDir(): string | null {
+    const candidates = [
+      path.resolve(process.cwd(), 'docs/build'),
+      path.resolve(__dirname, '../../docs/build'),
+      path.resolve(__dirname, '../../../docs/build'),
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c) && fs.existsSync(path.join(c, 'index.html'))) {
+        return c;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Fallback page shown when compiled docs are requested before `npm run docs:build` is run.
+   */
+  public renderDocsNotBuiltHtml(): string {
+    const appName = this.config?.appName || 'NodeStack';
+    return `<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${appName} — Documentation</title>
+  <link rel="icon" type="image/svg+xml" href="/_/icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      background: #0c0e14;
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      text-align: center;
+    }
+    .card {
+      background: #151922;
+      border: 1px solid #1e293b;
+      border-radius: 16px;
+      padding: 2.5rem;
+      max-width: 580px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    }
+    .icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      color: #f1f5f9;
+    }
+    p {
+      color: #94a3b8;
+      font-size: 0.95rem;
+      line-height: 1.6;
+      margin-bottom: 1.5rem;
+    }
+    code {
+      font-family: 'JetBrains Mono', monospace;
+      background: #0f172a;
+      border: 1px solid #334155;
+      padding: 0.75rem 1.25rem;
+      border-radius: 8px;
+      display: block;
+      color: #38bdf8;
+      font-size: 0.9rem;
+      margin-bottom: 1.25rem;
+      text-align: left;
+    }
+    .btn {
+      display: inline-block;
+      background: #2563eb;
+      color: #fff;
+      font-weight: 600;
+      padding: 0.6rem 1.25rem;
+      border-radius: 8px;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .btn:hover {
+      background: #1d4ed8;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Documentation Portal Not Yet Compiled</h1>
+    <p>The static Docusaurus documentation site has not been built into <code>docs/build</code> yet.</p>
+    <p style="text-align: left; font-size: 0.85rem; color: #64748b; margin-bottom: 0.5rem;">To compile for production or local serving:</p>
+    <code>npm run docs:build</code>
+    <p style="text-align: left; font-size: 0.85rem; color: #64748b; margin-bottom: 0.5rem;">Or launch the live hot-reload docs dev server:</p>
+    <code>npm run docs</code>
+    <div style="margin-top: 1.5rem;">
+      <a href="/_/" class="btn">Return to Admin Dashboard</a>
+    </div>
+  </div>
+</body>
+</html>`;
   }
 
   /**

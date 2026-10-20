@@ -28,14 +28,17 @@
     "packages/plugins/*"
   ],
   "scripts": {
-    "build": "npm run build:server && npm run build:client && npm run build:plugins",
+    "build": "npm run build:server && npm run build:client && npm run build:plugins && npm run docs:build",
     "build:server": "tsc && node -e \"const fs = require('fs'); fs.mkdirSync('dist/admin/ui', { recursive: true }); fs.cpSync('src/admin/ui', 'dist/admin/ui', { recursive: true }); const { AdminUIBundler } = require('./dist/admin/AdminUIBundler'); fs.writeFileSync('dist/admin/ui/index.html', AdminUIBundler.bundle('dist/admin/ui'));\"",
     "build:client": "npm --workspace=packages/client run build",
     "build:plugins": "node scripts/build-plugins.js",
     "publish:plugins": "node scripts/publish-plugins.js",
     "dev": "tsx src/cli/cli.ts start",
     "start": "node bin/nodestack.js start",
-    "test": "vitest run"
+    "test": "vitest run",
+    "docs": "npm --prefix docs run start",
+    "docs:build": "npm --prefix docs run build",
+    "docs:serve": "npm --prefix docs run serve"
   },
   "keywords": [
     "nodestack",
