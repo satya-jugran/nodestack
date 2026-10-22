@@ -142,7 +142,7 @@ export class DocsService {
    * Fallback page shown when compiled docs are requested before `npm run docs:build` is run.
    */
   public renderDocsNotBuiltHtml(): string {
-    const appName = this.config?.appName || 'NodeStack';
+    const appName = escapeHtml(this.config?.appName || 'NodeStack');
     return `<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
@@ -242,15 +242,18 @@ export class DocsService {
     currentApp?: Partial<AppModel>,
     allApps: AppModel[] = []
   ): string {
-    const appName = currentApp?.name || this.config?.appName || 'NodeStack';
-    const appSlug = currentApp?.slug || 'default';
-    const isDefault = appSlug === 'default';
+    const rawAppName = currentApp?.name || this.config?.appName || 'NodeStack';
+    const rawAppSlug = currentApp?.slug || 'default';
+    const isDefault = rawAppSlug === 'default';
     const isSwagger = uiMode === 'swagger';
 
-    const specQuery = isDefault ? '' : `?app=${encodeURIComponent(appSlug)}`;
+    const specQuery = isDefault ? '' : `?app=${encodeURIComponent(rawAppSlug)}`;
     const specUrl = `/api/openapi.json${specQuery}`;
     const typesUrl = `/api/types.d.ts${specQuery}`;
     const swaggerParam = isSwagger ? '&ui=swagger' : '';
+
+    const appName = escapeHtml(rawAppName);
+    const appSlug = escapeHtml(rawAppSlug);
 
     return `<!DOCTYPE html>
 <html lang="en" class="dark">
@@ -426,14 +429,14 @@ export class DocsService {
         <div style="display: inline-flex; align-items: center; gap: 6px; background: #131720; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 2px 8px;">
           <label for="docs-app-select" style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">App:</label>
           <select id="docs-app-select" onchange="window.location.href='/_/docs?app=' + encodeURIComponent(this.value) + '${swaggerParam}'" style="background: transparent; color: #f3f4f6; border: none; font-size: 12px; font-weight: 600; outline: none; cursor: pointer;">
-            ${allApps.map(a => `<option value="${a.slug}" ${a.slug === appSlug ? 'selected' : ''} style="background: #181b21; color: #fff;">${a.name} (${a.slug})</option>`).join('')}
+            ${allApps.map(a => `<option value="${escapeHtml(a.slug)}" ${a.slug === rawAppSlug ? 'selected' : ''} style="background: #181b21; color: #fff;">${escapeHtml(a.name)} (${escapeHtml(a.slug)})</option>`).join('')}
           </select>
         </div>
       ` : ''}
 
       <div class="view-toggle">
-        <a href="/_/docs${isDefault ? '' : `?app=${encodeURIComponent(appSlug)}`}" class="${!isSwagger ? 'active' : ''}">Scalar</a>
-        <a href="/_/docs?${isDefault ? '' : `app=${encodeURIComponent(appSlug)}&`}ui=swagger" class="${isSwagger ? 'active' : ''}">Swagger UI</a>
+        <a href="/_/docs${isDefault ? '' : `?app=${encodeURIComponent(rawAppSlug)}`}" class="${!isSwagger ? 'active' : ''}">Scalar</a>
+        <a href="/_/docs?${isDefault ? '' : `app=${encodeURIComponent(rawAppSlug)}&`}ui=swagger" class="${isSwagger ? 'active' : ''}">Swagger UI</a>
       </div>
 
       <div id="docs-auth-badge" style="display: none; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 9999px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);" title="Your Admin token from the dashboard is automatically applied to interactive requests">
@@ -481,7 +484,7 @@ export class DocsService {
                  showSidebar: true,
                  searchHotKey: 'k',
                  metaData: {
-                   title: ${JSON.stringify(appName + ' API Reference')}
+                   title: ${JSON.stringify(rawAppName + ' API Reference').replace(/</g, '\\u003c')}
                  }
                };
                var token = localStorage.getItem('nodestack_token') || localStorage.getItem('nb_token');
@@ -538,4 +541,14 @@ export class DocsService {
 </body>
 </html>`;
   }
+}
+
+function escapeHtml(str: string | null | undefined): string {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

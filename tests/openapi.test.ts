@@ -338,6 +338,28 @@ describe('OpenAPI 3.0 Specification & Interactive Viewer Tests', () => {
       expect(resSlash.headers.location).toBe('/_/docs');
     });
 
+    it('should escape application names and metadata to prevent HTML/XSS injection in docs viewer', () => {
+      const docsService = app.docs;
+      const maliciousApp = {
+        id: 'xss-app',
+        name: '<script>alert("xss")</script><img src=x onerror=alert(1)>',
+        slug: 'test" onfocus="alert(2)',
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
+      };
+      const html = docsService.renderDocsHtml('scalar', maliciousApp, [maliciousApp as any]);
+
+      // Ensure raw HTML tags are NOT injected
+      expect(html).not.toContain('<script>alert("xss")</script>');
+      expect(html).not.toContain('<img src=x onerror=alert(1)>');
+      expect(html).not.toContain('test" onfocus="alert(2)');
+
+      // Ensure escaped HTML entities are present
+      expect(html).toContain('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
+      expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+      expect(html).toContain('value="test&quot; onfocus=&quot;alert(2)"');
+    });
+
     it('should dynamically update OpenAPI spec when a new collection is created', async () => {
       // Create collection 'products'
       app.schema.createCollection({
