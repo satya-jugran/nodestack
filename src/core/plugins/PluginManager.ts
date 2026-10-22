@@ -1294,9 +1294,9 @@ export class PluginManager {
     const fastify = this.app.server?.app;
     if (!fastify) return;
 
-    const setupRoutes = (prefix = '') => {
+    const setupRoutes = (prefix = '/api') => {
       fastify.get(
-        `${prefix}/api/plugins/available`,
+        `${prefix}/plugins/available`,
         { preHandler: this.app.authMiddleware.requireAdmin() },
         async (req: FastifyRequest, reply: FastifyReply) => {
           const targetDb = (req as any).appScope?.db || this.app.db;
@@ -1307,7 +1307,7 @@ export class PluginManager {
       );
 
       fastify.post(
-        `${prefix}/api/plugins/:name/enable`,
+        `${prefix}/plugins/:name/enable`,
         { preHandler: this.app.authMiddleware.requireAdmin() },
         async (req: FastifyRequest, reply: FastifyReply) => {
           const { name } = req.params as { name: string };
@@ -1330,7 +1330,7 @@ export class PluginManager {
       );
 
       fastify.post(
-        `${prefix}/api/plugins/:name/disable`,
+        `${prefix}/plugins/:name/disable`,
         { preHandler: this.app.authMiddleware.requireAdmin() },
         async (req: FastifyRequest, reply: FastifyReply) => {
           const { name } = req.params as { name: string };
@@ -1352,7 +1352,7 @@ export class PluginManager {
       );
 
       fastify.get(
-        `${prefix}/api/plugins/:name/config`,
+        `${prefix}/plugins/:name/config`,
         { preHandler: this.app.authMiddleware.requireAdmin() },
         async (req: FastifyRequest, reply: FastifyReply) => {
           const { name } = req.params as { name: string };
@@ -1371,7 +1371,7 @@ export class PluginManager {
       );
 
       fastify.put(
-        `${prefix}/api/plugins/:name/config`,
+        `${prefix}/plugins/:name/config`,
         { preHandler: this.app.authMiddleware.requireAdmin() },
         async (req: FastifyRequest, reply: FastifyReply) => {
           const { name } = req.params as { name: string };
@@ -1391,7 +1391,7 @@ export class PluginManager {
       );
     };
 
-    setupRoutes('');
+    setupRoutes('/api');
     setupRoutes('/api/apps/:appId');
   }
 

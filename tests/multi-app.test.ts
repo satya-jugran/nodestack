@@ -724,6 +724,41 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
         await restartInstance.stop();
       }
     });
+
+    it('should expose and handle direct scoped plugin routes without duplicate /api prefix', async () => {
+      // 1. Available plugins for ecommerce via /api/apps/ecommerce/plugins/available
+      const avail = await client.send<any>('/api/apps/ecommerce/plugins/available');
+      expect(avail.plugins).toBeDefined();
+      expect(avail.plugins.some((p: any) => p.name === 'resend')).toBe(true);
+
+      // 2. Enable resend on blog via /api/apps/blog/plugins/resend/enable
+      const enableRes = await client.send<any>('/api/apps/blog/plugins/resend/enable', {
+        method: 'POST',
+      });
+      expect(enableRes.success).toBe(true);
+
+      // 3. Configure resend on blog via /api/apps/blog/plugins/resend/config
+      const updateRes = await client.send<any>('/api/apps/blog/plugins/resend/config', {
+        method: 'PUT',
+        body: {
+          apiKey: 're_test_scoped_key',
+          from: 'blog@example.com',
+        },
+      });
+      expect(updateRes.fields).toBeDefined();
+
+      // 4. Retrieve config on blog via /api/apps/blog/plugins/resend/config
+      const configRes = await client.send<any>('/api/apps/blog/plugins/resend/config');
+      const fromField = configRes.fields.find((f: any) => f.name === 'from');
+      expect(fromField?.value).toBe('blog@example.com');
+      expect(fromField?.source).toBe('db');
+
+      // 5. Disable resend on blog via /api/apps/blog/plugins/resend/disable
+      const disableRes = await client.send<any>('/api/apps/blog/plugins/resend/disable', {
+        method: 'POST',
+      });
+      expect(disableRes.success).toBe(true);
+    });
   });
 
   describe('9. Custom Database Driver & Driver Factory Isolation', () => {
