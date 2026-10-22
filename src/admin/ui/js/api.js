@@ -14,7 +14,14 @@
         headers['Authorization'] = `Bearer ${state.token}`;
       }
 
-      if (state.activeApp && state.activeApp.slug) {
+      // Exclude global management and bootstrap endpoints from app-scoped header
+      const isGlobalEndpoint =
+        path.startsWith('/api/apps') ||
+        path.startsWith('/api/admins/') ||
+        path === '/api/health' ||
+        path === '/api/settings';
+
+      if (!isGlobalEndpoint && !options.skipAppHeader && !headers['x-nodestack-app'] && state.activeApp && state.activeApp.slug) {
         headers['x-nodestack-app'] = state.activeApp.slug;
       }
 
@@ -43,6 +50,27 @@
           error.status = res.status;
           error.data = errData;
           throw error;
+        }
+
+        // Detect if active application was deleted or not found on server (404)
+        const isAppNotFoundError =
+          res.status === 404 &&
+          typeof errorMsg === 'string' &&
+          (errorMsg.includes('Application ') || errorMsg.includes('application ')) &&
+          errorMsg.includes('not found');
+
+        if (isAppNotFoundError && state.activeApp && state.activeApp.slug !== 'default') {
+          console.warn(`[NodeStack] Active app '${state.activeApp.slug}' not found on server. Resetting to default app.`);
+          state.activeApp = { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true };
+          try {
+            localStorage.setItem('nodestack_active_app', JSON.stringify(state.activeApp));
+          } catch {}
+          if (typeof updateAppSwitcherUI === 'function') {
+            updateAppSwitcherUI();
+          }
+          if (typeof fetchApps === 'function') {
+            fetchApps().catch(() => {});
+          }
         }
 
         const error = new Error(errorMsg);

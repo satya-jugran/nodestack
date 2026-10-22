@@ -1425,4 +1425,70 @@ describe('Multi-Application Switcher UI (apps.js)', () => {
       expect(navDocs.href).toContain('app=crm-launchpad');
     }
   });
+
+  it('should exclude x-nodestack-app header on global bootstrap endpoints like /api/apps', async () => {
+    const bundled = AdminUIBundler.bundle(uiDir);
+    const dom = new JSDOM(bundled, {
+      runScripts: 'dangerously',
+      url: 'http://127.0.0.1:8090/_/',
+    });
+    const win = dom.window as any;
+
+    win.state.token = 'test-token';
+    win.state.activeApp = { id: 'app_stale', slug: 'stale-deleted-app', name: 'Deleted App' };
+
+    const callHeaders: Record<string, Record<string, string>> = {};
+    win.fetch = vi.fn().mockImplementation((url: string, opts: any) => {
+      callHeaders[url] = opts && opts.headers ? opts.headers : {};
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items: [{ id: 'app_default', slug: 'default', name: 'Default App', isDefault: true }] }),
+      });
+    });
+
+    // 1. Call global /api/apps endpoint
+    await win.api('/api/apps');
+    expect(callHeaders['/api/apps']?.['Authorization']).toBe('Bearer test-token');
+    expect(callHeaders['/api/apps']?.['x-nodestack-app']).toBeUndefined();
+
+    // 2. Call scoped endpoint like /api/collections
+    await win.api('/api/collections');
+    expect(callHeaders['/api/collections']?.['x-nodestack-app']).toBe('stale-deleted-app');
+  });
+
+  it('should recover and reset activeApp to default if active app was deleted or not found', async () => {
+    const bundled = AdminUIBundler.bundle(uiDir);
+    const dom = new JSDOM(bundled, {
+      runScripts: 'dangerously',
+      url: 'http://127.0.0.1:8090/_/',
+    });
+    const win = dom.window as any;
+
+    win.state.token = 'test-token';
+    win.state.activeApp = { id: 'app_stale', slug: 'stale-deleted-app', name: 'Deleted App' };
+    win.localStorage.setItem('nodestack_active_app', JSON.stringify(win.state.activeApp));
+
+    win.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/apps') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({
+            items: [{ id: 'app_default', slug: 'default', name: 'Default App', isDefault: true }],
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        json: () => Promise.resolve({ message: "Application 'stale-deleted-app' not found" }),
+      });
+    });
+
+    // fetchApps should detect that stale-deleted-app is not in the apps list and reset to default
+    await win.fetchApps();
+    expect(win.state.activeApp.slug).toBe('default');
+    expect(JSON.parse(win.localStorage.getItem('nodestack_active_app')).slug).toBe('default');
+  });
 });

@@ -8,11 +8,11 @@ async function fetchApps() {
     
     // Validate or default activeApp
     if (!state.activeApp || !state.apps.some(a => a.slug === state.activeApp.slug || a.id === state.activeApp.id)) {
-      const defaultApp = state.apps.find(a => a.isDefault) || state.apps[0];
-      if (defaultApp) {
-        state.activeApp = defaultApp;
+      const defaultApp = state.apps.find(a => a.isDefault) || state.apps[0] || { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true };
+      state.activeApp = defaultApp;
+      try {
         localStorage.setItem('nodestack_active_app', JSON.stringify(defaultApp));
-      }
+      } catch {}
     } else {
       // Sync latest properties (name, stats)
       const fresh = state.apps.find(a => a.slug === state.activeApp.slug || a.id === state.activeApp.id);
@@ -23,9 +23,13 @@ async function fetchApps() {
 
     updateAppSwitcherUI();
   } catch (err) {
-    // If user is not yet logged in or apps endpoint fails, fallback to default
-    if (!state.activeApp) {
-      state.activeApp = { id: 'app_default', slug: 'default', name: 'Default App', icon: 'zap', isDefault: true };
+    // If apps endpoint fails or active app was not found, fallback to default
+    if (!state.activeApp || (err && (err.status === 404 || err.message?.includes('Application ')))) {
+      state.activeApp = { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true };
+      try {
+        localStorage.setItem('nodestack_active_app', JSON.stringify(state.activeApp));
+      } catch {}
+      updateAppSwitcherUI();
     }
   }
 }
