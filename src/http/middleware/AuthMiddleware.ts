@@ -10,7 +10,11 @@ declare module 'fastify' {
 export class AuthMiddleware {
   constructor(private authService: AuthService) {}
 
-  public async handle(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
+  public getAuthService(req?: FastifyRequest): AuthService {
+    return (req as any)?.appScope?.auth || this.authService;
+  }
+
+  public async handle(req: FastifyRequest, _reply?: FastifyReply): Promise<void> {
     req.auth = null;
 
     let token: string | undefined;
@@ -22,13 +26,34 @@ export class AuthMiddleware {
     } else if (req.query && typeof (req.query as any).token === 'string') {
       // Allow token via query param (useful for SSE and file downloads)
       token = (req.query as any).token;
+    } else if (req.url && req.url.includes('?')) {
+      try {
+        const queryIndex = req.url.indexOf('?');
+        const qs = new URLSearchParams(req.url.slice(queryIndex + 1));
+        const qToken = qs.get('token');
+        if (qToken) {
+          token = qToken;
+        }
+      } catch {}
     }
 
     if (token) {
+      const authService = this.getAuthService(req);
       try {
-        req.auth = this.authService.verifyToken(token);
+        req.auth = authService.verifyToken(token);
       } catch {
-        // Leave req.auth as null so route can determine if auth is required
+        // If scoped verification failed (e.g. app-scoped collection token or scoped admin mismatch),
+        // fallback to default authService if the token is a valid global admin token.
+        if (authService !== this.authService) {
+          try {
+            const adminClaims = this.authService.verifyToken(token);
+            if (adminClaims && adminClaims.isAdmin) {
+              req.auth = adminClaims;
+            }
+          } catch {
+            // Leave req.auth as null so route can determine if auth is required
+          }
+        }
       }
     }
   }
@@ -48,7 +73,9 @@ export class AuthMiddleware {
   public requireAdminOrInitialSetup() {
     return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
       await this.handle(req, reply);
-      if (!this.authService.hasAdmins()) {
+      const authService = this.getAuthService(req);
+      const hasAdmins = authService.hasAdmins() || this.authService.hasAdmins();
+      if (!hasAdmins) {
         return;
       }
       if (!req.auth || !req.auth.isAdmin) {
@@ -72,4 +99,3 @@ export class AuthMiddleware {
     };
   }
 }
-

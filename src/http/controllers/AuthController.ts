@@ -8,13 +8,19 @@ export class AuthController extends BaseController {
     super();
   }
 
-  public async hasAdmins(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const hasAdmins = this.authService.hasAdmins();
+  private getAuth(req?: any): AuthService {
+    return req?.appScope?.auth || this.authService;
+  }
+
+  public async hasAdmins(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const auth = this.getAuth(req);
+    const hasAdmins = auth.hasAdmins() || this.authService.hasAdmins();
     this.ok(reply, { hasAdmins });
   }
 
   public async createInitialAdmin(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-    if (this.authService.hasAdmins()) {
+    const auth = this.getAuth(req);
+    if (auth.hasAdmins() || this.authService.hasAdmins()) {
       throw new AppError('Initial admin setup is already complete', 400);
     }
 
@@ -35,7 +41,17 @@ export class AuthController extends BaseController {
       throw new AppError('Email/identity and password are required', 400);
     }
 
-    const result = await this.authService.authenticateAdmin(targetEmail, password);
+    const auth = this.getAuth(req);
+    let result;
+    try {
+      result = await auth.authenticateAdmin(targetEmail, password);
+    } catch (err) {
+      if (auth !== this.authService) {
+        result = await this.authService.authenticateAdmin(targetEmail, password);
+      } else {
+        throw err;
+      }
+    }
     this.ok(reply, {
       token: result.token,
       admin: result.record,
@@ -54,7 +70,8 @@ export class AuthController extends BaseController {
       throw new AppError('Identity and password are required', 400);
     }
 
-    const result = await this.authService.authenticateRecord(collection, targetIdentity, password);
+    const auth = this.getAuth(req);
+    const result = await auth.authenticateRecord(collection, targetIdentity, password);
     this.ok(reply, {
       token: result.token,
       record: result.record,
@@ -65,7 +82,8 @@ export class AuthController extends BaseController {
     if (!req.auth || !req.auth.isAdmin) {
       throw new AppError('Unauthorized', 401);
     }
-    const admin = this.authService.getAdminById(req.auth.id);
+    const auth = this.getAuth(req);
+    const admin = auth.getAdminById(req.auth.id) || this.authService.getAdminById(req.auth.id);
     if (!admin) {
       throw new AppError('Admin not found', 404);
     }

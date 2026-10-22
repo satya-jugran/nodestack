@@ -787,4 +787,131 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       }
     });
   });
+
+  describe('10. Application-Scoped Authentication & User Isolation', () => {
+    it('should authenticate collection users per application and isolate tokens across apps', async () => {
+      const shopClient = client.app('ecommerce');
+      const blogClient = client.app('blog');
+
+      // 1. Create auth collection 'customers' in ecommerce app
+      await shopClient.collections.create({
+        name: 'customers',
+        type: 'auth',
+        schema: [
+          { name: 'name', type: 'text' },
+        ],
+        listRule: '@request.auth.id != ""',
+        viewRule: '@request.auth.id != ""',
+        createRule: '',
+        updateRule: '@request.auth.id = id',
+        deleteRule: '@request.auth.id = id',
+      });
+
+      // 2. Create protected base collection 'orders' in ecommerce app
+      await shopClient.collections.create({
+        name: 'orders',
+        type: 'base',
+        schema: [
+          { name: 'item', type: 'text', required: true },
+          { name: 'amount', type: 'number', required: true },
+        ],
+        listRule: '@request.auth.id != ""',
+        viewRule: '@request.auth.id != ""',
+        createRule: '@request.auth.id != ""',
+        updateRule: '@request.auth.id != ""',
+        deleteRule: '@request.auth.id != ""',
+      });
+
+      // 3. Register user in ecommerce 'customers'
+      const customer = await shopClient.collection('customers').create({
+        email: 'customer@shop.com',
+        password: 'password12345',
+        passwordConfirm: 'password12345',
+        name: 'Alice',
+      });
+      expect(customer.id).toBeDefined();
+      expect(customer.email).toBe('customer@shop.com');
+
+      // 4. Authenticate as Alice using client.app('ecommerce')
+      const aliceClient = new NodeStackClient(`http://127.0.0.1:${port}`, {
+        authStore: new MemoryAuthStore(),
+      }).app('ecommerce');
+
+      const authRes = await aliceClient.collection('customers').authWithPassword(
+        'customer@shop.com',
+        'password12345'
+      );
+      expect(authRes.token).toBeDefined();
+      expect(authRes.record.email).toBe('customer@shop.com');
+
+      // 5. Alice can create and list orders in ecommerce
+      const order = await aliceClient.collection('orders').create({
+        item: 'Mechanical Keyboard',
+        amount: 149,
+      });
+      expect(order.id).toBeDefined();
+      expect(order.item).toBe('Mechanical Keyboard');
+
+      const orders = await aliceClient.collection('orders').getList();
+      expect(orders.items.length).toBeGreaterThanOrEqual(1);
+      expect(orders.items.some((o: any) => o.item === 'Mechanical Keyboard')).toBe(true);
+
+      // 6. Direct scoped auth path (/api/apps/ecommerce/collections/customers/auth-with-password)
+      const directLoginRes = await fetch(
+        `http://127.0.0.1:${port}/api/apps/ecommerce/collections/customers/auth-with-password`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identity: 'customer@shop.com',
+            password: 'password12345',
+          }),
+        }
+      );
+      expect(directLoginRes.status).toBe(200);
+      const directBody = await directLoginRes.json();
+      expect(directBody.token).toBeDefined();
+      expect(directBody.record.email).toBe('customer@shop.com');
+
+      // 7. Token via query parameter on scoped route
+      const queryTokenRes = await fetch(
+        `http://127.0.0.1:${port}/api/apps/ecommerce/collections/orders/records?token=${authRes.token}`
+      );
+      expect(queryTokenRes.status).toBe(200);
+      const queryJson = await queryTokenRes.json();
+      expect(queryJson.items.length).toBeGreaterThanOrEqual(1);
+
+      // 8. Unauthenticated client must be rejected by listRule
+      const unauthClient = new NodeStackClient(`http://127.0.0.1:${port}`, {
+        authStore: new MemoryAuthStore(),
+      }).app('ecommerce');
+      await expect(unauthClient.collection('orders').getList()).rejects.toThrow();
+
+      // 9. Alice's token cannot authenticate to 'blog' application
+      await blogClient.collections.create({
+        name: 'secret_posts',
+        type: 'base',
+        schema: [{ name: 'title', type: 'text', required: true }],
+        listRule: '@request.auth.id != ""',
+        createRule: '@request.auth.id != ""',
+      });
+
+      const aliceBlogClient = new NodeStackClient(`http://127.0.0.1:${port}`, {
+        authStore: new MemoryAuthStore(),
+      }).app('blog');
+      aliceBlogClient.authStore.save(authRes.token, authRes.record as any);
+
+      await expect(aliceBlogClient.collection('secret_posts').getList()).rejects.toThrow();
+
+      // 10. Global superadmin retains access across scoped collections
+      const adminOrders = await client.app('ecommerce').collection('orders').getList();
+      expect(adminOrders.items.length).toBeGreaterThanOrEqual(1);
+
+      // 11. Revoking session invalidates the token
+      const shopScope = server.apps.get('ecommerce');
+      shopScope.auth.revokeRecordSessions('customers', customer.id);
+
+      await expect(aliceClient.collection('orders').getList()).rejects.toThrow();
+    });
+  });
 });
