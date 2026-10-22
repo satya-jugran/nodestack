@@ -263,7 +263,38 @@ export class AppScope {
     }
   }
 
+  private _isClosed = false;
+
+  public get isClosed(): boolean {
+    return this._isClosed;
+  }
+
   public close(): void {
+    if (this._isClosed) return;
+    this._isClosed = true;
+
+    // 1. Dispose RealtimeService (clears heartbeat interval and disconnects all SSE clients)
+    try {
+      this.realtime.dispose();
+    } catch {
+      // ignore
+    }
+
+    // 2. Clear all hook handlers on EventBus
+    try {
+      this.eventBus.clear();
+    } catch {
+      // ignore
+    }
+
+    // 3. Reset MaintenanceGate to drain and clear queue timers
+    try {
+      this.maintenanceGate.reset();
+    } catch {
+      // ignore
+    }
+
+    // 4. Checkpoint and close database driver
     try {
       this.db.checkpoint();
       this.db.close();

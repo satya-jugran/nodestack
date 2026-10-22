@@ -425,4 +425,17 @@ export class EventBus {
       }
     }
   }
+
+  public clear(): void {
+    this.beforeCreateHooks = [];
+    this.afterCreateHooks = [];
+    this.beforeUpdateHooks = [];
+    this.afterUpdateHooks = [];
+    this.beforeDeleteHooks = [];
+    this.afterDeleteHooks = [];
+    this.beforeServeHooks = [];
+    this.afterServeHooks = [];
+    this.authHooks = [];
+    this.customEventHandlers.clear();
+  }
 }

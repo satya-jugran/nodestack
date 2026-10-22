@@ -402,6 +402,51 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       // Subsequent access to sandbox should 404
       await expect(client.app('sandbox').collections.getList()).rejects.toThrow();
     });
+
+    it('should dispose realtime service and disconnect active SSE clients when an app is deleted', async () => {
+      // Create an app
+      await client.apps.create({
+        name: 'Realtime Disposal Test',
+        slug: 'realtime-dispose-app',
+      });
+      const scope = server.apps.get('realtime-dispose-app');
+      expect(scope).toBeDefined();
+
+      // Connect an SSE client to this app
+      let sseClosed = false;
+      let sseRes;
+
+      const connected = new Promise((resolve, reject) => {
+        const req = http.get(
+          `http://127.0.0.1:${port}/api/apps/realtime-dispose-app/realtime`,
+          (res) => {
+            sseRes = res;
+            res.on('data', (chunk) => {
+              if (chunk.toString().includes('NS_CONNECT')) {
+                resolve();
+              }
+            });
+            res.on('close', () => {
+              sseClosed = true;
+            });
+          }
+        );
+        req.on('error', reject);
+      });
+
+      await connected;
+      expect(scope.realtime.getConnectedClientsCount()).toBe(1);
+
+      // Delete the application
+      await client.apps.delete('realtime-dispose-app');
+
+      // Wait a brief moment for the connection to be ended
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(scope.isClosed).toBe(true);
+      expect(scope.realtime.getConnectedClientsCount()).toBe(0);
+      expect(sseClosed).toBe(true);
+    });
   });
 
   describe('7. Application-Scoped OpenAPI Documentation & System Table Exclusion', () => {
