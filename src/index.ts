@@ -134,3 +134,9 @@ export { PluginManager } from './core/plugins/PluginManager';
 export * from './core/plugins/types';
 export * from './plugins';
 
+// Multi-Application Architecture
+export { AppManager, DatabaseDriverFactory } from './apps/AppManager';
+export { AppRegistry } from './apps/AppRegistry';
+export { AppScope } from './apps/AppScope';
+export * from './apps/models/App';
+

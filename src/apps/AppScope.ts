@@ -163,22 +163,26 @@ export class AppScope {
     app: AppModel,
     config: ConfigService,
     registry?: AppRegistry,
-    customDriver?: IDatabaseDriver
+    customDriver?: IDatabaseDriver,
+    driverFactory?: (app: AppModel, defaultDbPath: string) => IDatabaseDriver
   ): AppScope {
     const appDir = config.getAppDir(app.slug);
     if (!fs.existsSync(appDir)) {
       fs.mkdirSync(appDir, { recursive: true });
     }
 
-    if (app.slug === 'default' && !customDriver) {
-      AppScope.migrateLegacyDefault(config, registry);
-    }
+    const appDbPath = config.getAppDbPath(app.slug);
 
     let db: DatabaseService;
-    if (customDriver) {
-      db = new DatabaseService(config, customDriver);
+    const factoryDriver = driverFactory ? driverFactory(app, appDbPath) : undefined;
+    if (factoryDriver) {
+      db = new DatabaseService(config, factoryDriver, appDbPath);
+    } else if (app.slug === 'default' && customDriver) {
+      db = new DatabaseService(config, customDriver, appDbPath);
     } else {
-      const appDbPath = config.getAppDbPath(app.slug);
+      if (app.slug === 'default') {
+        AppScope.migrateLegacyDefault(config, registry);
+      }
       db = new DatabaseService(config, undefined, appDbPath);
     }
 

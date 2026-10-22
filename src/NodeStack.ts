@@ -40,7 +40,7 @@ import { AuditLogController } from './http/controllers/AuditLogController';
 import { WebhookService } from './webhooks/WebhookService';
 import { WebhookController } from './http/controllers/WebhookController';
 import { AppRegistry } from './apps/AppRegistry';
-import { AppManager } from './apps/AppManager';
+import { AppManager, DatabaseDriverFactory } from './apps/AppManager';
 import { AppScope } from './apps/AppScope';
 import { AppController } from './http/controllers/AppController';
 import { AppResolutionMiddleware } from './http/middleware/AppResolutionMiddleware';
@@ -57,6 +57,8 @@ import { IDatabaseDriver } from './database/drivers/IDatabaseDriver';
 
 export interface NodeStackOptions extends NodeStackConfigOptions {
   customDriver?: IDatabaseDriver;
+  systemDriver?: IDatabaseDriver;
+  driverFactory?: DatabaseDriverFactory;
 }
 
 export class NodeStack {
@@ -104,10 +106,15 @@ export class NodeStack {
     this.container.bindInstance(TOKENS.ConfigService, this.config);
 
     // 1.2 System Registry & Multi-App Orchestrator
-    this.registry = new AppRegistry(this.config, options.customDriver);
+    this.registry = new AppRegistry(this.config, options.systemDriver || options.customDriver);
     this.container.bindInstance(TOKENS.AppRegistry, this.registry);
 
-    this.apps = new AppManager(this.registry, this.config, options.customDriver);
+    this.apps = new AppManager(
+      this.registry,
+      this.config,
+      options.customDriver,
+      options.driverFactory
+    );
     this.container.bindInstance(TOKENS.AppManager, this.apps);
 
     // 1.3 Boot Default App Scope

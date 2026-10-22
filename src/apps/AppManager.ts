@@ -6,13 +6,16 @@ import { ConfigService } from '../core/config/ConfigService';
 import { AppError, NotFoundError } from '../core/errors/AppError';
 import { IDatabaseDriver } from '../database/drivers/IDatabaseDriver';
 
+export type DatabaseDriverFactory = (app: AppModel, defaultDbPath: string) => IDatabaseDriver;
+
 export class AppManager {
   private appCache: Map<string, AppScope> = new Map();
 
   constructor(
     public readonly registry: AppRegistry,
     private config: ConfigService,
-    private customDriver?: IDatabaseDriver
+    private customDriver?: IDatabaseDriver,
+    private driverFactory?: DatabaseDriverFactory
   ) {}
 
   public init(): AppScope {
@@ -78,7 +81,13 @@ export class AppManager {
       return this.appCache.get(appModel.id)!;
     }
 
-    const scope = AppScope.create(appModel, this.config, this.registry, this.customDriver);
+    const scope = AppScope.create(
+      appModel,
+      this.config,
+      this.registry,
+      this.customDriver,
+      this.driverFactory
+    );
     this.appCache.set(appModel.slug, scope);
     this.appCache.set(appModel.id, scope);
 

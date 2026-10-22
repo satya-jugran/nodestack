@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import http from 'http';
 import { NodeStack } from '../src/NodeStack';
+import { NodeSqliteDriver } from '../src/database/drivers/NodeSqliteDriver';
 import {
   NodeStackClient,
   MemoryAuthStore,
@@ -605,6 +606,113 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       expect(blogS3Nav).toBeDefined();
       expect(blogS3Nav.badge).toBe('UNCONFIGURED');
       expect(blogS3Nav.view?.description).not.toContain('ecommerce-production-bucket');
+    });
+  });
+
+  describe('9. Custom Database Driver & Driver Factory Isolation', () => {
+    let customTestDir: string;
+
+    beforeEach(() => {
+      customTestDir = path.resolve(__dirname, `../.test_custom_driver_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+      fs.mkdirSync(customTestDir, { recursive: true });
+    });
+
+    afterEach(() => {
+      try {
+        if (fs.existsSync(customTestDir)) {
+          fs.rmSync(customTestDir, { recursive: true, force: true });
+        }
+      } catch {}
+    });
+
+    it('should restrict a single customDriver instance to default app and isolate newly created apps in their own db', async () => {
+      const customDbFile = path.join(customTestDir, 'custom_default.db');
+      const customDefaultDriver = new NodeSqliteDriver(customDbFile);
+
+      const stack = new NodeStack({
+        dataDir: customTestDir,
+        appName: 'Custom Driver Stack',
+        customDriver: customDefaultDriver,
+      });
+
+      // 1. Default app uses customDefaultDriver
+      expect(stack.defaultApp.db.getDriver()).toBe(customDefaultDriver);
+
+      // 2. Create a new app 'store'
+      const storeScope = await stack.apps.create({
+        name: 'Store App',
+        slug: 'store',
+      });
+
+      // 3. Verify 'store' DOES NOT share the customDefaultDriver
+      expect(storeScope.db.getDriver()).not.toBe(customDefaultDriver);
+
+      // 4. Create collection 'items' in default app
+      stack.defaultApp.schema.createCollection({
+        name: 'items',
+        type: 'base',
+        schema: [{ id: 'f1', name: 'title', type: 'text', required: true }],
+        createRule: '',
+        listRule: '',
+      });
+      await stack.defaultApp.records.create('items', { title: 'Default Item' });
+
+      // 5. Create collection 'items' in store app with different data
+      storeScope.schema.createCollection({
+        name: 'items',
+        type: 'base',
+        schema: [{ id: 'f1', name: 'title', type: 'text', required: true }],
+        createRule: '',
+        listRule: '',
+      });
+      await storeScope.records.create('items', { title: 'Store Item' });
+
+      // 6. Verify records are isolated
+      const defaultItems = await stack.defaultApp.records.getList('items');
+      expect(defaultItems.items.length).toBe(1);
+      expect(defaultItems.items[0].title).toBe('Default Item');
+
+      const storeItems = await storeScope.records.getList('items');
+      expect(storeItems.items.length).toBe(1);
+      expect(storeItems.items[0].title).toBe('Store Item');
+
+      stack.apps.closeAll();
+      customDefaultDriver.close();
+    });
+
+    it('should support driverFactory to provide distinct custom drivers per application', async () => {
+      const factoryDrivers: Record<string, NodeSqliteDriver> = {};
+
+      const stack = new NodeStack({
+        dataDir: customTestDir,
+        appName: 'Driver Factory Stack',
+        driverFactory: (app, defaultDbPath) => {
+          const appDbFile = path.join(customTestDir, `factory_${app.slug}.db`);
+          const driver = new NodeSqliteDriver(appDbFile);
+          factoryDrivers[app.slug] = driver;
+          return driver;
+        },
+      });
+
+      expect(factoryDrivers['default']).toBeDefined();
+      expect(stack.defaultApp.db.getDriver()).toBe(factoryDrivers['default']);
+
+      // Create app 'micro'
+      const microScope = await stack.apps.create({
+        name: 'Micro App',
+        slug: 'micro',
+      });
+
+      expect(factoryDrivers['micro']).toBeDefined();
+      expect(microScope.db.getDriver()).toBe(factoryDrivers['micro']);
+      expect(microScope.db.getDriver()).not.toBe(stack.defaultApp.db.getDriver());
+
+      stack.apps.closeAll();
+      for (const d of Object.values(factoryDrivers)) {
+        try {
+          d.close();
+        } catch {}
+      }
     });
   });
 });
