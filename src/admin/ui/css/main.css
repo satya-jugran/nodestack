@@ -444,6 +444,7 @@
 
     /* Content Area & Tabs */
     .tabs-bar {
+      justify-content: space-between;
       display: flex;
       align-items: center;
       gap: 1.5rem;

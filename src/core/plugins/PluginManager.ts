@@ -14,8 +14,10 @@ import {
   PluginConfigResult,
   ResolvedPluginConfigField,
   PluginConfigSource,
+  AdminNavItem,
 } from './types';
 import type { NodeStack } from '../../NodeStack';
+import { DatabaseService } from '../../database/DatabaseService';
 import { stripePlugin } from '../../plugins/stripe';
 import { s3StoragePlugin } from '../../plugins/s3';
 import { resendPlugin } from '../../plugins/resend';
@@ -123,6 +125,7 @@ export class PluginManager {
     { method: string; path: string; handler: RouteHandlerMethod; preHandler?: any; pluginName?: string }
   >();
   private pluginHookUnsubscribers = new Map<string, Array<() => void>>();
+  private runtimeLoadedOfficialPlugins = new Set<string>();
 
   constructor(
     private readonly app: NodeStack,
@@ -132,7 +135,11 @@ export class PluginManager {
     this.registerConfigRoutes();
 
     if (this.app.adminUi && typeof (this.app.adminUi as any).setCatalogGetter === 'function') {
-      (this.app.adminUi as any).setCatalogGetter(() => this.getOfficialCatalog());
+      (this.app.adminUi as any).setCatalogGetter((db?: DatabaseService) => this.getOfficialCatalog(db));
+    }
+
+    if (this.app.adminUi && typeof (this.app.adminUi as any).setNavItemsGetter === 'function') {
+      (this.app.adminUi as any).setNavItemsGetter((db?: DatabaseService) => this.getScopedNavItems(db));
     }
 
     if (this.app.server && typeof (this.app.server as any).setDynamicRouteHandler === 'function') {
@@ -243,25 +250,31 @@ export class PluginManager {
           return handler.call(this.app.server.app, req, reply);
         };
 
-        this.registerDynamicRoute(method, path, routeHandler, resolvedOptions, plugin.name);
-
-        const isBooted = this.isFastifyBooted(fastify);
-        if (!isBooted) {
-          try {
-            const m = method.toLowerCase();
-            if (typeof (fastify as any)[m] === 'function') {
-              (fastify as any)[m](path, resolvedOptions, routeHandler);
-            } else {
-              fastify.route({
-                method: method as any,
-                url: path,
-                handler: routeHandler,
-                ...resolvedOptions,
-              });
+        const registerBoth = (p: string) => {
+          this.registerDynamicRoute(method, p, routeHandler, resolvedOptions, plugin.name);
+          const isBooted = this.isFastifyBooted(fastify);
+          if (!isBooted) {
+            try {
+              const m = method.toLowerCase();
+              if (typeof (fastify as any)[m] === 'function') {
+                (fastify as any)[m](p, resolvedOptions, routeHandler);
+              } else {
+                fastify.route({
+                  method: method as any,
+                  url: p,
+                  handler: routeHandler,
+                  ...resolvedOptions,
+                });
+              }
+            } catch {
+              // Already booted fallback to dynamicRouter
             }
-          } catch {
-            // Already booted fallback to dynamicRouter
           }
+        };
+
+        registerBoth(path);
+        if (path.startsWith('/api/') && !path.startsWith('/api/apps/')) {
+          registerBoth(path.replace(/^\/api\//, '/api/apps/:appId/'));
         }
       },
       registerHook: (
@@ -706,11 +719,80 @@ export class PluginManager {
   }
 
   /**
+   * Return application-scoped navigation items for installed plugins and active configurations
+   */
+  public getScopedNavItems(db?: DatabaseService): AdminNavItem[] {
+    const targetDb = db || this.app.db;
+    const catalog = this.getOfficialCatalog(targetDb);
+    const navItems: AdminNavItem[] = [];
+
+    for (const record of this.plugins.values()) {
+      const plugin = record.plugin;
+      const official = catalog.find((c) => c.name === plugin.name || c.id === plugin.name);
+
+      // If it is an official catalog plugin and NOT installed in targetDb, omit from sidebar nav
+      if (official && !official.isInstalled) {
+        continue;
+      }
+
+      let effectiveConfig: Record<string, any> = {};
+      try {
+        effectiveConfig = this.getEffectiveConfig(plugin.name, targetDb);
+      } catch {
+        effectiveConfig = {};
+      }
+
+      if (typeof (plugin as any).buildAdminNavItems === 'function') {
+        const items = (plugin as any).buildAdminNavItems(effectiveConfig, record.context);
+        if (Array.isArray(items)) {
+          navItems.push(...items);
+          continue;
+        }
+      }
+
+      if (plugin.adminNavItems) {
+        navItems.push(...plugin.adminNavItems);
+      }
+    }
+
+    return navItems;
+  }
+
+  /**
    * Return catalog of official first-party extensions and their installation status
    */
-  public getOfficialCatalog(): OfficialPluginMetadata[] {
+  public getOfficialCatalog(db?: DatabaseService): OfficialPluginMetadata[] {
+    const targetDb = db || this.app.db;
+    const enabledMap = new Map<string, boolean>();
+    try {
+      this.initSettingsTable(targetDb);
+      if (targetDb && typeof targetDb.all === 'function') {
+        const rows = targetDb.all<{ pluginName: string; settings: string }>(
+          'SELECT pluginName, settings FROM _plugin_settings'
+        );
+        for (const r of rows) {
+          try {
+            const s = JSON.parse(r.settings);
+            if (s && s._enabled !== undefined) {
+              enabledMap.set(r.pluginName, Boolean(s._enabled));
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+
     return OFFICIAL_PLUGINS.map((def) => {
-      const isInstalled = this.plugins.has(def.name);
+      const isEnabledInDb = enabledMap.get(def.name);
+      let isInstalled: boolean;
+      if (isEnabledInDb !== undefined) {
+        isInstalled = isEnabledInDb;
+      } else if (this.runtimeLoadedOfficialPlugins.has(def.name)) {
+        isInstalled = false;
+      } else if (targetDb !== this.app.db) {
+        isInstalled = false;
+      } else {
+        isInstalled = this.plugins.has(def.name);
+      }
       return {
         id: def.id,
         name: def.name,
@@ -730,22 +812,24 @@ export class PluginManager {
   /**
    * 1-Click enable official first-party plugin at runtime
    */
-  public async enableOfficialPlugin(id: string): Promise<PluginConfigResult | null> {
+  public async enableOfficialPlugin(id: string, db?: DatabaseService): Promise<PluginConfigResult | null> {
+    const targetDb = db || this.app.db;
     const def = OFFICIAL_PLUGINS.find((p) => p.id === id || p.name === id);
     if (!def) {
       throw new NotFoundError(`Official plugin "${id}" not found in catalog`);
     }
 
+    this.runtimeLoadedOfficialPlugins.add(def.name);
     if (!this.plugins.has(def.name)) {
       const plugin = def.factory();
       this.use(plugin);
       await this.ensureInitialized();
     }
 
-    this.initSettingsTable();
+    this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = this.app.db.get<{ settings: string }>(
+      const row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [def.name]
       );
@@ -756,47 +840,27 @@ export class PluginManager {
 
     dbSettings._enabled = true;
     const now = new Date().toISOString();
-    this.app.db.prepare(`
+    targetDb.prepare(`
       INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
       VALUES (?, ?, ?)
       ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
     `).run(def.name, JSON.stringify(dbSettings), now);
 
-    return this.getPluginConfig(def.name);
+    return this.getPluginConfig(def.name, targetDb);
   }
 
   /**
    * Deactivate official first-party plugin
    */
-  public async disableOfficialPlugin(id: string): Promise<void> {
+  public async disableOfficialPlugin(id: string, db?: DatabaseService): Promise<void> {
+    const targetDb = db || this.app.db;
     const def = OFFICIAL_PLUGINS.find((p) => p.id === id || p.name === id);
     const name = def ? def.name : id;
 
-    const record = this.plugins.get(name);
-    if (record) {
-      if (typeof record.plugin.onDestroy === 'function') {
-        try {
-          await record.plugin.onDestroy(record.context);
-        } catch (e) {
-          console.error(`[PluginManager] Error destroying plugin "${name}":`, e);
-        }
-      }
-
-      if (record.plugin.adminNavItems) {
-        for (const item of record.plugin.adminNavItems) {
-          this.app.adminUi.removeNavItem(item.id);
-        }
-      }
-      this.app.adminUi.removePluginMeta(name);
-      this.removeHooksForPlugin(name);
-      this.removeDynamicRoutesForPlugin(name);
-      this.plugins.delete(name);
-    }
-
-    this.initSettingsTable();
+    this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = this.app.db.get<{ settings: string }>(
+      const row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [name]
       );
@@ -807,11 +871,34 @@ export class PluginManager {
 
     dbSettings._enabled = false;
     const now = new Date().toISOString();
-    this.app.db.prepare(`
+    targetDb.prepare(`
       INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
       VALUES (?, ?, ?)
       ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
     `).run(name, JSON.stringify(dbSettings), now);
+
+    if (targetDb === this.app.db) {
+      const record = this.plugins.get(name);
+      if (record) {
+        if (typeof record.plugin.onDestroy === 'function') {
+          try {
+            await record.plugin.onDestroy(record.context);
+          } catch (e) {
+            console.error(`[PluginManager] Error destroying plugin "${name}":`, e);
+          }
+        }
+
+        if (record.plugin.adminNavItems) {
+          for (const item of record.plugin.adminNavItems) {
+            this.app.adminUi.removeNavItem(item.id);
+          }
+        }
+        this.app.adminUi.removePluginMeta(name);
+        this.removeHooksForPlugin(name);
+        this.removeDynamicRoutesForPlugin(name);
+        this.plugins.delete(name);
+      }
+    }
   }
 
   /**
@@ -844,10 +931,11 @@ export class PluginManager {
   /**
    * Initialize SQLite settings table for plugins if not already present
    */
-  private initSettingsTable(): void {
+  private initSettingsTable(db?: DatabaseService): void {
+    const targetDb = db || this.app.db;
     try {
-      if (this.app.db && typeof this.app.db.run === 'function') {
-        this.app.db.run(`
+      if (targetDb && typeof targetDb.run === 'function') {
+        targetDb.run(`
           CREATE TABLE IF NOT EXISTS _plugin_settings (
             pluginName TEXT PRIMARY KEY,
             settings TEXT NOT NULL DEFAULT '{}',
@@ -867,95 +955,105 @@ export class PluginManager {
     const fastify = this.app.server?.app;
     if (!fastify) return;
 
-    fastify.get(
-      '/api/plugins/available',
-      { preHandler: this.app.authMiddleware.requireAdmin() },
-      async (_req: FastifyRequest, reply: FastifyReply) => {
-        return reply.send({
-          plugins: this.getOfficialCatalog(),
-        });
-      }
-    );
-
-    fastify.post(
-      '/api/plugins/:name/enable',
-      { preHandler: this.app.authMiddleware.requireAdmin() },
-      async (req: FastifyRequest, reply: FastifyReply) => {
-        const { name } = req.params as { name: string };
-        try {
-          const config = await this.enableOfficialPlugin(name);
+    const setupRoutes = (prefix = '') => {
+      fastify.get(
+        `${prefix}/api/plugins/available`,
+        { preHandler: this.app.authMiddleware.requireAdmin() },
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const targetDb = (req as any).appScope?.db || this.app.db;
           return reply.send({
-            success: true,
-            message: `Plugin "${name}" enabled successfully`,
-            config,
-          });
-        } catch (err: any) {
-          const statusCode = err.statusCode || 400;
-          return reply.status(statusCode).send({
-            statusCode,
-            message: err.message || `Failed to enable plugin "${name}"`,
+            plugins: this.getOfficialCatalog(targetDb),
           });
         }
-      }
-    );
+      );
 
-    fastify.post(
-      '/api/plugins/:name/disable',
-      { preHandler: this.app.authMiddleware.requireAdmin() },
-      async (req: FastifyRequest, reply: FastifyReply) => {
-        const { name } = req.params as { name: string };
-        try {
-          await this.disableOfficialPlugin(name);
-          return reply.send({
-            success: true,
-            message: `Plugin "${name}" disabled successfully`,
-          });
-        } catch (err: any) {
-          const statusCode = err.statusCode || 400;
-          return reply.status(statusCode).send({
-            statusCode,
-            message: err.message || `Failed to disable plugin "${name}"`,
-          });
+      fastify.post(
+        `${prefix}/api/plugins/:name/enable`,
+        { preHandler: this.app.authMiddleware.requireAdmin() },
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const { name } = req.params as { name: string };
+          const targetDb = (req as any).appScope?.db || this.app.db;
+          try {
+            const config = await this.enableOfficialPlugin(name, targetDb);
+            return reply.send({
+              success: true,
+              message: `Plugin "${name}" enabled successfully`,
+              config,
+            });
+          } catch (err: any) {
+            const statusCode = err.statusCode || 400;
+            return reply.status(statusCode).send({
+              statusCode,
+              message: err.message || `Failed to enable plugin "${name}"`,
+            });
+          }
         }
-      }
-    );
+      );
 
-    fastify.get(
-      '/api/plugins/:name/config',
-      { preHandler: this.app.authMiddleware.requireAdmin() },
-      async (req: FastifyRequest, reply: FastifyReply) => {
-        const { name } = req.params as { name: string };
-        try {
-          const config = this.getPluginConfig(name);
-          return reply.send(config);
-        } catch (err: any) {
-          const statusCode = err.statusCode || 404;
-          return reply.status(statusCode).send({
-            statusCode,
-            message: err.message || `Plugin "${name}" not found`,
-          });
+      fastify.post(
+        `${prefix}/api/plugins/:name/disable`,
+        { preHandler: this.app.authMiddleware.requireAdmin() },
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const { name } = req.params as { name: string };
+          const targetDb = (req as any).appScope?.db || this.app.db;
+          try {
+            await this.disableOfficialPlugin(name, targetDb);
+            return reply.send({
+              success: true,
+              message: `Plugin "${name}" disabled successfully`,
+            });
+          } catch (err: any) {
+            const statusCode = err.statusCode || 400;
+            return reply.status(statusCode).send({
+              statusCode,
+              message: err.message || `Failed to disable plugin "${name}"`,
+            });
+          }
         }
-      }
-    );
+      );
 
-    fastify.put(
-      '/api/plugins/:name/config',
-      { preHandler: this.app.authMiddleware.requireAdmin() },
-      async (req: FastifyRequest, reply: FastifyReply) => {
-        const { name } = req.params as { name: string };
-        const body = (req.body as any) || {};
-        try {
-          const updated = await this.updatePluginConfig(name, body);
-          return reply.send(updated);
-        } catch (err: any) {
-          const statusCode = err.statusCode || 400;
-          return reply.status(statusCode).send({
-            statusCode,
-            message: err.message,
-          });
+      fastify.get(
+        `${prefix}/api/plugins/:name/config`,
+        { preHandler: this.app.authMiddleware.requireAdmin() },
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const { name } = req.params as { name: string };
+          const targetDb = (req as any).appScope?.db || this.app.db;
+          try {
+            const config = this.getPluginConfig(name, targetDb);
+            return reply.send(config);
+          } catch (err: any) {
+            const statusCode = err.statusCode || 404;
+            return reply.status(statusCode).send({
+              statusCode,
+              message: err.message || `Plugin "${name}" not found`,
+            });
+          }
         }
-      }
-    );
+      );
+
+      fastify.put(
+        `${prefix}/api/plugins/:name/config`,
+        { preHandler: this.app.authMiddleware.requireAdmin() },
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const { name } = req.params as { name: string };
+          const body = (req.body as any) || {};
+          const targetDb = (req as any).appScope?.db || this.app.db;
+          try {
+            const updated = await this.updatePluginConfig(name, body, targetDb);
+            return reply.send(updated);
+          } catch (err: any) {
+            const statusCode = err.statusCode || 400;
+            return reply.status(statusCode).send({
+              statusCode,
+              message: err.message,
+            });
+          }
+        }
+      );
+    };
+
+    setupRoutes('');
+    setupRoutes('/api/apps/:appId');
   }
 
   /**
@@ -963,7 +1061,8 @@ export class PluginManager {
    * Resolves values from environment variables, database (_plugin_settings), code options, and defaults.
    * Unlike getPluginConfig, this preserves raw secrets required by plugins at runtime.
    */
-  public getEffectiveConfig(name: string): Record<string, any> {
+  public getEffectiveConfig(name: string, db?: DatabaseService): Record<string, any> {
+    const targetDb = db || this.app.db;
     let record = this.plugins.get(name);
     if (!record) {
       for (const rec of this.plugins.values()) {
@@ -983,10 +1082,10 @@ export class PluginManager {
       return {};
     }
 
-    this.initSettingsTable();
+    this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = this.app.db.get<{ settings: string }>(
+      const row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [name]
       );
@@ -1045,7 +1144,8 @@ export class PluginManager {
    * SECURITY: For fields of type 'password', raw secret values are NEVER returned in responses.
    * value is omitted (undefined), and hasValue indicates whether a secret is configured.
    */
-  public getPluginConfig(name: string): PluginConfigResult {
+  public getPluginConfig(name: string, db?: DatabaseService): PluginConfigResult {
+    const targetDb = db || this.app.db;
     let record = this.plugins.get(name);
     if (!record) {
       for (const rec of this.plugins.values()) {
@@ -1069,10 +1169,10 @@ export class PluginManager {
       };
     }
 
-    this.initSettingsTable();
+    this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = this.app.db.get<{ settings: string }>(
+      const row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [name]
       );
@@ -1164,7 +1264,8 @@ export class PluginManager {
    *   - A non-empty string updates the secret in _plugin_settings.
    * Saves updates to _plugin_settings and fires onConfigUpdate on the plugin with effective settings.
    */
-  public async updatePluginConfig(name: string, updates: Record<string, any>): Promise<PluginConfigResult> {
+  public async updatePluginConfig(name: string, updates: Record<string, any>, db?: DatabaseService): Promise<PluginConfigResult> {
+    const targetDb = db || this.app.db;
     let record = this.plugins.get(name);
     if (!record) {
       for (const rec of this.plugins.values()) {
@@ -1179,15 +1280,15 @@ export class PluginManager {
       throw new NotFoundError(`Plugin "${name}" is not registered`);
     }
 
-    const currentConfig = this.getPluginConfig(name);
+    const currentConfig = this.getPluginConfig(name, targetDb);
     if (!currentConfig.hasConfig) {
       throw new AppError(`Plugin "${name}" does not define a configuration schema`, 400);
     }
 
-    this.initSettingsTable();
+    this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = this.app.db.get<{ settings: string }>(
+      const row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [name]
       );
@@ -1266,7 +1367,7 @@ export class PluginManager {
     }
 
     const now = new Date().toISOString();
-    this.app.db.prepare(`
+    targetDb.prepare(`
       INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
       VALUES (?, ?, ?)
       ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
@@ -1274,11 +1375,11 @@ export class PluginManager {
 
     // Compute effective full configuration with raw secrets for runtime update
     if (typeof record.plugin.onConfigUpdate === 'function') {
-      const effectiveConfig = this.getEffectiveConfig(name);
+      const effectiveConfig = this.getEffectiveConfig(name, targetDb);
       await record.plugin.onConfigUpdate(effectiveConfig);
     }
 
-    return this.getPluginConfig(name);
+    return this.getPluginConfig(name, targetDb);
   }
 
   /**

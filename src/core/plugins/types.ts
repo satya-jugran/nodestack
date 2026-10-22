@@ -181,6 +181,7 @@ export interface INodeStackPlugin {
   routes?: PluginRouteDefinition[];
   collections?: (CreateCollectionDto & { system?: boolean })[];
   adminNavItems?: AdminNavItem[];
+  buildAdminNavItems?(effectiveConfig: Record<string, any>, context?: NodeStackPluginContext): AdminNavItem[];
 
   // Option B: Configuration Schema & Dynamic Update
   /** Configuration schema for Option B strict precedence and Admin UI editing */

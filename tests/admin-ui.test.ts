@@ -9,7 +9,8 @@ describe('AdminUIBundler', () => {
   const uiDir = path.resolve(__dirname, '../src/admin/ui');
 
   it('should bundle modular CSS and JS into index.html shell', () => {
-    const bundled = AdminUIBundler.bundle(uiDir);
+    const uiDir = path.resolve(__dirname, '../src/admin/ui');
+      const bundled = AdminUIBundler.bundle(uiDir);
 
     expect(bundled).toBeDefined();
     expect(bundled.length).toBeGreaterThan(10000);
@@ -482,6 +483,7 @@ describe('Records Data Grid DOM Interactions & Accessibility (Browser/DOM Enviro
       expect(win.state.selectedRecordId).toBeNull();
     });
   });
+
 });
 
 describe('Schema Designer & Visual Rules Builder (schema.js & rules.js)', () => {
@@ -1399,4 +1401,29 @@ describe('Form & Modal Micro-Interactions (modals.js)', () => {
   });
 });
 
+describe('Multi-Application Switcher UI (apps.js)', () => {
+  const uiDir = path.resolve(__dirname, '../src/admin/ui');
 
+  it('should switch active application via selectApp without throwing slug ReferenceError', async () => {
+    const bundled = AdminUIBundler.bundle(uiDir);
+    const dom = new JSDOM(bundled, {
+      runScripts: 'dangerously',
+      url: 'http://127.0.0.1:8090/_/',
+    });
+    const win = dom.window;
+
+    win.state.apps = [
+      { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true },
+      { id: 'app_crm', slug: 'crm-launchpad', name: 'CRM Launchpad', isDefault: false },
+    ];
+    win.state.activeApp = win.state.apps[0];
+
+    await win.selectApp('crm-launchpad');
+    expect(win.state.activeApp.slug).toBe('crm-launchpad');
+
+    const navDocs = win.document.getElementById('nav-docs');
+    if (navDocs) {
+      expect(navDocs.href).toContain('app=crm-launchpad');
+    }
+  });
+});

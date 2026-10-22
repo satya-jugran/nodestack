@@ -18,6 +18,8 @@ import { TemplateController } from './controllers/TemplateController';
 import { DemoController } from './controllers/DemoController';
 import { AuditLogController } from './controllers/AuditLogController';
 import { WebhookController } from './controllers/WebhookController';
+import { AppController } from './controllers/AppController';
+import { AppResolutionMiddleware } from './middleware/AppResolutionMiddleware';
 import { AdminUIService } from '../admin/AdminUIService';
 import { DocsService } from '../admin/DocsService';
 import { TypeGenerator } from '../schema/TypeGenerator';
@@ -59,7 +61,9 @@ export class HttpServer {
     private demoController?: DemoController,
     maintenanceGate?: MaintenanceGate,
     private auditLogController?: AuditLogController,
-    private webhookController?: WebhookController
+    private webhookController?: WebhookController,
+    private appController?: AppController,
+    private appResolutionMiddleware?: AppResolutionMiddleware
   ) {
     this.maintenanceGate = maintenanceGate;
 
@@ -119,11 +123,18 @@ export class HttpServer {
       const reqId = (req.id as string) || (req.headers['x-request-id'] as string) || `req_${Math.random().toString(36).substring(2, 9)}`;
       (req as any)._reqId = reqId;
 
+      // Resolve application scope
+      if (this.appResolutionMiddleware) {
+        await this.appResolutionMiddleware.resolve()(req, reply);
+        if (reply.sent) return;
+      }
+
       // Coordinate reset with request/database locking maintenance gate
-      if (this.maintenanceGate) {
-        const isExempt = req.url.startsWith('/api/demo/reset') || req.url.startsWith('/api/realtime');
+      const gate = (req as any).appScope?.maintenanceGate || this.maintenanceGate;
+      if (gate) {
+        const isExempt = req.url.includes('/demo/reset') || req.url.startsWith('/api/realtime');
         try {
-          await this.maintenanceGate.trackRequestStart(reqId, isExempt);
+          await gate.trackRequestStart(reqId, isExempt);
         } catch (err: any) {
           return reply.status(503).send({
             statusCode: 503,
@@ -135,8 +146,9 @@ export class HttpServer {
 
       if (req.raw && !req.raw.destroyed) {
         req.raw.once('close', () => {
-          if (this.maintenanceGate) {
-            this.maintenanceGate.trackRequestEnd(reqId);
+          const gate = (req as any).appScope?.maintenanceGate || this.maintenanceGate;
+      if (gate) {
+            gate.trackRequestEnd(reqId);
           }
         });
       }
@@ -150,7 +162,7 @@ export class HttpServer {
         const shortCircuited = await this.chaosMiddleware.handle(req, reply);
         if (shortCircuited || reply.sent) {
           if (this.maintenanceGate && req.raw?.destroyed) {
-            this.maintenanceGate.trackRequestEnd(reqId);
+            gate.trackRequestEnd(reqId);
           }
           return;
         }
@@ -209,7 +221,7 @@ export class HttpServer {
         duration = diff[0] * 1000 + diff[1] / 1e6;
       }
 
-      this.logService.logRequest({
+      const logEntry = {
         method: req.method,
         url: req.url,
         status: reply.statusCode,
@@ -218,7 +230,13 @@ export class HttpServer {
         authId: req.auth?.id,
         authCollection: req.auth?.collection,
         userAgent: req.headers['user-agent'],
-      });
+      };
+
+      const targetLogs = (req as any).appScope?.logs || this.logService;
+      targetLogs.logRequest(logEntry);
+      if (targetLogs !== this.logService) {
+        this.logService.logRequest(logEntry, { skipConsole: true });
+      }
     });
 
     this.app.addHook('onError', async (req: FastifyRequest) => {
@@ -281,6 +299,124 @@ export class HttpServer {
   private setupRoutes(): void {
     const app = this.app;
     const requireAdmin = this.authMiddleware.requireAdmin();
+
+    // 0. Application / MVP Management Endpoints (Super-admin only)
+    if (this.appController) {
+      app.get('/api/apps', { preHandler: requireAdmin }, (req, reply) =>
+        this.appController!.list(req, reply)
+      );
+      app.post('/api/apps', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.appController!.create(req, reply)
+      );
+      app.get('/api/apps/:appId', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.appController!.getOne(req, reply)
+      );
+      app.patch('/api/apps/:appId', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.appController!.update(req, reply)
+      );
+      app.delete('/api/apps/:appId', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.appController!.delete(req, reply)
+      );
+    }
+
+    // 0.5 Scoped routes for /api/apps/:appId/...
+    app.get('/api/apps/:appId/collections', { preHandler: requireAdmin }, (req, reply) =>
+      this.collectionController.list(req, reply)
+    );
+    app.post('/api/apps/:appId/collections', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.collectionController.create(req, reply)
+    );
+    app.post('/api/apps/:appId/collections/infer-schema', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.collectionController.inferSchema(req, reply)
+    );
+    app.post('/api/apps/:appId/collections/import-json', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.collectionController.importJson(req, reply)
+    );
+    app.get('/api/apps/:appId/collections/:collection', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.collectionController.getOne(req, reply)
+    );
+    app.patch('/api/apps/:appId/collections/:collection', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.collectionController.update(req, reply)
+    );
+    app.delete('/api/apps/:appId/collections/:collection', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.collectionController.delete(req, reply)
+    );
+    app.get('/api/apps/:appId/collections/:collection/records', (req: any, reply) =>
+      this.recordController.getList(req, reply)
+    );
+    app.get('/api/apps/:appId/collections/:collection/records/:id', (req: any, reply) =>
+      this.recordController.getOne(req, reply)
+    );
+    app.post('/api/apps/:appId/collections/:collection/records', (req: any, reply) =>
+      this.recordController.create(req, reply)
+    );
+    app.patch('/api/apps/:appId/collections/:collection/records/:id', (req: any, reply) =>
+      this.recordController.update(req, reply)
+    );
+    app.delete('/api/apps/:appId/collections/:collection/records/:id', (req: any, reply) =>
+      this.recordController.delete(req, reply)
+    );
+    app.get('/api/apps/:appId/collections/:collection/export', (req: any, reply) =>
+      this.recordController.exportRecords(req, reply)
+    );
+    app.get('/api/apps/:appId/collections/:collection/export/:format', (req: any, reply) =>
+      this.recordController.exportRecords(req, reply)
+    );
+    app.post('/api/apps/:appId/collections/:collection/import', (req: any, reply) =>
+      this.recordController.importRecords(req, reply)
+    );
+    app.post('/api/apps/:appId/collections/:collection/auth-with-password', (req: any, reply) =>
+      this.authController.recordLogin(req, reply)
+    );
+    app.get('/api/apps/:appId/files/:collection/:recordId/:filename', (req: any, reply) =>
+      this.fileController.getFile(req, reply)
+    );
+    if (this.demoController) {
+      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
+      app.get('/api/apps/:appId/demo/status', (req, reply) => this.demoController!.getStatus(req, reply));
+      app.post('/api/apps/:appId/demo/snapshot', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.demoController!.createSnapshot(req, reply)
+      );
+      app.post('/api/apps/:appId/demo/reset', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.demoController!.reset(req, reply)
+      );
+      app.delete('/api/apps/:appId/demo/snapshot', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.demoController!.clearSnapshot(req, reply)
+      );
+    }
+    if (this.webhookController) {
+      app.get('/api/apps/:appId/webhooks', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getWebhooks(req, reply)
+      );
+      app.post('/api/apps/:appId/webhooks', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.createWebhook(req, reply)
+      );
+      app.get('/api/apps/:appId/webhooks/stats', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getStats(req, reply)
+      );
+      app.get('/api/apps/:appId/webhooks/deliveries', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getDeliveries(req, reply)
+      );
+      app.get('/api/apps/:appId/webhooks/deliveries/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getDelivery(req, reply)
+      );
+      app.get('/api/apps/:appId/webhooks/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.getWebhook(req, reply)
+      );
+      app.patch('/api/apps/:appId/webhooks/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.updateWebhook(req, reply)
+      );
+      app.delete('/api/apps/:appId/webhooks/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.deleteWebhook(req, reply)
+      );
+      app.post('/api/apps/:appId/webhooks/:id/test', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.testWebhook(req, reply)
+      );
+    }
+
+    app.get('/api/apps/:appId/realtime', (req, reply) => this.realtimeController.connect(req, reply));
+    app.post('/api/apps/:appId/realtime', (req, reply) => this.realtimeController.setSubscriptions(req, reply));
+
 
     // 1. Health & Settings
     app.get('/api/health', (req, reply) => this.healthController.getHealth(req, reply));
@@ -392,6 +528,12 @@ export class HttpServer {
     app.delete('/api/logs', { preHandler: requireAdmin }, (req, reply) =>
       this.logController.clearLogs(req, reply)
     );
+    app.get('/api/apps/:appId/logs', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.logController.getLogs(req, reply)
+    );
+    app.delete('/api/apps/:appId/logs', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.logController.clearLogs(req, reply)
+    );
 
     // 7.5 Data Mutation Audit Logs (Admin only)
     if (this.auditLogController) {
@@ -402,6 +544,15 @@ export class HttpServer {
         this.auditLogController!.getRecordHistory(req, reply)
       );
       app.post('/api/audit-logs/prune', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.auditLogController!.pruneLogs(req, reply)
+      );
+      app.get('/api/apps/:appId/audit-logs', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.auditLogController!.getGlobalLogs(req, reply)
+      );
+      app.get('/api/apps/:appId/collections/:collection/records/:id/history', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.auditLogController!.getRecordHistory(req, reply)
+      );
+      app.post('/api/apps/:appId/audit-logs/prune', { preHandler: requireAdmin }, (req: any, reply) =>
         this.auditLogController!.pruneLogs(req, reply)
       );
     }
@@ -480,18 +631,24 @@ export class HttpServer {
       app.get('/api/metrics', { preHandler: requireAdmin }, (req, reply) =>
         this.analyticsController!.getMetrics(req, reply)
       );
+      app.get('/api/apps/:appId/metrics', { preHandler: requireAdmin }, (req, reply) =>
+        this.analyticsController!.getMetrics(req, reply)
+      );
     }
 
     // 9. TypeGen Endpoints
-    const handleTypegen = (_req: FastifyRequest, reply: FastifyReply) => {
-      if (!this.typeGenerator) {
+    const handleTypegen = (req: any, reply: FastifyReply) => {
+      const typegen = req.appScope?.typegen || this.typeGenerator;
+      if (!typegen) {
         return reply.status(500).send({ message: 'TypeGenerator is not configured' });
       }
-      const ts = this.typeGenerator.generate();
+      const ts = typegen.generate();
       reply.header('Content-Type', 'text/plain; charset=utf-8');
       return reply.send(ts);
     };
 
+    app.get('/api/apps/:appId/types.d.ts', handleTypegen);
+    app.get('/api/apps/:appId/types', handleTypegen);
     app.get('/_/types.d.ts', handleTypegen);
     app.get('/api/types.d.ts', handleTypegen);
     app.get('/api/types', handleTypegen);

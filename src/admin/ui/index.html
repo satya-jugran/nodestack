@@ -65,7 +65,7 @@
           <span>Documentation</span>
           <span style="margin-left: auto; font-size: 11px; opacity: 0.6; color: var(--accent-primary);">↗</span>
         </a>
-        <a href="/_/docs" target="_blank" class="sidebar-nav-item" id="nav-docs" style="text-decoration: none; color: inherit;" title="Interactive OpenAPI 3.0 Reference">
+        <a href="/_/docs" target="_blank" class="sidebar-nav-item" id="nav-docs" onclick="openDocsWithApp(event)" style="text-decoration: none; color: inherit;" title="Interactive OpenAPI 3.0 Reference">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
           <span>API Docs (OpenAPI)</span>
           <span style="margin-left: auto; font-size: 11px; opacity: 0.6; color: var(--accent-primary);">↗</span>
@@ -103,6 +103,26 @@
           </div>
         </div>
         <div class="top-bar-right-group" style="display: flex; align-items: center; gap: 8px;">
+          <!-- Application Switcher -->
+          <div class="app-switcher-wrapper" id="app-switcher-wrapper" style="position: relative;">
+            <button class="btn btn-secondary btn-sm" id="btn-app-switcher" onclick="toggleAppSwitcher(event)" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; font-weight: 600; font-size: 12px; border-radius: 6px; background: var(--bg-surface-elevated, #1e222b); border: 1px solid var(--border-default, #2e3440); cursor: pointer;" title="Switch Active App">
+              <span id="app-switcher-icon">⚡</span>
+              <span id="app-switcher-label">Default App</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="dropdown-menu-popover" id="app-switcher-menu" style="display: none; position: absolute; top: calc(100% + 6px); right: 0; min-width: 220px; z-index: 1000; background: var(--bg-surface, #181b21); border: 1px solid var(--border-default, #2e3440); border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); padding: 4px;">
+              <div style="padding: 6px 10px 4px 10px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted, #94a3b8);">Active Application</div>
+              <div id="app-switcher-items" style="max-height: 240px; overflow-y: auto;">
+                <!-- Populated dynamically -->
+              </div>
+              <div style="border-top: 1px solid var(--border-subtle, #2e3440); margin: 4px 0;"></div>
+              <button class="menu-popover-item" onclick="openCreateAppModal()" style="display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; text-align: left; background: none; border: none; color: var(--accent-primary, #6366f1); cursor: pointer;">
+                <span>＋</span>
+                <span>Create New App...</span>
+              </button>
+            </div>
+          </div>
+
           <button class="command-palette-trigger-btn" id="btn-command-palette-trigger" onclick="openCommandPalette()" title="Open Command Palette (Ctrl+K or ⌘K)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="11" cy="11" r="8"></circle>
@@ -119,8 +139,13 @@
 
       <!-- Collection Tabs (shown only for collections) -->
       <div class="tabs-bar" id="collection-tabs" style="display:none;">
-        <button class="tab-btn active" id="tab-records" onclick="switchCollectionTab('records')">Records Data Grid</button>
-        <button class="tab-btn" id="tab-schema" onclick="switchCollectionTab('schema')">Schema & API Rules</button>
+        <div class="tabs-group" style="display: flex; align-items: center; gap: 1.5rem;">
+          <button class="tab-btn active" id="tab-records" onclick="switchCollectionTab('records')">Records Data Grid</button>
+          <button class="tab-btn" id="tab-schema" onclick="switchCollectionTab('schema')">Schema & API Rules</button>
+        </div>
+        <div class="collection-actions-bar" id="collection-actions" style="display: flex; align-items: center; gap: 8px;">
+          <!-- Injected dynamically in records.js / schema.js -->
+        </div>
       </div>
 
       <!-- Main Body -->
@@ -238,7 +263,7 @@
 
               <!-- Submenu Rail Footer: Link to OpenAPI Specs -->
               <div style="margin-top: auto; padding-top: 0.75rem; border-top: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 4px;">
-                <a href="/_/docs" target="_blank" class="sidebar-nav-item" style="text-decoration: none; color: inherit; font-size: 12px; padding: 6px 8px;">
+                <a href="/_/docs" target="_blank" id="plugin-docs-link" onclick="openDocsWithApp(event)" class="sidebar-nav-item" style="text-decoration: none; color: inherit; font-size: 12px; padding: 6px 8px;">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                   <span>OpenAPI Specs</span>
                   <span style="margin-left: auto; font-size: 10px; opacity: 0.6;">↗</span>
@@ -287,6 +312,7 @@
 
   <script src="./js/state.js"></script>
   <script src="./js/api.js"></script>
+  <script src="./js/apps.js"></script>
   <script src="./js/rules.js"></script>
   <script src="./js/schema.js"></script>
   <script src="./js/records.js"></script>

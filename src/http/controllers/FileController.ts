@@ -19,6 +19,22 @@ export class FileController extends BaseController {
     super();
   }
 
+  private getFiles(req: any): FileStorageService {
+    return req?.appScope?.files || this.fileStorageService;
+  }
+
+  private getSchema(req: any): SchemaService {
+    return req?.appScope?.schema || this.schemaService;
+  }
+
+  private getRuleEngine(req: any): RuleEngine {
+    return req?.appScope?.ruleEngine || this.ruleEngine;
+  }
+
+  private getDb(req: any): DatabaseService {
+    return req?.appScope?.db || this.db;
+  }
+
   public async getFile(
     req: FastifyRequest<{
       Params: { collection: string; recordId: string; filename: string };
@@ -27,15 +43,20 @@ export class FileController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const { collection, recordId, filename } = req.params;
-    const col = this.schemaService.getCollectionOrThrow(collection);
+    const schema = this.getSchema(req);
+    const db = this.getDb(req);
+    const ruleEngine = this.getRuleEngine(req);
+    const files = this.getFiles(req);
+
+    const col = schema.getCollectionOrThrow(collection);
 
     // Rule check: verify view access to the record owning this file
-    const record = this.db.get<any>(`SELECT * FROM "${col.name}" WHERE id = ?`, [recordId]);
+    const record = db.get<any>(`SELECT * FROM "${col.name}" WHERE id = ?`, [recordId]);
     if (!record) {
       throw new NotFoundError(`Record '${recordId}' not found`);
     }
 
-    if (!this.ruleEngine.evaluate(col.viewRule, { auth: req.auth, record })) {
+    if (!ruleEngine.evaluate(col.viewRule, { auth: req.auth, record })) {
       throw new ForbiddenError('You are not allowed to view this file');
     }
 
@@ -83,10 +104,9 @@ export class FileController extends BaseController {
 
     let filePath: string;
     try {
-      filePath = this.fileStorageService.getFilePath(col.id, recordId, filename);
+      filePath = files.getFilePath(col.id, recordId, filename);
     } catch (err) {
       // Dynamic healing: ONLY heal if requested filename matches a declared file field on this record!
-      // Arbitrary/undeclared names must never trigger generation or disk writes to prevent storage exhaustion.
       if (isDeclared && (safeFilename.startsWith('avatar_') || safeFilename.startsWith('image_'))) {
         const safeName = record.name || record.title || safeFilename;
         const isPng = safeFilename.toLowerCase().endsWith('.png');
@@ -94,7 +114,7 @@ export class FileController extends BaseController {
           ? FakerEngine.generateLocalPngAvatar(safeName, safeFilename)
           : FakerEngine.generateLocalSvgAvatar(safeName, safeFilename);
 
-        const dir = path.join(this.fileStorageService.storageDir, col.id, recordId);
+        const dir = path.join(files.storageDir, col.id, recordId);
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true });
         }

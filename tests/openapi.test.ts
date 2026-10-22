@@ -11,7 +11,7 @@ describe('OpenAPI 3.0 Specification & Interactive Viewer Tests', () => {
 
   beforeAll(() => {
     if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
+      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
     }
     app = new NodeStack({
       dataDir: testDir,
@@ -23,7 +23,7 @@ describe('OpenAPI 3.0 Specification & Interactive Viewer Tests', () => {
   afterAll(async () => {
     await app.stop();
     if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
+      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
     }
   });
 

@@ -161,6 +161,24 @@ export function resendPlugin(options: ResendPluginOptions = {}): INodeStackPlugi
     description: 'Resend transactional email delivery service & dispatch logs',
 
     codeOptions: { ...(options || {}) },
+    buildAdminNavItems(cfg: Record<string, any>) {
+      const apiKey = cfg.apiKey !== undefined ? cfg.apiKey : (options?.apiKey || '');
+      const isConfigured = Boolean((apiKey && String(apiKey).trim()) || cfg.dryRun || options?.dryRun);
+      const fromAddr = cfg.from || options?.from || 'noreply@nodestack.io';
+      return [{
+        id: 'resend',
+        title: 'Resend Email',
+        badge: isConfigured ? 'ACTIVE' : 'UNCONFIGURED',
+        badgeVariant: isConfigured ? 'success' : 'warning',
+        icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`,
+        view: {
+          title: 'Resend Email Service',
+          description: isConfigured
+            ? `Configured with default sender "${fromAddr}"`
+            : 'Unconfigured — Resend API Key required',
+        },
+      }];
+    },
     configSchema: {
       fields: [
         {
@@ -237,15 +255,30 @@ export function resendPlugin(options: ResendPluginOptions = {}): INodeStackPlugi
       // 1. Bind service into container
       ctx.bindService(Symbol.for('ResendEmailService'), emailService);
 
+      const getScopedResend = (req: FastifyRequest) => {
+        const targetDb = (req as any).appScope?.db;
+        const records = (req as any).appScope?.records || ctx.app.records;
+        if (!targetDb || !(ctx.app.plugins as any)?.getEffectiveConfig) {
+          return { service: emailService, records };
+        }
+        const appConfig = (ctx.app.plugins as any).getEffectiveConfig('resend', targetDb);
+        const scopedService = new ResendEmailService({
+          ...options,
+          ...appConfig,
+        });
+        return { service: scopedService, records };
+      };
+
       // 2. Register custom endpoints
-      ctx.registerRoute('GET', '/api/resend/status', async (_req, reply) => {
-        const isConfigured = emailService.isConfigured();
+      ctx.registerRoute('GET', '/api/resend/status', async (req, reply) => {
+        const { service: activeEmail } = getScopedResend(req);
+        const isConfigured = activeEmail.isConfigured();
         return reply.send({
           configured: isConfigured,
           hasApiKey: isConfigured,
-          from: emailService.options.from || 'noreply@nodestack.io',
+          from: activeEmail.options.from || 'noreply@nodestack.io',
           collection: collectionName,
-          endpoint: emailService.getBaseUrl(),
+          endpoint: activeEmail.getBaseUrl(),
         });
       });
 
@@ -253,6 +286,7 @@ export function resendPlugin(options: ResendPluginOptions = {}): INodeStackPlugi
         'POST',
         '/api/resend/send',
         async (req: FastifyRequest, reply: FastifyReply) => {
+          const { service: activeEmail, records } = getScopedResend(req);
           const body = (req.body as any) || {};
           if (!body.to || !body.subject) {
             return reply.status(400).send({
@@ -261,15 +295,15 @@ export function resendPlugin(options: ResendPluginOptions = {}): INodeStackPlugi
             });
           }
 
-          const from = body.from || emailService.options.from || 'noreply@nodestack.io';
+          const from = body.from || activeEmail.options.from || 'noreply@nodestack.io';
           const toStr = Array.isArray(body.to) ? body.to.join(', ') : String(body.to);
 
           try {
-            const sent = await emailService.sendEmail(body);
+            const sent = await activeEmail.sendEmail(body);
 
             // Persist successful delivery
             try {
-              await ctx.app.records.create(collectionName, {
+              await records.create(collectionName, {
                 to: sent.to,
                 from: sent.from,
                 subject: sent.subject,
@@ -298,7 +332,7 @@ export function resendPlugin(options: ResendPluginOptions = {}): INodeStackPlugi
 
             // Persist failed attempt to logs
             try {
-              await ctx.app.records.create(collectionName, {
+              await records.create(collectionName, {
                 to: failedRecord.to,
                 from: failedRecord.from,
                 subject: failedRecord.subject,

@@ -13,10 +13,10 @@ export interface SavedFileMeta {
 }
 
 export class FileStorageService {
-  constructor(private config: ConfigService) {}
+  constructor(private config: ConfigService, private customStorageDir?: string) {}
 
   public get storageDir(): string {
-    return this.config.storageDir;
+    return this.customStorageDir || this.config.storageDir;
   }
 
   /**
@@ -42,7 +42,7 @@ export class FileStorageService {
       }
     }
 
-    const dir = path.join(this.config.storageDir, collectionId, recordId);
+    const dir = path.join(this.storageDir, collectionId, recordId);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -71,7 +71,7 @@ export class FileStorageService {
    */
   public getFilePath(collectionId: string, recordId: string, filename: string): string {
     const safeFilename = path.basename(filename);
-    const filePath = path.join(this.config.storageDir, collectionId, recordId, safeFilename);
+    const filePath = path.join(this.storageDir, collectionId, recordId, safeFilename);
     if (!fs.existsSync(filePath)) {
       throw new NotFoundError(`File '${filename}' not found`);
     }
@@ -83,7 +83,7 @@ export class FileStorageService {
    */
   public async deleteFile(collectionId: string, recordId: string, filename: string): Promise<void> {
     const safeFilename = path.basename(filename);
-    const filePath = path.join(this.config.storageDir, collectionId, recordId, safeFilename);
+    const filePath = path.join(this.storageDir, collectionId, recordId, safeFilename);
     if (fs.existsSync(filePath)) {
       await fs.promises.unlink(filePath);
     }
@@ -93,7 +93,7 @@ export class FileStorageService {
    * Delete all files for a record
    */
   public async deleteRecordFiles(collectionId: string, recordId: string): Promise<void> {
-    const dir = path.join(this.config.storageDir, collectionId, recordId);
+    const dir = path.join(this.storageDir, collectionId, recordId);
     if (fs.existsSync(dir)) {
       await fs.promises.rm(dir, { recursive: true, force: true });
     }
@@ -103,7 +103,7 @@ export class FileStorageService {
    * Delete all files for an entire collection
    */
   public async deleteCollectionFiles(collectionId: string): Promise<void> {
-    const dir = path.join(this.config.storageDir, collectionId);
+    const dir = path.join(this.storageDir, collectionId);
     if (fs.existsSync(dir)) {
       await fs.promises.rm(dir, { recursive: true, force: true });
     }

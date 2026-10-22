@@ -8,6 +8,7 @@ import { AdminService } from './services/AdminService';
 import { CollectionService } from './services/CollectionService';
 import { DemoService } from './services/DemoService';
 import { WebhookService } from './services/WebhookService';
+import { AppService } from './services/AppService';
 import type {
   ClientOptions,
   SendOptions,
@@ -27,6 +28,8 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
   public readonly collections: CollectionService;
   public readonly demo: DemoService;
   public readonly webhooks: WebhookService;
+  public readonly apps: AppService;
+  public readonly appSlug?: string;
 
   private customFetch?: typeof fetch;
   private defaultHeaders: Record<string, string>;
@@ -41,6 +44,7 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
     this.defaultHeaders = options.headers || {};
     this.defaultTimeout = options.timeout || 120000; // 2 minutes default
     this.chaosOptions = options.chaos ? { ...options.chaos } : null;
+    this.appSlug = options.app;
 
     this.files = new FileService(this);
     this.realtime = new RealtimeService(this, options.EventSource);
@@ -48,6 +52,7 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
     this.collections = new CollectionService(this);
     this.demo = new DemoService(this);
     this.webhooks = new WebhookService(this);
+    this.apps = new AppService(this);
   }
 
   /**
@@ -120,6 +125,10 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
 
     if (this.authStore.token && !headers['Authorization'] && !headers['authorization']) {
       headers['Authorization'] = `Bearer ${this.authStore.token}`;
+    }
+
+    if (this.appSlug && !headers['x-nodestack-app'] && !headers['X-NodeStack-App']) {
+      headers['x-nodestack-app'] = this.appSlug;
     }
 
     // 2b. Inject Latency & Chaos simulation headers
@@ -265,5 +274,22 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
    */
   public async metrics(): Promise<any> {
     return this.send('/api/metrics', { method: 'GET' });
+  }
+
+  /**
+   * Returns a new NodeStackClient instance scoped to a specific application/MVP.
+   * Inherits baseUrl, authStore, customFetch, defaultHeaders, and defaultTimeout.
+   */
+  public app<TAppCollections extends Record<string, any> = Record<string, RecordModel>>(
+    slug: string
+  ): NodeStackClient<TAppCollections> {
+    return new NodeStackClient<TAppCollections>(this.baseUrl, {
+      authStore: this.authStore,
+      fetch: this.customFetch,
+      headers: { ...this.defaultHeaders },
+      timeout: this.defaultTimeout,
+      chaos: this.chaosOptions ? { ...this.chaosOptions } : undefined,
+      app: slug,
+    });
   }
 }

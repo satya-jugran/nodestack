@@ -4,6 +4,7 @@ import type { BaseAuthStore } from '../auth/BaseAuthStore';
 export interface ClientInterface {
   baseUrl: string;
   authStore: BaseAuthStore;
+  appSlug?: string;
   send<T = any>(path: string, options?: SendOptions): Promise<T>;
 }
 

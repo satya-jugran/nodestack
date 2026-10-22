@@ -17,6 +17,9 @@ function renderAnalyticsView() {
       <div class="analytics-top-header">
         <div class="analytics-header-title">
           <h2>Analytics & Metrics</h2>
+          <span id="analytics-app-badge" class="badge" style="font-size: 11px; padding: 2px 8px; background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3);">
+            ${typeof state !== 'undefined' && state.activeApp ? escapeHtml(state.activeApp.name) : 'Default App'}
+          </span>
           <span class="analytics-status-tag">
             <span class="live-pulse-dot"></span>
             <span>Realtime Active</span>
@@ -214,13 +217,20 @@ function updateAnalyticsUI(data) {
   if (kpiDbSize) {
     kpiDbSize.innerHTML = `<span>${data.database?.sizeFormatted || '0 B'}</span>`;
   }
+  const appBadge = document.getElementById('analytics-app-badge');
+  if (appBadge && typeof state !== 'undefined' && state.activeApp) {
+    appBadge.textContent = state.activeApp.name || 'Default App';
+  }
+
   const kpiDbWal = document.getElementById('kpi-db-wal');
   if (kpiDbWal) {
     const walBytes = data.database?.walSizeBytes || 0;
+    const appSlug = (typeof state !== 'undefined' && state.activeApp?.slug) ? state.activeApp.slug : 'default';
+    const dbFileName = appSlug === 'default' ? 'data.db' : `apps/${appSlug}/data.db`;
     if (walBytes > 0) {
-      kpiDbWal.textContent = `WAL: ${formatBytesInClient(walBytes)}`;
+      kpiDbWal.textContent = `${dbFileName} • WAL: ${formatBytesInClient(walBytes)}`;
     } else {
-      kpiDbWal.textContent = 'WAL Synchronized';
+      kpiDbWal.textContent = `${dbFileName} • WAL Synced`;
     }
   }
 

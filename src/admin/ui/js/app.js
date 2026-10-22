@@ -36,6 +36,11 @@ async function selectNav(nav) {
 
   clearSidebarNavActive();
 
+  const colActions = document.getElementById('collection-actions');
+  if (colActions && nav !== 'collection') {
+    colActions.innerHTML = '';
+  }
+
   if (nav === 'home') {
     state.activeCollection = null;
     if (typeof renderCollectionsList === 'function') renderCollectionsList();
@@ -44,16 +49,7 @@ async function selectNav(nav) {
     document.getElementById('view-badge').style.display = 'none';
     document.getElementById('nav-home')?.classList.add('active');
     document.getElementById('view-title').textContent = 'Dashboard Overview';
-    document.getElementById('view-actions').innerHTML = `
-      <button class="btn btn-secondary btn-sm" onclick="selectNav('collections')">📦 Collections</button>
-      <button class="btn btn-secondary btn-sm" onclick="selectNav('plugins')">🧩 Plugins</button>
-      <button class="btn btn-secondary btn-sm" onclick="selectNav('analytics')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-        Metrics
-      </button>
-      <button class="btn btn-secondary btn-sm" onclick="window.open('/_/docs', '_blank')">API Docs (OpenAPI)</button>
-      <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ New Collection</button>
-    `;
+    document.getElementById('view-actions').innerHTML = '';
     if (typeof renderHomeView === 'function') renderHomeView();
   } else if (nav === 'collections') {
     state.activeCollection = null;
@@ -68,11 +64,7 @@ async function selectNav(nav) {
     badgeEl.textContent = count + ' Tables';
     badgeEl.className = 'badge badge-get';
     badgeEl.style.display = 'inline-block';
-    document.getElementById('view-actions').innerHTML = `
-      <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ New Collection</button>
-      <button class="btn btn-secondary btn-sm" onclick="openTemplatesModal()">✨ Recipes</button>
-      <button class="btn btn-secondary btn-sm" onclick="openImportModal()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:-1px; margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Import JSON</button>
-    `;
+    document.getElementById('view-actions').innerHTML = '';
     if (typeof renderCollectionsHubView === 'function') renderCollectionsHubView();
   } else if (nav === 'plugins') {
     state.activeCollection = null;
@@ -88,7 +80,7 @@ async function selectNav(nav) {
     badgeEl.className = 'badge badge-primary';
     badgeEl.style.display = pCount > 0 ? 'inline-block' : 'none';
     document.getElementById('view-actions').innerHTML = `
-      <a href="/_/docs" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">OpenAPI Specs ↗</a>
+      <a href="/_/docs" target="_blank" onclick="openDocsWithApp(event)" class="btn btn-secondary btn-sm" style="text-decoration:none;">OpenAPI Specs ↗</a>
     `;
     if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
     if (typeof renderPluginsHubView === 'function') renderPluginsHubView();
@@ -101,10 +93,7 @@ async function selectNav(nav) {
     document.getElementById('nav-webhooks')?.classList.add('active');
     document.getElementById('view-title').textContent = 'Webhooks Manager';
     document.getElementById('view-title').style.display = 'none';
-    document.getElementById('view-actions').innerHTML = `
-      <button class="btn btn-secondary btn-sm" onclick="refreshWebhooksView()">Refresh</button>
-      <button class="btn btn-primary btn-sm" onclick="openCreateWebhookModal()">+ New Webhook</button>
-    `;
+    document.getElementById('view-actions').innerHTML = '';
     if (typeof renderWebhooksView === 'function') renderWebhooksView();
   } else if (nav === 'analytics') {
     state.activeCollection = null;
@@ -114,10 +103,7 @@ async function selectNav(nav) {
     document.getElementById('view-badge').style.display = 'none';
     document.getElementById('nav-analytics')?.classList.add('active');
     document.getElementById('view-title').textContent = 'Analytics & Metrics';
-    document.getElementById('view-actions').innerHTML = `
-      <button class="btn btn-secondary btn-sm" onclick="loadAnalytics()">Refresh</button>
-      <button class="btn btn-primary btn-sm" onclick="selectNav('home')">Overview</button>
-    `;
+    document.getElementById('view-actions').innerHTML = '';
     if (typeof renderAnalyticsView === 'function') renderAnalyticsView();
     if (typeof loadAnalytics === 'function') loadAnalytics();
     if (typeof analyticsState !== 'undefined' && analyticsState.autoRefreshEnabled && typeof startAnalyticsAutoRefresh === 'function') {
@@ -132,9 +118,6 @@ async function selectNav(nav) {
     document.getElementById('nav-snapshots')?.classList.add('active');
     document.getElementById('view-title').textContent = 'Demo Snapshots';
     document.getElementById('view-actions').innerHTML = `
-      <button class="btn btn-secondary btn-sm" onclick="openSnapshotDemoModal()">
-        📸 Snapshot Demo State
-      </button>
       <button class="btn btn-warning btn-sm" onclick="openResetDemoModal()" style="font-weight:700;">
         ↺ Reset Demo Data
       </button>

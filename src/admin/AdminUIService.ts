@@ -45,8 +45,17 @@ export class AdminUIService {
     }
   }
 
-  public getNavItems(): AdminNavItem[] {
+  public getNavItems(db?: any): AdminNavItem[] {
+    if (this.navItemsGetter) {
+      return this.navItemsGetter(db);
+    }
     return [...this.navItems];
+  }
+
+  private navItemsGetter?: (db?: any) => AdminNavItem[];
+
+  public setNavItemsGetter(getter: (db?: any) => AdminNavItem[]): void {
+    this.navItemsGetter = getter;
   }
 
   public registerPluginMeta(meta: PluginMetadata): void {
@@ -80,9 +89,9 @@ export class AdminUIService {
     this.plugins = this.plugins.filter((p) => p.name !== name);
   }
 
-  private catalogGetter?: () => any[];
+  private catalogGetter?: (db?: any) => any[];
 
-  public setCatalogGetter(getter: () => any[]): void {
+  public setCatalogGetter(getter: (db?: any) => any[]): void {
     this.catalogGetter = getter;
   }
 
@@ -150,17 +159,25 @@ export class AdminUIService {
     });
 
     // Plugin & Admin UI Extensions API
-    server.get('/api/admin/nav-items', async (_req: FastifyRequest, reply: FastifyReply) => {
-      return reply.send({ items: this.getNavItems() });
-    });
+    const sendNavItemsResponse = async (req: FastifyRequest, reply: FastifyReply) => {
+      const targetDb = (req as any).appScope?.db;
+      return reply.send({ items: this.getNavItems(targetDb) });
+    };
 
-    server.get('/api/plugins', async (_req: FastifyRequest, reply: FastifyReply) => {
+    server.get('/api/admin/nav-items', sendNavItemsResponse);
+    server.get('/api/apps/:appId/admin/nav-items', sendNavItemsResponse);
+
+    const sendPluginsResponse = async (req: FastifyRequest, reply: FastifyReply) => {
+      const targetDb = (req as any).appScope?.db;
       return reply.send({
         plugins: this.getPluginsMeta(),
-        navItems: this.getNavItems(),
-        catalog: this.catalogGetter ? this.catalogGetter() : [],
+        navItems: this.getNavItems(targetDb),
+        catalog: this.catalogGetter ? this.catalogGetter(targetDb) : [],
       });
-    });
+    };
+
+    server.get('/api/plugins', sendPluginsResponse);
+    server.get('/api/apps/:appId/plugins', sendPluginsResponse);
   }
 
   private getFallbackSvg(): string {

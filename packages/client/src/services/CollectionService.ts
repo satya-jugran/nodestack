@@ -4,6 +4,8 @@ import { BaseService } from './BaseService';
  * Service for managing collection schema definitions (Admin only).
  */
 export class CollectionService extends BaseService {
+  public list = this.getList.bind(this);
+  public get = this.getOne.bind(this);
   /**
    * Retrieves all collection schema models.
    */

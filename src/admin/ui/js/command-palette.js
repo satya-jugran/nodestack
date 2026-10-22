@@ -269,7 +269,15 @@ function getAllCommandPaletteItems() {
     icon: '📖',
     keywords: ['docs', 'openapi', 'swagger', 'api reference'],
     action: () => {
-      window.open('/_/docs', '_blank');
+      if (typeof openDocsWithApp === 'function') {
+        openDocsWithApp();
+      } else {
+        const slug = (typeof getActiveAppSlug === 'function')
+          ? getActiveAppSlug()
+          : (state?.activeApp?.slug || (typeof state?.activeApp === 'string' ? state.activeApp : 'default'));
+        const app = slug && slug !== 'default' ? `?app=${encodeURIComponent(slug)}` : '';
+        window.open(`/_/docs${app}`, '_blank');
+      }
     }
   });
 

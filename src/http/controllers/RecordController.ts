@@ -16,12 +16,29 @@ export class RecordController extends BaseController {
     super();
   }
 
+  private getRecords(req: any): RecordService {
+    return req?.appScope?.records || this.recordService;
+  }
+
+  private getSchema(req: any): SchemaService {
+    return req?.appScope?.schema || this.schemaService;
+  }
+
+  private getFiles(req: any): FileStorageService {
+    return req?.appScope?.files || this.fileStorageService;
+  }
+
+  private getMockData(req: any): MockDataService | undefined {
+    return req?.appScope?.mockData || this.mockDataService;
+  }
+
   public async getList(
     req: FastifyRequest<{ Params: { collection: string }; Querystring: QueryOptions }>,
     reply: FastifyReply
   ): Promise<void> {
     const { collection } = req.params;
-    const result = await this.recordService.getList(collection, req.query, req.auth);
+    const records = this.getRecords(req);
+    const result = await records.getList(collection, req.query, req.auth);
     this.ok(reply, result);
   }
 
@@ -30,7 +47,8 @@ export class RecordController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const { collection, id } = req.params;
-    const record = await this.recordService.getOne(collection, id, req.query, req.auth);
+    const records = this.getRecords(req);
+    const record = await records.getOne(collection, id, req.query, req.auth);
     this.ok(reply, record);
   }
 
@@ -39,7 +57,10 @@ export class RecordController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const { collection } = req.params;
-    const col = this.schemaService.getCollectionOrThrow(collection);
+    const schema = this.getSchema(req);
+    const files = this.getFiles(req);
+    const records = this.getRecords(req);
+    const col = schema.getCollectionOrThrow(collection);
 
     let data: Record<string, any> = {};
 
@@ -70,7 +91,7 @@ export class RecordController extends BaseController {
       // Process uploaded files
       for (const file of filesToProcess) {
         const schemaField = col.schema.find((f) => f.name === file.fieldName);
-        const savedMeta = await this.fileStorageService.saveFile(
+        const savedMeta = await files.saveFile(
           col.id,
           tempId,
           file.filename,
@@ -84,7 +105,7 @@ export class RecordController extends BaseController {
       data = (req.body as any) || {};
     }
 
-    const record = await this.recordService.create(collection, data, req.auth, req);
+    const record = await records.create(collection, data, req.auth, req);
     this.ok(reply, record, 201);
   }
 
@@ -93,7 +114,10 @@ export class RecordController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const { collection, id } = req.params;
-    const col = this.schemaService.getCollectionOrThrow(collection);
+    const schema = this.getSchema(req);
+    const files = this.getFiles(req);
+    const records = this.getRecords(req);
+    const col = schema.getCollectionOrThrow(collection);
 
     let data: Record<string, any> = {};
 
@@ -120,7 +144,7 @@ export class RecordController extends BaseController {
       // Process uploaded files
       for (const file of filesToProcess) {
         const schemaField = col.schema.find((f) => f.name === file.fieldName);
-        const savedMeta = await this.fileStorageService.saveFile(
+        const savedMeta = await files.saveFile(
           col.id,
           id,
           file.filename,
@@ -134,7 +158,7 @@ export class RecordController extends BaseController {
       data = (req.body as any) || {};
     }
 
-    const record = await this.recordService.update(collection, id, data, req.auth, req);
+    const record = await records.update(collection, id, data, req.auth, req);
     this.ok(reply, record);
   }
 
@@ -143,7 +167,8 @@ export class RecordController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const { collection, id } = req.params;
-    await this.recordService.delete(collection, id, req.auth, req);
+    const records = this.getRecords(req);
+    await records.delete(collection, id, req.auth, req);
     this.noContent(reply);
   }
 
@@ -152,10 +177,11 @@ export class RecordController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const { collection } = req.params;
+    const records = this.getRecords(req);
     const formatParam = (req.params.format || req.query.format || 'csv').toLowerCase();
     const format: 'csv' | 'json' = formatParam === 'json' ? 'json' : 'csv';
 
-    const result = await this.recordService.exportRecords(collection, format, req.query, req.auth);
+    const result = await records.exportRecords(collection, format, req.query, req.auth);
 
     reply.header('Content-Type', result.mimeType);
     reply.header('Content-Disposition', `attachment; filename="${result.filename}"`);
@@ -167,7 +193,8 @@ export class RecordController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const { collection } = req.params;
-    let records: Array<Record<string, any>> = [];
+    const records = this.getRecords(req);
+    let rows: Array<Record<string, any>> = [];
     let continueOnError = req.query?.continueOnError !== 'false';
 
     if (req.isMultipart && req.isMultipart()) {
@@ -181,30 +208,30 @@ export class RecordController extends BaseController {
           continueOnError = part.value === 'true';
         } else if (part.fieldname === 'records') {
           try {
-            records = JSON.parse(part.value as string);
+            rows = JSON.parse(part.value as string);
           } catch {}
         }
       }
       if (csvContent) {
-        records = CsvHelper.parse(csvContent);
+        rows = CsvHelper.parse(csvContent);
       }
     } else if (typeof req.body === 'string') {
-      records = CsvHelper.parse(req.body);
+      rows = CsvHelper.parse(req.body);
     } else if (Array.isArray(req.body)) {
-      records = req.body;
+      rows = req.body;
     } else if (req.body && typeof req.body === 'object') {
       const body = req.body as any;
       if (Array.isArray(body.records)) {
-        records = body.records;
+        rows = body.records;
       }
       if (body.options?.continueOnError !== undefined) {
         continueOnError = Boolean(body.options.continueOnError);
       }
     }
 
-    const result = await this.recordService.importRecords(
+    const result = await records.importRecords(
       collection,
-      records,
+      rows,
       req.auth,
       { continueOnError },
       req
@@ -220,7 +247,8 @@ export class RecordController extends BaseController {
     }>,
     reply: FastifyReply
   ): Promise<void> {
-    if (!this.mockDataService) {
+    const mockData = this.getMockData(req);
+    if (!mockData) {
       return reply.status(500).send({ message: 'MockDataService is not initialized' });
     }
 
@@ -233,7 +261,7 @@ export class RecordController extends BaseController {
       autoSeedRelations: body.options?.autoSeedRelations ?? body.autoSeedRelations ?? true,
     };
 
-    const result = await this.mockDataService.generate(
+    const result = await mockData.generate(
       collection,
       options,
       req.auth,

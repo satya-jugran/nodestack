@@ -7,6 +7,8 @@ export interface OpenApiGeneratorOptions {
   version?: string;
   description?: string;
   serverUrl?: string;
+  appSlug?: string;
+  appName?: string;
 }
 
 export class OpenApiGenerator {
@@ -48,6 +50,13 @@ export class OpenApiGenerator {
       options.description ||
       'Interactive OpenAPI 3.0 specification for NodeStack backend. Dynamically generated from collection schemas.';
     const serverUrl = options.serverUrl || '/';
+    const isScoped = Boolean(options.appSlug && options.appSlug !== 'default');
+    const apiPrefix = isScoped ? `/api/apps/${options.appSlug}` : '/api';
+
+    // Filter out internal system tables (prefixed with '_' or system: true, excluding public auth 'users')
+    const publicCollections = collections.filter(
+      (col) => !col.name?.startsWith('_') && !(col.system && col.name !== 'users')
+    );
 
     const tags: Array<{ name: string; description: string }> = [];
     const paths: Record<string, any> = {};
@@ -385,7 +394,7 @@ export class OpenApiGenerator {
     };
 
     // 2. Collection-Specific Schemas & Paths
-    for (const col of collections) {
+    for (const col of publicCollections) {
       const pascal = this.toPascalCase(col.name);
       const recordSchemaName = `${pascal}Record`;
       const createSchemaName = `${pascal}Create`;
@@ -510,8 +519,8 @@ export class OpenApiGenerator {
       }
 
       // --- Paths for this collection ---
-      const recordsPath = `/api/collections/${col.name}/records`;
-      const recordItemPath = `/api/collections/${col.name}/records/{id}`;
+      const recordsPath = `${apiPrefix}/collections/${col.name}/records`;
+      const recordItemPath = `${apiPrefix}/collections/${col.name}/records/{id}`;
 
       // 1. List Records (GET)
       paths[recordsPath] = paths[recordsPath] || {};
@@ -830,7 +839,7 @@ export class OpenApiGenerator {
 
       // 6. Auth collection login route
       if (col.type === 'auth') {
-        const authPath = `/api/collections/${col.name}/auth-with-password`;
+        const authPath = `${apiPrefix}/collections/${col.name}/auth-with-password`;
         paths[authPath] = paths[authPath] || {};
         paths[authPath].post = {
           tags: ['Auth', col.name],
@@ -989,7 +998,7 @@ export class OpenApiGenerator {
     // 4. Schema Collections Management Endpoints
     tags.push({ name: 'Collections', description: 'Collection schema management (Admin only)' });
 
-    paths['/api/collections'] = {
+    paths[`${apiPrefix}/collections`] = {
       get: {
         tags: ['Collections'],
         summary: 'List all collections',
@@ -1035,7 +1044,7 @@ export class OpenApiGenerator {
       },
     };
 
-    paths['/api/collections/infer-schema'] = {
+    paths[`${apiPrefix}/collections/infer-schema`] = {
       post: {
         tags: ['Collections'],
         summary: 'Infer schema from JSON',
@@ -1080,7 +1089,7 @@ export class OpenApiGenerator {
       },
     };
 
-    paths['/api/collections/import-json'] = {
+    paths[`${apiPrefix}/collections/import-json`] = {
       post: {
         tags: ['Collections'],
         summary: 'Paste JSON → Instant API',
@@ -1133,7 +1142,7 @@ export class OpenApiGenerator {
       },
     };
 
-    paths['/api/collections/{collection}'] = {
+    paths[`${apiPrefix}/collections/{collection}`] = {
       get: {
         tags: ['Collections'],
         summary: 'Get collection details',
@@ -1202,7 +1211,7 @@ export class OpenApiGenerator {
     // 5. File Storage Endpoints
     tags.push({ name: 'Files', description: 'File serving and download endpoints' });
 
-    paths['/api/files/{collection}/{recordId}/{filename}'] = {
+    paths[`${apiPrefix}/files/{collection}/{recordId}/{filename}`] = {
       get: {
         tags: ['Files'],
         summary: 'Download / view file',
@@ -1236,7 +1245,7 @@ export class OpenApiGenerator {
     // 6. Realtime Endpoints
     tags.push({ name: 'Realtime', description: 'Realtime Server-Sent Events (SSE) streaming' });
 
-    paths['/api/realtime'] = {
+    paths[`${apiPrefix}/realtime`] = {
       get: {
         tags: ['Realtime'],
         summary: 'Connect to Realtime SSE event stream',
@@ -1379,7 +1388,7 @@ export class OpenApiGenerator {
     // 8.5 Webhooks Endpoints (Admin only)
     tags.push({ name: 'Webhooks', description: 'Outbound webhooks management, delivery tracking, and manual retry' });
 
-    paths['/api/webhooks'] = {
+    paths[`${apiPrefix}/webhooks`] = {
       get: {
         tags: ['Webhooks'],
         summary: 'List configured webhooks',
@@ -1450,7 +1459,7 @@ export class OpenApiGenerator {
       },
     };
 
-    paths['/api/webhooks/stats'] = {
+    paths[`${apiPrefix}/webhooks/stats`] = {
       get: {
         tags: ['Webhooks'],
         summary: 'Get webhook statistics',
@@ -1477,7 +1486,7 @@ export class OpenApiGenerator {
       },
     };
 
-    paths['/api/webhooks/{id}'] = {
+    paths[`${apiPrefix}/webhooks/{id}`] = {
       get: {
         tags: ['Webhooks'],
         summary: 'Get webhook by ID',
@@ -1572,7 +1581,7 @@ export class OpenApiGenerator {
       },
     };
 
-    paths['/api/webhooks/{id}/test'] = {
+    paths[`${apiPrefix}/webhooks/{id}/test`] = {
       post: {
         tags: ['Webhooks'],
         summary: 'Test webhook dispatch',
@@ -1612,7 +1621,7 @@ export class OpenApiGenerator {
       },
     };
 
-    paths['/api/webhooks/deliveries'] = {
+    paths[`${apiPrefix}/webhooks/deliveries`] = {
       get: {
         tags: ['Webhooks'],
         summary: 'List webhook delivery logs',
@@ -1690,7 +1699,7 @@ export class OpenApiGenerator {
       },
     };
 
-    paths['/api/webhooks/deliveries/{id}'] = {
+    paths[`${apiPrefix}/webhooks/deliveries/{id}`] = {
       get: {
         tags: ['Webhooks'],
         summary: 'Get delivery log details',
@@ -1722,7 +1731,7 @@ export class OpenApiGenerator {
       },
     };
 
-    paths['/api/webhooks/deliveries/{id}/retry'] = {
+    paths[`${apiPrefix}/webhooks/deliveries/{id}/retry`] = {
       post: {
         tags: ['Webhooks'],
         summary: 'Retry webhook delivery',
@@ -1754,7 +1763,7 @@ export class OpenApiGenerator {
       },
     };
 
-    paths['/api/types'] = {
+    paths[`${apiPrefix}/types`] = {
       get: {
         tags: ['System'],
         summary: 'Get TypeScript type definitions',
@@ -1772,7 +1781,7 @@ export class OpenApiGenerator {
       },
     };
 
-    paths['/api/openapi.json'] = {
+    paths[`${apiPrefix}/openapi.json`] = {
       get: {
         tags: ['System'],
         summary: 'OpenAPI 3.0 specification JSON',
@@ -1801,7 +1810,9 @@ export class OpenApiGenerator {
       servers: [
         {
           url: serverUrl,
-          description: 'NodeStack Server',
+          description: options.appSlug && options.appSlug !== 'default'
+            ? `${options.appName || options.appSlug} Server`
+            : 'NodeStack Server',
         },
       ],
       tags,

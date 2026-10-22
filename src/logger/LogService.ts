@@ -19,7 +19,7 @@ export interface LogEntry {
 export class LogService {
   constructor(private db: DatabaseService) {}
 
-  public logRequest(entry: LogEntry): void {
+  public logRequest(entry: LogEntry, options: { skipConsole?: boolean } = {}): void {
     const id = `log_${crypto.randomBytes(6).toString('hex')}`;
     const now = new Date().toISOString();
 
@@ -45,7 +45,9 @@ export class LogService {
     }
 
     // Console output with color formatting
-    this.printToConsole(entry);
+    if (!options.skipConsole) {
+      this.printToConsole(entry);
+    }
   }
 
   public getLogs(page = 1, perPage = 50): { items: any[]; totalItems: number; totalPages: number; page: number; perPage: number } {

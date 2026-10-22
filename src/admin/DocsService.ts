@@ -4,21 +4,36 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ConfigService } from '../core/config/ConfigService';
 import { OpenApiGenerator } from '../schema/OpenApiGenerator';
+import { AppManager } from '../apps/AppManager';
+import { AppModel } from '../apps/models/App';
 
 export class DocsService {
   constructor(
-    private openApiGenerator: OpenApiGenerator,
-    private config?: ConfigService
+    public readonly openApiGenerator: OpenApiGenerator,
+    private config?: ConfigService,
+    private appManager?: AppManager
   ) {}
+
+  public setAppManager(appManager: AppManager): void {
+    this.appManager = appManager;
+  }
 
   /**
    * Registers documentation routes on the Fastify instance.
    */
   public registerRoutes(server: FastifyInstance): void {
     // 1. OpenAPI 3.0 Specification in JSON format
-    const sendOpenApiJson = async (_req: FastifyRequest, reply: FastifyReply) => {
-      const spec = this.openApiGenerator.generate({
-        title: `${this.config?.appName || 'NodeStack'} API`,
+    const sendOpenApiJson = async (req: FastifyRequest, reply: FastifyReply) => {
+      const scope = (req as any).appScope;
+      const generator = scope?.openapi || this.openApiGenerator;
+      const appName = scope?.app?.slug === 'default'
+        ? (this.config?.appName || 'NodeStack')
+        : (scope?.app?.name || this.config?.appName || 'NodeStack');
+      const appSlug = scope?.app?.slug || 'default';
+      const spec = generator.generate({
+        title: `${appName} API`,
+        appSlug,
+        appName,
       });
       reply.header('Content-Type', 'application/json; charset=utf-8');
       return reply.send(spec);
@@ -27,22 +42,51 @@ export class DocsService {
     server.get('/api/openapi.json', sendOpenApiJson);
     server.get('/api/openapi', sendOpenApiJson);
     server.get('/_/openapi.json', sendOpenApiJson);
+    server.get('/api/apps/:appId/openapi.json', sendOpenApiJson);
+    server.get('/api/apps/:appId/openapi', sendOpenApiJson);
 
     // 2. Interactive Docs Viewer HTML (Scalar / Swagger UI)
-    const sendDocsHtml = async (req: FastifyRequest<{ Querystring: { ui?: string } }>, reply: FastifyReply) => {
+    const sendDocsHtml = async (
+      req: FastifyRequest<{ Querystring: { ui?: string; app?: string } }>,
+      reply: FastifyReply
+    ) => {
       const uiMode = req.query.ui === 'swagger' ? 'swagger' : 'scalar';
-      const html = this.renderDocsHtml(uiMode);
+      const scope = (req as any).appScope;
+      const currentApp: AppModel = scope?.app || {
+        id: 'default',
+        name: this.config?.appName || 'NodeStack',
+        slug: 'default',
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
+      };
+      const allApps: AppModel[] = this.appManager
+        ? this.appManager.list()
+        : [currentApp];
+
+      const html = this.renderDocsHtml(uiMode, currentApp, allApps);
       reply.header('Content-Type', 'text/html; charset=utf-8');
       return reply.send(html);
     };
 
     server.get('/_/docs', sendDocsHtml);
     server.get('/_/docs/', sendDocsHtml);
-    server.get('/api/docs', async (_req: FastifyRequest, reply: FastifyReply) => {
-      return reply.redirect('/_/docs');
+    server.get('/api/docs', async (req: any, reply: FastifyReply) => {
+      const qs = req.url && req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      return reply.redirect(`/_/docs${qs}`);
     });
-    server.get('/api/docs/', async (_req: FastifyRequest, reply: FastifyReply) => {
-      return reply.redirect('/_/docs');
+    server.get('/api/docs/', async (req: any, reply: FastifyReply) => {
+      const qs = req.url && req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      return reply.redirect(`/_/docs${qs}`);
+    });
+    server.get('/api/apps/:appId/docs', async (req: any, reply: FastifyReply) => {
+      const appId = req.params.appId;
+      const ui = req.query?.ui ? `&ui=${encodeURIComponent(req.query.ui)}` : '';
+      return reply.redirect(`/_/docs?app=${encodeURIComponent(appId)}${ui}`);
+    });
+    server.get('/api/apps/:appId/docs/', async (req: any, reply: FastifyReply) => {
+      const appId = req.params.appId;
+      const ui = req.query?.ui ? `&ui=${encodeURIComponent(req.query.ui)}` : '';
+      return reply.redirect(`/_/docs?app=${encodeURIComponent(appId)}${ui}`);
     });
 
     // 3. Compiled Docusaurus Documentation Portal
@@ -193,9 +237,20 @@ export class DocsService {
   /**
    * Renders the interactive documentation HTML page.
    */
-  public renderDocsHtml(uiMode: 'scalar' | 'swagger' = 'scalar'): string {
-    const appName = this.config?.appName || 'NodeStack';
+  public renderDocsHtml(
+    uiMode: 'scalar' | 'swagger' = 'scalar',
+    currentApp?: Partial<AppModel>,
+    allApps: AppModel[] = []
+  ): string {
+    const appName = currentApp?.name || this.config?.appName || 'NodeStack';
+    const appSlug = currentApp?.slug || 'default';
+    const isDefault = appSlug === 'default';
     const isSwagger = uiMode === 'swagger';
+
+    const specQuery = isDefault ? '' : `?app=${encodeURIComponent(appSlug)}`;
+    const specUrl = `/api/openapi.json${specQuery}`;
+    const typesUrl = `/api/types.d.ts${specQuery}`;
+    const swaggerParam = isSwagger ? '&ui=swagger' : '';
 
     return `<!DOCTYPE html>
 <html lang="en" class="dark">
@@ -358,7 +413,7 @@ export class DocsService {
 </head>
 <body>
   <header class="docs-topbar">
-    <div style="display: flex; align-items: center; gap: 1.25rem;">
+    <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
       <a href="/_/" class="brand-section" title="Back to Admin Dashboard">
         <div class="brand-icon">
           <img src="/_/icon.svg" alt="${appName}">
@@ -367,9 +422,23 @@ export class DocsService {
         <span class="badge">OpenAPI 3.0</span>
       </a>
 
+      ${allApps.length > 0 ? `
+        <div style="display: inline-flex; align-items: center; gap: 6px; background: #131720; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 2px 8px;">
+          <label for="docs-app-select" style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">App:</label>
+          <select id="docs-app-select" onchange="window.location.href='/_/docs?app=' + encodeURIComponent(this.value) + '${swaggerParam}'" style="background: transparent; color: #f3f4f6; border: none; font-size: 12px; font-weight: 600; outline: none; cursor: pointer;">
+            ${allApps.map(a => `<option value="${a.slug}" ${a.slug === appSlug ? 'selected' : ''} style="background: #181b21; color: #fff;">${a.name} (${a.slug})</option>`).join('')}
+          </select>
+        </div>
+      ` : ''}
+
       <div class="view-toggle">
-        <a href="/_/docs" class="${!isSwagger ? 'active' : ''}">Scalar</a>
-        <a href="/_/docs?ui=swagger" class="${isSwagger ? 'active' : ''}">Swagger UI</a>
+        <a href="/_/docs${isDefault ? '' : `?app=${encodeURIComponent(appSlug)}`}" class="${!isSwagger ? 'active' : ''}">Scalar</a>
+        <a href="/_/docs?${isDefault ? '' : `app=${encodeURIComponent(appSlug)}&`}ui=swagger" class="${isSwagger ? 'active' : ''}">Swagger UI</a>
+      </div>
+
+      <div id="docs-auth-badge" style="display: none; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 9999px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);" title="Your Admin token from the dashboard is automatically applied to interactive requests">
+        <span style="width: 6px; height: 6px; border-radius: 50%; background: #10b981;"></span>
+        <span>Admin Token Active</span>
       </div>
     </div>
 
@@ -378,11 +447,11 @@ export class DocsService {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
         <span>Admin Dashboard</span>
       </a>
-      <a href="/api/openapi.json" target="_blank" class="nav-btn" title="Raw OpenAPI Specification JSON">
+      <a href="${specUrl}" target="_blank" class="nav-btn" title="Raw OpenAPI Specification JSON">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
         <span>OpenAPI JSON</span>
       </a>
-      <a href="/api/types.d.ts" target="_blank" class="nav-btn" title="Generated TypeScript definitions">
+      <a href="${typesUrl}" target="_blank" class="nav-btn" title="Generated TypeScript definitions">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
         <span>TypeScript Types</span>
       </a>
@@ -394,27 +463,43 @@ export class DocsService {
       <h3>API Viewer CDN Notice</h3>
       <p>The interactive documentation interface could not be reached via CDN. You can still access the raw OpenAPI 3.0 JSON specification or generated TypeScript types directly:</p>
       <div style="display: flex; gap: 1rem; justify-content: center;">
-        <a href="/api/openapi.json" target="_blank" class="nav-btn active" style="padding: 0.5rem 1rem;">View OpenAPI JSON</a>
-        <a href="/api/types.d.ts" target="_blank" class="nav-btn" style="padding: 0.5rem 1rem;">View TypeScript Types</a>
+        <a href="${specUrl}" target="_blank" class="nav-btn active" style="padding: 0.5rem 1rem;">View OpenAPI JSON</a>
+        <a href="${typesUrl}" target="_blank" class="nav-btn" style="padding: 0.5rem 1rem;">View TypeScript Types</a>
       </div>
     </div>
 
     ${
       isSwagger
         ? `<div class="swagger-ui-wrapper"><div id="swagger-ui"></div></div>`
-        : `<script
-            id="api-reference"
-            data-url="/api/openapi.json"
-            data-configuration='{
-              "theme": "purple",
-              "darkMode": true,
-              "showSidebar": true,
-              "searchHotKey": "k",
-              "metaData": {
-                "title": "${appName} API Reference"
-              }
-            }'
-          ></script>`
+        : `<script id="api-reference" data-url="${specUrl}"></script>
+           <script>
+             (function() {
+               var el = document.getElementById('api-reference');
+               var config = {
+                 theme: 'purple',
+                 darkMode: true,
+                 showSidebar: true,
+                 searchHotKey: 'k',
+                 metaData: {
+                   title: ${JSON.stringify(appName + ' API Reference')}
+                 }
+               };
+               var token = localStorage.getItem('nodestack_token') || localStorage.getItem('nb_token');
+               if (token) {
+                 config.authentication = {
+                   preferredSecurityScheme: 'BearerAuth',
+                   securitySchemes: {
+                     BearerAuth: {
+                       token: token
+                     }
+                   }
+                 };
+                 var badge = document.getElementById('docs-auth-badge');
+                 if (badge) badge.style.display = 'inline-flex';
+               }
+               el.setAttribute('data-configuration', JSON.stringify(config));
+             })();
+           </script>`
     }
   </div>
 
@@ -425,15 +510,25 @@ export class DocsService {
          <script>
            window.addEventListener('load', () => {
              if (window.SwaggerUIBundle) {
-               window.SwaggerUIBundle({
-                 url: '/api/openapi.json',
+               var token = localStorage.getItem('nodestack_token') || localStorage.getItem('nb_token');
+               if (token) {
+                 var badge = document.getElementById('docs-auth-badge');
+                 if (badge) badge.style.display = 'inline-flex';
+               }
+               var ui = window.SwaggerUIBundle({
+                 url: '${specUrl}',
                  dom_id: '#swagger-ui',
                  deepLinking: true,
                  presets: [
                    SwaggerUIBundle.presets.apis,
                    SwaggerUIStandalonePreset
                  ],
-                 layout: 'StandaloneLayout'
+                 layout: 'StandaloneLayout',
+                 onComplete: () => {
+                   if (token && ui && ui.preauthorizeApiKey) {
+                     ui.preauthorizeApiKey('BearerAuth', token);
+                   }
+                 }
                });
              }
            });

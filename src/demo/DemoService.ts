@@ -15,6 +15,14 @@ export interface DemoSnapshotOptions {
   description?: string;
 }
 
+export interface DemoServicePaths {
+  dbPath?: string;
+  storageDir?: string;
+  snapshotDir?: string;
+  name?: string;
+  description?: string;
+}
+
 export interface DemoCollectionSummary {
   name: string;
   type: string;
@@ -72,7 +80,8 @@ export class DemoService {
     private fileStorageService: FileStorageService,
     private eventBus: EventBus,
     private realtimeService: RealtimeService,
-    maintenanceGate?: MaintenanceGate
+    maintenanceGate?: MaintenanceGate,
+    private customPaths?: DemoServicePaths
   ) {
     this.maintenanceGate = maintenanceGate || new MaintenanceGate();
   }
@@ -81,8 +90,16 @@ export class DemoService {
     return this.maintenanceGate;
   }
 
+  public get dbPath(): string {
+    return this.customPaths?.dbPath || this.config.dbPath;
+  }
+
+  public get storageDir(): string {
+    return this.customPaths?.storageDir || this.fileStorageService.storageDir || this.config.storageDir;
+  }
+
   public get snapshotDir(): string {
-    return path.join(this.config.dataDir, '.demo_snapshot');
+    return this.customPaths?.snapshotDir || path.join(this.config.dataDir, '.demo_snapshot');
   }
 
   public get snapshotDbPath(): string {
@@ -180,8 +197,8 @@ export class DemoService {
     }
     fs.mkdirSync(this.snapshotStorageDir, { recursive: true });
 
-    if (fs.existsSync(this.config.storageDir)) {
-      fs.cpSync(this.config.storageDir, this.snapshotStorageDir, { recursive: true });
+    if (fs.existsSync(this.storageDir)) {
+      fs.cpSync(this.storageDir, this.snapshotStorageDir, { recursive: true });
     }
 
     // 5. Gather statistics and compute baseline content hash
@@ -244,10 +261,10 @@ export class DemoService {
 
       try {
         // 3. Overwrite live data.db with snapshot
-        fs.copyFileSync(this.snapshotDbPath, this.config.dbPath);
+        fs.copyFileSync(this.snapshotDbPath, this.dbPath);
 
         // 4. Remove existing WAL and SHM journal files
-        const walPath = `${this.config.dbPath}-wal`;
+        const walPath = `${this.dbPath}-wal`;
         if (fs.existsSync(walPath)) {
           try {
             fs.unlinkSync(walPath);
@@ -256,7 +273,7 @@ export class DemoService {
           }
         }
 
-        const shmPath = `${this.config.dbPath}-shm`;
+        const shmPath = `${this.dbPath}-shm`;
         if (fs.existsSync(shmPath)) {
           try {
             fs.unlinkSync(shmPath);
@@ -266,13 +283,13 @@ export class DemoService {
         }
 
         // 5. Restore file storage
-        if (fs.existsSync(this.config.storageDir)) {
-          fs.rmSync(this.config.storageDir, { recursive: true, force: true });
+        if (fs.existsSync(this.storageDir)) {
+          fs.rmSync(this.storageDir, { recursive: true, force: true });
         }
-        fs.mkdirSync(this.config.storageDir, { recursive: true });
+        fs.mkdirSync(this.storageDir, { recursive: true });
 
         if (fs.existsSync(this.snapshotStorageDir)) {
-          fs.cpSync(this.snapshotStorageDir, this.config.storageDir, { recursive: true });
+          fs.cpSync(this.snapshotStorageDir, this.storageDir, { recursive: true });
         }
       } finally {
         // 6. Guaranteed database driver reconnection and unlock
@@ -354,7 +371,7 @@ export class DemoService {
       // ignore
     }
 
-    const filesStat = this.getDirectoryStats(this.config.storageDir);
+    const filesStat = this.getDirectoryStats(this.storageDir);
 
     return {
       totalCollections: collections.length,
@@ -445,7 +462,7 @@ export class DemoService {
     }
 
     // 4. File storage manifest (paths, sizes, and md5 content hash sorted by relative path)
-    const files = this.getFileManifest(this.config.storageDir);
+    const files = this.getFileManifest(this.storageDir);
     hash.update(`files:count:${files.length}`);
     for (const f of files) {
       hash.update(`${f.relPath}:${f.sizeBytes}:${f.md5}`);

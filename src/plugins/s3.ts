@@ -248,7 +248,20 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
     version: '1.0.0',
     description: 'S3-compatible cloud storage adapter, presigned URLs & asset synchronization',
 
-    codeOptions: { ...(options || {}) },
+        codeOptions: { ...(options || {}) },
+    buildAdminNavItems(cfg: Record<string, any>) {
+      const bucket = cfg.bucket !== undefined ? cfg.bucket : (options?.bucket || '');
+      const region = cfg.region || options?.region || 'us-east-1';
+      const isConfigured = Boolean(bucket && String(bucket).trim() !== '');
+      return [{
+        id: 's3-storage',
+        title: 'S3 Storage',
+        badge: isConfigured ? String(region).toUpperCase() : 'UNCONFIGURED',
+        badgeVariant: isConfigured ? 'info' : 'warning',
+        icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>`,
+        view: buildAdminView(bucket, region),
+      }];
+    },
     configSchema: {
       fields: [
         {
@@ -312,9 +325,6 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
       navItem.badge = isConfigured ? effectiveRegion.toUpperCase() : 'UNCONFIGURED';
       navItem.badgeVariant = isConfigured ? 'info' : 'warning';
       navItem.view = buildAdminView(effectiveBucket, effectiveRegion);
-      if (currentContext) {
-        currentContext.registerAdminNav(navItem);
-      }
     },
 
     collections: [
@@ -340,11 +350,26 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
       // 1. Bind service into container
       ctx.bindService(Symbol.for('S3StorageService'), s3Service);
 
+      const getScopedS3 = (req: FastifyRequest) => {
+        const targetDb = (req as any).appScope?.db;
+        const records = (req as any).appScope?.records || ctx.app.records;
+        if (!targetDb || !(ctx.app.plugins as any)?.getEffectiveConfig) {
+          return { service: s3Service, records };
+        }
+        const appConfig = (ctx.app.plugins as any).getEffectiveConfig('s3-storage', targetDb);
+        const scopedService = new S3StorageService({
+          ...options,
+          ...appConfig,
+        });
+        return { service: scopedService, records };
+      };
+
       // 2. Register custom endpoints
-      ctx.registerRoute('GET', '/api/s3/status', async (_req, reply) => {
-        const isConfigured = s3Service.isConfigured();
-        const effectiveBucket = s3Service.options.bucket || '';
-        const effectiveRegion = s3Service.options.region || 'us-east-1';
+      ctx.registerRoute('GET', '/api/s3/status', async (req, reply) => {
+        const { service: activeS3 } = getScopedS3(req);
+        const isConfigured = activeS3.isConfigured();
+        const effectiveBucket = activeS3.options.bucket || '';
+        const effectiveRegion = activeS3.options.region || 'us-east-1';
 
         if (!isConfigured) {
           return reply.status(400).send({
@@ -363,7 +388,7 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
           connected: true,
           bucket: effectiveBucket,
           region: effectiveRegion,
-          endpoint: s3Service.getBucketEndpoint(),
+          endpoint: activeS3.getBucketEndpoint(),
           collection: collectionName,
         });
       });
@@ -372,7 +397,8 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
         'POST',
         '/api/s3/sign-upload-url',
         async (req: FastifyRequest, reply: FastifyReply) => {
-          if (!s3Service.isConfigured()) {
+          const { service: activeS3, records } = getScopedS3(req);
+          if (!activeS3.isConfigured()) {
             return reply.status(400).send({
               statusCode: 400,
               error: 'Bad Request',
@@ -386,20 +412,20 @@ export function s3StoragePlugin(options: S3StoragePluginOptions = {}): INodeStac
           const mimeType = body.mimeType || 'application/octet-stream';
 
           try {
-            const presigned = s3Service.getPresignedUploadUrl(filename, mimeType, {
+            const presigned = activeS3.getPresignedUploadUrl(filename, mimeType, {
               expiresIn: body.expiresIn ? Number(body.expiresIn) : undefined,
               key: body.key,
             });
 
-            const effectiveBucket = s3Service.options.bucket || '';
+            const effectiveBucket = activeS3.options.bucket || '';
 
             // Record entry in system collection
             try {
-              await ctx.app.records.create(collectionName, {
+              await records.create(collectionName, {
                 key: presigned.key,
                 bucket: effectiveBucket,
                 mimeType,
-                url: s3Service.getObjectUrl(presigned.key),
+                url: activeS3.getObjectUrl(presigned.key),
               });
             } catch (e: any) {
               // ignore duplicate or non-fatal

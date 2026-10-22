@@ -323,6 +323,41 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
       description: 'Algolia search index synchronization & mutation indexing queue',
 
       codeOptions: { ...(options || {}) },
+    buildAdminNavItems(cfg: Record<string, any>) {
+      const appId = cfg.appId !== undefined ? cfg.appId : (options?.appId || '');
+      const apiKey = cfg.apiKey !== undefined ? cfg.apiKey : (options?.apiKey || '');
+      const isConfigured = Boolean(appId && apiKey);
+      const indexPrefix = cfg.indexPrefix || options?.indexPrefix || 'nodestack_';
+      return [{
+        id: 'algolia',
+        title: 'Algolia Search',
+        badge: isConfigured ? 'ACTIVE' : 'UNCONFIGURED',
+        badgeVariant: isConfigured ? 'success' : 'warning',
+        icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+        view: {
+          title: 'Algolia InstantSearch Sync',
+          description: isConfigured
+            ? `Syncing collections [${targetCollections.join(', ')}] with index prefix "${indexPrefix}"`
+            : 'Unconfigured — Algolia Application ID and Admin API Key required.',
+          html: `
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Application ID</div>
+                <div style="font-size: 13px; font-weight: 700; color: ${isConfigured ? '#60a5fa' : '#f59e0b'}; font-family: monospace; margin-top: 4px;">${escapeHtml(appId || '(Not Configured)')}</div>
+              </div>
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Monitored Collections</div>
+                <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${escapeHtml(targetCollections.join(', ') || 'None')}</div>
+              </div>
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Durable Queue</div>
+                <div style="font-size: 13px; font-weight: 700; color: #eab308; font-family: monospace; margin-top: 4px;">${escapeHtml(collectionName)}</div>
+              </div>
+            </div>
+          `,
+        },
+      }];
+    },
       configSchema: {
         fields: [
           {
@@ -451,16 +486,31 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
       // 3. Background durable queue consumer
       reconcileTimer(currentIntervalMs);
 
+      const getScopedAlgolia = (req: FastifyRequest) => {
+        const targetDb = (req as any).appScope?.db || ctx.app.db;
+        const records = (req as any).appScope?.records || ctx.app.records;
+        if (!targetDb || targetDb === ctx.app.db || !(ctx.app.plugins as any)?.getEffectiveConfig) {
+          return { service: algoliaService, db: targetDb, records };
+        }
+        const appConfig = (ctx.app.plugins as any).getEffectiveConfig('algolia', targetDb);
+        const scopedService = new AlgoliaSyncService({
+          ...options,
+          ...appConfig,
+        });
+        return { service: scopedService, db: targetDb, records };
+      };
+
       // 4. REST endpoints
-      ctx.registerRoute('GET', '/api/algolia/status', async (_req, reply) => {
-        const isConfigured = algoliaService.isConfigured();
+      ctx.registerRoute('GET', '/api/algolia/status', async (req, reply) => {
+        const { service: activeAlgolia } = getScopedAlgolia(req);
+        const isConfigured = activeAlgolia.isConfigured();
         return reply.send({
           configured: isConfigured,
-          appId: algoliaService.options.appId,
+          appId: activeAlgolia.options.appId,
           collections: targetCollections,
           queueCollection: collectionName,
-          syncedCount: algoliaService.syncedOperations.length,
-          endpoint: algoliaService.getBaseUrl(),
+          syncedCount: activeAlgolia.syncedOperations.length,
+          endpoint: activeAlgolia.getBaseUrl(),
           autoProcessIntervalMs: currentIntervalMs,
           workerActive: timer !== null,
         });
@@ -469,8 +519,9 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
       ctx.registerRoute(
         'POST',
         '/api/algolia/process-queue',
-        async (_req: FastifyRequest, reply: FastifyReply) => {
-          if (!algoliaService.isConfigured()) {
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const { service: activeAlgolia, db: targetDb } = getScopedAlgolia(req);
+          if (!activeAlgolia.isConfigured()) {
             return reply.status(400).send({
               statusCode: 400,
               error: 'Bad Request',
@@ -479,7 +530,7 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
             });
           }
 
-          const result = await algoliaService.processQueue(ctx.app);
+          const result = await activeAlgolia.processQueue((req as any).appScope || ctx.app);
           return reply.status(200).send({
             success: true,
             ...result,
@@ -492,7 +543,8 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
         'POST',
         '/api/algolia/reindex',
         async (req: FastifyRequest, reply: FastifyReply) => {
-          if (!algoliaService.isConfigured()) {
+          const { service: activeAlgolia, db: targetDb } = getScopedAlgolia(req);
+          if (!activeAlgolia.isConfigured()) {
             return reply.status(400).send({
               statusCode: 400,
               error: 'Bad Request',
@@ -510,7 +562,7 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
             });
           }
 
-          const records = ctx.app.db.all<any>(`SELECT * FROM "${col}"`) || [];
+          const records = (targetDb as any).all(`SELECT * FROM "${col}"`) || [];
           const indexName = algoliaService.getIndexName(col);
 
           if (records.length === 0) {
@@ -524,7 +576,7 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
           }
 
           // Build batch payload for Algolia
-          const batchRequests = records.map((record) => {
+          const batchRequests = records.map((record: any) => {
             const safeRecord = { ...record };
             delete safeRecord.passwordHash;
             delete safeRecord.tokenKey;
@@ -596,4 +648,9 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
       currentContext = null;
     },
   };
+}
+
+function escapeHtml(str: string): string {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

@@ -79,8 +79,11 @@ export class TypeGenerator {
 
     const collectionMapEntries: Array<{ name: string; recordName: string; responseName: string }> = [];
 
-    // Map each collection
-    for (const col of collections) {
+    // Map each collection (excluding system tables)
+    const publicCollections = collections.filter(
+      (col) => !col.name?.startsWith('_') && !(col.system && col.name !== 'users')
+    );
+    for (const col of publicCollections) {
       const pascalName = this.toPascalCase(col.name);
       const recordName = `${pascalName}Record`;
       const expandName = `${pascalName}Expand`;

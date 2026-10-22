@@ -14,6 +14,10 @@
         headers['Authorization'] = `Bearer ${state.token}`;
       }
 
+      if (state.activeApp && state.activeApp.slug) {
+        headers['x-nodestack-app'] = state.activeApp.slug;
+      }
+
       const res = await fetch(path, { ...options, headers });
       const isAuthEndpoint = path.includes('auth-with-password') || path.includes('create-initial');
 
@@ -147,7 +151,10 @@
         return;
       }
 
-      // 3. Load App
+      // 3. Load App & Active MVP Context
+      if (typeof fetchApps === 'function') {
+        await fetchApps();
+      }
       await loadCollections();
       if (typeof fetchDemoStatus === 'function') {
         fetchDemoStatus();
