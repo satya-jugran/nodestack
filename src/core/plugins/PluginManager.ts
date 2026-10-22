@@ -14,8 +14,11 @@ import {
   PluginConfigResult,
   ResolvedPluginConfigField,
   PluginConfigSource,
+  AdminNavItem,
 } from './types';
 import type { NodeStack } from '../../NodeStack';
+import { DatabaseService } from '../../database/DatabaseService';
+import { AppScope } from '../../apps/AppScope';
 import { stripePlugin } from '../../plugins/stripe';
 import { s3StoragePlugin } from '../../plugins/s3';
 import { resendPlugin } from '../../plugins/resend';
@@ -123,6 +126,10 @@ export class PluginManager {
     { method: string; path: string; handler: RouteHandlerMethod; preHandler?: any; pluginName?: string }
   >();
   private pluginHookUnsubscribers = new Map<string, Array<() => void>>();
+  private scopedHookUnsubscribers = new Map<string, Array<() => void>>();
+  private scopedPlugins = new Map<string, { plugin: INodeStackPlugin; context: NodeStackPluginContext }>();
+  private provisionedScopes = new Set<string>();
+  private runtimeLoadedOfficialPlugins = new Set<string>();
 
   constructor(
     private readonly app: NodeStack,
@@ -132,7 +139,11 @@ export class PluginManager {
     this.registerConfigRoutes();
 
     if (this.app.adminUi && typeof (this.app.adminUi as any).setCatalogGetter === 'function') {
-      (this.app.adminUi as any).setCatalogGetter(() => this.getOfficialCatalog());
+      (this.app.adminUi as any).setCatalogGetter((db?: DatabaseService) => this.getOfficialCatalog(db));
+    }
+
+    if (this.app.adminUi && typeof (this.app.adminUi as any).setNavItemsGetter === 'function') {
+      (this.app.adminUi as any).setNavItemsGetter((db?: DatabaseService) => this.getScopedNavItems(db));
     }
 
     if (this.app.server && typeof (this.app.server as any).setDynamicRouteHandler === 'function') {
@@ -147,13 +158,24 @@ export class PluginManager {
       );
     }
 
+    if (this.app.apps && typeof (this.app.apps as any).onScopeInit === 'function') {
+      (this.app.apps as any).onScopeInit((scope: AppScope) => {
+        this.provisionScope(scope);
+        if (typeof (scope as any).onClose === 'function') {
+          (scope as any).onClose(() => {
+            this.disposeScope(scope.app.slug);
+          });
+        }
+      });
+    }
+
     this.loadAutoEnabledPlugins();
   }
 
   /**
    * Install/use a plugin on the NodeStack instance
    */
-  public use(pluginOrFn: NodeStackPlugin): this {
+  public use(pluginOrFn: NodeStackPlugin, targetScope?: AppScope): this {
     // 1. Normalize plugin
     let plugin: INodeStackPlugin;
     if (typeof pluginOrFn === 'function') {
@@ -243,25 +265,31 @@ export class PluginManager {
           return handler.call(this.app.server.app, req, reply);
         };
 
-        this.registerDynamicRoute(method, path, routeHandler, resolvedOptions, plugin.name);
-
-        const isBooted = this.isFastifyBooted(fastify);
-        if (!isBooted) {
-          try {
-            const m = method.toLowerCase();
-            if (typeof (fastify as any)[m] === 'function') {
-              (fastify as any)[m](path, resolvedOptions, routeHandler);
-            } else {
-              fastify.route({
-                method: method as any,
-                url: path,
-                handler: routeHandler,
-                ...resolvedOptions,
-              });
+        const registerBoth = (p: string) => {
+          this.registerDynamicRoute(method, p, routeHandler, resolvedOptions, plugin.name);
+          const isBooted = this.isFastifyBooted(fastify);
+          if (!isBooted) {
+            try {
+              const m = method.toLowerCase();
+              if (typeof (fastify as any)[m] === 'function') {
+                (fastify as any)[m](p, resolvedOptions, routeHandler);
+              } else {
+                fastify.route({
+                  method: method as any,
+                  url: p,
+                  handler: routeHandler,
+                  ...resolvedOptions,
+                });
+              }
+            } catch {
+              // Already booted fallback to dynamicRouter
             }
-          } catch {
-            // Already booted fallback to dynamicRouter
           }
+        };
+
+        registerBoth(path);
+        if (path.startsWith('/api/') && !path.startsWith('/api/apps/')) {
+          registerBoth(path.replace(/^\/api\//, '/api/apps/:appId/'));
         }
       },
       registerHook: (
@@ -346,10 +374,9 @@ export class PluginManager {
     };
 
     // 5. Execute Declarative Registrations
-    if (plugin.collections && Array.isArray(plugin.collections)) {
-      for (const colDto of plugin.collections) {
-        context.registerSystemCollection(colDto);
-      }
+    const scopeToProvision = targetScope || this.app.defaultApp;
+    if (scopeToProvision) {
+      this.provisionPluginForScope(plugin, scopeToProvision);
     }
 
     if (plugin.routes && Array.isArray(plugin.routes)) {
@@ -478,8 +505,11 @@ export class PluginManager {
   /**
    * Check if a plugin is registered
    */
-  public hasPlugin(name: string): boolean {
-    return this.plugins.has(name);
+  public hasPlugin(name: string, db?: DatabaseService): boolean {
+    if (!db || db === this.app.db) {
+      return this.plugins.has(name);
+    }
+    return this.isPluginEnabledInDb(name, db);
   }
 
   /**
@@ -706,11 +736,80 @@ export class PluginManager {
   }
 
   /**
+   * Return application-scoped navigation items for installed plugins and active configurations
+   */
+  public getScopedNavItems(db?: DatabaseService): AdminNavItem[] {
+    const targetDb = db || this.app.db;
+    const catalog = this.getOfficialCatalog(targetDb);
+    const navItems: AdminNavItem[] = [];
+
+    for (const record of this.plugins.values()) {
+      const plugin = record.plugin;
+      const official = catalog.find((c) => c.name === plugin.name || c.id === plugin.name);
+
+      // If it is an official catalog plugin and NOT installed in targetDb, omit from sidebar nav
+      if (official && !official.isInstalled) {
+        continue;
+      }
+
+      let effectiveConfig: Record<string, any> = {};
+      try {
+        effectiveConfig = this.getEffectiveConfig(plugin.name, targetDb);
+      } catch {
+        effectiveConfig = {};
+      }
+
+      if (typeof (plugin as any).buildAdminNavItems === 'function') {
+        const items = (plugin as any).buildAdminNavItems(effectiveConfig, record.context);
+        if (Array.isArray(items)) {
+          navItems.push(...items);
+          continue;
+        }
+      }
+
+      if (plugin.adminNavItems) {
+        navItems.push(...plugin.adminNavItems);
+      }
+    }
+
+    return navItems;
+  }
+
+  /**
    * Return catalog of official first-party extensions and their installation status
    */
-  public getOfficialCatalog(): OfficialPluginMetadata[] {
+  public getOfficialCatalog(db?: DatabaseService): OfficialPluginMetadata[] {
+    const targetDb = db || this.app.db;
+    const enabledMap = new Map<string, boolean>();
+    try {
+      this.initSettingsTable(targetDb);
+      if (targetDb && typeof targetDb.all === 'function') {
+        const rows = targetDb.all<{ pluginName: string; settings: string }>(
+          'SELECT pluginName, settings FROM _plugin_settings'
+        );
+        for (const r of rows) {
+          try {
+            const s = JSON.parse(r.settings);
+            if (s && s._enabled !== undefined) {
+              enabledMap.set(r.pluginName, Boolean(s._enabled));
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+
     return OFFICIAL_PLUGINS.map((def) => {
-      const isInstalled = this.plugins.has(def.name);
+      const isEnabledInDb = enabledMap.get(def.name);
+      let isInstalled: boolean;
+      if (isEnabledInDb !== undefined) {
+        isInstalled = isEnabledInDb;
+      } else if (this.runtimeLoadedOfficialPlugins.has(def.name)) {
+        isInstalled = false;
+      } else if (targetDb !== this.app.db) {
+        isInstalled = false;
+      } else {
+        isInstalled = this.plugins.has(def.name);
+      }
       return {
         id: def.id,
         name: def.name,
@@ -730,22 +829,46 @@ export class PluginManager {
   /**
    * 1-Click enable official first-party plugin at runtime
    */
-  public async enableOfficialPlugin(id: string): Promise<PluginConfigResult | null> {
+  public async enableOfficialPlugin(
+    id: string,
+    scopeOrDb?: AppScope | DatabaseService
+  ): Promise<PluginConfigResult | null> {
+    let targetScope: AppScope | undefined;
+    let targetDb: DatabaseService;
+
+    if (scopeOrDb && 'schema' in scopeOrDb && 'db' in scopeOrDb && 'app' in scopeOrDb) {
+      targetScope = scopeOrDb as AppScope;
+      targetDb = targetScope.db;
+    } else if (scopeOrDb && 'get' in scopeOrDb && 'run' in scopeOrDb) {
+      targetDb = scopeOrDb as DatabaseService;
+      targetScope = this.findScopeForDb(targetDb);
+    } else {
+      targetScope = this.app.defaultApp;
+      targetDb = this.app.db;
+    }
+
     const def = OFFICIAL_PLUGINS.find((p) => p.id === id || p.name === id);
     if (!def) {
       throw new NotFoundError(`Official plugin "${id}" not found in catalog`);
     }
 
+    this.runtimeLoadedOfficialPlugins.add(def.name);
+    let plugin: INodeStackPlugin;
     if (!this.plugins.has(def.name)) {
-      const plugin = def.factory();
-      this.use(plugin);
+      plugin = def.factory();
+      this.use(plugin, targetScope || this.app.defaultApp);
       await this.ensureInitialized();
+    } else {
+      plugin = this.plugins.get(def.name)!.plugin;
+      if (targetScope) {
+        this.provisionPluginForScope(plugin, targetScope);
+      }
     }
 
-    this.initSettingsTable();
+    this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = this.app.db.get<{ settings: string }>(
+      const row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [def.name]
       );
@@ -756,47 +879,43 @@ export class PluginManager {
 
     dbSettings._enabled = true;
     const now = new Date().toISOString();
-    this.app.db.prepare(`
+    targetDb.prepare(`
       INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
       VALUES (?, ?, ?)
       ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
     `).run(def.name, JSON.stringify(dbSettings), now);
 
-    return this.getPluginConfig(def.name);
+    return this.getPluginConfig(def.name, targetDb);
   }
 
   /**
    * Deactivate official first-party plugin
    */
-  public async disableOfficialPlugin(id: string): Promise<void> {
+  public async disableOfficialPlugin(
+    id: string,
+    scopeOrDb?: AppScope | DatabaseService
+  ): Promise<void> {
+    let targetScope: AppScope | undefined;
+    let targetDb: DatabaseService;
+
+    if (scopeOrDb && 'schema' in scopeOrDb && 'db' in scopeOrDb && 'app' in scopeOrDb) {
+      targetScope = scopeOrDb as AppScope;
+      targetDb = targetScope.db;
+    } else if (scopeOrDb && 'get' in scopeOrDb && 'run' in scopeOrDb) {
+      targetDb = scopeOrDb as DatabaseService;
+      targetScope = this.findScopeForDb(targetDb);
+    } else {
+      targetScope = this.app.defaultApp;
+      targetDb = this.app.db;
+    }
+
     const def = OFFICIAL_PLUGINS.find((p) => p.id === id || p.name === id);
     const name = def ? def.name : id;
 
-    const record = this.plugins.get(name);
-    if (record) {
-      if (typeof record.plugin.onDestroy === 'function') {
-        try {
-          await record.plugin.onDestroy(record.context);
-        } catch (e) {
-          console.error(`[PluginManager] Error destroying plugin "${name}":`, e);
-        }
-      }
-
-      if (record.plugin.adminNavItems) {
-        for (const item of record.plugin.adminNavItems) {
-          this.app.adminUi.removeNavItem(item.id);
-        }
-      }
-      this.app.adminUi.removePluginMeta(name);
-      this.removeHooksForPlugin(name);
-      this.removeDynamicRoutesForPlugin(name);
-      this.plugins.delete(name);
-    }
-
-    this.initSettingsTable();
+    this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = this.app.db.get<{ settings: string }>(
+      const row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [name]
       );
@@ -807,47 +926,416 @@ export class PluginManager {
 
     dbSettings._enabled = false;
     const now = new Date().toISOString();
-    this.app.db.prepare(`
+    targetDb.prepare(`
       INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
       VALUES (?, ?, ?)
       ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
     `).run(name, JSON.stringify(dbSettings), now);
+
+    if (targetScope) {
+      this.removeScopedHooks(targetScope.app.slug, name);
+      this.provisionedScopes.delete(`${targetScope.app.slug}:${name}`);
+    }
+
+    const isEnabledInAnyOtherApp = this.isPluginEnabledInAnyApp(name, targetDb);
+
+    if (!isEnabledInAnyOtherApp) {
+      const record = this.plugins.get(name);
+      if (record) {
+        if (typeof record.plugin.onDestroy === 'function') {
+          try {
+            await record.plugin.onDestroy(record.context);
+          } catch (e) {
+            console.error(`[PluginManager] Error destroying plugin "${name}":`, e);
+          }
+        }
+
+        if (record.plugin.adminNavItems) {
+          for (const item of record.plugin.adminNavItems) {
+            this.app.adminUi.removeNavItem(item.id);
+          }
+        }
+        this.app.adminUi.removePluginMeta(name);
+        this.removeHooksForPlugin(name);
+        this.removeDynamicRoutesForPlugin(name);
+        this.plugins.delete(name);
+      }
+    }
   }
 
-  /**
-   * Auto-load any official plugins previously enabled in _plugin_settings on startup
-   */
-  private loadAutoEnabledPlugins(): void {
-    this.initSettingsTable();
+  public findScopeForDb(db?: DatabaseService): AppScope | undefined {
+    if (!db || db === this.app.db) {
+      return this.app.defaultApp;
+    }
+    if (this.app.apps) {
+      if (typeof (this.app.apps as any).findScopeByDb === 'function') {
+        const found = (this.app.apps as any).findScopeByDb(db);
+        if (found) return found;
+      }
+      for (const app of this.app.apps.registry.getAllApps()) {
+        try {
+          const scope = this.app.apps.get(app.slug);
+          if (scope && (scope.db === db || (scope.db as any)?.driver === (db as any)?.driver)) {
+            return scope;
+          }
+        } catch {}
+      }
+    }
+    return undefined;
+  }
+
+  public isPluginEnabledInDb(pluginName: string, db?: DatabaseService): boolean {
+    const targetDb = db || this.app.db;
     try {
-      if (this.app.db && typeof this.app.db.all === 'function') {
-        const rows = this.app.db.all<{ pluginName: string; settings: string }>(
+      this.initSettingsTable(targetDb);
+      const row = targetDb.get<{ settings: string }>(
+        'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+        [pluginName]
+      );
+      if (!row || !row.settings) {
+        if (targetDb === this.app.db) {
+          return this.plugins.has(pluginName) && !this.runtimeLoadedOfficialPlugins.has(pluginName);
+        }
+        return false;
+      }
+      const settings = JSON.parse(row.settings);
+      if (settings && settings._enabled !== undefined) {
+        return Boolean(settings._enabled);
+      }
+      if (targetDb === this.app.db) {
+        return this.plugins.has(pluginName) && !this.runtimeLoadedOfficialPlugins.has(pluginName);
+      }
+      return false;
+    } catch {
+      return targetDb === this.app.db && this.plugins.has(pluginName);
+    }
+  }
+
+  private isPluginEnabledInAnyApp(pluginName: string, excludeDb?: DatabaseService): boolean {
+    if (this.app.db !== excludeDb && this.isPluginEnabledInDb(pluginName, this.app.db)) {
+      return true;
+    }
+    if (this.app.apps) {
+      for (const app of this.app.apps.registry.getAllApps()) {
+        try {
+          const scope = this.app.apps.get(app.slug);
+          if (scope && scope.db !== excludeDb && this.isPluginEnabledInDb(pluginName, scope.db)) {
+            return true;
+          }
+        } catch {}
+      }
+    }
+    return false;
+  }
+
+  private getScopedHookKey(appSlug: string, pluginName: string): string {
+    return `${appSlug}:${pluginName}`;
+  }
+
+  private addScopedHookUnsubscriber(appSlug: string, pluginName: string, unsub: () => void): void {
+    const key = this.getScopedHookKey(appSlug, pluginName);
+    if (!this.scopedHookUnsubscribers.has(key)) {
+      this.scopedHookUnsubscribers.set(key, []);
+    }
+    this.scopedHookUnsubscribers.get(key)!.push(unsub);
+  }
+
+  private removeScopedHooks(appSlug: string, pluginName: string): void {
+    const key = this.getScopedHookKey(appSlug, pluginName);
+    const unsubs = this.scopedHookUnsubscribers.get(key);
+    if (unsubs) {
+      for (const unsub of unsubs) {
+        try {
+          unsub();
+        } catch {}
+      }
+      this.scopedHookUnsubscribers.delete(key);
+    }
+    const scopedEntry = this.scopedPlugins.get(key);
+    if (scopedEntry) {
+      if (typeof scopedEntry.plugin.onDestroy === 'function') {
+        try {
+          scopedEntry.plugin.onDestroy(scopedEntry.context);
+        } catch {}
+      }
+      this.scopedPlugins.delete(key);
+    }
+  }
+
+  public disposeScope(appSlug: string): void {
+    for (const [key, entry] of this.scopedPlugins.entries()) {
+      if (key.startsWith(`${appSlug}:`)) {
+        if (typeof entry.plugin.onDestroy === 'function') {
+          try {
+            entry.plugin.onDestroy(entry.context);
+          } catch {}
+        }
+        this.scopedPlugins.delete(key);
+      }
+    }
+    for (const [key, unsubs] of this.scopedHookUnsubscribers.entries()) {
+      if (key.startsWith(`${appSlug}:`)) {
+        for (const unsub of unsubs) {
+          try {
+            unsub();
+          } catch {}
+        }
+        this.scopedHookUnsubscribers.delete(key);
+      }
+    }
+    for (const prov of Array.from(this.provisionedScopes)) {
+      if (prov.startsWith(`${appSlug}:`)) {
+        this.provisionedScopes.delete(prov);
+      }
+    }
+  }
+
+  private wireScopedPluginLifecycle(plugin: INodeStackPlugin, scope: AppScope): void {
+    if (typeof plugin.register !== 'function') return;
+
+    try {
+      const def = OFFICIAL_PLUGINS.find((p) => p.name === plugin.name || p.id === plugin.name);
+      const scopedPlugin: INodeStackPlugin = def ? def.factory() : plugin;
+
+      const scopedApp = new Proxy(this.app, {
+        get(target, prop, receiver) {
+          if (prop === 'db') return scope.db;
+          if (prop === 'schema') return scope.schema;
+          if (prop === 'records') return scope.records;
+          if (prop === 'eventBus') return scope.eventBus;
+          if (prop === 'files') return scope.files;
+          if (prop === 'fts') return scope.fts;
+          if (prop === 'analytics') return scope.analytics;
+          if (prop === 'auditLogs') return scope.auditLogs;
+          if (prop === 'webhooks') return scope.webhooks;
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+
+      const scopedContext: NodeStackPluginContext = {
+        app: scopedApp,
+        container: this.container,
+        tokens: TOKENS,
+        config: scope.config,
+        db: scope.db,
+        schema: scope.schema,
+        eventBus: scope.eventBus,
+        adminUi: this.app.adminUi,
+        auth: {
+          requireAdmin: () => this.app.authMiddleware.requireAdmin(),
+          requireAdminOrInitial: () => this.app.authMiddleware.requireAdminOrInitialSetup(),
+          requireAuth: () => this.app.authMiddleware.requireAuth(),
+        },
+        router: {
+          get: () => {},
+          post: () => {},
+          patch: () => {},
+          delete: () => {},
+          put: () => {},
+          raw: this.app.server?.app as any,
+        },
+        registerRoute: () => {},
+        registerAdminNav: () => {},
+        registerSystemCollection: (dto) => scope.schema.registerSystemCollection(dto),
+        registerHook: (event: string, handler: any, collection?: string) => {
+          const guardedHandler = async (...args: any[]) => {
+            if (!this.isPluginEnabledInDb(scopedPlugin.name, scope.db)) {
+              return;
+            }
+            return handler(...args);
+          };
+
+          let unsubscribe: () => void;
+          switch (event) {
+            case 'beforeCreate':
+              unsubscribe = scope.eventBus.onRecordBeforeCreate(
+                collection ? collection : guardedHandler,
+                collection ? guardedHandler : undefined
+              );
+              break;
+            case 'afterCreate':
+              unsubscribe = scope.eventBus.onRecordAfterCreate(
+                collection ? collection : guardedHandler,
+                collection ? guardedHandler : undefined
+              );
+              break;
+            case 'beforeUpdate':
+              unsubscribe = scope.eventBus.onRecordBeforeUpdate(
+                collection ? collection : guardedHandler,
+                collection ? guardedHandler : undefined
+              );
+              break;
+            case 'afterUpdate':
+              unsubscribe = scope.eventBus.onRecordAfterUpdate(
+                collection ? collection : guardedHandler,
+                collection ? guardedHandler : undefined
+              );
+              break;
+            case 'beforeDelete':
+              unsubscribe = scope.eventBus.onRecordBeforeDelete(
+                collection ? collection : guardedHandler,
+                collection ? guardedHandler : undefined
+              );
+              break;
+            case 'afterDelete':
+              unsubscribe = scope.eventBus.onRecordAfterDelete(
+                collection ? collection : guardedHandler,
+                collection ? guardedHandler : undefined
+              );
+              break;
+            case 'beforeServe':
+              unsubscribe = scope.eventBus.onBeforeServe(guardedHandler);
+              break;
+            case 'afterServe':
+              unsubscribe = scope.eventBus.onAfterServe(guardedHandler);
+              break;
+            default:
+              unsubscribe = scope.eventBus.on(event, guardedHandler);
+              break;
+          }
+
+          this.addScopedHookUnsubscriber(scope.app.slug, scopedPlugin.name, unsubscribe);
+        },
+        getService: <T>(token: ServiceIdentifier<T>): T => this.container.get<T>(token),
+        bindService: () => {},
+      };
+
+      const key = this.getScopedHookKey(scope.app.slug, scopedPlugin.name);
+      this.scopedPlugins.set(key, { plugin: scopedPlugin, context: scopedContext });
+
+      if (typeof scopedPlugin.register === 'function') {
+        const regRes = scopedPlugin.register(scopedContext);
+        if (regRes instanceof Promise) {
+          this.pendingInits.push(
+            regRes.catch((err) => {
+              console.error(`[PluginManager] Scoped register error for "${scopedPlugin.name}" in app "${scope.app.slug}":`, err);
+            })
+          );
+        }
+      }
+
+      if (typeof scopedPlugin.init === 'function') {
+        const initRes = scopedPlugin.init(scopedContext);
+        if (initRes instanceof Promise) {
+          this.pendingInits.push(
+            initRes.catch((err) => {
+              console.error(`[PluginManager] Scoped init error for "${scopedPlugin.name}" in app "${scope.app.slug}":`, err);
+            })
+          );
+        }
+      }
+
+      if (scopedPlugin.configSchema?.fields && typeof scopedPlugin.onConfigUpdate === 'function') {
+        try {
+          const effective = this.getEffectiveConfig(scopedPlugin.name, scope.db);
+          const initialSync = scopedPlugin.onConfigUpdate(effective);
+          if (initialSync instanceof Promise) {
+            this.pendingInits.push(initialSync.catch(() => {}));
+          }
+        } catch {}
+      }
+    } catch (err: any) {
+      console.error(`[PluginManager] Error wiring scoped lifecycle for "${plugin.name}" in app "${scope.app.slug}":`, err);
+    }
+  }
+
+  public provisionPluginForScope(plugin: INodeStackPlugin, scope: AppScope): void {
+    if (!plugin || !scope) return;
+    const key = `${scope.app.slug}:${plugin.name}`;
+    if (this.provisionedScopes.has(key)) {
+      return;
+    }
+    this.provisionedScopes.add(key);
+
+    // 1. Provision declarative collections on scope schema
+    if (plugin.collections && Array.isArray(plugin.collections)) {
+      for (const colDto of plugin.collections) {
+        scope.schema.registerSystemCollection(colDto);
+      }
+    }
+
+    // 2. For non-default scopes, wire up scoped context, lifecycle, and eventBus hooks
+    const isDefaultScope = scope === this.app.defaultApp || scope.app.slug === 'default' || scope.db === this.app.db;
+    if (!isDefaultScope) {
+      this.wireScopedPluginLifecycle(plugin, scope);
+    }
+  }
+
+  public provisionScope(scope: AppScope): void {
+    if (!scope || !scope.db) return;
+    this.initSettingsTable(scope.db);
+
+    // 1. If it's the default app, ensure all plugins registered via app.use() have collections provisioned
+    const isDefaultScope = scope === this.app.defaultApp || scope.app.slug === 'default' || scope.db === this.app.db;
+    if (isDefaultScope) {
+      for (const record of this.plugins.values()) {
+        this.provisionPluginForScope(record.plugin, scope);
+      }
+    }
+
+    // 2. Read _plugin_settings from scope.db
+    try {
+      if (typeof scope.db.all === 'function') {
+        const rows = scope.db.all<{ pluginName: string; settings: string }>(
           'SELECT pluginName, settings FROM _plugin_settings'
         );
         for (const row of rows) {
           try {
             const parsed = JSON.parse(row.settings);
             if (parsed && parsed._enabled === true) {
-              const def = OFFICIAL_PLUGINS.find((p) => p.name === row.pluginName || p.id === row.pluginName);
-              if (def && !this.plugins.has(def.name)) {
-                this.use(def.factory());
+              let plugin = this.plugins.get(row.pluginName)?.plugin;
+              if (!plugin) {
+                const def = OFFICIAL_PLUGINS.find(
+                  (p) => p.name === row.pluginName || p.id === row.pluginName
+                );
+                if (def) {
+                  this.runtimeLoadedOfficialPlugins.add(def.name);
+                  plugin = def.factory();
+                  this.use(plugin, scope);
+                }
+              } else {
+                this.provisionPluginForScope(plugin, scope);
               }
             }
           } catch {}
         }
       }
     } catch {
-      // Ignore during initial setup or mock runs
+      // Ignore during uninitialized state
+    }
+  }
+
+  /**
+   * Auto-load any official plugins previously enabled in _plugin_settings on startup
+   */
+  private loadAutoEnabledPlugins(): void {
+    if (this.app.defaultApp) {
+      this.provisionScope(this.app.defaultApp);
+    } else {
+      this.initSettingsTable(this.app.db);
+    }
+
+    if (this.app.apps) {
+      try {
+        const apps = this.app.apps.registry.getAllApps();
+        for (const app of apps) {
+          if (app.slug !== 'default') {
+            const scope = this.app.apps.get(app.slug);
+            this.provisionScope(scope);
+          }
+        }
+      } catch {}
     }
   }
 
   /**
    * Initialize SQLite settings table for plugins if not already present
    */
-  private initSettingsTable(): void {
+  private initSettingsTable(db?: DatabaseService): void {
+    const targetDb = db || this.app.db;
     try {
-      if (this.app.db && typeof this.app.db.run === 'function') {
-        this.app.db.run(`
+      if (targetDb && typeof targetDb.run === 'function') {
+        targetDb.run(`
           CREATE TABLE IF NOT EXISTS _plugin_settings (
             pluginName TEXT PRIMARY KEY,
             settings TEXT NOT NULL DEFAULT '{}',
@@ -867,95 +1355,105 @@ export class PluginManager {
     const fastify = this.app.server?.app;
     if (!fastify) return;
 
-    fastify.get(
-      '/api/plugins/available',
-      { preHandler: this.app.authMiddleware.requireAdmin() },
-      async (_req: FastifyRequest, reply: FastifyReply) => {
-        return reply.send({
-          plugins: this.getOfficialCatalog(),
-        });
-      }
-    );
-
-    fastify.post(
-      '/api/plugins/:name/enable',
-      { preHandler: this.app.authMiddleware.requireAdmin() },
-      async (req: FastifyRequest, reply: FastifyReply) => {
-        const { name } = req.params as { name: string };
-        try {
-          const config = await this.enableOfficialPlugin(name);
+    const setupRoutes = (prefix = '/api') => {
+      fastify.get(
+        `${prefix}/plugins/available`,
+        { preHandler: this.app.authMiddleware.requireAdmin() },
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const targetDb = (req as any).appScope?.db || this.app.db;
           return reply.send({
-            success: true,
-            message: `Plugin "${name}" enabled successfully`,
-            config,
-          });
-        } catch (err: any) {
-          const statusCode = err.statusCode || 400;
-          return reply.status(statusCode).send({
-            statusCode,
-            message: err.message || `Failed to enable plugin "${name}"`,
+            plugins: this.getOfficialCatalog(targetDb),
           });
         }
-      }
-    );
+      );
 
-    fastify.post(
-      '/api/plugins/:name/disable',
-      { preHandler: this.app.authMiddleware.requireAdmin() },
-      async (req: FastifyRequest, reply: FastifyReply) => {
-        const { name } = req.params as { name: string };
-        try {
-          await this.disableOfficialPlugin(name);
-          return reply.send({
-            success: true,
-            message: `Plugin "${name}" disabled successfully`,
-          });
-        } catch (err: any) {
-          const statusCode = err.statusCode || 400;
-          return reply.status(statusCode).send({
-            statusCode,
-            message: err.message || `Failed to disable plugin "${name}"`,
-          });
+      fastify.post(
+        `${prefix}/plugins/:name/enable`,
+        { preHandler: this.app.authMiddleware.requireAdmin() },
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const { name } = req.params as { name: string };
+          const targetScope = (req as any).appScope || this.app.defaultApp;
+          try {
+            const config = await this.enableOfficialPlugin(name, targetScope);
+            return reply.send({
+              success: true,
+              message: `Plugin "${name}" enabled successfully`,
+              config,
+            });
+          } catch (err: any) {
+            const statusCode = err.statusCode || 400;
+            return reply.status(statusCode).send({
+              statusCode,
+              message: err.message || `Failed to enable plugin "${name}"`,
+            });
+          }
         }
-      }
-    );
+      );
 
-    fastify.get(
-      '/api/plugins/:name/config',
-      { preHandler: this.app.authMiddleware.requireAdmin() },
-      async (req: FastifyRequest, reply: FastifyReply) => {
-        const { name } = req.params as { name: string };
-        try {
-          const config = this.getPluginConfig(name);
-          return reply.send(config);
-        } catch (err: any) {
-          const statusCode = err.statusCode || 404;
-          return reply.status(statusCode).send({
-            statusCode,
-            message: err.message || `Plugin "${name}" not found`,
-          });
+      fastify.post(
+        `${prefix}/plugins/:name/disable`,
+        { preHandler: this.app.authMiddleware.requireAdmin() },
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const { name } = req.params as { name: string };
+          const targetScope = (req as any).appScope || this.app.defaultApp;
+          try {
+            await this.disableOfficialPlugin(name, targetScope);
+            return reply.send({
+              success: true,
+              message: `Plugin "${name}" disabled successfully`,
+            });
+          } catch (err: any) {
+            const statusCode = err.statusCode || 400;
+            return reply.status(statusCode).send({
+              statusCode,
+              message: err.message || `Failed to disable plugin "${name}"`,
+            });
+          }
         }
-      }
-    );
+      );
 
-    fastify.put(
-      '/api/plugins/:name/config',
-      { preHandler: this.app.authMiddleware.requireAdmin() },
-      async (req: FastifyRequest, reply: FastifyReply) => {
-        const { name } = req.params as { name: string };
-        const body = (req.body as any) || {};
-        try {
-          const updated = await this.updatePluginConfig(name, body);
-          return reply.send(updated);
-        } catch (err: any) {
-          const statusCode = err.statusCode || 400;
-          return reply.status(statusCode).send({
-            statusCode,
-            message: err.message,
-          });
+      fastify.get(
+        `${prefix}/plugins/:name/config`,
+        { preHandler: this.app.authMiddleware.requireAdmin() },
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const { name } = req.params as { name: string };
+          const targetDb = (req as any).appScope?.db || this.app.db;
+          try {
+            const config = this.getPluginConfig(name, targetDb);
+            return reply.send(config);
+          } catch (err: any) {
+            const statusCode = err.statusCode || 404;
+            return reply.status(statusCode).send({
+              statusCode,
+              message: err.message || `Plugin "${name}" not found`,
+            });
+          }
         }
-      }
-    );
+      );
+
+      fastify.put(
+        `${prefix}/plugins/:name/config`,
+        { preHandler: this.app.authMiddleware.requireAdmin() },
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const { name } = req.params as { name: string };
+          const body = (req.body as any) || {};
+          const targetDb = (req as any).appScope?.db || this.app.db;
+          try {
+            const updated = await this.updatePluginConfig(name, body, targetDb);
+            return reply.send(updated);
+          } catch (err: any) {
+            const statusCode = err.statusCode || 400;
+            return reply.status(statusCode).send({
+              statusCode,
+              message: err.message,
+            });
+          }
+        }
+      );
+    };
+
+    setupRoutes('/api');
+    setupRoutes('/api/apps/:appId');
   }
 
   /**
@@ -963,7 +1461,8 @@ export class PluginManager {
    * Resolves values from environment variables, database (_plugin_settings), code options, and defaults.
    * Unlike getPluginConfig, this preserves raw secrets required by plugins at runtime.
    */
-  public getEffectiveConfig(name: string): Record<string, any> {
+  public getEffectiveConfig(name: string, db?: DatabaseService): Record<string, any> {
+    const targetDb = db || this.app.db;
     let record = this.plugins.get(name);
     if (!record) {
       for (const rec of this.plugins.values()) {
@@ -983,10 +1482,10 @@ export class PluginManager {
       return {};
     }
 
-    this.initSettingsTable();
+    this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = this.app.db.get<{ settings: string }>(
+      const row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [name]
       );
@@ -1045,7 +1544,8 @@ export class PluginManager {
    * SECURITY: For fields of type 'password', raw secret values are NEVER returned in responses.
    * value is omitted (undefined), and hasValue indicates whether a secret is configured.
    */
-  public getPluginConfig(name: string): PluginConfigResult {
+  public getPluginConfig(name: string, db?: DatabaseService): PluginConfigResult {
+    const targetDb = db || this.app.db;
     let record = this.plugins.get(name);
     if (!record) {
       for (const rec of this.plugins.values()) {
@@ -1069,10 +1569,10 @@ export class PluginManager {
       };
     }
 
-    this.initSettingsTable();
+    this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = this.app.db.get<{ settings: string }>(
+      const row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [name]
       );
@@ -1164,7 +1664,8 @@ export class PluginManager {
    *   - A non-empty string updates the secret in _plugin_settings.
    * Saves updates to _plugin_settings and fires onConfigUpdate on the plugin with effective settings.
    */
-  public async updatePluginConfig(name: string, updates: Record<string, any>): Promise<PluginConfigResult> {
+  public async updatePluginConfig(name: string, updates: Record<string, any>, db?: DatabaseService): Promise<PluginConfigResult> {
+    const targetDb = db || this.app.db;
     let record = this.plugins.get(name);
     if (!record) {
       for (const rec of this.plugins.values()) {
@@ -1179,15 +1680,15 @@ export class PluginManager {
       throw new NotFoundError(`Plugin "${name}" is not registered`);
     }
 
-    const currentConfig = this.getPluginConfig(name);
+    const currentConfig = this.getPluginConfig(name, targetDb);
     if (!currentConfig.hasConfig) {
       throw new AppError(`Plugin "${name}" does not define a configuration schema`, 400);
     }
 
-    this.initSettingsTable();
+    this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = this.app.db.get<{ settings: string }>(
+      const row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [name]
       );
@@ -1266,25 +1767,50 @@ export class PluginManager {
     }
 
     const now = new Date().toISOString();
-    this.app.db.prepare(`
+    targetDb.prepare(`
       INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
       VALUES (?, ?, ?)
       ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
     `).run(name, JSON.stringify(dbSettings), now);
 
     // Compute effective full configuration with raw secrets for runtime update
-    if (typeof record.plugin.onConfigUpdate === 'function') {
-      const effectiveConfig = this.getEffectiveConfig(name);
-      await record.plugin.onConfigUpdate(effectiveConfig);
+    const targetScope = this.findScopeForDb(targetDb);
+    const isDefaultDb = !db || targetDb === this.app.db || targetScope?.app.slug === 'default' || (targetScope && targetScope === this.app.defaultApp);
+
+    if (isDefaultDb) {
+      if (typeof record.plugin.onConfigUpdate === 'function') {
+        const effectiveConfig = this.getEffectiveConfig(name, targetDb);
+        await record.plugin.onConfigUpdate(effectiveConfig);
+      }
+    } else if (targetScope) {
+      const key = this.getScopedHookKey(targetScope.app.slug, name);
+      let scopedEntry = this.scopedPlugins.get(key);
+      if (!scopedEntry && this.isPluginEnabledInDb(name, targetDb)) {
+        this.provisionPluginForScope(record.plugin, targetScope);
+        scopedEntry = this.scopedPlugins.get(key);
+      }
+      if (scopedEntry && typeof scopedEntry.plugin.onConfigUpdate === 'function') {
+        const effectiveConfig = this.getEffectiveConfig(name, targetDb);
+        await scopedEntry.plugin.onConfigUpdate(effectiveConfig);
+      }
     }
 
-    return this.getPluginConfig(name);
+    return this.getPluginConfig(name, targetDb);
   }
 
   /**
    * Clean up and destroy all plugins
    */
   public async dispose(): Promise<void> {
+    for (const scopedEntry of this.scopedPlugins.values()) {
+      if (typeof scopedEntry.plugin.onDestroy === 'function') {
+        try {
+          await scopedEntry.plugin.onDestroy(scopedEntry.context);
+        } catch {}
+      }
+    }
+    this.scopedPlugins.clear();
+
     for (const record of this.plugins.values()) {
       if (typeof record.plugin.onDestroy === 'function') {
         try {

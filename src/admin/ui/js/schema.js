@@ -89,7 +89,9 @@
         state.activeRules[rk.key] = initRuleState(col[rk.prop]);
       }
 
-      const actions = document.getElementById('view-actions');
+      const topActions = document.getElementById('view-actions');
+      if (topActions) topActions.innerHTML = '';
+      const actions = document.getElementById('collection-actions') || topActions;
       actions.innerHTML = `
         ${!col.system ? `
           <button class="btn btn-danger btn-sm" onclick="openDeleteCollectionModal('${col.name}')" title="Permanently delete this collection">

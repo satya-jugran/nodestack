@@ -7,12 +7,17 @@ export class DemoController extends BaseController {
     super();
   }
 
+  private getDemo(req: any): DemoService {
+    return req?.appScope?.demo || this.demoService;
+  }
+
   /**
    * GET /api/demo/status
    * Returns snapshot availability, metadata, and live drift information.
    */
-  public async getStatus(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const status = this.demoService.getStatus();
+  public async getStatus(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const demo = this.getDemo(req);
+    const status = demo.getStatus();
     this.ok(reply, status);
   }
 
@@ -24,7 +29,8 @@ export class DemoController extends BaseController {
     req: FastifyRequest<{ Body?: { name?: string; description?: string } }>,
     reply: FastifyReply
   ): Promise<void> {
-    const metadata = await this.demoService.snapshot({
+    const demo = this.getDemo(req);
+    const metadata = await demo.snapshot({
       name: req.body?.name,
       description: req.body?.description,
     });
@@ -35,8 +41,9 @@ export class DemoController extends BaseController {
    * POST /api/demo/reset
    * Restores the exact pristine demo state in one click.
    */
-  public async reset(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const result = await this.demoService.reset();
+  public async reset(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const demo = this.getDemo(req);
+    const result = await demo.reset();
     this.ok(reply, result);
   }
 
@@ -44,8 +51,9 @@ export class DemoController extends BaseController {
    * DELETE /api/demo/snapshot
    * Removes the frozen demo snapshot.
    */
-  public async clearSnapshot(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
-    await this.demoService.clearSnapshot();
+  public async clearSnapshot(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const demo = this.getDemo(req);
+    await demo.clearSnapshot();
     this.noContent(reply);
   }
 }

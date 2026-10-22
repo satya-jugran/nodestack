@@ -284,6 +284,40 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
     description: 'Stripe payments, checkout sessions, customer billing & webhook events',
 
     codeOptions: { ...(options || {}) },
+    buildAdminNavItems(cfg: Record<string, any>) {
+      const secKey = cfg.secretKey !== undefined ? cfg.secretKey : (options?.secretKey || '');
+      const isNowConfigured = Boolean((secKey && String(secKey).trim()) || cfg.dryRun || options?.dryRun);
+      const isNowLive = Boolean(secKey && String(secKey).startsWith('sk_live_'));
+      return [{
+        id: 'stripe',
+        title: 'Stripe Payments',
+        badge: !isNowConfigured ? 'UNCONFIGURED' : isNowLive ? 'LIVE' : 'TEST MODE',
+        badgeVariant: !isNowConfigured ? 'warning' : isNowLive ? 'danger' : 'warning',
+        icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>`,
+        view: {
+          title: 'Stripe Payment Extension',
+          description: !isNowConfigured
+            ? 'Unconfigured — Stripe Secret Key (sk_test_... or sk_live_...) required.'
+            : `Configured in ${isNowLive ? 'Live Mode' : 'Test Mode'} with collections ${customersCol} & ${paymentsCol}.`,
+          html: `
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Webhook Route</div>
+                <div style="font-size: 13px; font-weight: 700; color: #60a5fa; font-family: monospace; margin-top: 4px;">POST /api/stripe/webhook</div>
+              </div>
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Customer Table</div>
+                <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${customersCol}</div>
+              </div>
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Payments Table</div>
+                <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${paymentsCol}</div>
+              </div>
+            </div>
+          `,
+        },
+      }];
+    },
     configSchema: {
       fields: [
         {
@@ -380,23 +414,39 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
       // 1. Bind service into container
       ctx.bindService(Symbol.for('StripeService'), stripeService);
 
+      const getScopedStripe = (req: FastifyRequest) => {
+        const targetDb = (req as any).appScope?.db;
+        const records = (req as any).appScope?.records || ctx.app.records;
+        if (!targetDb || !(ctx.app.plugins as any)?.getEffectiveConfig) {
+          return { service: stripeService, records };
+        }
+        const appConfig = (ctx.app.plugins as any).getEffectiveConfig('stripe', targetDb);
+        const scopedService = new StripeService({
+          ...options,
+          ...appConfig,
+        });
+        return { service: scopedService, records };
+      };
+
       // 2. Register custom developer endpoints
-      ctx.registerRoute('GET', '/api/stripe/status', async (_req, reply) => {
-        const isCurrentConfigured = stripeService.isConfigured();
-        const isCurrentTest = stripeService.isTestMode();
-        const isCurrentLive = stripeService.isLiveMode();
+      ctx.registerRoute('GET', '/api/stripe/status', async (req, reply) => {
+        const { service: activeStripe } = getScopedStripe(req);
+        const isCurrentConfigured = activeStripe.isConfigured();
+        const isCurrentTest = activeStripe.isTestMode();
+        const isCurrentLive = activeStripe.isLiveMode();
         return reply.send({
           enabled: true,
           configured: isCurrentConfigured,
           testMode: isCurrentTest,
           liveMode: isCurrentLive,
-          currency: stripeService.options.currency || 'usd',
+          currency: activeStripe.options.currency || 'usd',
           customersCollection: customersCol,
           paymentsCollection: paymentsCol,
         });
       });
 
       ctx.registerRoute('POST', '/api/stripe/checkout-session', async (req: FastifyRequest, reply: FastifyReply) => {
+        const { service: activeStripe } = getScopedStripe(req);
         const body = (req.body as any) || {};
         if (!body.email || !body.amount) {
           return reply.status(400).send({
@@ -405,7 +455,7 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
           });
         }
         try {
-          const session = await stripeService.createCheckoutSession(body);
+          const session = await activeStripe.createCheckoutSession(body);
           return reply.status(201).send(session);
         } catch (err: any) {
           const statusCode =
@@ -433,7 +483,8 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
         'POST',
         '/api/stripe/webhook',
         async (req: FastifyRequest, reply: FastifyReply) => {
-          const webhookSecret = options.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET;
+          const { service: activeStripe, records } = getScopedStripe(req);
+          const webhookSecret = activeStripe.options.webhookSecret || options.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET;
 
           if (webhookSecret) {
             const sigHeader = (req.headers['stripe-signature'] as string) || '';
@@ -448,7 +499,7 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
               (req as any).rawBody ||
               (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
 
-            const isValid = stripeService.verifyWebhookSignature(rawBody, sigHeader, webhookSecret);
+            const isValid = activeStripe.verifyWebhookSignature(rawBody, sigHeader, webhookSecret);
             if (!isValid) {
               return reply.status(400).send({
                 statusCode: 400,
@@ -465,11 +516,11 @@ export function stripePlugin(options: StripePluginOptions = {}): INodeStackPlugi
           if (eventType === 'payment_intent.succeeded' || eventType === 'checkout.session.completed') {
             const piId = dataObject.id || `pi_${crypto.randomBytes(8).toString('hex')}`;
             try {
-              await ctx.app.records.create(paymentsCol, {
+              await records.create(paymentsCol, {
                 paymentIntentId: piId,
                 customerId: dataObject.customer || '',
                 amount: dataObject.amount || 0,
-                currency: dataObject.currency || options.currency || 'usd',
+                currency: dataObject.currency || activeStripe.options.currency || options.currency || 'usd',
                 status: 'succeeded',
               });
             } catch (e: any) {

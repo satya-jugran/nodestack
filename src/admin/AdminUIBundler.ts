@@ -39,6 +39,7 @@ export class AdminUIBundler {
       const jsFiles = [
         'state.js',
         'api.js',
+        'apps.js',
         'rules.js',
         'schema.js',
         'records.js',

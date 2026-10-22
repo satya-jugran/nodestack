@@ -23,7 +23,12 @@
         user: false,
         system: false,
       },
+      apps: [],
+      activeApp: JSON.parse(localStorage.getItem('nodestack_active_app') || 'null') || { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true },
       demo: {
+
+
+
         hasSnapshot: false,
         snapshot: null,
         liveStats: null,

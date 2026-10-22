@@ -23,6 +23,7 @@ export {
   computeWebhookSignature,
   verifyWebhookSignature,
 } from './services/WebhookService';
+export { AppService } from './services/AppService';
 
 // Types & Models
 export * from './types';

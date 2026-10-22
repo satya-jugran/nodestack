@@ -61,28 +61,33 @@ export function formatBytes(bytes: number): string {
 }
 
 export class AnalyticsService {
+  private dbPath: string;
+
   constructor(
     private db: DatabaseService,
     private config: ConfigService,
     private schemaService: SchemaService,
-    private realtimeService: RealtimeService
-  ) {}
+    private realtimeService: RealtimeService,
+    options?: { dbPath?: string }
+  ) {
+    this.dbPath = options?.dbPath || this.config.dbPath;
+  }
 
   public getDatabaseMetrics(): DatabaseMetrics {
     let sizeBytes = 0;
     let walSizeBytes = 0;
 
     try {
-      if (fs.existsSync(this.config.dbPath)) {
-        sizeBytes += fs.statSync(this.config.dbPath).size;
+      if (fs.existsSync(this.dbPath)) {
+        sizeBytes += fs.statSync(this.dbPath).size;
       }
-      const walPath = `${this.config.dbPath}-wal`;
+      const walPath = `${this.dbPath}-wal`;
       if (fs.existsSync(walPath)) {
         const walSize = fs.statSync(walPath).size;
         walSizeBytes = walSize;
         sizeBytes += walSize;
       }
-      const shmPath = `${this.config.dbPath}-shm`;
+      const shmPath = `${this.dbPath}-shm`;
       if (fs.existsSync(shmPath)) {
         sizeBytes += fs.statSync(shmPath).size;
       }

@@ -15,8 +15,24 @@ export class CollectionController extends BaseController {
     super();
   }
 
-  public async list(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const collections = this.schemaService.getAllCollections();
+  private getSchema(req: any): SchemaService {
+    return req?.appScope?.schema || this.schemaService;
+  }
+
+  private getFiles(req: any): FileStorageService | undefined {
+    return req?.appScope?.files || this.fileStorageService;
+  }
+
+  private getInference(req: any): SchemaInferenceService | undefined {
+    if (req?.appScope) {
+      return new SchemaInferenceService(req.appScope.db, req.appScope.schema, req.appScope.realtime);
+    }
+    return this.schemaInferenceService;
+  }
+
+  public async list(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const schema = this.getSchema(req);
+    const collections = schema.getAllCollections();
     this.ok(reply, {
       items: collections,
       totalItems: collections.length,
@@ -27,7 +43,8 @@ export class CollectionController extends BaseController {
     req: FastifyRequest<{ Params: { collection: string } }>,
     reply: FastifyReply
   ): Promise<void> {
-    const col = this.schemaService.getCollectionOrThrow(req.params.collection);
+    const schema = this.getSchema(req);
+    const col = schema.getCollectionOrThrow(req.params.collection);
     this.ok(reply, col);
   }
 
@@ -35,7 +52,8 @@ export class CollectionController extends BaseController {
     req: FastifyRequest<{ Body: CreateCollectionDto }>,
     reply: FastifyReply
   ): Promise<void> {
-    const col = this.schemaService.createCollection(req.body);
+    const schema = this.getSchema(req);
+    const col = schema.createCollection(req.body);
     this.ok(reply, col, 201);
   }
 
@@ -43,7 +61,8 @@ export class CollectionController extends BaseController {
     req: FastifyRequest<{ Params: { collection: string }; Body: UpdateCollectionDto }>,
     reply: FastifyReply
   ): Promise<void> {
-    const col = this.schemaService.updateCollection(req.params.collection, req.body);
+    const schema = this.getSchema(req);
+    const col = schema.updateCollection(req.params.collection, req.body);
     this.ok(reply, col);
   }
 
@@ -54,11 +73,13 @@ export class CollectionController extends BaseController {
     if (req.params.collection.startsWith('_')) {
       throw new AppError('Cannot delete system collection', 400);
     }
-    const col = this.schemaService.getCollectionOrThrow(req.params.collection);
+    const schema = this.getSchema(req);
+    const files = this.getFiles(req);
+    const col = schema.getCollectionOrThrow(req.params.collection);
     // Clean storage files before dropping the collection to prevent orphaned files
-    if (this.fileStorageService) {
+    if (files) {
       try {
-        await this.fileStorageService.deleteCollectionFiles(col.id);
+        await files.deleteCollectionFiles(col.id);
       } catch (err: any) {
         throw new AppError(
           `Failed to delete storage files for collection '${req.params.collection}': ${err.message}. Aborting deletion to prevent orphaned data.`,
@@ -66,19 +87,19 @@ export class CollectionController extends BaseController {
         );
       }
     }
-    this.schemaService.deleteCollection(req.params.collection);
+    schema.deleteCollection(req.params.collection);
     this.noContent(reply);
   }
-
 
   public async inferSchema(
     req: FastifyRequest<{ Body: { data: any } }>,
     reply: FastifyReply
   ): Promise<void> {
-    if (!this.schemaInferenceService) {
+    const inference = this.getInference(req);
+    if (!inference) {
       throw new Error('SchemaInferenceService is not initialized');
     }
-    const result = this.schemaInferenceService.inferSchema(req.body?.data);
+    const result = inference.inferSchema(req.body?.data);
     this.ok(reply, result);
   }
 
@@ -86,10 +107,11 @@ export class CollectionController extends BaseController {
     req: FastifyRequest<{ Body: ImportJsonOptions }>,
     reply: FastifyReply
   ): Promise<void> {
-    if (!this.schemaInferenceService) {
+    const inference = this.getInference(req);
+    if (!inference) {
       throw new Error('SchemaInferenceService is not initialized');
     }
-    const result = await this.schemaInferenceService.importJson(req.body);
+    const result = await inference.importJson(req.body);
     this.ok(reply, result, 201);
   }
 }

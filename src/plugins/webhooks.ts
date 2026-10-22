@@ -220,6 +220,25 @@ export function webhookPlugin(options: WebhookPluginOptions = {}): INodeStackPlu
     description: 'Realtime Discord & Slack webhook notifications on database mutations',
 
     codeOptions: { ...(options || {}) },
+    buildAdminNavItems(cfg: Record<string, any>) {
+      const hasConfig = Boolean(
+        cfg.discordWebhookUrl ||
+        cfg.slackWebhookUrl ||
+        options?.discordWebhookUrl ||
+        options?.slackWebhookUrl
+      );
+      return [{
+        id: 'webhooks',
+        title: 'Webhooks',
+        badge: hasConfig ? 'CONFIGURED' : 'READY',
+        badgeVariant: 'primary',
+        icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+        view: {
+          title: 'Discord & Slack Webhook Feeds',
+          description: `Broadcasting database mutation events for collections: ${monitoredCollections.length ? monitoredCollections.join(', ') : 'All collections'}`,
+        },
+      }];
+    },
     configSchema: {
       fields: [
         {
@@ -347,16 +366,47 @@ export function webhookPlugin(options: WebhookPluginOptions = {}): INodeStackPlu
         ctx.registerHook('afterDelete', (e: any) => handleMutation('record:deleted', e));
       }
 
+      const getScopedWebhook = (req: FastifyRequest) => {
+        const targetDb = (req as any).appScope?.db;
+        const records = (req as any).appScope?.records || ctx.app.records;
+        if (!targetDb || targetDb === ctx.app.db || !(ctx.app.plugins as any)?.getEffectiveConfig) {
+          return { service: webhookService, records };
+        }
+        const appConfig = (ctx.app.plugins as any).getEffectiveConfig('webhooks', targetDb);
+        const scopedService = new WebhookNotificationService({
+          ...options,
+          ...appConfig,
+        });
+        return { service: scopedService, records };
+      };
+
       // 3. REST endpoints
-      ctx.registerRoute('GET', '/api/webhooks/status', async (_req, reply) => {
+      ctx.registerRoute('GET', '/api/webhooks/status', async (req, reply) => {
+        const { service: activeWebhook, records } = getScopedWebhook(req);
+        let dispatchedCount = activeWebhook.dispatched.filter((d: any) => d.status === 'dispatched').length;
+        let failedCount = activeWebhook.dispatched.filter((d: any) => d.status === 'failed').length;
+        let totalCount = activeWebhook.dispatched.length;
+
+        // If scoped to a non-default app, check the app's durable webhook log collection
+        if ((req as any).appScope?.db && (req as any).appScope?.db !== ctx.app.db) {
+          try {
+            const logs = await records.getList(collectionName, { limit: 500 });
+            dispatchedCount = logs.items.filter((l: any) => l.status === 'dispatched').length;
+            failedCount = logs.items.filter((l: any) => l.status === 'failed').length;
+            totalCount = logs.items.length;
+          } catch {
+            // collection might not exist yet
+          }
+        }
+
         return reply.send({
-          hasDiscord: Boolean(webhookService.getWebhookUrl('discord')),
-          hasSlack: Boolean(webhookService.getWebhookUrl('slack')),
+          hasDiscord: Boolean(activeWebhook.getWebhookUrl('discord')),
+          hasSlack: Boolean(activeWebhook.getWebhookUrl('slack')),
           monitoredCollections,
           listenedEvents,
-          dispatchedCount: webhookService.dispatched.filter((d) => d.status === 'dispatched').length,
-          failedCount: webhookService.dispatched.filter((d) => d.status === 'failed').length,
-          totalCount: webhookService.dispatched.length,
+          dispatchedCount,
+          failedCount,
+          totalCount,
         });
       });
 
@@ -364,16 +414,17 @@ export function webhookPlugin(options: WebhookPluginOptions = {}): INodeStackPlu
         'POST',
         '/api/webhooks/test',
         async (req: FastifyRequest, reply: FastifyReply) => {
+          const { service: activeWebhook, records } = getScopedWebhook(req);
           const body = (req.body as any) || {};
           const platform = body.platform === 'slack' ? 'slack' : 'discord';
-          const entry = await webhookService.dispatch(
+          const entry = await activeWebhook.dispatch(
             platform,
             body.payload || { message: body.message || 'Test webhook from NodeStack' },
             body.url
           );
 
           try {
-            await ctx.app.records.create(collectionName, {
+            await records.create(collectionName, {
               platform,
               event: 'manual:test',
               collection: '_manual',

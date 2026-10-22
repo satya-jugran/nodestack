@@ -107,7 +107,7 @@ function renderPluginView(item) {
   }
 
   const cardHtml = `
-    <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+    <div id="plugin-overview-card-${escapeHtml(item.id)}" style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
       <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
         <div style="display: flex; align-items: center; gap: 0.75rem;">
           <div style="width: 40px; height: 40px; border-radius: 10px; background: #0c0e14; border: 1px solid rgba(59, 130, 246, 0.4); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
@@ -115,10 +115,10 @@ function renderPluginView(item) {
           </div>
           <div>
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-weight: 800; font-size: 16px; color: #fff;">${escapeHtml(title)}</span>
-              ${item.badge ? `<span class="badge ${item.badgeVariant ? 'badge-' + item.badgeVariant : 'badge-get'}">${escapeHtml(item.badge)}</span>` : ''}
+              <span id="plugin-overview-title-${escapeHtml(item.id)}" style="font-weight: 800; font-size: 16px; color: #fff;">${escapeHtml(title)}</span>
+              <span id="plugin-overview-badge-${escapeHtml(item.id)}">${item.badge ? `<span class="badge ${item.badgeVariant ? 'badge-' + item.badgeVariant : 'badge-get'}">${escapeHtml(item.badge)}</span>` : ''}</span>
             </div>
-            <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+            <div id="plugin-overview-desc-${escapeHtml(item.id)}" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
               ${escapeHtml(desc)}
             </div>
           </div>
@@ -129,7 +129,9 @@ function renderPluginView(item) {
         </div>
       </div>
       
-      ${bodyContent}
+      <div id="plugin-overview-body-${escapeHtml(item.id)}">
+        ${bodyContent}
+      </div>
     </div>
   `;
 
@@ -167,6 +169,111 @@ function renderPluginView(item) {
   loadPluginConfig(item.id);
 }
 
+function syncPluginOverview(pluginId, fields) {
+  if (!fields || !Array.isArray(fields)) return;
+  const descEl = document.getElementById('plugin-overview-desc-' + pluginId);
+  const badgeEl = document.getElementById('plugin-overview-badge-' + pluginId);
+  const bodyEl = document.getElementById('plugin-overview-body-' + pluginId);
+  const topBadgeEl = document.getElementById('view-badge');
+
+  if (pluginId === 's3' || pluginId === 's3-storage') {
+    const bucketField = fields.find(f => f.name === 'bucket');
+    const regionField = fields.find(f => f.name === 'region');
+    const curBucket = bucketField?.value || '';
+    const curRegion = regionField?.value || 'us-east-1';
+    const isConfigured = Boolean(curBucket && String(curBucket).trim() !== '');
+
+    if (descEl) {
+      descEl.textContent = isConfigured
+        ? `Connected to bucket "${curBucket}" in region ${curRegion}`
+        : `Unconfigured — No S3 bucket specified (Default Region: ${curRegion})`;
+    }
+    const badgeText = isConfigured ? String(curRegion).toUpperCase() : 'UNCONFIGURED';
+    const badgeClass = isConfigured ? 'badge-info' : 'badge-warning';
+    if (badgeEl) {
+      badgeEl.innerHTML = `<span class="badge ${badgeClass}">${escapeHtml(badgeText)}</span>`;
+    }
+    if (topBadgeEl) {
+      topBadgeEl.textContent = badgeText;
+      topBadgeEl.className = 'badge ' + badgeClass;
+    }
+    if (bodyEl) {
+      bodyEl.innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+            <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Bucket Name</div>
+            <div style="font-size: 13px; font-weight: 700; color: ${isConfigured ? '#60a5fa' : '#f59e0b'}; font-family: monospace; margin-top: 4px;">${escapeHtml(curBucket || '(Not Configured)')}</div>
+          </div>
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+            <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Region</div>
+            <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${escapeHtml(curRegion)}</div>
+          </div>
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
+            <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Tracking Collection</div>
+            <div style="font-size: 13px; font-weight: 700; color: #eab308; font-family: monospace; margin-top: 4px;">_s3_uploads</div>
+          </div>
+        </div>
+      `;
+    }
+  } else if (pluginId === 'stripe') {
+    const secKeyField = fields.find(f => f.name === 'secretKey');
+    const dryRunField = fields.find(f => f.name === 'dryRun');
+    const hasSecret = Boolean(secKeyField?.hasValue || (secKeyField?.value && String(secKeyField.value).trim()));
+    const isConfigured = hasSecret || Boolean(dryRunField?.value);
+    const isLive = Boolean(secKeyField?.value && String(secKeyField.value).startsWith('sk_live_'));
+
+    const badgeText = !isConfigured ? 'UNCONFIGURED' : isLive ? 'LIVE' : 'TEST MODE';
+    const badgeClass = !isConfigured ? 'badge-warning' : isLive ? 'badge-danger' : 'badge-warning';
+    if (badgeEl) badgeEl.innerHTML = `<span class="badge ${badgeClass}">${escapeHtml(badgeText)}</span>`;
+    if (topBadgeEl) {
+      topBadgeEl.textContent = badgeText;
+      topBadgeEl.className = 'badge ' + badgeClass;
+    }
+    if (descEl) {
+      descEl.textContent = !isConfigured
+        ? 'Unconfigured — Stripe Secret Key (sk_test_... or sk_live_...) required.'
+        : `Configured in ${isLive ? 'Live Mode' : 'Test Mode'} with collections _stripe_customers & _stripe_payments.`;
+    }
+  } else if (pluginId === 'resend') {
+    const apiKeyField = fields.find(f => f.name === 'apiKey');
+    const dryRunField = fields.find(f => f.name === 'dryRun');
+    const fromField = fields.find(f => f.name === 'from');
+    const isConfigured = Boolean(apiKeyField?.hasValue || apiKeyField?.value || dryRunField?.value);
+    const fromAddr = fromField?.value || 'noreply@nodestack.io';
+
+    const badgeText = isConfigured ? 'ACTIVE' : 'UNCONFIGURED';
+    const badgeClass = isConfigured ? 'badge-success' : 'badge-warning';
+    if (badgeEl) badgeEl.innerHTML = `<span class="badge ${badgeClass}">${escapeHtml(badgeText)}</span>`;
+    if (topBadgeEl) {
+      topBadgeEl.textContent = badgeText;
+      topBadgeEl.className = 'badge ' + badgeClass;
+    }
+    if (descEl) {
+      descEl.textContent = isConfigured
+        ? `Configured with default sender "${fromAddr}"`
+        : 'Unconfigured — Resend API Key required';
+    }
+  } else if (pluginId === 'algolia') {
+    const appIdField = fields.find(f => f.name === 'appId');
+    const apiKeyField = fields.find(f => f.name === 'apiKey');
+    const curAppId = appIdField?.value || '';
+    const isConfigured = Boolean((appIdField?.hasValue || curAppId) && (apiKeyField?.hasValue || apiKeyField?.value));
+
+    const badgeText = isConfigured ? 'ACTIVE' : 'UNCONFIGURED';
+    const badgeClass = isConfigured ? 'badge-success' : 'badge-warning';
+    if (badgeEl) badgeEl.innerHTML = `<span class="badge ${badgeClass}">${escapeHtml(badgeText)}</span>`;
+    if (topBadgeEl) {
+      topBadgeEl.textContent = badgeText;
+      topBadgeEl.className = 'badge ' + badgeClass;
+    }
+    if (descEl) {
+      descEl.textContent = isConfigured
+        ? `Syncing collections with Algolia application "${curAppId}"`
+        : 'Unconfigured — Algolia Application ID and Admin API Key required.';
+    }
+  }
+}
+
 async function loadPluginConfig(pluginId) {
   const container = document.getElementById('plugin-config-container-' + pluginId);
   if (!container) return;
@@ -177,6 +284,9 @@ async function loadPluginConfig(pluginId) {
       container.innerHTML = '';
       return;
     }
+
+    // Sync overview card with active app config
+    syncPluginOverview(pluginId, res.fields);
 
     const lockedCount = res.fields.filter(f => f.isLocked).length;
     const editableCount = res.fields.length - lockedCount;
@@ -352,8 +462,8 @@ async function savePluginConfig(pluginId) {
         state.pluginNavItems = navRes.navItems;
         if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
         const activeItem = state.pluginNavItems.find(p => p.id === pluginId);
-        if (activeItem && typeof mountCustomView === 'function' && state.activeNav === pluginId) {
-          mountCustomView(activeItem);
+        if (activeItem && state.activeNav === pluginId && typeof renderPluginView === 'function') {
+          renderPluginView(activeItem);
           return;
         }
       }
@@ -509,7 +619,7 @@ function renderPluginsHubView() {
           </p>
         </div>
         <div style="display:flex; align-items:center; gap:0.5rem;">
-          <a href="/_/docs" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">OpenAPI Specs ↗</a>
+          <a href="/_/docs" target="_blank" onclick="openDocsWithApp(event)" class="btn btn-secondary btn-sm" style="text-decoration:none;">OpenAPI Specs ↗</a>
         </div>
       </div>
 

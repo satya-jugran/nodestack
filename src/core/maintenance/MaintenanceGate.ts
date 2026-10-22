@@ -181,4 +181,12 @@ export class MaintenanceGate {
       item.resolve();
     }
   }
+
+  public reset(): void {
+    this.isGated = false;
+    this.isExecutingExclusive = false;
+    this.activeRequests.clear();
+    this.flushWaitingQueue();
+    this.notifyDrain();
+  }
 }

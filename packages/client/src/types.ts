@@ -102,6 +102,35 @@ export interface ClientOptions {
   headers?: Record<string, string>;
   timeout?: number;
   chaos?: ChaosOptions;
+  app?: string;
+}
+
+export interface AppModel extends BaseSystemFields {
+  name: string;
+  slug: string;
+  description: string;
+  icon: string;
+  isDefault: boolean;
+  stats?: {
+    collectionsCount: number;
+    recordsCount: number;
+    storageSizeBytes: number;
+    dbSizeBytes: number;
+  };
+}
+
+export interface AppCreateOptions {
+  name: string;
+  slug?: string;
+  description?: string;
+  icon?: string;
+  template?: string;
+}
+
+export interface AppUpdateOptions {
+  name?: string;
+  description?: string;
+  icon?: string;
 }
 
 export interface ImportOptions {

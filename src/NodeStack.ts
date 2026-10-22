@@ -39,6 +39,11 @@ import { AuditLogService } from './audit/AuditLogService';
 import { AuditLogController } from './http/controllers/AuditLogController';
 import { WebhookService } from './webhooks/WebhookService';
 import { WebhookController } from './http/controllers/WebhookController';
+import { AppRegistry } from './apps/AppRegistry';
+import { AppManager, DatabaseDriverFactory } from './apps/AppManager';
+import { AppScope } from './apps/AppScope';
+import { AppController } from './http/controllers/AppController';
+import { AppResolutionMiddleware } from './http/middleware/AppResolutionMiddleware';
 import { MaintenanceGate } from './core/maintenance/MaintenanceGate';
 import { PluginManager } from './core/plugins/PluginManager';
 import { INodeStackPlugin, NodeStackPlugin } from './core/plugins/types';
@@ -52,6 +57,8 @@ import { IDatabaseDriver } from './database/drivers/IDatabaseDriver';
 
 export interface NodeStackOptions extends NodeStackConfigOptions {
   customDriver?: IDatabaseDriver;
+  systemDriver?: IDatabaseDriver;
+  driverFactory?: DatabaseDriverFactory;
 }
 
 export class NodeStack {
@@ -79,9 +86,17 @@ export class NodeStack {
   public readonly authMiddleware: AuthMiddleware;
   public readonly server: HttpServer;
   public readonly pluginManager: PluginManager;
+  public get plugins(): PluginManager {
+    return this.pluginManager;
+  }
   public readonly auditLogs: AuditLogService;
   public readonly fts: FtsService;
   public readonly webhooks: WebhookService;
+  public readonly registry: AppRegistry;
+  public readonly apps: AppManager;
+  public readonly defaultApp: AppScope;
+  public readonly appController: AppController;
+  public readonly appResolution: AppResolutionMiddleware;
 
   constructor(options: NodeStackOptions = {}) {
     this.container = new Container();
@@ -90,113 +105,94 @@ export class NodeStack {
     this.config = new ConfigService(options);
     this.container.bindInstance(TOKENS.ConfigService, this.config);
 
+    // 1.2 System Registry & Multi-App Orchestrator
+    this.registry = new AppRegistry(this.config, options.systemDriver || options.customDriver);
+    this.container.bindInstance(TOKENS.AppRegistry, this.registry);
+
+    this.apps = new AppManager(
+      this.registry,
+      this.config,
+      options.customDriver,
+      options.driverFactory
+    );
+    this.container.bindInstance(TOKENS.AppManager, this.apps);
+
+    // 1.3 Boot Default App Scope
+    this.defaultApp = this.apps.init();
+
     // 1.5 Maintenance Gate (coordinates demo resets & system maintenance with HTTP requests)
-    this.maintenanceGate = new MaintenanceGate();
+    this.maintenanceGate = this.defaultApp.maintenanceGate;
     this.container.bindInstance(TOKENS.MaintenanceGate, this.maintenanceGate);
 
     // 2. Database Service
-    this.db = new DatabaseService(this.config, options.customDriver);
+    this.db = this.defaultApp.db;
     this.container.bindInstance(TOKENS.DatabaseService, this.db);
-    this.db.init(); // Run system tables migration
 
     // 3. Event Bus
-    this.eventBus = new EventBus();
+    this.eventBus = this.defaultApp.eventBus;
     this.container.bindInstance(TOKENS.EventBus, this.eventBus);
 
     // 3.5 FTS Service
-    this.fts = new FtsService(this.db);
+    this.fts = this.defaultApp.fts;
     this.container.bindInstance(TOKENS.FtsService, this.fts);
 
     // 4. Schema Service
-    this.schema = new SchemaService(this.db, this.fts);
+    this.schema = this.defaultApp.schema;
     this.container.bindInstance(TOKENS.SchemaService, this.schema);
 
-    // Sync all existing collections with FTS
-    this.fts.syncAll(this.schema.getAllCollections());
-
     // 5. Type Generator
-    this.typegen = new TypeGenerator(this.schema);
+    this.typegen = this.defaultApp.typegen;
     this.container.bindInstance(TOKENS.TypeGenerator, this.typegen);
 
     // 6. OpenAPI Generator
-    this.openapi = new OpenApiGenerator(this.schema, {
-      title: `${this.config.appName} API`,
-    });
+    this.openapi = this.defaultApp.openapi;
     this.container.bindInstance(TOKENS.OpenApiGenerator, this.openapi);
 
     // 7. Rule Engine
-    const ruleEngine = new RuleEngine();
+    const ruleEngine = this.defaultApp.ruleEngine;
     this.container.bindInstance(TOKENS.RuleEngine, ruleEngine);
 
     // 8. Auth Service
-    this.auth = new AuthService(this.db, this.config, this.schema);
+    this.auth = this.defaultApp.auth;
     this.container.bindInstance(TOKENS.AuthService, this.auth);
 
     // 9. File Storage Service
-    this.files = new FileStorageService(this.config);
+    this.files = this.defaultApp.files;
     this.container.bindInstance(TOKENS.FileStorageService, this.files);
 
     // 10. Realtime Service
-    this.realtime = new RealtimeService(ruleEngine, this.schema);
+    this.realtime = this.defaultApp.realtime;
     this.container.bindInstance(TOKENS.RealtimeService, this.realtime);
 
     // 11. Log Service
-    this.logs = new LogService(this.db);
+    this.logs = this.defaultApp.logs;
     this.container.bindInstance(TOKENS.LogService, this.logs);
 
     // 12. Record Service
-    this.records = new RecordService(
-      this.db,
-      this.schema,
-      ruleEngine,
-      this.eventBus,
-      this.realtime,
-      this.files,
-      this.fts
-    );
+    this.records = this.defaultApp.records;
     this.container.bindInstance(TOKENS.RecordService, this.records);
 
     // 13. Mock Data Service
-    this.mockData = new MockDataService(
-      this.db,
-      this.schema,
-      this.files,
-      this.eventBus,
-      this.realtime
-    );
+    this.mockData = this.defaultApp.mockData;
     this.container.bindInstance(TOKENS.MockDataService, this.mockData);
 
     // 13.5 Starter Templates & Recipes Service
-    this.templates = new TemplateService(
-      this.db,
-      this.schema,
-      this.files,
-      this.eventBus,
-      this.realtime
-    );
+    this.templates = this.defaultApp.templates;
     this.container.bindInstance(TOKENS.TemplateService, this.templates);
 
     // 13.6 Demo Service ("Reset to Demo State")
-    this.demo = new DemoService(
-      this.config,
-      this.db,
-      this.schema,
-      this.files,
-      this.eventBus,
-      this.realtime,
-      this.maintenanceGate
-    );
+    this.demo = this.defaultApp.demo;
     this.container.bindInstance(TOKENS.DemoService, this.demo);
 
     // 14. Analytics Service
-    this.analytics = new AnalyticsService(this.db, this.config, this.schema, this.realtime);
+    this.analytics = this.defaultApp.analytics;
     this.container.bindInstance(TOKENS.AnalyticsService, this.analytics);
 
     // 15. Admin UI & Docs Services
     this.adminUi = new AdminUIService();
     this.container.bindInstance(TOKENS.AdminUIService, this.adminUi);
 
-    this.docs = new DocsService(this.openapi, this.config);
+    this.docs = new DocsService(this.openapi, this.config, this.apps);
     this.container.bindInstance(TOKENS.DocsService, this.docs);
 
     // 16. Schema Inference Service ("Paste JSON → Instant API")
@@ -213,7 +209,7 @@ export class NodeStack {
     const collectionCtrl = new CollectionController(this.schema, this.schemaInference, this.files);
     const recordCtrl = new RecordController(this.records, this.schema, this.files, this.mockData);
     const fileCtrl = new FileController(this.files, this.schema, ruleEngine, this.db);
-    const realtimeCtrl = new RealtimeController(this.realtime);
+    const realtimeCtrl = new RealtimeController(this.realtime, this.apps);
     const logCtrl = new LogController(this.logs);
     const healthCtrl = new HealthController(this.config);
     const analyticsCtrl = new AnalyticsController(this.analytics);
@@ -223,38 +219,22 @@ export class NodeStack {
     this.container.bindInstance(TOKENS.DemoController, demoCtrl);
 
     // 17.5 Audit Log Service ("Read-Only Audit Trail")
-    this.auditLogs = new AuditLogService(this.db);
+    this.auditLogs = this.defaultApp.auditLogs;
     this.container.bindInstance(TOKENS.AuditLogService, this.auditLogs);
-
-    this.eventBus.onRecordAfterCreate(async (ctx) => {
-      await this.auditLogs.handleRecordEvent('create', ctx);
-    });
-    this.eventBus.onRecordAfterUpdate(async (ctx) => {
-      await this.auditLogs.handleRecordEvent('update', ctx);
-    });
-    this.eventBus.onRecordAfterDelete(async (ctx) => {
-      await this.auditLogs.handleRecordEvent('delete', ctx);
-    });
 
     const auditLogCtrl = new AuditLogController(this.auditLogs);
     this.container.bindInstance(TOKENS.AuditLogController, auditLogCtrl);
 
     // 17.6 Webhook Service ("Outbound Webhooks Manager")
-    this.webhooks = new WebhookService(this.db, this.eventBus);
+    this.webhooks = this.defaultApp.webhooks;
     this.container.bindInstance(TOKENS.WebhookService, this.webhooks);
-
-    this.eventBus.onRecordAfterCreate(async (ctx) => {
-      await this.webhooks.handleRecordEvent('create', ctx);
-    });
-    this.eventBus.onRecordAfterUpdate(async (ctx) => {
-      await this.webhooks.handleRecordEvent('update', ctx);
-    });
-    this.eventBus.onRecordAfterDelete(async (ctx) => {
-      await this.webhooks.handleRecordEvent('delete', ctx);
-    });
 
     const webhookCtrl = new WebhookController(this.webhooks);
     this.container.bindInstance(TOKENS.WebhookController, webhookCtrl);
+
+    // 17.8 Multi-App Management & Resolution
+    this.appController = new AppController(this.apps);
+    this.appResolution = new AppResolutionMiddleware(this.apps);
 
     // 18. HTTP Server
     this.server = new HttpServer(
@@ -277,7 +257,9 @@ export class NodeStack {
       demoCtrl,
       this.maintenanceGate,
       auditLogCtrl,
-      webhookCtrl
+      webhookCtrl,
+      this.appController,
+      this.appResolution
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
 
@@ -296,8 +278,8 @@ export class NodeStack {
     await this.pluginManager.ensureInitialized();
   }
 
-  public hasPlugin(name: string): boolean {
-    return this.pluginManager.hasPlugin(name);
+  public hasPlugin(name: string, db?: DatabaseService): boolean {
+    return this.pluginManager.hasPlugin(name, db);
   }
 
   public getPlugin<T extends INodeStackPlugin = INodeStackPlugin>(name: string): T | undefined {
@@ -310,11 +292,15 @@ export class NodeStack {
   }
 
   public generateOpenApi(): Record<string, any> {
-    return this.openapi.generate();
+    return this.openapi.generate({
+      title: `${this.config?.appName || 'NodeStack'} API`,
+    });
   }
 
   public generateOpenApiJson(pretty = true): string {
-    return this.openapi.generateJson(pretty);
+    return this.openapi.generateJson(pretty, {
+      title: `${this.config?.appName || 'NodeStack'} API`,
+    });
   }
 
   // --- Router for custom developer endpoints ---
@@ -429,7 +415,7 @@ export class NodeStack {
     await this.pluginManager.dispose();
     this.realtime.dispose();
     await this.server.close();
-    this.db.close();
+    this.apps.closeAll();
     await this.container.dispose();
   }
 

@@ -33,4 +33,6 @@ export const TOKENS = {
   FtsService: Symbol('FtsService'),
   WebhookService: Symbol('WebhookService'),
   WebhookController: Symbol('WebhookController'),
+  AppRegistry: Symbol('AppRegistry'),
+  AppManager: Symbol('AppManager'),
 } as const;

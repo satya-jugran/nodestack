@@ -9,11 +9,15 @@ export class DatabaseService {
   private driver: IDatabaseDriver;
   private isLocked = false;
 
-  constructor(private config: ConfigService, customDriver?: IDatabaseDriver) {
+  constructor(
+    private config: ConfigService,
+    customDriver?: IDatabaseDriver,
+    private customDbPath?: string
+  ) {
     if (customDriver) {
       this.driver = customDriver;
     } else {
-      this.driver = new NodeSqliteDriver(config.dbPath);
+      this.driver = new NodeSqliteDriver(this.customDbPath || config.dbPath);
     }
   }
 
@@ -94,7 +98,7 @@ export class DatabaseService {
     if (customDriver) {
       this.driver = customDriver;
     } else {
-      this.driver = new NodeSqliteDriver(this.config.dbPath);
+      this.driver = new NodeSqliteDriver(this.customDbPath || this.config.dbPath);
     }
   }
 

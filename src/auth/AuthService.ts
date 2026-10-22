@@ -5,6 +5,7 @@ import { DatabaseService } from '../database/DatabaseService';
 import { ConfigService } from '../core/config/ConfigService';
 import { SchemaService } from '../schema/SchemaService';
 import { AppError, ConflictError, NotFoundError, UnauthorizedError } from '../core/errors/AppError';
+import { AppRegistry } from '../apps/AppRegistry';
 
 export interface AuthClaims {
   id: string;
@@ -23,7 +24,8 @@ export class AuthService {
   constructor(
     private db: DatabaseService,
     private config: ConfigService,
-    private schemaService: SchemaService
+    private schemaService: SchemaService,
+    private registry?: AppRegistry
   ) {}
 
   public async hashPassword(password: string): Promise<string> {
@@ -53,7 +55,9 @@ export class AuthService {
 
     // Verify tokenKey against stored tokenKey to ensure revoked / rotated sessions are rejected
     if (decoded.isAdmin || decoded.collection === '_admins') {
-      const admin = this.db.get<any>('SELECT tokenKey FROM _admins WHERE id = ?', [decoded.id]);
+      const admin = this.registry
+        ? this.registry.getAdminById(decoded.id)
+        : this.db.get<any>('SELECT tokenKey FROM _admins WHERE id = ?', [decoded.id]);
       if (!admin || !admin.tokenKey || admin.tokenKey !== decoded.tokenKey) {
         throw new UnauthorizedError('Authentication token has been revoked or expired');
       }
@@ -78,6 +82,9 @@ export class AuthService {
   // --- Admin Auth ---
 
   public hasAdmins(): boolean {
+    if (this.registry) {
+      return this.registry.hasAdmins();
+    }
     const row = this.db.get<any>('SELECT COUNT(*) as count FROM _admins');
     return (row?.count || 0) > 0;
   }
@@ -91,6 +98,12 @@ export class AuthService {
       throw new AppError('Password must be at least 8 characters long', 400);
     }
 
+    if (this.registry) {
+      const regExisting = this.registry.getAdminByEmail(cleanEmail);
+      if (regExisting) {
+        throw new ConflictError(`Admin with email '${cleanEmail}' already exists`);
+      }
+    }
     const existing = this.db.get<any>('SELECT id FROM _admins WHERE email = ?', [cleanEmail]);
     if (existing) {
       throw new ConflictError(`Admin with email '${cleanEmail}' already exists`);
@@ -106,6 +119,17 @@ export class AuthService {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(id, cleanEmail, passwordHash, tokenKey, avatar || null, now, now);
 
+    if (this.registry) {
+      try {
+        this.registry.getDriver().prepare(`
+          INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(id, cleanEmail, passwordHash, tokenKey, avatar || null, now, now);
+      } catch {
+        // ignore duplicate in system DB
+      }
+    }
+
     return {
       id,
       email: cleanEmail,
@@ -117,7 +141,9 @@ export class AuthService {
 
   public async authenticateAdmin(email: string, password: string): Promise<AuthResult> {
     const cleanEmail = email.trim().toLowerCase();
-    const admin = this.db.get<any>('SELECT * FROM _admins WHERE email = ?', [cleanEmail]);
+    const admin = this.registry
+      ? this.registry.getAdminByEmail(cleanEmail)
+      : this.db.get<any>('SELECT * FROM _admins WHERE email = ?', [cleanEmail]);
     if (!admin) {
       throw new UnauthorizedError('Invalid admin credentials');
     }
@@ -145,7 +171,9 @@ export class AuthService {
   }
 
   public getAdminById(id: string): Record<string, any> | undefined {
-    const admin = this.db.get<any>('SELECT * FROM _admins WHERE id = ?', [id]);
+    const admin = this.registry
+      ? this.registry.getAdminById(id)
+      : this.db.get<any>('SELECT * FROM _admins WHERE id = ?', [id]);
     if (!admin) return undefined;
     const { passwordHash, tokenKey, ...adminSafe } = admin;
     return adminSafe;
@@ -153,7 +181,9 @@ export class AuthService {
 
   public async updateAdminPassword(email: string, newPassword: string): Promise<void> {
     const cleanEmail = email.trim().toLowerCase();
-    const admin = this.db.get<any>('SELECT id FROM _admins WHERE email = ?', [cleanEmail]);
+    const admin = this.registry
+      ? this.registry.getAdminByEmail(cleanEmail)
+      : this.db.get<any>('SELECT id FROM _admins WHERE email = ?', [cleanEmail]);
     if (!admin) {
       throw new NotFoundError(`Admin with email '${cleanEmail}' not found`);
     }
@@ -163,19 +193,45 @@ export class AuthService {
     const passwordHash = await this.hashPassword(newPassword);
     const tokenKey = crypto.randomBytes(16).toString('hex');
     const now = new Date().toISOString();
-    this.db.prepare(
-      'UPDATE _admins SET passwordHash = ?, tokenKey = ?, updated = ? WHERE email = ?'
-    ).run(passwordHash, tokenKey, now, cleanEmail);
+
+    if (this.registry) {
+      this.registry.updateAdminPassword(cleanEmail, passwordHash, tokenKey);
+    }
+
+    try {
+      this.db.prepare(
+        'UPDATE _admins SET passwordHash = ?, tokenKey = ?, updated = ? WHERE email = ?'
+      ).run(passwordHash, tokenKey, now, cleanEmail);
+    } catch {
+      // non-fatal if table doesn't exist in app database
+    }
   }
 
   public revokeAdminSessions(idOrEmail: string): void {
     const clean = idOrEmail.trim().toLowerCase();
     const tokenKey = crypto.randomBytes(16).toString('hex');
     const now = new Date().toISOString();
-    const result = this.db.prepare(
-      'UPDATE _admins SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?'
-    ).run(tokenKey, now, idOrEmail, clean);
-    if (result.changes === 0) {
+
+    let registryFound = false;
+    if (this.registry) {
+      const regAdmin = this.registry.getAdminById(idOrEmail) || this.registry.getAdminByEmail(clean);
+      if (regAdmin) {
+        this.registry.revokeAdminSessions(idOrEmail, tokenKey);
+        registryFound = true;
+      }
+    }
+
+    let dbChanges = 0;
+    try {
+      const result = this.db.prepare(
+        'UPDATE _admins SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?'
+      ).run(tokenKey, now, idOrEmail, clean);
+      dbChanges = Number(result.changes);
+    } catch {
+      // non-fatal if table doesn't exist in app database
+    }
+
+    if (dbChanges === 0 && !registryFound) {
       throw new NotFoundError(`Admin '${idOrEmail}' not found`);
     }
   }

@@ -160,7 +160,9 @@
     }
 
     function renderRecordsView() {
-      const actions = document.getElementById('view-actions');
+      const topActions = document.getElementById('view-actions');
+      if (topActions) topActions.innerHTML = '';
+      const actions = document.getElementById('collection-actions') || topActions;
       actions.innerHTML = `
         <div style="display:flex; align-items:center; gap:0.5rem;">
           <div class="dropdown-wrapper">

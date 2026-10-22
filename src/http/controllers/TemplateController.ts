@@ -8,6 +8,10 @@ export class TemplateController extends BaseController {
     super();
   }
 
+  private getTemplateService(req?: FastifyRequest): TemplateService {
+    return (req as any)?.appScope?.templates || this.templateService;
+  }
+
   public async list(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const items = this.templateService.list();
     this.ok(reply, {
@@ -49,7 +53,8 @@ export class TemplateController extends BaseController {
     if (!templateName) {
       throw new AppError('Field "template" is required in request body', 400);
     }
-    const result = await this.templateService.apply(templateName, {
+    const templateService = this.getTemplateService(req);
+    const result = await templateService.apply(templateName, {
       overwrite: Boolean(req.body?.overwrite),
     });
     this.ok(reply, result, 201);
@@ -62,7 +67,8 @@ export class TemplateController extends BaseController {
     }>,
     reply: FastifyReply
   ): Promise<void> {
-    const result = await this.templateService.apply(req.params.template, {
+    const templateService = this.getTemplateService(req);
+    const result = await templateService.apply(req.params.template, {
       overwrite: Boolean(req.body?.overwrite),
     });
     this.ok(reply, result, 201);

@@ -69,9 +69,18 @@ export class RealtimeService extends BaseService {
         const EventSourceClass = this.getEventSourceConstructor();
         const base = (this.client.baseUrl || '').replace(/\/+$/, '');
         let url = `${base}/api/realtime`;
+        const queryParams = new URLSearchParams();
 
         if (this.client.authStore.token) {
-          url += `?token=${encodeURIComponent(this.client.authStore.token)}`;
+          queryParams.append('token', this.client.authStore.token);
+        }
+        if (this.client.appSlug) {
+          queryParams.append('app', this.client.appSlug);
+        }
+
+        const qs = queryParams.toString();
+        if (qs) {
+          url += `?${qs}`;
         }
 
         this.eventSource = new EventSourceClass(url);

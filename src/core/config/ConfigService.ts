@@ -26,6 +26,8 @@ export class ConfigService {
   public readonly dataDir: string;
   public readonly dbPath: string;
   public readonly storageDir: string;
+  public readonly systemDbPath: string;
+  public readonly appsDir: string;
   public readonly port: number;
   public readonly host: string;
   public readonly jwtSecret: string;
@@ -76,10 +78,15 @@ export class ConfigService {
 
     // Ensure storage and data directories exist
     this.storageDir = path.join(this.dataDir, 'storage');
+    this.systemDbPath = path.join(this.dataDir, 'system.db');
+    this.appsDir = path.join(this.dataDir, 'apps');
     this.dbPath = path.join(this.dataDir, 'data.db');
 
     if (!fs.existsSync(this.dataDir)) {
       fs.mkdirSync(this.dataDir, { recursive: true });
+    }
+    if (!fs.existsSync(this.appsDir)) {
+      fs.mkdirSync(this.appsDir, { recursive: true });
     }
     if (!fs.existsSync(this.storageDir)) {
       fs.mkdirSync(this.storageDir, { recursive: true });
@@ -100,5 +107,21 @@ export class ConfigService {
         // ignore if read-only
       }
     }
+  }
+
+  public getAppDir(slug: string): string {
+    return path.join(this.appsDir, slug);
+  }
+
+  public getAppDbPath(slug: string): string {
+    return path.join(this.appsDir, slug, 'data.db');
+  }
+
+  public getAppStorageDir(slug: string): string {
+    return path.join(this.appsDir, slug, 'storage');
+  }
+
+  public getAppSnapshotDir(slug: string): string {
+    return path.join(this.appsDir, slug, '.demo_snapshot');
   }
 }
