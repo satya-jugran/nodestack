@@ -4,12 +4,14 @@ import { AppScope } from './AppScope';
 import { AppModel, CreateAppDto, UpdateAppDto } from './models/App';
 import { ConfigService } from '../core/config/ConfigService';
 import { AppError, NotFoundError } from '../core/errors/AppError';
+import { DatabaseService } from '../database/DatabaseService';
 import { IDatabaseDriver } from '../database/drivers/IDatabaseDriver';
 
 export type DatabaseDriverFactory = (app: AppModel, defaultDbPath: string) => IDatabaseDriver;
 
 export class AppManager {
   private appCache: Map<string, AppScope> = new Map();
+  private onScopeInitHandlers: Array<(scope: AppScope) => void> = [];
 
   constructor(
     public readonly registry: AppRegistry,
@@ -17,6 +19,38 @@ export class AppManager {
     private customDriver?: IDatabaseDriver,
     private driverFactory?: DatabaseDriverFactory
   ) {}
+
+  public onScopeInit(handler: (scope: AppScope) => void): void {
+    this.onScopeInitHandlers.push(handler);
+    for (const scope of this.getCachedScopes()) {
+      try {
+        handler(scope);
+      } catch (err: any) {
+        console.warn(`[AppManager] onScopeInit handler error: ${err.message}`);
+      }
+    }
+  }
+
+  public getCachedScopes(): AppScope[] {
+    return Array.from(new Set(this.appCache.values()));
+  }
+
+  public findScopeByDb(db: DatabaseService): AppScope | undefined {
+    for (const scope of this.getCachedScopes()) {
+      if (scope.db === db || (scope.db as any)?.driver === (db as any)?.driver) {
+        return scope;
+      }
+    }
+    for (const app of this.registry.getAllApps()) {
+      try {
+        const scope = this.get(app.slug);
+        if (scope.db === db || (scope.db as any)?.driver === (db as any)?.driver) {
+          return scope;
+        }
+      } catch {}
+    }
+    return undefined;
+  }
 
   public init(): AppScope {
     // Ensure default application scope is initialized
@@ -90,6 +124,14 @@ export class AppManager {
     );
     this.appCache.set(appModel.slug, scope);
     this.appCache.set(appModel.id, scope);
+
+    for (const handler of this.onScopeInitHandlers) {
+      try {
+        handler(scope);
+      } catch (err: any) {
+        console.warn(`[AppManager] onScopeInit handler error: ${err.message}`);
+      }
+    }
 
     return scope;
   }

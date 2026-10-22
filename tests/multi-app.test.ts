@@ -607,6 +607,78 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       expect(blogS3Nav.badge).toBe('UNCONFIGURED');
       expect(blogS3Nav.view?.description).not.toContain('ecommerce-production-bucket');
     });
+
+    it('should provision declarative collections and system tables into the target app database when plugin is enabled', async () => {
+      const ecomScope = server.apps.get('ecommerce');
+      const blogScope = server.apps.get('blog');
+      const defaultScope = server.apps.get('default');
+
+      // 1. Stripe was enabled for ecommerce in the previous test
+      // ecommerce scope schema MUST contain _stripe_payments and _stripe_customers
+      expect(ecomScope.schema.getCollection('_stripe_payments')).toBeDefined();
+      expect(ecomScope.schema.getCollection('_stripe_customers')).toBeDefined();
+
+      // 2. Direct SQLite check: tables MUST exist in ecommerce database
+      const ecomTable = ecomScope.db.get<{ name: string }>(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name = ?`,
+        ['_stripe_payments']
+      );
+      expect(ecomTable?.name).toBe('_stripe_payments');
+
+      // 3. blog and default apps MUST NOT have _stripe_payments tables or schema definitions
+      expect(blogScope.schema.getCollection('_stripe_payments')).toBeUndefined();
+      expect(defaultScope.schema.getCollection('_stripe_payments')).toBeUndefined();
+
+      const blogTable = blogScope.db.get<{ name: string }>(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name = ?`,
+        ['_stripe_payments']
+      );
+      expect(blogTable).toBeUndefined();
+
+      const defaultTable = defaultScope.db.get<{ name: string }>(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name = ?`,
+        ['_stripe_payments']
+      );
+      expect(defaultTable).toBeUndefined();
+
+      // 4. Records can be created in the scoped collection on ecommerce
+      const record = await ecomScope.records.create('_stripe_payments', {
+        paymentIntentId: 'pi_test_multi_app_123',
+        amount: 4999,
+        currency: 'eur',
+        status: 'succeeded',
+      });
+      expect(record.id).toBeDefined();
+      expect(record.paymentIntentId).toBe('pi_test_multi_app_123');
+
+      // Record exists in ecommerce db
+      const fetched = await ecomScope.records.getOne('_stripe_payments', record.id);
+      expect(fetched.amount).toBe(4999);
+
+      // S3 Storage was also enabled for ecommerce
+      expect(ecomScope.schema.getCollection('_s3_uploads')).toBeDefined();
+      const ecomS3Table = ecomScope.db.get<{ name: string }>(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name = ?`,
+        ['_s3_uploads']
+      );
+      expect(ecomS3Table?.name).toBe('_s3_uploads');
+
+      // 5. Test restart auto-provisioning: fresh NodeStack instance using same testDir
+      const restartInstance = new NodeStack({
+        dataDir: testDir,
+        port: port + 50,
+      });
+      try {
+        const restartedEcom = restartInstance.apps.get('ecommerce');
+        expect(restartedEcom.schema.getCollection('_stripe_payments')).toBeDefined();
+        expect(restartedEcom.schema.getCollection('_s3_uploads')).toBeDefined();
+
+        const restartedBlog = restartInstance.apps.get('blog');
+        expect(restartedBlog.schema.getCollection('_stripe_payments')).toBeUndefined();
+      } finally {
+        await restartInstance.stop();
+      }
+    });
   });
 
   describe('9. Custom Database Driver & Driver Factory Isolation', () => {

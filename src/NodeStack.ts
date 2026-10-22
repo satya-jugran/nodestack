@@ -278,8 +278,8 @@ export class NodeStack {
     await this.pluginManager.ensureInitialized();
   }
 
-  public hasPlugin(name: string): boolean {
-    return this.pluginManager.hasPlugin(name);
+  public hasPlugin(name: string, db?: DatabaseService): boolean {
+    return this.pluginManager.hasPlugin(name, db);
   }
 
   public getPlugin<T extends INodeStackPlugin = INodeStackPlugin>(name: string): T | undefined {
