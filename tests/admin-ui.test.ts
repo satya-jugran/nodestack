@@ -107,6 +107,12 @@ describe('AdminUIBundler', () => {
     expect(bundled).toContain('btn-format-json');
     expect(bundled).toContain('json-syntax-error');
     expect(bundled).toContain('input-invalid');
+
+    // Multi-Application Management & 1-Click Delete App
+    expect(bundled).toContain('function promptDeleteApp');
+    expect(bundled).toContain('function closeDeleteAppModal');
+    expect(bundled).toContain('function submitDeleteApp');
+    expect(bundled).toContain('btn-delete-app');
   });
 
   it('should return empty string if directory or index.html is missing', () => {
@@ -1470,6 +1476,20 @@ describe('Multi-Application Switcher UI (apps.js)', () => {
     win.localStorage.setItem('nodestack_active_app', JSON.stringify(win.state.activeApp));
 
     win.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/api/admins/has-admins')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ hasAdmins: true }),
+        });
+      }
+      if (url.includes('/api/admins/me')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ admin: { email: 'admin@test.com' } }),
+        });
+      }
       if (url === '/api/apps') {
         return Promise.resolve({
           ok: true,
@@ -1490,5 +1510,109 @@ describe('Multi-Application Switcher UI (apps.js)', () => {
     await win.fetchApps();
     expect(win.state.activeApp.slug).toBe('default');
     expect(JSON.parse(win.localStorage.getItem('nodestack_active_app')).slug).toBe('default');
+  });
+
+  it('should render delete button for non-default apps in app switcher and open confirmation modal', async () => {
+    const bundled = AdminUIBundler.bundle(uiDir);
+    const dom = new JSDOM(bundled, {
+      runScripts: 'dangerously',
+      url: 'http://127.0.0.1:8090/_/',
+    });
+    const win = dom.window as any;
+    const doc = dom.window.document;
+
+    win.state.token = 'test-token';
+    win.state.apps = [
+      { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true },
+      { id: 'app_crm', slug: 'crm-launchpad', name: 'CRM Launchpad', isDefault: false },
+    ];
+    win.state.activeApp = win.state.apps[1];
+
+    win.updateAppSwitcherUI();
+
+    const deleteButtons = doc.querySelectorAll('.btn-delete-app');
+    expect(deleteButtons.length).toBe(1);
+    expect(deleteButtons[0].getAttribute('title')).toContain('CRM Launchpad');
+
+    // Call promptDeleteApp
+    win.promptDeleteApp('crm-launchpad', 'CRM Launchpad');
+
+    const modalRoot = doc.getElementById('modal-root');
+    expect(modalRoot?.innerHTML).toContain('Delete Application');
+    expect(modalRoot?.innerHTML).toContain('CRM Launchpad');
+    expect(modalRoot?.innerHTML).toContain('crm-launchpad');
+
+    const confirmBtn = doc.getElementById('btn-confirm-delete-app');
+    expect(confirmBtn).not.toBeNull();
+  });
+
+  it('should submit DELETE /api/apps/:slug and reset activeApp to default on successful deletion', async () => {
+    const bundled = AdminUIBundler.bundle(uiDir);
+    const dom = new JSDOM(bundled, {
+      runScripts: 'dangerously',
+      url: 'http://127.0.0.1:8090/_/',
+    });
+    const win = dom.window as any;
+    const doc = dom.window.document;
+
+    let deletedUrl = '';
+    let deletedMethod = '';
+
+    win.state.token = 'test-token';
+    win.state.apps = [
+      { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true },
+      { id: 'app_crm', slug: 'crm-launchpad', name: 'CRM Launchpad', isDefault: false },
+    ];
+    win.state.activeApp = win.state.apps[1];
+
+    win.fetch = vi.fn().mockImplementation((url: string, opts: any) => {
+      if (url.includes('/api/apps/crm-launchpad') && opts?.method === 'DELETE') {
+        deletedUrl = url;
+        deletedMethod = opts.method;
+        return Promise.resolve({
+          ok: true,
+          status: 204,
+          json: () => Promise.resolve({}),
+        });
+      }
+      if (url.includes('/api/admins/has-admins')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ hasAdmins: true }),
+        });
+      }
+      if (url.includes('/api/admins/me')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ admin: { email: 'admin@test.com' } }),
+        });
+      }
+      if (url === '/api/apps') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({
+            items: [{ id: 'app_default', slug: 'default', name: 'Default App', isDefault: true }],
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({}),
+      });
+    });
+
+    win.promptDeleteApp('crm-launchpad', 'CRM Launchpad');
+    await win.submitDeleteApp('crm-launchpad', 'CRM Launchpad');
+
+    expect(deletedUrl).toBe('/api/apps/crm-launchpad');
+    expect(deletedMethod).toBe('DELETE');
+    expect(win.state.activeApp.slug).toBe('default');
+
+    const modalRoot = doc.getElementById('modal-root');
+    expect(modalRoot?.innerHTML).toBe('');
   });
 });

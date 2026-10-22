@@ -84,6 +84,9 @@
 
 
     function initRealtime() {
+      if (typeof EventSource === 'undefined') {
+        return;
+      }
       if (state.realtimeEventSource) {
         state.realtimeEventSource.close();
       }

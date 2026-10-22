@@ -132,6 +132,57 @@ function getAllCommandPaletteItems() {
     }
   }
 
+  // 2.8 Application Switcher & Actions
+  if (Array.isArray(state.apps) && state.apps.length > 0) {
+    for (const app of state.apps) {
+      items.push({
+        id: `app-switch-${app.slug}`,
+        title: `Switch App: ${app.name}`,
+        description: `Switch active application context to ${app.name} (${app.slug})`,
+        category: 'Applications',
+        badge: app.isDefault ? 'DEFAULT' : 'APP',
+        icon: app.isDefault ? '⚡' : '🚀',
+        keywords: ['app', 'application', 'switch', app.name.toLowerCase(), app.slug.toLowerCase()],
+        action: () => {
+          if (typeof selectApp === 'function') {
+            selectApp(app.slug);
+          }
+        }
+      });
+      if (!app.isDefault && app.slug !== 'default') {
+        items.push({
+          id: `app-delete-${app.slug}`,
+          title: `Delete App: ${app.name}`,
+          description: `Permanently delete application ${app.name} (${app.slug}) and its database`,
+          category: 'Applications',
+          badge: 'DANGER',
+          icon: '🗑️',
+          keywords: ['delete app', 'remove app', 'delete application', 'drop app', app.slug.toLowerCase(), app.name.toLowerCase()],
+          action: () => {
+            if (typeof promptDeleteApp === 'function') {
+              promptDeleteApp(app.slug, app.name);
+            }
+          }
+        });
+      }
+    }
+  }
+
+  items.push({
+    id: 'action-create-app',
+    title: 'Create New Application...',
+    description: 'Create a new isolated application scope with dedicated database and storage',
+    category: 'Applications',
+    badge: 'NEW',
+    icon: '➕',
+    keywords: ['create app', 'new app', 'new application', 'application', 'tenant'],
+    action: () => {
+      if (typeof openCreateAppModal === 'function') {
+        openCreateAppModal();
+      }
+    }
+  });
+
   // 3. Actions: Export
   if (state.activeCollection) {
     items.push({

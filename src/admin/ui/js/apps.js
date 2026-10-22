@@ -57,6 +57,7 @@ function updateAppSwitcherUI() {
   itemsContainer.innerHTML = apps.map(app => {
     const isActive = state.activeApp && (state.activeApp.slug === app.slug || state.activeApp.id === app.id);
     const countInfo = app.stats ? `${app.stats.collectionsCount} cols` : '';
+    const isDefault = Boolean(app.isDefault || app.slug === 'default');
 
     return `
       <div 
@@ -66,14 +67,30 @@ function updateAppSwitcherUI() {
         onmouseover="this.style.background='var(--bg-surface-elevated, #242933)'"
         onmouseout="this.style.background='${isActive ? 'rgba(99, 102, 241, 0.15)' : 'transparent'}'"
       >
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span>${app.isDefault ? '⚡' : '🚀'}</span>
-          <span>${escapeHtml(app.name)}</span>
-          ${app.isDefault ? '<span style="font-size: 10px; opacity: 0.6; padding: 1px 4px; border-radius: 4px; background: rgba(255,255,255,0.08);">default</span>' : ''}
+        <div style="display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          <span>${isDefault ? '⚡' : '🚀'}</span>
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(app.name)}</span>
+          ${isDefault ? '<span style="font-size: 10px; opacity: 0.6; padding: 1px 4px; border-radius: 4px; background: rgba(255,255,255,0.08);">default</span>' : ''}
         </div>
-        <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted, #94a3b8);">
+        <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted, #94a3b8); flex-shrink: 0;">
           ${countInfo ? `<span>${countInfo}</span>` : ''}
           ${isActive ? '<span style="color: var(--accent-primary, #6366f1); font-weight: bold;">✓</span>' : ''}
+          ${!isDefault ? `
+            <button 
+              type="button" 
+              class="btn-delete-app" 
+              title="Delete application '${escapeHtml(app.name)}'" 
+              onclick="event.stopPropagation(); promptDeleteApp('${escapeHtml(app.slug)}', '${escapeHtml(app.name)}')"
+              style="background: transparent; border: none; padding: 2px 4px; border-radius: 4px; cursor: pointer; color: var(--text-muted, #94a3b8); display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s ease; line-height: 1;"
+              onmouseover="this.style.color='#ef4444'; this.style.background='rgba(239, 68, 68, 0.15)';"
+              onmouseout="this.style.color='var(--text-muted, #94a3b8)'; this.style.background='transparent';"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          ` : ''}
         </div>
       </div>
     `;
@@ -327,3 +344,93 @@ async function handleCreateAppSubmit(event) {
     }
   }
 }
+
+function promptDeleteApp(slug, name) {
+  closeAppSwitcher();
+  const modalRoot = document.getElementById('modal-root');
+  if (!modalRoot) return;
+
+  modalRoot.innerHTML = `
+    <div class="modal-backdrop" onclick="if(event.target===this)closeDeleteAppModal()">
+      <div class="modal" style="max-width: 440px;">
+        <div class="modal-header" style="border-bottom-color: rgba(239, 68, 68, 0.2);">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span style="font-size: 18px;">⚠️</span>
+            <h2 class="modal-title" style="color: #ef4444; font-size: 16px;">Delete Application</h2>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="closeDeleteAppModal()">✕</button>
+        </div>
+        <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+          <p style="font-size: 13px; color: #cbd5e1; line-height: 1.5; margin: 0;">
+            Are you sure you want to permanently delete application <strong style="color: #fff; font-family: var(--font-mono);">${escapeHtml(name)}</strong> (<code style="font-size: 12px; color: var(--accent-primary, #6366f1);">${escapeHtml(slug)}</code>)?
+          </p>
+          <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; padding: 0.75rem; font-size: 12px; color: #fca5a5; line-height: 1.4;">
+            This will permanently delete its SQLite database, files in storage, and schema collections. This action cannot be undone.
+          </div>
+        </div>
+        <div class="modal-footer" style="padding: 0.75rem 1.25rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeDeleteAppModal()">Cancel</button>
+          <button type="button" class="btn btn-danger" id="btn-confirm-delete-app" onclick="submitDeleteApp('${escapeHtml(slug)}', '${escapeHtml(name)}')">
+            Delete Application
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  setTimeout(() => {
+    document.getElementById('btn-confirm-delete-app')?.focus();
+  }, 50);
+}
+
+function closeDeleteAppModal() {
+  const modalRoot = document.getElementById('modal-root');
+  if (modalRoot) modalRoot.innerHTML = '';
+}
+
+async function submitDeleteApp(slug, name) {
+  const btn = document.getElementById('btn-confirm-delete-app');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `
+      <div style="width:12px; height:12px; border:2px solid #ffffff; border-top-color:transparent; border-radius:50%; animation:spin 0.6s linear infinite; display:inline-block; margin-right:4px;"></div>
+      <span>Deleting...</span>
+    `;
+  }
+
+  try {
+    await api('/api/apps/' + encodeURIComponent(slug), {
+      method: 'DELETE',
+    });
+
+    closeDeleteAppModal();
+    if (typeof toast === 'function') {
+      toast(`Application '${name}' deleted successfully`, 'success');
+    }
+
+    const isActiveDeleted = state.activeApp && (state.activeApp.slug === slug || state.activeApp.id === slug);
+
+    await fetchApps();
+
+    if (isActiveDeleted) {
+      const defaultApp = (state.apps && state.apps.find(a => a.isDefault || a.slug === 'default')) || { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true };
+      state.activeApp = defaultApp;
+      try {
+        localStorage.setItem('nodestack_active_app', JSON.stringify(defaultApp));
+      } catch {}
+      await selectApp(defaultApp.slug || defaultApp.id);
+    }
+  } catch (err) {
+    if (typeof toast === 'function') {
+      toast(`Failed to delete application: ${err.message || String(err)}`, 'error');
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Delete Application';
+    }
+  }
+}
+
+window.promptDeleteApp = promptDeleteApp;
+window.closeDeleteAppModal = closeDeleteAppModal;
+window.submitDeleteApp = submitDeleteApp;
