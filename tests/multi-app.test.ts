@@ -801,6 +801,32 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       expect(reindexRes.indexName).toBe('ecommerce_store_products');
       expect(reindexRes.recordsQueued).toBeGreaterThan(0);
     });
+
+    it('should support scoped template application and mock data generation via /api/apps/:appId routes', async () => {
+      // 1. Apply 'blog' template to blog app
+      const applyRes = await client.send<any>('/api/apps/blog/templates/apply', {
+        method: 'POST',
+        body: { template: 'blog' },
+      });
+      expect(applyRes.success).toBe(true);
+
+      const blogScope = server.apps.get('blog');
+      expect(blogScope.schema.getCollection('posts')).toBeDefined();
+
+      // Ensure posts collection is NOT in ecommerce or default app
+      const ecomScope = server.apps.get('ecommerce');
+      expect(ecomScope.schema.getCollection('posts')).toBeUndefined();
+
+      // 2. Generate mock data for blog posts via scoped route
+      const mockRes = await client.send<any>('/api/apps/blog/collections/posts/generate-mock', {
+        method: 'POST',
+        body: { count: 3 },
+      });
+      expect(mockRes.count).toBe(3);
+
+      const posts = await client.send<any>('/api/apps/blog/collections/posts/records');
+      expect(posts.totalItems).toBeGreaterThanOrEqual(3);
+    });
   });
 
   describe('9. Custom Database Driver & Driver Factory Isolation', () => {

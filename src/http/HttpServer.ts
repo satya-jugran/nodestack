@@ -371,6 +371,9 @@ export class HttpServer {
     app.get('/api/apps/:appId/files/:collection/:recordId/:filename', (req: any, reply) =>
       this.fileController.getFile(req, reply)
     );
+    app.post('/api/apps/:appId/collections/:collection/generate-mock', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.recordController.generateMock(req, reply)
+    );
     if (this.demoController) {
       const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
       app.get('/api/apps/:appId/demo/status', (req, reply) => this.demoController!.getStatus(req, reply));
@@ -412,10 +415,28 @@ export class HttpServer {
       app.post('/api/apps/:appId/webhooks/:id/test', { preHandler: requireAdmin }, (req: any, reply) =>
         this.webhookController!.testWebhook(req, reply)
       );
+      app.delete('/api/apps/:appId/webhooks/deliveries', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.clearDeliveries(req, reply)
+      );
+      app.post('/api/apps/:appId/webhooks/deliveries/:id/retry', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.webhookController!.retryDelivery(req, reply)
+      );
     }
 
     app.get('/api/apps/:appId/realtime', (req, reply) => this.realtimeController.connect(req, reply));
     app.post('/api/apps/:appId/realtime', (req, reply) => this.realtimeController.setSubscriptions(req, reply));
+
+    if (this.templateController) {
+      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
+      app.get('/api/apps/:appId/templates', (req, reply) => this.templateController!.list(req, reply));
+      app.get('/api/apps/:appId/templates/:template', (req: any, reply) => this.templateController!.getOne(req, reply));
+      app.post('/api/apps/:appId/templates/apply', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.templateController!.apply(req, reply)
+      );
+      app.post('/api/apps/:appId/templates/:template/apply', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.templateController!.applyParam(req, reply)
+      );
+    }
 
 
     // 1. Health & Settings
