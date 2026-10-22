@@ -9,8 +9,7 @@ describe('AdminUIBundler', () => {
   const uiDir = path.resolve(__dirname, '../src/admin/ui');
 
   it('should bundle modular CSS and JS into index.html shell', () => {
-    const uiDir = path.resolve(__dirname, '../src/admin/ui');
-      const bundled = AdminUIBundler.bundle(uiDir);
+    const bundled = AdminUIBundler.bundle(uiDir);
 
     expect(bundled).toBeDefined();
     expect(bundled.length).toBeGreaterThan(10000);
