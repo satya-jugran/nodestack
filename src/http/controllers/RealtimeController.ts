@@ -1,11 +1,19 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { RealtimeService } from '../../realtime/RealtimeService';
+import { AppManager } from '../../apps/AppManager';
 import { AppError } from '../../core/errors/AppError';
 
 export class RealtimeController extends BaseController {
-  constructor(private realtimeService: RealtimeService) {
+  constructor(
+    private realtimeService: RealtimeService,
+    private appManager?: AppManager
+  ) {
     super();
+  }
+
+  private getRealtime(req?: any): RealtimeService {
+    return req?.appScope?.realtime || this.realtimeService;
   }
 
   public async connect(req: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -17,7 +25,8 @@ export class RealtimeController extends BaseController {
       'Access-Control-Allow-Origin': '*',
     });
 
-    this.realtimeService.registerClient(reply, req.auth);
+    const realtime = this.getRealtime(req);
+    realtime.registerClient(reply, req.auth);
   }
 
   public async setSubscriptions(req: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -27,7 +36,21 @@ export class RealtimeController extends BaseController {
       throw new AppError('clientId and subscriptions array are required', 400);
     }
 
-    const ok = this.realtimeService.setSubscriptions(clientId, subscriptions);
+    const realtime = this.getRealtime(req);
+    let ok = realtime.setSubscriptions(clientId, subscriptions);
+
+    // If client wasn't found in this scope, check other cached scopes or default service
+    if (!ok && this.appManager) {
+      for (const app of this.appManager.getCachedScopes()) {
+        if (app.realtime !== realtime && app.realtime.setSubscriptions(clientId, subscriptions)) {
+          ok = true;
+          break;
+        }
+      }
+    } else if (!ok && realtime !== this.realtimeService) {
+      ok = this.realtimeService.setSubscriptions(clientId, subscriptions);
+    }
+
     if (!ok) {
       throw new AppError('Realtime client not found or disconnected', 404);
     }

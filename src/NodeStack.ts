@@ -209,7 +209,7 @@ export class NodeStack {
     const collectionCtrl = new CollectionController(this.schema, this.schemaInference, this.files);
     const recordCtrl = new RecordController(this.records, this.schema, this.files, this.mockData);
     const fileCtrl = new FileController(this.files, this.schema, ruleEngine, this.db);
-    const realtimeCtrl = new RealtimeController(this.realtime);
+    const realtimeCtrl = new RealtimeController(this.realtime, this.apps);
     const logCtrl = new LogController(this.logs);
     const healthCtrl = new HealthController(this.config);
     const analyticsCtrl = new AnalyticsController(this.analytics);

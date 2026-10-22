@@ -913,5 +913,157 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
 
       await expect(aliceClient.collection('orders').getList()).rejects.toThrow();
     });
+
+    it('should connect realtime clients to application scope and isolate SSE events', async () => {
+      const shopScope = server.apps.get('ecommerce');
+      const defaultRealtime = server.defaultApp.realtime;
+
+      // Authenticate as Alice to obtain a valid scoped collection-user token
+      const aliceClient = new NodeStackClient(`http://127.0.0.1:${port}`, {
+        authStore: new MemoryAuthStore(),
+      }).app('ecommerce');
+      const authRes = await aliceClient.collection('customers').authWithPassword(
+        'customer@shop.com',
+        'password12345'
+      );
+      expect(authRes.token).toBeDefined();
+
+      const prevShopClients = shopScope.realtime.getConnectedClientsCount();
+      const prevDefaultClients = defaultRealtime.getConnectedClientsCount();
+
+      // 1. Connect SSE client to ecommerce scoped realtime endpoint
+      let sseRes: http.IncomingMessage;
+      let clientId = '';
+      const receivedEvents: any[] = [];
+
+      const sseConnected = new Promise<void>((resolve, reject) => {
+        const req = http.get(
+          `http://127.0.0.1:${port}/api/apps/ecommerce/realtime?token=${authRes.token}`,
+          (res) => {
+            sseRes = res;
+            let buffer = '';
+            res.on('data', (chunk) => {
+              buffer += chunk.toString();
+              const lines = buffer.split('\n\n');
+              buffer = lines.pop() || '';
+              for (const block of lines) {
+                if (block.includes('NS_CONNECT')) {
+                  const match = block.match(/\{"clientId":"([^"]+)"\}/);
+                  if (match && !clientId) {
+                    clientId = match[1];
+                    resolve();
+                  }
+                } else if (block.includes('event: orders')) {
+                  const dataMatch = block.match(/data: (\{.*\})/);
+                  if (dataMatch) {
+                    try {
+                      receivedEvents.push(JSON.parse(dataMatch[1]));
+                    } catch {}
+                  }
+                }
+              }
+            });
+          }
+        );
+        req.on('error', reject);
+      });
+
+      try {
+        await sseConnected;
+        expect(clientId).toBeDefined();
+        expect(clientId.startsWith('cl_')).toBe(true);
+
+        // 2. Verify client registered in ecommerce scope, NOT in default scope
+        expect(shopScope.realtime.getConnectedClientsCount()).toBe(prevShopClients + 1);
+        expect(defaultRealtime.getConnectedClientsCount()).toBe(prevDefaultClients);
+
+        // 3. Subscribe client to 'orders' via POST /api/apps/ecommerce/realtime
+        const subRes = await fetch(`http://127.0.0.1:${port}/api/apps/ecommerce/realtime`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientId,
+            subscriptions: ['orders'],
+          }),
+        });
+        expect(subRes.status).toBe(204);
+
+        // 4. Create an order in ecommerce app
+        const createdOrder = await shopScope.records.create(
+          'orders',
+          {
+            item: 'Realtime Monitor',
+            amount: 299,
+          },
+          { isAdmin: true }
+        );
+
+        // Wait a moment for SSE event delivery
+        await new Promise((r) => setTimeout(r, 100));
+
+        expect(receivedEvents.length).toBeGreaterThanOrEqual(1);
+        expect(receivedEvents.some((e) => e.record?.id === createdOrder.id)).toBe(true);
+      } finally {
+        if (sseRes!) {
+          (sseRes as any).destroy();
+        }
+      }
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(shopScope.realtime.getConnectedClientsCount()).toBe(prevShopClients);
+    });
+
+    it('should support header and query scoped /api/realtime connections', async () => {
+      const blogScope = server.apps.get('blog');
+      const prevBlogClients = blogScope.realtime.getConnectedClientsCount();
+
+      let clientId = '';
+      let sseRes: http.IncomingMessage;
+
+      const connected = new Promise<void>((resolve, reject) => {
+        const req = http.get(
+          `http://127.0.0.1:${port}/api/realtime?app=blog`,
+          (res) => {
+            sseRes = res;
+            res.on('data', (chunk) => {
+              const text = chunk.toString();
+              const match = text.match(/\{"clientId":"([^"]+)"\}/);
+              if (match && !clientId) {
+                clientId = match[1];
+                resolve();
+              }
+            });
+          }
+        );
+        req.on('error', reject);
+      });
+
+      try {
+        await connected;
+        expect(clientId).toBeDefined();
+        expect(blogScope.realtime.getConnectedClientsCount()).toBe(prevBlogClients + 1);
+
+        // Subscribe using x-nodestack-app header
+        const subRes = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-nodestack-app': 'blog',
+          },
+          body: JSON.stringify({
+            clientId,
+            subscriptions: ['secret_posts'],
+          }),
+        });
+        expect(subRes.status).toBe(204);
+      } finally {
+        if (sseRes!) {
+          (sseRes as any).destroy();
+        }
+      }
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(blogScope.realtime.getConnectedClientsCount()).toBe(prevBlogClients);
+    });
   });
 });
