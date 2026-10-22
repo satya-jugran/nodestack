@@ -770,6 +770,37 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       });
       expect(disableRes.success).toBe(true);
     });
+
+    it('should compute scoped indexName using activeAlgolia and scoped indexPrefix on /api/algolia/reindex', async () => {
+      // 1. Enable algolia for ecommerce app
+      await client.send('/api/plugins/algolia/enable', {
+        method: 'POST',
+        headers: { 'x-nodestack-app': 'ecommerce' },
+      });
+
+      // 2. Configure algolia on ecommerce with custom indexPrefix 'ecommerce_store_'
+      await client.send('/api/plugins/algolia/config', {
+        method: 'PUT',
+        headers: { 'x-nodestack-app': 'ecommerce' },
+        body: {
+          appId: 'TEST_APP_ID',
+          apiKey: 'TEST_API_KEY',
+          indexPrefix: 'ecommerce_store_',
+          dryRun: true,
+        },
+      });
+
+      // 3. Trigger reindex on ecommerce products
+      const reindexRes = await client.send<any>('/api/algolia/reindex', {
+        method: 'POST',
+        headers: { 'x-nodestack-app': 'ecommerce' },
+        body: { collection: 'products' },
+      });
+
+      expect(reindexRes.success).toBe(true);
+      expect(reindexRes.indexName).toBe('ecommerce_store_products');
+      expect(reindexRes.recordsQueued).toBeGreaterThan(0);
+    });
   });
 
   describe('9. Custom Database Driver & Driver Factory Isolation', () => {

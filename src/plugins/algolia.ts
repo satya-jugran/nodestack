@@ -543,7 +543,7 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
         'POST',
         '/api/algolia/reindex',
         async (req: FastifyRequest, reply: FastifyReply) => {
-          const { service: activeAlgolia, db: targetDb } = getScopedAlgolia(req);
+          const { service: activeAlgolia, db: targetDb, records: scopedRecords } = getScopedAlgolia(req);
           if (!activeAlgolia.isConfigured()) {
             return reply.status(400).send({
               statusCode: 400,
@@ -555,15 +555,25 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
 
           const body = (req.body as any) || {};
           const col = body.collection;
-          if (!col || !targetCollections.includes(col)) {
+          const allowedCollections =
+            (activeAlgolia.options as any)?.collections?.length > 0
+              ? (activeAlgolia.options as any).collections
+              : targetCollections.length > 0
+              ? targetCollections
+              : (((req as any).appScope?.schema || ctx.app.schema)
+                  .getAllCollections()
+                  .map((c: any) => c.name)
+                  .filter((name: string) => !name.startsWith('_')));
+
+          if (!col || !allowedCollections.includes(col)) {
             return reply.status(400).send({
               statusCode: 400,
-              message: `collection must be one of: ${targetCollections.join(', ')}`,
+              message: `collection must be one of: ${allowedCollections.join(', ')}`,
             });
           }
 
           const records = (targetDb as any).all(`SELECT * FROM "${col}"`) || [];
-          const indexName = algoliaService.getIndexName(col);
+          const indexName = activeAlgolia.getIndexName(col);
 
           if (records.length === 0) {
             return reply.status(200).send({
@@ -592,7 +602,7 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
           // Create queued entries in durable queue
           for (const record of records) {
             try {
-              await ctx.app.records.create(collectionName, {
+              await scopedRecords.create(collectionName, {
                 indexName,
                 collection: col,
                 objectId: record.id,
@@ -605,23 +615,23 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
           }
 
           // Submit batch to Algolia
-          const batchResult = await algoliaService.batch(indexName, batchRequests);
+          const batchResult = await activeAlgolia.batch(indexName, batchRequests);
 
           // Update status of queued items in DB
           if (batchResult.success) {
             try {
-              ctx.app.db.prepare(
+              (targetDb as any).prepare(
                 `UPDATE "${collectionName}" SET status = 'synced', taskId = ? WHERE collection = ? AND status = 'queued'`
               ).run(batchResult.taskId ? String(batchResult.taskId) : null, col);
             } catch {
               // ignore
             }
             for (const r of records) {
-              algoliaService.recordSync('save', col, r.id, 'synced', { taskId: batchResult.taskId });
+              activeAlgolia.recordSync('save', col, r.id, 'synced', { taskId: batchResult.taskId });
             }
           } else {
             try {
-              ctx.app.db.prepare(
+              (targetDb as any).prepare(
                 `UPDATE "${collectionName}" SET status = 'failed', error = ? WHERE collection = ? AND status = 'queued'`
               ).run(batchResult.error || 'Batch sync failed', col);
             } catch {
