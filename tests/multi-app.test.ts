@@ -639,6 +639,17 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       expect(blogError.status).toBe(400);
       expect(blogError.message).toContain('not configured');
 
+      // 4.5. Query /api/s3/status for default app - must NOT leak ecommerce's bucket or mutate default global state
+      let defaultError: any;
+      try {
+        await client.send('/api/s3/status');
+      } catch (err: any) {
+        defaultError = err;
+      }
+      expect(defaultError).toBeDefined();
+      expect(defaultError.status).toBe(400);
+      expect(defaultError.message).toContain('not configured');
+
       // 5. Query scoped admin nav items for ecommerce and blog
       const ecomNavRes = await client.send<{ items: any[] }>('/api/apps/ecommerce/admin/nav-items');
       const ecomS3Nav = ecomNavRes.items.find((item: any) => item.id === 's3-storage');

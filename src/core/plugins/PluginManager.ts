@@ -127,6 +127,7 @@ export class PluginManager {
   >();
   private pluginHookUnsubscribers = new Map<string, Array<() => void>>();
   private scopedHookUnsubscribers = new Map<string, Array<() => void>>();
+  private scopedPlugins = new Map<string, { plugin: INodeStackPlugin; context: NodeStackPluginContext }>();
   private provisionedScopes = new Set<string>();
   private runtimeLoadedOfficialPlugins = new Set<string>();
 
@@ -160,6 +161,11 @@ export class PluginManager {
     if (this.app.apps && typeof (this.app.apps as any).onScopeInit === 'function') {
       (this.app.apps as any).onScopeInit((scope: AppScope) => {
         this.provisionScope(scope);
+        if (typeof (scope as any).onClose === 'function') {
+          (scope as any).onClose(() => {
+            this.disposeScope(scope.app.slug);
+          });
+        }
       });
     }
 
@@ -1045,12 +1051,52 @@ export class PluginManager {
       }
       this.scopedHookUnsubscribers.delete(key);
     }
+    const scopedEntry = this.scopedPlugins.get(key);
+    if (scopedEntry) {
+      if (typeof scopedEntry.plugin.onDestroy === 'function') {
+        try {
+          scopedEntry.plugin.onDestroy(scopedEntry.context);
+        } catch {}
+      }
+      this.scopedPlugins.delete(key);
+    }
+  }
+
+  public disposeScope(appSlug: string): void {
+    for (const [key, entry] of this.scopedPlugins.entries()) {
+      if (key.startsWith(`${appSlug}:`)) {
+        if (typeof entry.plugin.onDestroy === 'function') {
+          try {
+            entry.plugin.onDestroy(entry.context);
+          } catch {}
+        }
+        this.scopedPlugins.delete(key);
+      }
+    }
+    for (const [key, unsubs] of this.scopedHookUnsubscribers.entries()) {
+      if (key.startsWith(`${appSlug}:`)) {
+        for (const unsub of unsubs) {
+          try {
+            unsub();
+          } catch {}
+        }
+        this.scopedHookUnsubscribers.delete(key);
+      }
+    }
+    for (const prov of Array.from(this.provisionedScopes)) {
+      if (prov.startsWith(`${appSlug}:`)) {
+        this.provisionedScopes.delete(prov);
+      }
+    }
   }
 
   private wireScopedPluginLifecycle(plugin: INodeStackPlugin, scope: AppScope): void {
     if (typeof plugin.register !== 'function') return;
 
     try {
+      const def = OFFICIAL_PLUGINS.find((p) => p.name === plugin.name || p.id === plugin.name);
+      const scopedPlugin: INodeStackPlugin = def ? def.factory() : plugin;
+
       const scopedApp = new Proxy(this.app, {
         get(target, prop, receiver) {
           if (prop === 'db') return scope.db;
@@ -1093,7 +1139,7 @@ export class PluginManager {
         registerSystemCollection: (dto) => scope.schema.registerSystemCollection(dto),
         registerHook: (event: string, handler: any, collection?: string) => {
           const guardedHandler = async (...args: any[]) => {
-            if (!this.isPluginEnabledInDb(plugin.name, scope.db)) {
+            if (!this.isPluginEnabledInDb(scopedPlugin.name, scope.db)) {
               return;
             }
             return handler(...args);
@@ -1148,30 +1194,45 @@ export class PluginManager {
               break;
           }
 
-          this.addScopedHookUnsubscriber(scope.app.slug, plugin.name, unsubscribe);
+          this.addScopedHookUnsubscriber(scope.app.slug, scopedPlugin.name, unsubscribe);
         },
         getService: <T>(token: ServiceIdentifier<T>): T => this.container.get<T>(token),
         bindService: () => {},
       };
 
-      const regRes = plugin.register(scopedContext);
-      if (regRes instanceof Promise) {
-        this.pendingInits.push(
-          regRes.catch((err) => {
-            console.error(`[PluginManager] Scoped register error for "${plugin.name}" in app "${scope.app.slug}":`, err);
-          })
-        );
-      }
+      const key = this.getScopedHookKey(scope.app.slug, scopedPlugin.name);
+      this.scopedPlugins.set(key, { plugin: scopedPlugin, context: scopedContext });
 
-      if (typeof plugin.init === 'function') {
-        const initRes = plugin.init(scopedContext);
-        if (initRes instanceof Promise) {
+      if (typeof scopedPlugin.register === 'function') {
+        const regRes = scopedPlugin.register(scopedContext);
+        if (regRes instanceof Promise) {
           this.pendingInits.push(
-            initRes.catch((err) => {
-              console.error(`[PluginManager] Scoped init error for "${plugin.name}" in app "${scope.app.slug}":`, err);
+            regRes.catch((err) => {
+              console.error(`[PluginManager] Scoped register error for "${scopedPlugin.name}" in app "${scope.app.slug}":`, err);
             })
           );
         }
+      }
+
+      if (typeof scopedPlugin.init === 'function') {
+        const initRes = scopedPlugin.init(scopedContext);
+        if (initRes instanceof Promise) {
+          this.pendingInits.push(
+            initRes.catch((err) => {
+              console.error(`[PluginManager] Scoped init error for "${scopedPlugin.name}" in app "${scope.app.slug}":`, err);
+            })
+          );
+        }
+      }
+
+      if (scopedPlugin.configSchema?.fields && typeof scopedPlugin.onConfigUpdate === 'function') {
+        try {
+          const effective = this.getEffectiveConfig(scopedPlugin.name, scope.db);
+          const initialSync = scopedPlugin.onConfigUpdate(effective);
+          if (initialSync instanceof Promise) {
+            this.pendingInits.push(initialSync.catch(() => {}));
+          }
+        } catch {}
       }
     } catch (err: any) {
       console.error(`[PluginManager] Error wiring scoped lifecycle for "${plugin.name}" in app "${scope.app.slug}":`, err);
@@ -1713,9 +1774,25 @@ export class PluginManager {
     `).run(name, JSON.stringify(dbSettings), now);
 
     // Compute effective full configuration with raw secrets for runtime update
-    if (typeof record.plugin.onConfigUpdate === 'function') {
-      const effectiveConfig = this.getEffectiveConfig(name, targetDb);
-      await record.plugin.onConfigUpdate(effectiveConfig);
+    const targetScope = this.findScopeForDb(targetDb);
+    const isDefaultDb = !db || targetDb === this.app.db || targetScope?.app.slug === 'default' || (targetScope && targetScope === this.app.defaultApp);
+
+    if (isDefaultDb) {
+      if (typeof record.plugin.onConfigUpdate === 'function') {
+        const effectiveConfig = this.getEffectiveConfig(name, targetDb);
+        await record.plugin.onConfigUpdate(effectiveConfig);
+      }
+    } else if (targetScope) {
+      const key = this.getScopedHookKey(targetScope.app.slug, name);
+      let scopedEntry = this.scopedPlugins.get(key);
+      if (!scopedEntry && this.isPluginEnabledInDb(name, targetDb)) {
+        this.provisionPluginForScope(record.plugin, targetScope);
+        scopedEntry = this.scopedPlugins.get(key);
+      }
+      if (scopedEntry && typeof scopedEntry.plugin.onConfigUpdate === 'function') {
+        const effectiveConfig = this.getEffectiveConfig(name, targetDb);
+        await scopedEntry.plugin.onConfigUpdate(effectiveConfig);
+      }
     }
 
     return this.getPluginConfig(name, targetDb);
@@ -1725,6 +1802,15 @@ export class PluginManager {
    * Clean up and destroy all plugins
    */
   public async dispose(): Promise<void> {
+    for (const scopedEntry of this.scopedPlugins.values()) {
+      if (typeof scopedEntry.plugin.onDestroy === 'function') {
+        try {
+          await scopedEntry.plugin.onDestroy(scopedEntry.context);
+        } catch {}
+      }
+    }
+    this.scopedPlugins.clear();
+
     for (const record of this.plugins.values()) {
       if (typeof record.plugin.onDestroy === 'function') {
         try {

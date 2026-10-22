@@ -264,14 +264,32 @@ export class AppScope {
   }
 
   private _isClosed = false;
+  private onCloseHandlers: Array<() => void> = [];
 
   public get isClosed(): boolean {
     return this._isClosed;
   }
 
+  public onClose(handler: () => void): () => void {
+    this.onCloseHandlers.push(handler);
+    return () => {
+      this.onCloseHandlers = this.onCloseHandlers.filter((h) => h !== handler);
+    };
+  }
+
   public close(): void {
     if (this._isClosed) return;
     this._isClosed = true;
+
+    // 0. Notify onClose handlers
+    for (const handler of this.onCloseHandlers) {
+      try {
+        handler();
+      } catch {
+        // ignore
+      }
+    }
+    this.onCloseHandlers = [];
 
     // 1. Dispose RealtimeService (clears heartbeat interval and disconnects all SSE clients)
     try {
