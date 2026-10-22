@@ -181,7 +181,9 @@ export class AuthService {
 
   public async updateAdminPassword(email: string, newPassword: string): Promise<void> {
     const cleanEmail = email.trim().toLowerCase();
-    const admin = this.db.get<any>('SELECT id FROM _admins WHERE email = ?', [cleanEmail]);
+    const admin = this.registry
+      ? this.registry.getAdminByEmail(cleanEmail)
+      : this.db.get<any>('SELECT id FROM _admins WHERE email = ?', [cleanEmail]);
     if (!admin) {
       throw new NotFoundError(`Admin with email '${cleanEmail}' not found`);
     }
@@ -191,19 +193,45 @@ export class AuthService {
     const passwordHash = await this.hashPassword(newPassword);
     const tokenKey = crypto.randomBytes(16).toString('hex');
     const now = new Date().toISOString();
-    this.db.prepare(
-      'UPDATE _admins SET passwordHash = ?, tokenKey = ?, updated = ? WHERE email = ?'
-    ).run(passwordHash, tokenKey, now, cleanEmail);
+
+    if (this.registry) {
+      this.registry.updateAdminPassword(cleanEmail, passwordHash, tokenKey);
+    }
+
+    try {
+      this.db.prepare(
+        'UPDATE _admins SET passwordHash = ?, tokenKey = ?, updated = ? WHERE email = ?'
+      ).run(passwordHash, tokenKey, now, cleanEmail);
+    } catch {
+      // non-fatal if table doesn't exist in app database
+    }
   }
 
   public revokeAdminSessions(idOrEmail: string): void {
     const clean = idOrEmail.trim().toLowerCase();
     const tokenKey = crypto.randomBytes(16).toString('hex');
     const now = new Date().toISOString();
-    const result = this.db.prepare(
-      'UPDATE _admins SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?'
-    ).run(tokenKey, now, idOrEmail, clean);
-    if (result.changes === 0) {
+
+    let registryFound = false;
+    if (this.registry) {
+      const regAdmin = this.registry.getAdminById(idOrEmail) || this.registry.getAdminByEmail(clean);
+      if (regAdmin) {
+        this.registry.revokeAdminSessions(idOrEmail, tokenKey);
+        registryFound = true;
+      }
+    }
+
+    let dbChanges = 0;
+    try {
+      const result = this.db.prepare(
+        'UPDATE _admins SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?'
+      ).run(tokenKey, now, idOrEmail, clean);
+      dbChanges = Number(result.changes);
+    } catch {
+      // non-fatal if table doesn't exist in app database
+    }
+
+    if (dbChanges === 0 && !registryFound) {
       throw new NotFoundError(`Admin '${idOrEmail}' not found`);
     }
   }

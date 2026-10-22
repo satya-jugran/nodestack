@@ -188,6 +188,22 @@ export class AppRegistry {
     this.driver.prepare('UPDATE _admins SET tokenKey = ?, updated = ? WHERE id = ?').run(tokenKey, now, id);
   }
 
+  public updateAdminPassword(emailOrId: string, passwordHash: string, tokenKey: string): void {
+    const clean = emailOrId.toLowerCase().trim();
+    const now = new Date().toISOString();
+    this.driver.prepare(
+      'UPDATE _admins SET passwordHash = ?, tokenKey = ?, updated = ? WHERE email = ? OR id = ?'
+    ).run(passwordHash, tokenKey, now, clean, clean);
+  }
+
+  public revokeAdminSessions(idOrEmail: string, tokenKey: string): void {
+    const clean = idOrEmail.toLowerCase().trim();
+    const now = new Date().toISOString();
+    this.driver.prepare(
+      'UPDATE _admins SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?'
+    ).run(tokenKey, now, idOrEmail, clean);
+  }
+
   public close(): void {
     try {
       this.driver.close();
