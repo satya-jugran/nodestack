@@ -229,6 +229,7 @@
     // Export Handler
 
     function openNewRecordModal() {
+      if (typeof closeRecordDrawer === 'function') closeRecordDrawer();
       const col = state.activeCollection;
       const modal = document.getElementById('modal-root');
       modal.innerHTML = `
@@ -398,6 +399,7 @@
 
     // Edit Record
     function editRecord(id) {
+      if (typeof closeRecordDrawer === 'function') closeRecordDrawer();
       const rec = state.records.find(r => r.id === id);
       if (!rec) return;
 

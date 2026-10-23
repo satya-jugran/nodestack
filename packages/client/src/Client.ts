@@ -281,15 +281,17 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
    * Inherits baseUrl, authStore, customFetch, defaultHeaders, and defaultTimeout.
    */
   public app<TAppCollections extends Record<string, any> = Record<string, RecordModel>>(
-    slug: string
+    slug: string,
+    options: Partial<ClientOptions> = {}
   ): NodeStackClient<TAppCollections> {
     return new NodeStackClient<TAppCollections>(this.baseUrl, {
-      authStore: this.authStore,
-      fetch: this.customFetch,
-      headers: { ...this.defaultHeaders },
-      timeout: this.defaultTimeout,
-      chaos: this.chaosOptions ? { ...this.chaosOptions } : undefined,
+      authStore: options.authStore || this.authStore,
+      fetch: options.fetch || this.customFetch,
+      headers: { ...this.defaultHeaders, ...(options.headers || {}) },
+      timeout: options.timeout !== undefined ? options.timeout : this.defaultTimeout,
+      chaos: options.chaos !== undefined ? (options.chaos ? { ...options.chaos } : undefined) : (this.chaosOptions ? { ...this.chaosOptions } : undefined),
       app: slug,
+      EventSource: options.EventSource || (this.realtime as any).customEventSource,
     });
   }
 }

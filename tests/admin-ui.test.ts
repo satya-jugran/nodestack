@@ -440,6 +440,31 @@ describe('Records Data Grid DOM Interactions & Accessibility (Browser/DOM Enviro
       expect(win.state.selectedRecordId).toBeNull();
     });
 
+    it('should close drawer and open edit modal when Edit Record action button is clicked inside drawer', () => {
+      const { win, doc } = createAdminUIDOM();
+      const row = doc.querySelector('tr.record-row[data-id="rec_01"]') as HTMLElement;
+
+      // Open drawer
+      row.click();
+      expect(win.state.selectedRecordId).toBe('rec_01');
+
+      const drawerPanel = doc.getElementById('record-drawer-panel');
+      expect(drawerPanel?.classList.contains('open')).toBe(true);
+
+      // Find and click "Edit Record" button inside drawer
+      const editBtn = drawerPanel?.querySelector('button[title="Edit this record"]') as HTMLElement;
+      expect(editBtn).not.toBeNull();
+      editBtn.click();
+
+      // Drawer must be closed
+      expect(win.state.selectedRecordId).toBeNull();
+      expect(drawerPanel?.classList.contains('open')).toBe(false);
+
+      // Edit modal must be open in modal-root
+      const modalRoot = doc.getElementById('modal-root');
+      expect(modalRoot?.innerHTML).toContain('Edit Record — rec_01');
+    });
+
     it('should restore focus to triggering row when drawer is closed', () => {
       const { win, doc } = createAdminUIDOM();
       const row = doc.querySelector('tr.record-row[data-id="rec_01"]') as HTMLElement;

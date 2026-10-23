@@ -4,6 +4,7 @@ export interface FileUrlOptions {
   download?: boolean;
   token?: string | boolean;
   collection?: string;
+  app?: string;
 }
 
 /**
@@ -53,8 +54,11 @@ export class FileService extends BaseService {
     const cleanCol = encodeURIComponent(collectionName);
     const cleanId = encodeURIComponent(recordId);
     const cleanFile = encodeURIComponent(filename);
+    const appSlug = options.app || this.client.appSlug;
 
-    let url = `${cleanBase}/api/files/${cleanCol}/${cleanId}/${cleanFile}`;
+    let url = appSlug && appSlug !== 'default'
+      ? `${cleanBase}/api/apps/${encodeURIComponent(appSlug)}/files/${cleanCol}/${cleanId}/${cleanFile}`
+      : `${cleanBase}/api/files/${cleanCol}/${cleanId}/${cleanFile}`;
 
     const queryParts: string[] = [];
 

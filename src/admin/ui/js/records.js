@@ -890,7 +890,12 @@
       if (e) e.stopPropagation();
       if (!btnEl) return;
       const id = btnEl.getAttribute('data-id');
-      if (id) editRecord(id);
+      if (id) {
+        if (typeof closeRecordDrawer === 'function') {
+          closeRecordDrawer();
+        }
+        editRecord(id);
+      }
     }
 
     function handleTableDeleteRecord(e, btnEl) {
@@ -909,7 +914,12 @@
     function handleDrawerEditRecord(btnEl) {
       if (!btnEl) return;
       const id = btnEl.getAttribute('data-id');
-      if (id) editRecord(id);
+      if (id) {
+        if (typeof closeRecordDrawer === 'function') {
+          closeRecordDrawer();
+        }
+        editRecord(id);
+      }
     }
 
     function handleDrawerCopyJson(btnEl) {
@@ -921,7 +931,12 @@
     function handleDrawerDeleteRecord(btnEl) {
       if (!btnEl) return;
       const id = btnEl.getAttribute('data-id');
-      if (id) drawerDeleteRecord(id);
+      if (id) {
+        if (typeof closeRecordDrawer === 'function') {
+          closeRecordDrawer();
+        }
+        drawerDeleteRecord(id);
+      }
     }
 
     function handleDrawerCopyEmail(btnEl) {

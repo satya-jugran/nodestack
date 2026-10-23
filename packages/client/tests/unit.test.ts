@@ -7,6 +7,7 @@ import {
   ClientResponseError,
   FileService,
   RealtimeService,
+  NodeStackClient,
 } from '../src';
 
 describe('nodestack-client Unit Tests', () => {
@@ -266,6 +267,131 @@ describe('nodestack-client Unit Tests', () => {
 
       realtime.disconnect();
       expect(realtime.isConnected).toBe(false);
+    });
+  });
+describe('Multi-Application & MVP SDK Support', () => {
+    it('should create scoped client with client.app(slug) and inject x-nodestack-app header', async () => {
+      let requestedHeaders = {};
+      const mockFetch = vi.fn().mockImplementation(async (url, opts) => {
+        requestedHeaders = opts.headers;
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({ items: [], totalItems: 0 }),
+        };
+      });
+
+      const client = new NodeStackClient('http://127.0.0.1:8090', { fetch: mockFetch as any });
+      const storeClient = client.app('store-app');
+
+      expect(storeClient.appSlug).toBe('store-app');
+
+      await storeClient.collection('products').getList();
+      expect(requestedHeaders['x-nodestack-app']).toBe('store-app');
+
+      // Regular client does not inject header
+      await client.collection('products').getList();
+      expect(requestedHeaders['x-nodestack-app']).toBeUndefined();
+    });
+
+    it('should format scoped file URLs with /api/apps/:appId/files/... in FileService', () => {
+      const client = new NodeStackClient('http://127.0.0.1:8090');
+      const storeClient = client.app('store-app');
+
+      const urlDefault = client.files.getUrl({ id: 'rec_1', collection: 'photos' }, 'banner.jpg');
+      expect(urlDefault).toBe('http://127.0.0.1:8090/api/files/photos/rec_1/banner.jpg');
+
+      const urlScoped = storeClient.files.getUrl({ id: 'rec_1', collection: 'photos' }, 'banner.jpg');
+      expect(urlScoped).toBe('http://127.0.0.1:8090/api/apps/store-app/files/photos/rec_1/banner.jpg');
+
+      const urlOverride = client.files.getUrl(
+        { id: 'rec_1', collection: 'photos' },
+        'banner.jpg',
+        { app: 'custom-app' }
+      );
+      expect(urlOverride).toBe('http://127.0.0.1:8090/api/apps/custom-app/files/photos/rec_1/banner.jpg');
+    });
+
+    it('should pass ?app=:slug to Realtime EventSource connection', async () => {
+      let connectedUrl = '';
+      class MockEventSourceApp {
+        public listeners = {};
+        constructor(url) {
+          connectedUrl = url;
+          setTimeout(() => {
+            if (this.listeners['NS_CONNECT']) {
+              this.listeners['NS_CONNECT'].forEach(cb => cb({ data: JSON.stringify({ clientId: 'cl_app_1' }) }));
+            }
+          }, 5);
+        }
+        public addEventListener(type, cb) {
+          if (!this.listeners[type]) this.listeners[type] = [];
+          this.listeners[type].push(cb);
+        }
+        public removeEventListener() {}
+        public close() {}
+      }
+
+      const mockFetch = vi.fn().mockImplementation(async () => ({
+        ok: true,
+        status: 204,
+        headers: { get: () => '' },
+      }));
+
+      const client = new NodeStackClient('http://127.0.0.1:8090', {
+        fetch: mockFetch as any,
+        EventSource: MockEventSourceApp,
+      });
+      const crmClient = client.app('crm-app');
+
+      await crmClient.realtime.connect();
+      expect(connectedUrl).toContain('app=crm-app');
+    });
+
+    it('should manage applications via client.apps service (CRUD)', async () => {
+      let lastMethod = '';
+      let lastUrl = '';
+      let lastBody = null;
+
+      const mockFetch = vi.fn().mockImplementation(async (url, opts) => {
+        lastUrl = url;
+        lastMethod = opts.method;
+        lastBody = opts.body ? JSON.parse(opts.body) : null;
+        if (opts.method === 'DELETE') {
+          return { ok: true, status: 204, headers: { get: () => '' } };
+        }
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({ id: 'app_1', name: 'CRM App', slug: 'crm-app' }),
+        };
+      });
+
+      const client = new NodeStackClient('http://127.0.0.1:8090', { fetch: mockFetch as any });
+
+      await client.apps.getList();
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/apps');
+      expect(lastMethod).toBe('GET');
+
+      await client.apps.create({ name: 'CRM App', slug: 'crm-app', template: 'crm' });
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/apps');
+      expect(lastMethod).toBe('POST');
+      expect(lastBody.template).toBe('crm');
+
+      await client.apps.getOne('crm-app');
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/apps/crm-app');
+      expect(lastMethod).toBe('GET');
+
+      await client.apps.update('crm-app', { name: 'CRM Updated' });
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/apps/crm-app');
+      expect(lastMethod).toBe('PATCH');
+
+      const deleted = await client.apps.delete('crm-app');
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/apps/crm-app');
+      expect(lastMethod).toBe('DELETE');
+      expect(deleted).toBe(true);
     });
   });
 });
