@@ -27,6 +27,9 @@
     "packages/*",
     "packages/plugins/*"
   ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "build": "npm run build:server && npm run build:client && npm run build:plugins && npm run docs:build",
     "build:server": "tsc && node -e \"const fs = require('fs'); fs.mkdirSync('dist/admin/ui', { recursive: true }); fs.cpSync('src/admin/ui', 'dist/admin/ui', { recursive: true }); const { AdminUIBundler } = require('./dist/admin/AdminUIBundler'); fs.writeFileSync('dist/admin/ui/index.html', AdminUIBundler.bundle('dist/admin/ui'));\"",
@@ -71,7 +74,7 @@
     "@types/node": "^22.13.9",
     "jsdom": "^30.1.2",
     "tsx": "^4.19.3",
-    "typescript": "^5.8.2",
+    "typescript": "^7.0.2",
     "vitest": "^3.0.8"
   }
 }
