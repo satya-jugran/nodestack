@@ -560,7 +560,7 @@ export class WebhookService {
 
     // Prepare Request Headers
     const requestHeaders: Record<string, string> = {
-      'User-Agent': 'NodeStack-Webhooks/1.3.0',
+      'User-Agent': 'NodeStack-Webhooks/2.0.0',
       ...(webhook.headers || {}),
     };
 

@@ -9,7 +9,7 @@ export async function runCli(argv = process.argv): Promise<Command> {
   program
     .name('nodestack')
     .description('NodeStack — The TypeScript-Native Embedded Backend Stack')
-    .version('1.3.0');
+    .version('2.0.0');
 
   // Command: start / serve
   program

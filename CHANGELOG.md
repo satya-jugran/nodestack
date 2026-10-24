@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Release v2.0.0 is a milestone major release introducing complete **Multi-Application Support** across the entire NodeStack ecosystem, upgrading to **TypeScript 7.0** and **Node.js 24+**, introducing generic **Application Snapshots & Checkpoints**, and delivering a 1-click application lifecycle in the Web Admin Dashboard.
 
 ### ⚠️ Breaking Changes
+* **Package Scope & Version**: The server package is published under `@nodestackapp/server` at major version `2.0.0` (alongside `nodestack-client@2.0.0` and official plugins `@nodestackapp/plugin-*@2.0.0`).
 * **Runtime Requirement: Node.js 24+**: NodeStack now requires Node.js v24.0.0 or higher to leverage native modern V8 features and `node:sqlite` enhancements (`"engines": { "node": ">=24.0.0" }`).
 * **Toolchain: TypeScript 7.0**: Upgraded core, client SDK, and official plugins to TypeScript `^7.0.2` targeting `ES2024`.
 

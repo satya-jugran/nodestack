@@ -1,6 +1,6 @@
 {
   "name": "@nodestackapp/server",
-  "version": "1.3.0",
+  "version": "2.0.0",
   "description": "The TypeScript-Native Backend Stack. Single-process backend with embedded SQLite, instant CRUD, Auth, Realtime, Files & Admin UI.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -33,7 +33,7 @@
     "examples/*"
   ],
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "build": "npm run build:server && npm run build:client && npm run build:plugins && npm run docs:build",

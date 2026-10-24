@@ -45,7 +45,7 @@ export class OpenApiGenerator {
     options: OpenApiGeneratorOptions = {}
   ): Record<string, any> {
     const title = options.title || 'NodeStack API';
-    const version = options.version || '1.3.0';
+    const version = options.version || '2.0.0';
     const description =
       options.description ||
       'Interactive OpenAPI 3.0 specification for NodeStack backend. Dynamically generated from collection schemas.';
@@ -116,7 +116,7 @@ export class OpenApiGenerator {
       type: 'object',
       properties: {
         status: { type: 'string', example: 'ok' },
-        version: { type: 'string', example: '1.3.0' },
+        version: { type: 'string', example: '2.0.0' },
         appName: { type: 'string', example: 'NodeStack' },
         uptime: { type: 'number', example: 123.45 },
         memory: { type: 'object', additionalProperties: true },
@@ -128,7 +128,7 @@ export class OpenApiGenerator {
       type: 'object',
       properties: {
         appName: { type: 'string', example: 'NodeStack' },
-        version: { type: 'string', example: '1.3.0' },
+        version: { type: 'string', example: '2.0.0' },
       },
       required: ['appName', 'version'],
     };
