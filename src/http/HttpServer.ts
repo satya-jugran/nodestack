@@ -134,6 +134,7 @@ export class HttpServer {
       // Coordinate reset with request/database locking maintenance gate
       const gate = (req as any).appScope?.maintenanceGate || this.maintenanceGate;
       if (gate) {
+        (req as any)._maintenanceGate = gate;
         const isExempt = req.url.includes('/demo/reset') || req.url.includes('/restore') || req.url.startsWith('/api/realtime');
         try {
           await gate.trackRequestStart(reqId, isExempt);
@@ -148,8 +149,8 @@ export class HttpServer {
 
       if (req.raw && !req.raw.destroyed) {
         req.raw.once('close', () => {
-          const gate = (req as any).appScope?.maintenanceGate || this.maintenanceGate;
-      if (gate) {
+          const gate = (req as any)._maintenanceGate || (req as any).appScope?.maintenanceGate || this.maintenanceGate;
+          if (gate) {
             gate.trackRequestEnd(reqId);
           }
         });
@@ -163,7 +164,8 @@ export class HttpServer {
       if (this.chaosMiddleware) {
         const shortCircuited = await this.chaosMiddleware.handle(req, reply);
         if (shortCircuited || reply.sent) {
-          if (this.maintenanceGate && req.raw?.destroyed) {
+          const gate = (req as any)._maintenanceGate || (req as any).appScope?.maintenanceGate || this.maintenanceGate;
+          if (gate && req.raw?.destroyed) {
             gate.trackRequestEnd(reqId);
           }
           return;
@@ -212,8 +214,9 @@ export class HttpServer {
 
     this.app.addHook('onResponse', async (req: FastifyRequest, reply: FastifyReply) => {
       const reqId = (req as any)._reqId;
-      if (reqId && this.maintenanceGate) {
-        this.maintenanceGate.trackRequestEnd(reqId);
+      const gate = (req as any)._maintenanceGate || (req as any).appScope?.maintenanceGate || this.maintenanceGate;
+      if (reqId && gate) {
+        gate.trackRequestEnd(reqId);
       }
 
       const startTime = (req as any)._startTime;
@@ -243,8 +246,9 @@ export class HttpServer {
 
     this.app.addHook('onError', async (req: FastifyRequest) => {
       const reqId = (req as any)._reqId;
-      if (reqId && this.maintenanceGate) {
-        this.maintenanceGate.trackRequestEnd(reqId);
+      const gate = (req as any)._maintenanceGate || (req as any).appScope?.maintenanceGate || this.maintenanceGate;
+      if (reqId && gate) {
+        gate.trackRequestEnd(reqId);
       }
     });
   }
