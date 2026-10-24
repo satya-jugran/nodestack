@@ -115,6 +115,7 @@ export class AppScope {
       this.realtime
     );
 
+    const isDefaultApp = Boolean(app.isDefault || app.slug === 'default');
     const appDbPath = config.getAppDbPath(app.slug);
     const appSnapshotDir = config.getAppSnapshotDir(app.slug);
     this.snapshots = new SnapshotService(
@@ -129,6 +130,7 @@ export class AppScope {
         dbPath: appDbPath,
         storageDir: appStorageDir,
         snapshotsDir: appSnapshotDir,
+        legacySnapshotDir: isDefaultApp ? path.join(this.config.dataDir, '.demo_snapshot') : undefined,
       }
     );
 

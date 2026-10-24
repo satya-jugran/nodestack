@@ -62,8 +62,15 @@ export class SnapshotService {
     return path.join(this.snapshotsDir, 'manifest.json');
   }
 
-  private get legacySnapshotDir(): string {
-    return this.customPaths?.legacySnapshotDir || path.join(this.config.dataDir, '.demo_snapshot');
+  private get legacySnapshotDir(): string | undefined {
+    if (this.customPaths && 'legacySnapshotDir' in this.customPaths) {
+      return this.customPaths.legacySnapshotDir;
+    }
+    // Only default to global .demo_snapshot if this is the standalone/root service (not scoped with custom paths)
+    if (!this.customPaths || !this.customPaths.snapshotsDir) {
+      return path.join(this.config.dataDir, '.demo_snapshot');
+    }
+    return undefined;
   }
 
   // ==========================================
@@ -106,7 +113,7 @@ export class SnapshotService {
    */
   private ensureMigratedLegacySnapshot(): void {
     try {
-      if (!fs.existsSync(this.legacySnapshotDir)) return;
+      if (!this.legacySnapshotDir || !fs.existsSync(this.legacySnapshotDir)) return;
 
       const legacyDb = path.join(this.legacySnapshotDir, 'data.db');
       const legacyMeta = path.join(this.legacySnapshotDir, 'metadata.json');
@@ -285,92 +292,115 @@ export class SnapshotService {
       fs.mkdirSync(this.snapshotsDir, { recursive: true });
     }
 
-    const currentSnapshots = this.listSnapshots();
-    if (currentSnapshots.length >= this.maxSnapshots) {
-      if (!options.evictOldest) {
-        const oldest = currentSnapshots[0];
-        const error = new ConflictError(
-          `Snapshot limit of ${this.maxSnapshots} reached. Creating a new snapshot will delete the oldest snapshot '${oldest.name}'. Please confirm eviction to proceed.`,
-          {
-            code: 'SNAPSHOT_LIMIT_REACHED',
-            limit: this.maxSnapshots,
-            oldestSnapshot: oldest,
-          }
+    return await this.maintenanceGate.executeExclusive(async () => {
+      const currentSnapshots = this.listSnapshots();
+      let toEvict: SnapshotMetadata[] = [];
+
+      if (currentSnapshots.length >= this.maxSnapshots) {
+        if (!options.evictOldest) {
+          const oldest = currentSnapshots[0];
+          const error = new ConflictError(
+            `Snapshot limit of ${this.maxSnapshots} reached. Creating a new snapshot will delete the oldest snapshot '${oldest.name}'. Please confirm eviction to proceed.`,
+            {
+              code: 'SNAPSHOT_LIMIT_REACHED',
+              limit: this.maxSnapshots,
+              oldestSnapshot: oldest,
+            }
+          );
+          throw error;
+        }
+
+        // Calculate snapshot(s) to evict once new snapshot succeeds
+        const evictCount = currentSnapshots.length - this.maxSnapshots + 1;
+        toEvict = currentSnapshots.slice(0, evictCount);
+      }
+
+      // 1. Flush SQLite WAL to disk
+      this.db.checkpoint();
+
+      // 2. Prepare new snapshot directory
+      const id = `snap_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+      const snapDir = path.join(this.snapshotsDir, id);
+      fs.mkdirSync(snapDir, { recursive: true });
+
+      try {
+        // 3. Compact & snapshot SQLite database transactional state
+        const snapDbPath = path.join(snapDir, 'data.db');
+        const normalizedDbPath = snapDbPath.replace(/\\/g, '/');
+        this.db.exec(`VACUUM INTO '${normalizedDbPath}';`);
+
+        if (!fs.existsSync(snapDbPath) || fs.statSync(snapDbPath).size === 0) {
+          throw new Error('VACUUM INTO failed to generate a valid snapshot database file.');
+        }
+
+        // 4. Snapshot uploaded files storage
+        const snapStorageDir = path.join(snapDir, 'storage');
+        fs.mkdirSync(snapStorageDir, { recursive: true });
+        if (fs.existsSync(this.storageDir)) {
+          fs.cpSync(this.storageDir, snapStorageDir, { recursive: true });
+        }
+
+        // 5. Compute metadata & statistics
+        const live = this.calculateLiveStats();
+        const storageStats = this.getDirectoryStats(snapStorageDir);
+        const dbSizeBytes = fs.statSync(snapDbPath).size;
+        const contentHash = this.computeStateHash();
+
+        const metadata: SnapshotMetadata = {
+          id,
+          name: options.name?.trim() || `Snapshot #${currentSnapshots.length + 1}`,
+          description: options.description?.trim() || 'Application state snapshot',
+          createdAt: new Date().toISOString(),
+          collections: live.collections,
+          totalCollections: live.totalCollections,
+          totalRecords: live.totalRecords,
+          totalFiles: storageStats.count,
+          storageSizeBytes: storageStats.sizeBytes,
+          dbSizeBytes,
+          contentHash,
+          isActive: true,
+        };
+
+        fs.writeFileSync(
+          path.join(snapDir, 'metadata.json'),
+          JSON.stringify(metadata, null, 2),
+          'utf-8'
         );
-        throw error;
+
+        // 6. Only now evict oldest snapshot(s) after new snapshot is captured & validated
+        if (toEvict.length > 0) {
+          for (const snap of toEvict) {
+            this.removeSnapshotFiles(snap.id);
+          }
+        }
+
+        const evictedIds = new Set(toEvict.map((s) => s.id));
+        const updatedSnapshots = [
+          ...this.listSnapshots().filter((s) => !evictedIds.has(s.id) && s.id !== id),
+          metadata,
+        ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+        this.saveManifest({
+          activeSnapshotId: id,
+          snapshots: updatedSnapshots,
+        });
+
+        // 7. Emit events
+        this.eventBus.emit('snapshot:create', metadata);
+        this.eventBus.emit('demo:snapshot', metadata);
+        this.realtimeService.broadcastSystemEvent('SNAPSHOT_CREATE', { metadata });
+
+        return metadata;
+      } catch (err) {
+        // Rollback new snapshot files on failure so oldest snapshots remain safe
+        if (fs.existsSync(snapDir)) {
+          try {
+            fs.rmSync(snapDir, { recursive: true, force: true });
+          } catch {}
+        }
+        throw err;
       }
-
-      // Evict oldest snapshot(s) to make room
-      const evictCount = currentSnapshots.length - this.maxSnapshots + 1;
-      const toEvict = currentSnapshots.slice(0, evictCount);
-      for (const snap of toEvict) {
-        this.removeSnapshotFiles(snap.id);
-      }
-    }
-
-    // 1. Flush SQLite WAL to disk
-    this.db.checkpoint();
-
-    // 2. Prepare new snapshot directory
-    const id = `snap_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-    const snapDir = path.join(this.snapshotsDir, id);
-    fs.mkdirSync(snapDir, { recursive: true });
-
-    // 3. Compact & snapshot SQLite database transactional state
-    const snapDbPath = path.join(snapDir, 'data.db');
-    const normalizedDbPath = snapDbPath.replace(/\\/g, '/');
-    this.db.exec(`VACUUM INTO '${normalizedDbPath}';`);
-
-    // 4. Snapshot uploaded files storage
-    const snapStorageDir = path.join(snapDir, 'storage');
-    fs.mkdirSync(snapStorageDir, { recursive: true });
-    if (fs.existsSync(this.storageDir)) {
-      fs.cpSync(this.storageDir, snapStorageDir, { recursive: true });
-    }
-
-    // 5. Compute metadata & statistics
-    const live = this.calculateLiveStats();
-    const storageStats = this.getDirectoryStats(snapStorageDir);
-    const dbSizeBytes = fs.existsSync(snapDbPath) ? fs.statSync(snapDbPath).size : 0;
-    const contentHash = this.computeStateHash();
-
-    const metadata: SnapshotMetadata = {
-      id,
-      name: options.name?.trim() || `Snapshot #${currentSnapshots.length + 1}`,
-      description: options.description?.trim() || 'Application state snapshot',
-      createdAt: new Date().toISOString(),
-      collections: live.collections,
-      totalCollections: live.totalCollections,
-      totalRecords: live.totalRecords,
-      totalFiles: storageStats.count,
-      storageSizeBytes: storageStats.sizeBytes,
-      dbSizeBytes,
-      contentHash,
-      isActive: true,
-    };
-
-    fs.writeFileSync(
-      path.join(snapDir, 'metadata.json'),
-      JSON.stringify(metadata, null, 2),
-      'utf-8'
-    );
-
-    // 6. Update manifest
-    const updatedSnapshots = [...this.listSnapshots().filter((s) => s.id !== id), metadata].sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
-
-    this.saveManifest({
-      activeSnapshotId: id,
-      snapshots: updatedSnapshots,
     });
-
-    // 7. Emit events
-    this.eventBus.emit('snapshot:create', metadata);
-    this.eventBus.emit('demo:snapshot', metadata);
-    this.realtimeService.broadcastSystemEvent('SNAPSHOT_CREATE', { metadata });
-
-    return metadata;
   }
 
   /**
@@ -492,59 +522,63 @@ export class SnapshotService {
    * Deletes a specific snapshot by ID.
    */
   public async deleteSnapshot(id: string): Promise<void> {
-    const target = this.getSnapshot(id);
-    if (!target) {
-      throw new NotFoundError(`Snapshot with ID '${id}' was not found.`);
-    }
+    return await this.maintenanceGate.executeExclusive(async () => {
+      const target = this.getSnapshot(id);
+      if (!target) {
+        throw new NotFoundError(`Snapshot with ID '${id}' was not found.`);
+      }
 
-    this.removeSnapshotFiles(id);
+      this.removeSnapshotFiles(id);
 
-    const remaining = this.listSnapshots();
-    const manifest = this.readManifest();
-    let newActiveId = manifest.activeSnapshotId;
-    if (newActiveId === id) {
-      newActiveId = remaining[remaining.length - 1]?.id || null;
-    }
+      const remaining = this.listSnapshots();
+      const manifest = this.readManifest();
+      let newActiveId = manifest.activeSnapshotId;
+      if (newActiveId === id) {
+        newActiveId = remaining[remaining.length - 1]?.id || null;
+      }
 
-    this.saveManifest({
-      activeSnapshotId: newActiveId,
-      snapshots: remaining,
+      this.saveManifest({
+        activeSnapshotId: newActiveId,
+        snapshots: remaining,
+      });
+
+      this.eventBus.emit('snapshot:delete', { id, timestamp: new Date().toISOString() });
+      this.realtimeService.broadcastSystemEvent('SNAPSHOT_DELETE', { id });
     });
-
-    this.eventBus.emit('snapshot:delete', { id, timestamp: new Date().toISOString() });
-    this.realtimeService.broadcastSystemEvent('SNAPSHOT_DELETE', { id });
   }
 
   /**
    * Deletes all snapshots.
    */
   public async clearAllSnapshots(): Promise<void> {
-    if (fs.existsSync(this.snapshotsDir)) {
-      try {
-        const entries = fs.readdirSync(this.snapshotsDir, { withFileTypes: true });
-        for (const entry of entries) {
-          if (entry.isDirectory()) {
-            fs.rmSync(path.join(this.snapshotsDir, entry.name), { recursive: true, force: true });
+    return await this.maintenanceGate.executeExclusive(async () => {
+      if (fs.existsSync(this.snapshotsDir)) {
+        try {
+          const entries = fs.readdirSync(this.snapshotsDir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.isDirectory()) {
+              fs.rmSync(path.join(this.snapshotsDir, entry.name), { recursive: true, force: true });
+            }
           }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
+        this.saveManifest({ activeSnapshotId: null, snapshots: [] });
       }
-      this.saveManifest({ activeSnapshotId: null, snapshots: [] });
-    }
 
-    // Also clear legacy .demo_snapshot if it exists
-    if (fs.existsSync(this.legacySnapshotDir)) {
-      try {
-        fs.rmSync(this.legacySnapshotDir, { recursive: true, force: true });
-      } catch {
-        // ignore
+      // Also clear legacy .demo_snapshot if it exists and is scoped for this service
+      if (this.legacySnapshotDir && fs.existsSync(this.legacySnapshotDir)) {
+        try {
+          fs.rmSync(this.legacySnapshotDir, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
       }
-    }
 
-    this.eventBus.emit('snapshot:clear', { timestamp: new Date().toISOString() });
-    this.eventBus.emit('demo:clear', { timestamp: new Date().toISOString() });
-    this.realtimeService.broadcastSystemEvent('SNAPSHOT_CLEAR', {});
+      this.eventBus.emit('snapshot:clear', { timestamp: new Date().toISOString() });
+      this.eventBus.emit('demo:clear', { timestamp: new Date().toISOString() });
+      this.realtimeService.broadcastSystemEvent('SNAPSHOT_CLEAR', {});
+    });
   }
 
   private removeSnapshotFiles(id: string): void {

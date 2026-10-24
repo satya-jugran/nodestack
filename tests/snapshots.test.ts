@@ -227,6 +227,60 @@ describe('Generic Multi-Snapshot Application State & FIFO Retention Tests', () =
       expect(remainingIds).not.toContain(oldestId);
       expect(remainingIds).toContain(newSnap.id);
     });
+
+    it('should NOT evict the oldest snapshot if snapshot creation fails midway', async () => {
+      const listBefore = app.snapshots.listSnapshots();
+      expect(listBefore.length).toBe(10);
+      const oldestBefore = listBefore[0];
+
+      // Simulate a failure during VACUUM INTO
+      const originalExec = app.db.exec.bind(app.db);
+      app.db.exec = (sql) => {
+        if (typeof sql === 'string' && sql.includes('VACUUM INTO')) {
+          throw new Error('Simulated disk full during VACUUM INTO');
+        }
+        return originalExec(sql);
+      };
+
+      try {
+        await expect(
+          app.snapshots.createSnapshot({
+            name: 'Failing Snapshot',
+            evictOldest: true,
+          })
+        ).rejects.toThrow('Simulated disk full during VACUUM INTO');
+
+        // Verify that the oldest snapshot was NOT evicted and total remains 10
+        const listAfter = app.snapshots.listSnapshots();
+        expect(listAfter.length).toBe(10);
+        expect(listAfter[0].id).toBe(oldestBefore.id);
+        expect(listAfter[0].name).toBe(oldestBefore.name);
+      } finally {
+        app.db.exec = originalExec;
+      }
+    });
+
+    it('should coordinate snapshot creation under maintenanceGate and reject concurrent exclusive actions', async () => {
+      const gate = app.snapshots.getGate();
+      expect(gate).toBeDefined();
+
+      let releaseGate;
+      const heldPromise = new Promise((resolve) => {
+        releaseGate = resolve;
+      });
+
+      const backgroundExclusive = gate.executeExclusive(async () => {
+        await heldPromise;
+      });
+
+      // Attempting to create a snapshot while exclusive operation is active must throw ConflictError
+      await expect(
+        app.snapshots.createSnapshot({ name: 'Concurrent Snapshot' })
+      ).rejects.toThrow('A demo reset or maintenance operation is already in progress');
+
+      releaseGate();
+      await backgroundExclusive;
+    });
   });
 
   describe('3. HTTP REST API Endpoints', () => {
@@ -381,6 +435,30 @@ describe('Generic Multi-Snapshot Application State & FIFO Retention Tests', () =
       const restoreRes = await scope.snapshots.restoreSnapshot(tenantSnap.id);
       expect(restoreRes.success).toBe(true);
       expect(restoreRes.snapshot.name).toBe('Tenant Alpha Baseline');
+    });
+
+    it('should not migrate legacy root .demo_snapshot into non-default tenant applications', async () => {
+      // 1. Create a dummy legacy .demo_snapshot in root dataDir
+      const legacyDir = path.join(testDir, '.demo_snapshot');
+      fs.mkdirSync(legacyDir, { recursive: true });
+      fs.writeFileSync(path.join(legacyDir, 'data.db'), 'dummy-sqlite-data');
+      fs.writeFileSync(
+        path.join(legacyDir, 'metadata.json'),
+        JSON.stringify({ id: 'legacy_root_snap', name: 'Root Legacy Demo' })
+      );
+
+      // 2. Create a new tenant app
+      const tenantScope = await app.apps.create({
+        name: 'Isolated Tenant Beta',
+        slug: 'tenant-beta',
+      });
+
+      // 3. Verify tenant does NOT have the legacy root snapshot in its list
+      expect(tenantScope.snapshots.listSnapshots().length).toBe(0);
+      expect(tenantScope.snapshots.listSnapshots().some((s) => s.id === 'legacy_root_snap')).toBe(false);
+
+      // Clean up legacy dir
+      fs.rmSync(legacyDir, { recursive: true, force: true });
     });
   });
 });

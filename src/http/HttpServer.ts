@@ -135,7 +135,17 @@ export class HttpServer {
       const gate = (req as any).appScope?.maintenanceGate || this.maintenanceGate;
       if (gate) {
         (req as any)._maintenanceGate = gate;
-        const isExempt = req.url.includes('/demo/reset') || req.url.includes('/restore') || req.url.startsWith('/api/realtime');
+        const isExclusiveMutation =
+          (req.method === 'POST' || req.method === 'DELETE' || req.method === 'PATCH') &&
+          (req.url.includes('/demo/reset') ||
+           req.url.includes('/restore') ||
+           req.url.includes('/snapshots') ||
+           req.url.includes('/demo/snapshot'));
+        const isExempt =
+          isExclusiveMutation ||
+          req.url.includes('/demo/reset') ||
+          req.url.includes('/restore') ||
+          req.url.startsWith('/api/realtime');
         try {
           await gate.trackRequestStart(reqId, isExempt);
         } catch (err: any) {
