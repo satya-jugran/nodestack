@@ -16,7 +16,7 @@ function renderAnalyticsView() {
       <!-- Top Title and Controls Bar -->
       <div class="analytics-top-header">
         <div class="analytics-header-title">
-          <h2>Analytics & Metrics</h2>
+          <h2>Analytics</h2>
           <span id="analytics-app-badge" class="badge" style="font-size: 11px; padding: 2px 8px; background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3);">
             ${typeof state !== 'undefined' && state.activeApp ? escapeHtml(state.activeApp.name) : 'Default App'}
           </span>

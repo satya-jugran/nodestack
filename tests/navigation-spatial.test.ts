@@ -338,7 +338,7 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
 
       // Top result should be "Analytics & Metrics"
       const topTitle = results[0].querySelector('.command-palette-item-title')?.textContent;
-      expect(topTitle).toBe('Analytics & Metrics');
+      expect(topTitle).toBe('Analytics');
 
       // Press Enter
       input.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));

@@ -346,7 +346,7 @@ function updateBreadcrumbs() {
   } else if (state.activeNav === 'home') {
     crumbs.push({ label: 'Overview', active: true });
   } else if (state.activeNav === 'analytics') {
-    crumbs.push({ label: 'Analytics & Metrics', active: true });
+    crumbs.push({ label: 'Analytics', active: true });
   } else if (state.activeNav === 'snapshots') {
     crumbs.push({ label: 'Snapshots', active: true });
   } else if (state.activeNav === 'logs') {

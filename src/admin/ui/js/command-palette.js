@@ -30,7 +30,7 @@ function getAllCommandPaletteItems() {
   // 2. Navigation items
   items.push({
     id: 'nav-home',
-    title: 'Dashboard Overview',
+    title: 'Overview',
     description: 'Server status, collections list, quick stats',
     category: 'Navigation',
     badge: 'PAGE',
@@ -74,7 +74,7 @@ function getAllCommandPaletteItems() {
 
   items.push({
     id: 'nav-analytics',
-    title: 'Analytics & Metrics',
+    title: 'Analytics',
     description: 'Realtime telemetry, latency and request throughput',
     category: 'Navigation',
     badge: 'PAGE',

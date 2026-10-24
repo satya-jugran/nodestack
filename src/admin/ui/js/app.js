@@ -48,7 +48,7 @@ async function selectNav(nav) {
     document.getElementById('collection-tabs').style.display = 'none';
     document.getElementById('view-badge').style.display = 'none';
     document.getElementById('nav-home')?.classList.add('active');
-    document.getElementById('view-title').textContent = 'Dashboard Overview';
+    document.getElementById('view-title').textContent = 'Overview';
     document.getElementById('view-actions').innerHTML = '';
     if (typeof renderHomeView === 'function') renderHomeView();
   } else if (nav === 'collections') {
@@ -102,7 +102,7 @@ async function selectNav(nav) {
     document.getElementById('collection-tabs').style.display = 'none';
     document.getElementById('view-badge').style.display = 'none';
     document.getElementById('nav-analytics')?.classList.add('active');
-    document.getElementById('view-title').textContent = 'Analytics & Metrics';
+    document.getElementById('view-title').textContent = 'Analytics';
     document.getElementById('view-actions').innerHTML = '';
     if (typeof renderAnalyticsView === 'function') renderAnalyticsView();
     if (typeof loadAnalytics === 'function') loadAnalytics();
