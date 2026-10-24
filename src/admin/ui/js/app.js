@@ -116,10 +116,10 @@ async function selectNav(nav) {
     document.getElementById('collection-tabs').style.display = 'none';
     document.getElementById('view-badge').style.display = 'none';
     document.getElementById('nav-snapshots')?.classList.add('active');
-    document.getElementById('view-title').textContent = 'Demo Snapshots';
+    document.getElementById('view-title').textContent = 'Snapshots';
     document.getElementById('view-actions').innerHTML = `
-      <button class="btn btn-warning btn-sm" onclick="openResetDemoModal()" style="font-weight:700;">
-        ↺ Reset Demo Data
+      <button class="btn btn-primary btn-sm" onclick="openCreateSnapshotModal()" style="font-weight:600;">
+        + Create Snapshot
       </button>
     `;
     if (typeof renderSnapshotsView === 'function') renderSnapshotsView();

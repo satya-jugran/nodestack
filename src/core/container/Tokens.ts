@@ -25,6 +25,8 @@ export const TOKENS = {
   TemplateController: Symbol('TemplateController'),
   DemoService: Symbol('DemoService'),
   DemoController: Symbol('DemoController'),
+  SnapshotService: Symbol('SnapshotService'),
+  SnapshotController: Symbol('SnapshotController'),
   MaintenanceGate: Symbol('MaintenanceGate'),
   PluginRegistry: Symbol('PluginRegistry'),
   AuthMiddleware: Symbol('AuthMiddleware'),

@@ -152,8 +152,8 @@ export class SystemMigrations {
           0,
           userSchema,
           '[]',
-          'id = @request.auth.id',
-          'id = @request.auth.id',
+          '',
+          '',
           '', // open signup by default
           'id = @request.auth.id',
           'id = @request.auth.id',

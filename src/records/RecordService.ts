@@ -85,22 +85,33 @@ export class RecordService {
   ): Promise<ListResult> {
     const col = this.schemaService.getCollectionOrThrow(collectionName);
 
-    // Rule check: listRule
-    if (!this.ruleEngine.evaluate(col.listRule, { auth, query: options })) {
-      throw new ForbiddenError(`You are not allowed to list records in '${collectionName}'`);
-    }
-
     const page = Math.max(1, Number(options.page) || 1);
     const perPage = Math.min(500, Math.max(1, Number(options.perPage) || 30));
     const offset = (page - 1) * perPage;
 
     const allowedFields = new Set(col.schema.map((f) => f.name));
+    allowedFields.add('id');
+    allowedFields.add('created');
+    allowedFields.add('updated');
     if (col.type === 'auth') {
       if (auth?.isAdmin) {
         allowedFields.add('email');
       }
       allowedFields.add('emailVisibility');
       allowedFields.add('verified');
+    }
+
+    // Rule check: listRule & row-level scope extraction
+    const listRuleResult = this.ruleEngine.buildListFilter(col.listRule, { auth, query: options }, allowedFields);
+    if (!listRuleResult.allowed) {
+      throw new ForbiddenError(`You are not allowed to list records in '${collectionName}'`);
+    }
+
+    let effectiveFilter = options.filter;
+    if (listRuleResult.filter) {
+      effectiveFilter = effectiveFilter && effectiveFilter.trim()
+        ? `(${listRuleResult.filter}) && (${effectiveFilter})`
+        : listRuleResult.filter;
     }
 
     const searchTerm = typeof options.search === 'string' ? options.search.trim() : '';
@@ -123,9 +134,9 @@ export class RecordService {
       const whereConditions: string[] = [`"${ftsTable}" MATCH ?`];
       const queryParams: any[] = [sanitizedQuery];
 
-      if (options.filter && options.filter.trim()) {
+      if (effectiveFilter && effectiveFilter.trim()) {
         const { clause: filterClause, params: filterParams } = QueryFilterParser.parseFilter(
-          options.filter,
+          effectiveFilter,
           allowedFields,
           't'
         );
@@ -197,7 +208,6 @@ export class RecordService {
     }
 
     // Fallback if search was passed but no FTS table is available
-    let effectiveFilter = options.filter;
     if (searchTerm && !hasFts) {
       const textFields = col.schema.filter((f) => f.type === 'text' || f.type === 'email' || f.type === 'url');
       if (textFields.length === 0) {
@@ -508,18 +518,29 @@ export class RecordService {
   ): Promise<ExportResult> {
     const col = this.schemaService.getCollectionOrThrow(collectionName);
 
-    // Rule check: listRule
-    if (!this.ruleEngine.evaluate(col.listRule, { auth, query: options })) {
-      throw new ForbiddenError(`You are not allowed to export records from '${collectionName}'`);
-    }
-
     const allowedFields = new Set(col.schema.map((f) => f.name));
+    allowedFields.add('id');
+    allowedFields.add('created');
+    allowedFields.add('updated');
     if (col.type === 'auth') {
       if (auth?.isAdmin) {
         allowedFields.add('email');
       }
       allowedFields.add('emailVisibility');
       allowedFields.add('verified');
+    }
+
+    // Rule check: listRule & row-level scope extraction
+    const listRuleResult = this.ruleEngine.buildListFilter(col.listRule, { auth, query: options }, allowedFields);
+    if (!listRuleResult.allowed) {
+      throw new ForbiddenError(`You are not allowed to export records from '${collectionName}'`);
+    }
+
+    let effectiveFilter = options.filter;
+    if (listRuleResult.filter) {
+      effectiveFilter = effectiveFilter && effectiveFilter.trim()
+        ? `(${listRuleResult.filter}) && (${effectiveFilter})`
+        : listRuleResult.filter;
     }
     const searchTerm = typeof options.search === 'string' ? options.search.trim() : '';
     const ftsFields = this.ftsService.getFtsFields(col);
@@ -535,9 +556,9 @@ export class RecordService {
         const whereConditions: string[] = [`"${ftsTable}" MATCH ?`];
         const queryParams: any[] = [sanitizedQuery];
 
-        if (options.filter && options.filter.trim()) {
+        if (effectiveFilter && effectiveFilter.trim()) {
           const { clause: filterClause, params: filterParams } = QueryFilterParser.parseFilter(
-            options.filter,
+            effectiveFilter,
             allowedFields,
             't'
           );
@@ -572,7 +593,6 @@ export class RecordService {
         rawItems = this.db.all<any>(querySql, queryParams);
       }
     } else {
-      let effectiveFilter = options.filter;
       if (searchTerm && !hasFts) {
         const textFields = col.schema.filter((f) => f.type === 'text' || f.type === 'email' || f.type === 'url');
         if (textFields.length === 0) {

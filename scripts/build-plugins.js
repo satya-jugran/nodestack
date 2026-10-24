@@ -9,7 +9,7 @@ const PLUGINS = [
     name: 'stripe',
     pkgDir: 'packages/plugins/stripe',
     sourceFile: 'src/plugins/stripe.ts',
-    typesContent: `import type { INodeStackPlugin } from 'nodestack';
+    typesContent: `import type { INodeStackPlugin } from '@nodestackapp/server';
 
 export interface StripePluginOptions {
   secretKey?: string;
@@ -68,7 +68,7 @@ export declare function stripePlugin(options?: StripePluginOptions): INodeStackP
     name: 's3',
     pkgDir: 'packages/plugins/s3',
     sourceFile: 'src/plugins/s3.ts',
-    typesContent: `import type { INodeStackPlugin } from 'nodestack';
+    typesContent: `import type { INodeStackPlugin } from '@nodestackapp/server';
 
 export interface S3StoragePluginOptions {
   bucket?: string;
@@ -112,7 +112,7 @@ export declare const awsS3Plugin: typeof s3StoragePlugin;
     name: 'resend',
     pkgDir: 'packages/plugins/resend',
     sourceFile: 'src/plugins/resend.ts',
-    typesContent: `import type { INodeStackPlugin } from 'nodestack';
+    typesContent: `import type { INodeStackPlugin } from '@nodestackapp/server';
 
 export interface ResendPluginOptions {
   apiKey?: string;
@@ -158,7 +158,7 @@ export declare function resendPlugin(options?: ResendPluginOptions): INodeStackP
     name: 'webhooks',
     pkgDir: 'packages/plugins/webhooks',
     sourceFile: 'src/plugins/webhooks.ts',
-    typesContent: `import type { INodeStackPlugin } from 'nodestack';
+    typesContent: `import type { INodeStackPlugin } from '@nodestackapp/server';
 
 export interface WebhookPluginOptions {
   discordWebhookUrl?: string;
@@ -197,7 +197,7 @@ export declare function webhookPlugin(options?: WebhookPluginOptions): INodeStac
     name: 'algolia',
     pkgDir: 'packages/plugins/algolia',
     sourceFile: 'src/plugins/algolia.ts',
-    typesContent: `import type { INodeStackPlugin } from 'nodestack';
+    typesContent: `import type { INodeStackPlugin } from '@nodestackapp/server';
 
 export interface AlgoliaPluginOptions {
   appId?: string;

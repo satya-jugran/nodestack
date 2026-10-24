@@ -21,6 +21,7 @@ Building modern web and mobile apps often requires juggling separate database en
 NodeStack packages this entire backend architecture into a **single Node.js process**:
 
 - **Embedded SQLite with Zero Native Compilation**: Powered directly by Node.js (`node:sqlite`). No Python, C++ compilers, or external database daemon installations required.
+- **Multi-Application Platform (v2.0)**: Host multiple completely isolated application tenants within a single process—with separate SQLite databases, file storage directories, auth collections, and realtime SSE buses.
 - **Instant REST CRUD & Server-Sent Events (SSE)**: Immediately exposes JSON endpoints and realtime change event streams for every collection.
 - **Embedded Web Admin Dashboard**: A responsive dashboard served directly from `http://localhost:8090/_/` without needing an external web server.
 - **Native SQLite FTS5 Full-Text Search (v1.3)**: High-performance BM25 relevance ranking, keyword prefix matching, and contextual snippet highlighting.

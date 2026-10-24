@@ -11,13 +11,19 @@ import type {
   WebhookClearDeliveriesResult,
 } from '../types';
 
+declare const require: any;
+declare const Buffer: any;
+
 /**
  * Computes an HMAC-SHA256 signature for a payload and secret string.
  */
 export function computeWebhookSignature(payload: string | object, secret: string): string {
   const str = typeof payload === 'string' ? payload : JSON.stringify(payload);
   try {
-    const nodeCrypto = typeof require !== 'undefined' ? require('crypto') : (globalThis as any)?.crypto;
+    const nodeCrypto =
+      typeof require !== 'undefined'
+        ? require('crypto')
+        : (typeof globalThis !== 'undefined' ? (globalThis as any).require?.('crypto') || (globalThis as any).crypto : null);
     if (nodeCrypto && typeof nodeCrypto.createHmac === 'function') {
       return nodeCrypto.createHmac('sha256', secret).update(str, 'utf8').digest('hex');
     }
@@ -53,9 +59,13 @@ export function verifyWebhookSignature(
   if (cleanHeader.length !== expected.length) return false;
 
   try {
-    const nodeCrypto = typeof require !== 'undefined' ? require('crypto') : null;
-    if (nodeCrypto && typeof nodeCrypto.timingSafeEqual === 'function' && typeof Buffer !== 'undefined') {
-      return nodeCrypto.timingSafeEqual(Buffer.from(cleanHeader, 'hex'), Buffer.from(expected, 'hex'));
+    const nodeCrypto =
+      typeof require !== 'undefined'
+        ? require('crypto')
+        : (typeof globalThis !== 'undefined' ? (globalThis as any).require?.('crypto') : null);
+    const buf = typeof Buffer !== 'undefined' ? Buffer : (typeof globalThis !== 'undefined' ? (globalThis as any).Buffer : null);
+    if (nodeCrypto && typeof nodeCrypto.timingSafeEqual === 'function' && buf) {
+      return nodeCrypto.timingSafeEqual(buf.from(cleanHeader, 'hex'), buf.from(expected, 'hex'));
     }
   } catch {}
 

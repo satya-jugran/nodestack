@@ -297,6 +297,35 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       const blogArticlesAfter = await blogClient.collection('articles').getFullList();
       expect(blogArticlesAfter.length).toBe(1);
     });
+
+    it('should track and clear request completion on tenant maintenance gate across scoped requests', async () => {
+      const shopScope = server.apps.get('ecommerce');
+      expect(shopScope).toBeDefined();
+      const shopGate = (shopScope as any).maintenanceGate;
+
+      // Before request: active requests must be 0
+      expect((shopGate as any).activeRequests.size).toBe(0);
+
+      // Issue regular request to ecommerce app
+      const res = await server.server.app.inject({
+        method: 'GET',
+        url: '/api/apps/ecommerce/collections/products/records',
+      });
+      expect(res.statusCode).toBe(200);
+
+      // After request completion: tenant maintenance gate must have 0 active requests
+      expect((shopGate as any).activeRequests.size).toBe(0);
+
+      // Issue an error request (e.g. 404 non-existent collection)
+      const errRes = await server.server.app.inject({
+        method: 'GET',
+        url: '/api/apps/ecommerce/collections/non_existent_collection_xyz/records',
+      });
+      expect(errRes.statusCode).toBe(404);
+
+      // After error response: tenant gate must still be cleared to 0
+      expect((shopGate as any).activeRequests.size).toBe(0);
+    });
   });
 
   describe('4. Application-Scoped Webhooks & Event Isolation', () => {

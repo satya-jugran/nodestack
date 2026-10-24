@@ -1,7 +1,10 @@
 // Multi-Application / MVP Management & App Switcher
 
 async function fetchApps() {
-  if (!state.token) return;
+  if (!state.token) {
+    updateAppSwitcherUI();
+    return;
+  }
   try {
     const res = await api('/api/apps');
     state.apps = (res && res.items) ? res.items : [];
@@ -23,14 +26,15 @@ async function fetchApps() {
 
     updateAppSwitcherUI();
   } catch (err) {
+    console.warn('[NodeStack] fetchApps error:', err);
     // If apps endpoint fails or active app was not found, fallback to default
     if (!state.activeApp || (err && (err.status === 404 || err.message?.includes('Application ')))) {
       state.activeApp = { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true };
       try {
         localStorage.setItem('nodestack_active_app', JSON.stringify(state.activeApp));
       } catch {}
-      updateAppSwitcherUI();
     }
+    updateAppSwitcherUI();
   }
 }
 
@@ -106,6 +110,12 @@ function toggleAppSwitcher(e) {
   menu.style.display = isVisible ? 'none' : 'block';
 
   if (!isVisible) {
+    if (typeof updateAppSwitcherUI === 'function') {
+      updateAppSwitcherUI();
+    }
+    if (typeof fetchApps === 'function') {
+      fetchApps().catch(() => {});
+    }
     const closeListener = (evt) => {
       if (!menu.contains(evt.target)) {
         menu.style.display = 'none';
@@ -434,3 +444,4 @@ async function submitDeleteApp(slug, name) {
 window.promptDeleteApp = promptDeleteApp;
 window.closeDeleteAppModal = closeDeleteAppModal;
 window.submitDeleteApp = submitDeleteApp;
+

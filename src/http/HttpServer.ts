@@ -16,6 +16,7 @@ import { HealthController } from './controllers/HealthController';
 import { AnalyticsController } from './controllers/AnalyticsController';
 import { TemplateController } from './controllers/TemplateController';
 import { DemoController } from './controllers/DemoController';
+import { SnapshotController } from './controllers/SnapshotController';
 import { AuditLogController } from './controllers/AuditLogController';
 import { WebhookController } from './controllers/WebhookController';
 import { AppController } from './controllers/AppController';
@@ -59,6 +60,7 @@ export class HttpServer {
     chaosMiddleware?: ChaosMiddleware,
     private templateController?: TemplateController,
     private demoController?: DemoController,
+    private snapshotController?: SnapshotController,
     maintenanceGate?: MaintenanceGate,
     private auditLogController?: AuditLogController,
     private webhookController?: WebhookController,
@@ -132,7 +134,18 @@ export class HttpServer {
       // Coordinate reset with request/database locking maintenance gate
       const gate = (req as any).appScope?.maintenanceGate || this.maintenanceGate;
       if (gate) {
-        const isExempt = req.url.includes('/demo/reset') || req.url.startsWith('/api/realtime');
+        (req as any)._maintenanceGate = gate;
+        const isExclusiveMutation =
+          (req.method === 'POST' || req.method === 'DELETE' || req.method === 'PATCH') &&
+          (req.url.includes('/demo/reset') ||
+           req.url.includes('/restore') ||
+           req.url.includes('/snapshots') ||
+           req.url.includes('/demo/snapshot'));
+        const isExempt =
+          isExclusiveMutation ||
+          req.url.includes('/demo/reset') ||
+          req.url.includes('/restore') ||
+          req.url.startsWith('/api/realtime');
         try {
           await gate.trackRequestStart(reqId, isExempt);
         } catch (err: any) {
@@ -146,8 +159,8 @@ export class HttpServer {
 
       if (req.raw && !req.raw.destroyed) {
         req.raw.once('close', () => {
-          const gate = (req as any).appScope?.maintenanceGate || this.maintenanceGate;
-      if (gate) {
+          const gate = (req as any)._maintenanceGate || (req as any).appScope?.maintenanceGate || this.maintenanceGate;
+          if (gate) {
             gate.trackRequestEnd(reqId);
           }
         });
@@ -161,7 +174,8 @@ export class HttpServer {
       if (this.chaosMiddleware) {
         const shortCircuited = await this.chaosMiddleware.handle(req, reply);
         if (shortCircuited || reply.sent) {
-          if (this.maintenanceGate && req.raw?.destroyed) {
+          const gate = (req as any)._maintenanceGate || (req as any).appScope?.maintenanceGate || this.maintenanceGate;
+          if (gate && req.raw?.destroyed) {
             gate.trackRequestEnd(reqId);
           }
           return;
@@ -210,8 +224,9 @@ export class HttpServer {
 
     this.app.addHook('onResponse', async (req: FastifyRequest, reply: FastifyReply) => {
       const reqId = (req as any)._reqId;
-      if (reqId && this.maintenanceGate) {
-        this.maintenanceGate.trackRequestEnd(reqId);
+      const gate = (req as any)._maintenanceGate || (req as any).appScope?.maintenanceGate || this.maintenanceGate;
+      if (reqId && gate) {
+        gate.trackRequestEnd(reqId);
       }
 
       const startTime = (req as any)._startTime;
@@ -241,8 +256,9 @@ export class HttpServer {
 
     this.app.addHook('onError', async (req: FastifyRequest) => {
       const reqId = (req as any)._reqId;
-      if (reqId && this.maintenanceGate) {
-        this.maintenanceGate.trackRequestEnd(reqId);
+      const gate = (req as any)._maintenanceGate || (req as any).appScope?.maintenanceGate || this.maintenanceGate;
+      if (reqId && gate) {
+        gate.trackRequestEnd(reqId);
       }
     });
   }
@@ -374,8 +390,32 @@ export class HttpServer {
     app.post('/api/apps/:appId/collections/:collection/generate-mock', { preHandler: requireAdmin }, (req: any, reply) =>
       this.recordController.generateMock(req, reply)
     );
+
+    if (this.snapshotController) {
+      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
+      const requireAdmin = this.authMiddleware.requireAdmin();
+      app.get('/api/apps/:appId/snapshots', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.snapshotController!.listSnapshots(req, reply)
+      );
+      app.post('/api/apps/:appId/snapshots', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.snapshotController!.createSnapshot(req, reply)
+      );
+      app.get('/api/apps/:appId/snapshots/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.snapshotController!.getSnapshot(req, reply)
+      );
+      app.post('/api/apps/:appId/snapshots/:id/restore', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.snapshotController!.restoreSnapshot(req, reply)
+      );
+      app.delete('/api/apps/:appId/snapshots/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.snapshotController!.deleteSnapshot(req, reply)
+      );
+      app.delete('/api/apps/:appId/snapshots', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.snapshotController!.clearAllSnapshots(req, reply)
+      );
+    }
     if (this.demoController) {
       const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
+      const requireAdmin = this.authMiddleware.requireAdmin();
       app.get('/api/apps/:appId/demo/status', (req, reply) => this.demoController!.getStatus(req, reply));
       app.post('/api/apps/:appId/demo/snapshot', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.demoController!.createSnapshot(req, reply)
@@ -489,6 +529,29 @@ export class HttpServer {
     }
 
     // 3.8 Demo State Management ("Reset to Demo State")
+
+    if (this.snapshotController) {
+      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
+      const requireAdmin = this.authMiddleware.requireAdmin();
+      app.get('/api/snapshots', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.snapshotController!.listSnapshots(req, reply)
+      );
+      app.post('/api/snapshots', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.snapshotController!.createSnapshot(req, reply)
+      );
+      app.get('/api/snapshots/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.snapshotController!.getSnapshot(req, reply)
+      );
+      app.post('/api/snapshots/:id/restore', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.snapshotController!.restoreSnapshot(req, reply)
+      );
+      app.delete('/api/snapshots/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.snapshotController!.deleteSnapshot(req, reply)
+      );
+      app.delete('/api/snapshots', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.snapshotController!.clearAllSnapshots(req, reply)
+      );
+    }
     if (this.demoController) {
       const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
       const requireAdmin = this.authMiddleware.requireAdmin();

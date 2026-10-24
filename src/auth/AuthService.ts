@@ -55,9 +55,20 @@ export class AuthService {
 
     // Verify tokenKey against stored tokenKey to ensure revoked / rotated sessions are rejected
     if (decoded.isAdmin || decoded.collection === '_admins') {
-      const admin = this.registry
+      let admin = this.registry
         ? this.registry.getAdminById(decoded.id)
-        : this.db.get<any>('SELECT tokenKey FROM _admins WHERE id = ?', [decoded.id]);
+        : undefined;
+      if (!admin) {
+        admin = this.db.get<any>('SELECT * FROM _admins WHERE id = ?', [decoded.id]);
+        if (admin && this.registry) {
+          try {
+            this.registry.getDriver().prepare(`
+              INSERT OR REPLACE INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).run(admin.id, admin.email, admin.passwordHash, admin.tokenKey, admin.avatar || null, admin.created, admin.updated);
+          } catch {}
+        }
+      }
       if (!admin || !admin.tokenKey || admin.tokenKey !== decoded.tokenKey) {
         throw new UnauthorizedError('Authentication token has been revoked or expired');
       }
@@ -82,9 +93,8 @@ export class AuthService {
   // --- Admin Auth ---
 
   public hasAdmins(): boolean {
-    if (this.registry) {
-      return this.registry.hasAdmins();
-    }
+    const registryHas = this.registry ? this.registry.hasAdmins() : false;
+    if (registryHas) return true;
     const row = this.db.get<any>('SELECT COUNT(*) as count FROM _admins');
     return (row?.count || 0) > 0;
   }
@@ -141,9 +151,20 @@ export class AuthService {
 
   public async authenticateAdmin(email: string, password: string): Promise<AuthResult> {
     const cleanEmail = email.trim().toLowerCase();
-    const admin = this.registry
+    let admin = this.registry
       ? this.registry.getAdminByEmail(cleanEmail)
-      : this.db.get<any>('SELECT * FROM _admins WHERE email = ?', [cleanEmail]);
+      : undefined;
+    if (!admin) {
+      admin = this.db.get<any>('SELECT * FROM _admins WHERE email = ?', [cleanEmail]);
+      if (admin && this.registry) {
+        try {
+          this.registry.getDriver().prepare(`
+            INSERT OR REPLACE INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).run(admin.id, admin.email, admin.passwordHash, admin.tokenKey, admin.avatar || null, admin.created, admin.updated);
+        } catch {}
+      }
+    }
     if (!admin) {
       throw new UnauthorizedError('Invalid admin credentials');
     }
@@ -171,9 +192,12 @@ export class AuthService {
   }
 
   public getAdminById(id: string): Record<string, any> | undefined {
-    const admin = this.registry
+    let admin = this.registry
       ? this.registry.getAdminById(id)
-      : this.db.get<any>('SELECT * FROM _admins WHERE id = ?', [id]);
+      : undefined;
+    if (!admin) {
+      admin = this.db.get<any>('SELECT * FROM _admins WHERE id = ?', [id]);
+    }
     if (!admin) return undefined;
     const { passwordHash, tokenKey, ...adminSafe } = admin;
     return adminSafe;

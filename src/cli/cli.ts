@@ -9,7 +9,7 @@ export async function runCli(argv = process.argv): Promise<Command> {
   program
     .name('nodestack')
     .description('NodeStack — The TypeScript-Native Embedded Backend Stack')
-    .version('1.3.0');
+    .version('2.0.0');
 
   // Command: start / serve
   program
@@ -483,6 +483,66 @@ export async function runCli(argv = process.argv): Promise<Command> {
       }
     });
 
+
+  // Command: snapshots (list, create, restore, delete, clear)
+  program
+    .command('snapshots [action] [target]')
+    .description('Manage application snapshots, multiple checkpoints, and restore')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('-n, --name <name>', 'Custom label/name for the snapshot')
+    .option('--evict-oldest', 'Automatically evict oldest snapshot if 10-limit is reached')
+    .action(async (actionArg, targetArg, options) => {
+      const action = actionArg || 'list';
+      const app = new NodeStack({ dataDir: options.dir });
+      try {
+        if (action === 'create' || action === 'take' || action === 'new') {
+          const snap = await app.snapshots.createSnapshot({
+            name: options.name,
+            evictOldest: Boolean(options.evictOldest),
+          });
+          console.log(chalk.green(`\n✓ Snapshot '${snap.name}' (${snap.id}) successfully created!\n`));
+          console.log(chalk.cyan(`  • Records: ${snap.totalRecords}`));
+          console.log(chalk.cyan(`  • Collections: ${snap.totalCollections}`));
+          console.log(chalk.cyan(`  • Uploaded Files: ${snap.totalFiles} (${snap.storageSizeBytes} bytes)\n`));
+        } else if (action === 'restore' || action === 'reset') {
+          const res = await app.snapshots.restoreSnapshot(targetArg);
+          console.log(chalk.green(`\n✓ Successfully restored snapshot '${res.snapshot.name}' in ${res.durationMs}ms!\n`));
+          console.log(chalk.cyan(`  • Restored: ${res.snapshot.totalCollections} collections, ${res.snapshot.totalRecords} records\n`));
+        } else if (action === 'delete' || action === 'rm') {
+          if (!targetArg) {
+            console.error(chalk.red('\n✗ Please provide the snapshot ID to delete: npx nodestack snapshots delete <id>\n'));
+            process.exit(1);
+          }
+          await app.snapshots.deleteSnapshot(targetArg);
+          console.log(chalk.yellow(`\n✓ Snapshot '${targetArg}' deleted.\n`));
+        } else if (action === 'clear') {
+          await app.snapshots.clearAllSnapshots();
+          console.log(chalk.yellow(`\n✓ All snapshots cleared.\n`));
+        } else {
+          const status = app.snapshots.getStatus();
+          if (status.snapshots.length === 0) {
+            console.log(chalk.yellow(`\nℹ No snapshots found.`));
+            console.log(chalk.dim(`  Create snapshot with: npx nodestack snapshots create\n`));
+          } else {
+            console.log(chalk.bold.cyan(`\n  📸 Saved Checkpoints (${status.snapshots.length}/${status.maxLimit}):\n`));
+            status.snapshots.forEach((s, idx) => {
+              const isActive = status.activeSnapshot && s.id === status.activeSnapshot.id;
+              const dateStr = new Date(s.createdAt).toLocaleString();
+              console.log(
+                `  ${idx + 1}. ${chalk.bold.white(s.name)} ${isActive ? chalk.green('[Active]') : ''}`
+              );
+              console.log(`     ID: ${chalk.gray(s.id)} | Date: ${chalk.gray(dateStr)}`);
+              console.log(`     Data: ${chalk.yellow(s.totalRecords)} records, ${chalk.yellow(s.totalCollections)} tables, ${chalk.yellow(s.totalFiles)} files\n`);
+            });
+          }
+        }
+      } catch (err: any) {
+        console.error(chalk.red(`\n✗ Snapshots error: ${err.message}\n`));
+        process.exit(1);
+      } finally {
+        app.db.close();
+      }
+    });
 
   return await program.parseAsync(argv);
 }

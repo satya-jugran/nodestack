@@ -48,7 +48,7 @@ describe('Starter Templates / Recipes Tests', () => {
       expect(ids).toContain('crm');
 
       const ecommerce = templates.find((t) => t.id === 'ecommerce')!;
-      expect(ecommerce.collections).toEqual(['categories', 'products', 'orders', 'reviews']);
+      expect(ecommerce.collections).toEqual(['categories', 'products', 'orders', 'reviews', 'favorites']);
       expect(ecommerce.icon).toBe('🛒');
       expect(ecommerce.badge).toContain('20 Items');
       expect(ecommerce.stats.records).toBe(48);
@@ -93,7 +93,7 @@ describe('Starter Templates / Recipes Tests', () => {
       expect(res.success).toBe(true);
       expect(res.skipped).toBe(false);
       expect(res.template).toBe('ecommerce');
-      expect(res.collections).toEqual(['categories', 'products', 'orders', 'reviews']);
+      expect(res.collections).toEqual(['categories', 'products', 'orders', 'reviews', 'favorites']);
 
       // 1. Verify collections exist in SchemaService
       const catCol = app.schema.getCollectionOrThrow('categories');
@@ -105,6 +105,8 @@ describe('Starter Templates / Recipes Tests', () => {
       expect(prodCol.name).toBe('products');
       expect(ordCol.name).toBe('orders');
       expect(revCol.name).toBe('reviews');
+      const favCol = app.schema.getCollectionOrThrow('favorites');
+      expect(favCol.name).toBe('favorites');
 
       // 2. Verify categories
       const categories = app.db.all<any>('SELECT * FROM "categories" ORDER BY name ASC');
@@ -282,6 +284,7 @@ describe('Starter Templates / Recipes Tests', () => {
         'products',
         'orders',
         'reviews',
+        'favorites',
       ]);
     });
 
@@ -328,15 +331,11 @@ describe('Starter Templates / Recipes Tests', () => {
     const cliTestDir = path.resolve(__dirname, '../.test_cli_templates');
 
     beforeAll(() => {
-      if (fs.existsSync(cliTestDir)) {
-        fs.rmSync(cliTestDir, { recursive: true, force: true });
-      }
+      if (fs.existsSync(cliTestDir)) { try { fs.rmSync(cliTestDir, { recursive: true, force: true }); } catch {} }
     });
 
     afterAll(() => {
-      if (fs.existsSync(cliTestDir)) {
-        fs.rmSync(cliTestDir, { recursive: true, force: true });
-      }
+      if (fs.existsSync(cliTestDir)) { try { fs.rmSync(cliTestDir, { recursive: true, force: true }); } catch {} }
     });
 
     it('should execute "nodestack template --list" without error', async () => {
@@ -365,7 +364,7 @@ describe('Starter Templates / Recipes Tests', () => {
         await runCli(['node', 'nodestack', 'template', 'ecommerce', '-d', cliTestDir]);
         const output = logs.join('\n');
         expect(output).toContain("Template 'E-Commerce' applied successfully");
-        expect(output).toContain('categories, products, orders, reviews');
+        expect(output).toContain('categories, products, orders, reviews, favorites');
 
         // Verify SQLite database created on disk
         const appCheck = new NodeStack({ dataDir: cliTestDir });
@@ -379,9 +378,7 @@ describe('Starter Templates / Recipes Tests', () => {
 
     it('should support "npx nodestack start --template ecommerce" flag', async () => {
       const cliStartDir = path.resolve(__dirname, '../.test_cli_start_template');
-      if (fs.existsSync(cliStartDir)) {
-        fs.rmSync(cliStartDir, { recursive: true, force: true });
-      }
+      if (fs.existsSync(cliStartDir)) { try { fs.rmSync(cliStartDir, { recursive: true, force: true }); } catch {} }
 
       const logs: string[] = [];
       const origLog = console.log;
@@ -398,9 +395,7 @@ describe('Starter Templates / Recipes Tests', () => {
         appInstance.db.close();
       } finally {
         console.log = origLog;
-        if (fs.existsSync(cliStartDir)) {
-          fs.rmSync(cliStartDir, { recursive: true, force: true });
-        }
+        if (fs.existsSync(cliStartDir)) { try { fs.rmSync(cliStartDir, { recursive: true, force: true }); } catch {} }
       }
     });
 

@@ -109,6 +109,10 @@ export class ConfigService {
     }
   }
 
+  public get snapshotsDir(): string {
+    return path.join(this.dataDir, '.snapshots');
+  }
+
   public getAppDir(slug: string): string {
     return path.join(this.appsDir, slug);
   }
@@ -122,6 +126,6 @@ export class ConfigService {
   }
 
   public getAppSnapshotDir(slug: string): string {
-    return path.join(this.appsDir, slug, '.demo_snapshot');
+    return path.join(this.appsDir, slug, '.snapshots');
   }
 }

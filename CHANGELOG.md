@@ -7,6 +7,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.0] - 2026-10-23
+
+Release v2.0.0 is a milestone major release introducing complete **Multi-Application Support** across the entire NodeStack ecosystem, upgrading to **TypeScript 7.0** and **Node.js 24+**, introducing generic **Application Snapshots & Checkpoints**, and delivering a 1-click application lifecycle in the Web Admin Dashboard.
+
+### ⚠️ Breaking Changes
+* **Package Scope & Version**: The server package is published under `@nodestackapp/server` at major version `2.0.0` (alongside `nodestack-client@2.0.0` and official plugins `@nodestackapp/plugin-*@2.0.0`).
+* **Runtime Requirement: Node.js 24+**: NodeStack now requires Node.js v24.0.0 or higher to leverage native modern V8 features and `node:sqlite` enhancements (`"engines": { "node": ">=24.0.0" }`).
+* **Toolchain: TypeScript 7.0**: Upgraded core, client SDK, and official plugins to TypeScript `^7.0.2` targeting `ES2024`.
+
+### Added
+
+#### 1. Multi-Application Platform Architecture
+* **Tenant Isolation Across All Subsystems**:
+  * Physical database file isolation: Every hosted application receives its own embedded SQLite database at `data/<app-id>/data.db`.
+  * Physical file storage isolation: Uploaded media and assets are isolated in `data/<app-id>/storage/`.
+  * Scoped Authentication: Dedicated user pools, password hashes, and JWT signatures per application.
+  * Realtime SSE Isolation: Event streams (`/api/realtime?app=:slug`) deliver collection mutations exclusively to connected clients of that application.
+  * Independent Audit Logs & Webhooks: Mutation diff histories and outbound webhook dispatchers are scoped per tenant.
+* **App Routing & Dynamic Dispatch**:
+  * Subpath routing via `/api/apps/:appId/...` for collections, auth, files, search, and realtime.
+  * Request header routing via `x-nodestack-app: <appId-or-slug>` for transparent multi-tenancy without modifying API paths.
+  * Query parameter routing via `?app=<appId-or-slug>` for browser EventSource SSE streams.
+  * Backward compatibility: Existing single-app instances automatically migrate to the `default` app with zero breaking changes or migration scripts.
+* **Application Management REST API (`/api/apps`)**:
+  * Full administrative CRUD for listing, provisioning, updating, and deleting application instances.
+  * Template-based application initialization supporting `saas`, `blog`, `ecommerce`, or `blank`.
+  * Safety guards: The `default` application is protected and cannot be deleted.
+
+#### 2. Web Admin Dashboard Multi-App Experience
+* **App Switcher & Navigation**:
+  * Reactive application switcher dropdown in the top navigation bar.
+  * Real-time UI synchronization: Switching apps reloads collections, schema designer, records grid, audit timeline, and webhooks instantly.
+* **1-Click Application Deletion**:
+  * Integrated delete button in the App Switcher with safety confirmation modal.
+  * Unloads tenant, flushes SQLite WAL files, cleans up directory storage, and smoothly switches the active dashboard back to `default`.
+* **Command Palette Integration (`Ctrl + K` / `Cmd + K`)**:
+  * Fast actions to switch applications, create new apps, or delete non-default apps directly via keyboard shortcuts.
+* **Drawer & Modal Stacking Enhancements**:
+  * Corrected z-index hierarchy (`z-index: 1300` for modals and `1400` for command palette) preventing record drawers from overlapping active dialogs.
+
+#### 3. Client SDK (`nodestack-client` v2.0.0)
+* **Application Scoping (`client.app(slug)`)**:
+  * Returns an app-scoped client instance with automatic `x-nodestack-app` header injection.
+  * Scoped Realtime SSE connections via `?app=slug`.
+  * Scoped file URL generation (`/api/apps/:appId/files/...`).
+* **Application Management Service (`client.apps`)**:
+  * Administrative CRUD methods: `client.apps.getList()`, `client.apps.getOne()`, `client.apps.create()`, `client.apps.update()`, and `client.apps.delete()`.
+* **Application Snapshots Service (`client.snapshots`)**:
+  * Programmatic multi-snapshot management: `client.snapshots.list()`, `client.snapshots.create()`, `client.snapshots.get()`, `client.snapshots.restore()`, `client.snapshots.delete()`, and `client.snapshots.clear()`.
+  * Capacity limit safeguard with FIFO eviction confirmation via `{ evictOldest: true }`.
+
+#### 4. Official React E-Commerce Storefront Demo (`examples/ecommerce-react`)
+* **Reference Architecture**:
+  * Production-ready modern storefront built with React 18, Vite, Tailwind CSS, and the `nodestack-client` SDK.
+  * Demonstrates full-stack integration with NodeStack's embedded SQLite backend, multipart file uploads, authentication, and real-time SSE streams.
+* **Storefront Capabilities**:
+  * **Authentication & Profiles**: User registration, login, JWT session persistence via `LocalAuthStore`, and a 1-click demo customer account (`alex.vance@nodestack.dev`).
+  * **Dynamic Reviews & Live Rating Aggregation**: Real-time arithmetic mean computation directly from the `reviews` collection, automatic synchronization on review submission, and 'Verified Buyer' badging for previously purchased items.
+  * **Wishlist / Favorites**: Persistent database-backed favorites using the `favorites` collection (`user`, `product`) with row-level security.
+  * **Slide-Over Cart & Free Shipping Meter**: Slide-out cart drawer with quantity steppers, subtotal calculations, and a progress bar toward free shipping.
+  * **Order Placement & Status Timeline**: Direct order checkout writing to `orders`, an interactive confirmation modal, and a past orders tracker with visual status stepper (`Pending` → `Processing` → `Shipped` → `Delivered`).
+  * **Multi-App Scoping**: Built-in support for `VITE_NODESTACK_APP` in `.env.local` to connect seamlessly to tenant-isolated application databases.
+* **Starter Template Updates (`src/templates/definitions/ecommerce.ts`)**:
+  * Added `favorites` collection with strict row-level access rules (`@request.auth.id != "" && user = @request.auth.id`).
+  * Linked relational `user` fields across `orders` and `reviews` for enhanced relational integrity and customer-scoped order querying.
+* **Developer Tooling**:
+  * Added `npm run demo:backend` and `npm run demo:frontend` scripts for instant development startup.
+
+#### 5. Generic Application Snapshots & Multi-Checkpoint Restoration
+* **Self-Contained State Checkpoints (`SnapshotService`)**:
+  * Atomic transactional SQLite database snapshots (`VACUUM INTO`) paired with uploaded file storage backups, schema definitions, and deterministic cryptographic content hashes.
+  * Multi-snapshot history: Create and retain multiple named or timestamped snapshots across any development, evaluation, or testing workflow.
+  * Non-destructive restore: Restoring to an earlier snapshot safely preserves all subsequent checkpoints, allowing free traversal forward and backward across any point in time.
+  * 10-snapshot capacity cap with FIFO eviction safeguard: Enforces a hard limit of 10 snapshots per application to prevent unbounded disk growth. Attempting an 11th snapshot requires explicit confirmation (`evictOldest: true`) to safely evict the oldest checkpoint (with HTTP 409 `SNAPSHOT_LIMIT_REACHED` protection).
+  * Backward compatibility: Existing `DemoService` and `/api/demo/*` endpoints extend and alias directly to `SnapshotService`.
+  * Multi-tenant snapshot isolation: Each hosted application supports its own isolated snapshot history via `/api/apps/:appId/snapshots`.
+* **Admin Dashboard Snapshots Manager**:
+  * Dedicated dashboard view displaying active baseline status, live drift monitoring, and a chronological history list with records and storage statistics.
+  * Capacity limit warning and confirmation dialog when creating a snapshot at the 10-snapshot limit, showing the oldest snapshot's metadata before replacement.
+  * Non-destructive 1-click restore modal.
+  * Clean, developer-focused typography and interface with no tacky icon boxes or OS emojis.
+* **CLI Tooling**:
+  * Added `nodestack snapshots [list|create|restore|delete|clear]` with `--evict-oldest` flag support alongside backwards-compatible `nodestack demo` commands.
+
+#### 5. Security & Row-Level Access Rule Enforcement
+* **Server-Side Row-Level List Rule Enforcement (`RecordService.getList`, `exportRecords`)**:
+  * Implemented `RuleEngine.buildListFilter()` to dynamically resolve declarative access rules (e.g. `@request.auth.id != "" && user = @request.auth.id`) into parameterized SQL WHERE clauses against authenticated callers.
+  * Replaced client-side privacy filters with strict server-side boundary enforcement: unauthenticated callers are blocked at the request gate, and authenticated clients cannot view, list, or export records belonging to other users even if custom client filters are submitted.
+  * Fixed an empty-parenthesis syntax generation bug in `QueryFilterParser` when sub-filters on unauthorized fields are omitted.
+* **E-Commerce Starter Template Hardening**:
+  * Updated `orders` and `favorites` collections to enforce owner-scoped access rules (`listRule`, `viewRule`, `updateRule`, `deleteRule`: `@request.auth.id != "" && user = @request.auth.id`).
+  * Updated `examples/ecommerce-react` (`OrdersModal.tsx`, `ProductModal.tsx`) to remove unsafe unauthenticated order querying and align with server-side owner scoping.
+
+---
+
 ## [1.3.0] - 2026-10-20
 
 Release v1.3.0 delivers three major backend subsystems: Native SQLite FTS5 Full-Text Search (FTSS), an Outbound Webhooks & Delivery Log Engine, and an Immutable Audit Logging subsystem with visual record timeline diffs. It also introduces an official Docusaurus-powered developer documentation site, in-server static docs serving, and Client SDK integrations for webhooks and search.
