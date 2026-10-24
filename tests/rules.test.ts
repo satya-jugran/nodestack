@@ -234,6 +234,13 @@ describe('RuleEngine', () => {
       const adminList = await app.records.getList('orders', {}, adminAuth);
       expect(adminList.items.some((o: any) => o.orderNumber === 'ORD-USER1-001')).toBe(true);
       expect(adminList.items.some((o: any) => o.orderNumber === 'ORD-USER2-002')).toBe(true);
+
+      // 9. Customer Alpha cannot delete orders (deleteRule is null / admin-only)
+      await expect(app.records.delete('orders', ord1.id, alphaAuth)).rejects.toThrow(ForbiddenError);
+
+      // 10. Super Admin can delete orders
+      await app.records.delete('orders', ord1.id, adminAuth);
+      await expect(app.records.getOne('orders', ord1.id, {}, adminAuth)).rejects.toThrow();
     });
   });
 });
