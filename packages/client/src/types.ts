@@ -197,6 +197,38 @@ export interface DemoResetResult {
 // Webhook Types & Models
 // ==========================================
 
+export type SnapshotCollectionSummary = DemoCollectionSummary;
+export type SnapshotMetadata = DemoSnapshotMetadata;
+export type SnapshotRestoreResult = DemoResetResult;
+
+export interface SnapshotStatus {
+  hasSnapshot: boolean;
+  total: number;
+  maxLimit: number;
+  snapshots: SnapshotMetadata[];
+  activeSnapshot: SnapshotMetadata | null;
+  snapshot: SnapshotMetadata | null;
+  liveStats?: {
+    totalCollections: number;
+    totalRecords: number;
+    totalFiles: number;
+    contentHash?: string;
+    drift: {
+      collectionsDelta: number;
+      recordsDelta: number;
+      filesDelta: number;
+      contentChanged?: boolean;
+      isModified: boolean;
+    };
+  };
+}
+
+export interface SnapshotCreateOptions {
+  name?: string;
+  description?: string;
+  evictOldest?: boolean;
+}
+
 export type WebhookMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'GET' | 'HEAD';
 
 export interface WebhookModel extends BaseSystemFields {

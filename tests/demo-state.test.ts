@@ -355,7 +355,11 @@ describe('"Reset to Demo State" & Snapshot Demo Baseline Feature Tests', () => {
 
     beforeAll(async () => {
       if (fs.existsSync(cliTestDir)) {
-        fs.rmSync(cliTestDir, { recursive: true, force: true });
+        try {
+          fs.rmSync(cliTestDir, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
       }
       const setupApp = new NodeStack({ dataDir: cliTestDir });
       setupApp.schema.createCollection({
@@ -375,7 +379,11 @@ describe('"Reset to Demo State" & Snapshot Demo Baseline Feature Tests', () => {
 
     afterAll(() => {
       if (fs.existsSync(cliTestDir)) {
-        fs.rmSync(cliTestDir, { recursive: true, force: true });
+        try {
+          fs.rmSync(cliTestDir, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
       }
     });
 

@@ -11,7 +11,7 @@ export const ecommerceTemplate: TemplateDefinition = {
   badge: '20 Items & Images',
   aliases: ['ecommerce', 'e-commerce', 'shop', 'store'],
   stats: {
-    collections: 4,
+    collections: 5,
     records: 48,
     images: 25,
   },
@@ -452,6 +452,7 @@ export const ecommerceTemplate: TemplateDefinition = {
         deleteRule: '@request.auth.id != ""',
         schema: [
           { id: 'f_ord_no', name: 'orderNumber', type: 'text', required: true, unique: true },
+          { id: 'f_ord_user', name: 'user', type: 'relation', options: { collectionId: 'users' } },
           { id: 'f_ord_cust', name: 'customerName', type: 'text', required: true },
           { id: 'f_ord_email', name: 'customerEmail', type: 'email', required: true },
           {
@@ -605,6 +606,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             type: 'relation',
             options: { collectionId: 'products' },
           },
+          { id: 'f_rev_user', name: 'user', type: 'relation', options: { collectionId: 'users' } },
           { id: 'f_rev_author', name: 'author', type: 'text', required: true },
           { id: 'f_rev_rating', name: 'rating', type: 'number', required: true },
           { id: 'f_rev_title', name: 'title', type: 'text' },
@@ -750,6 +752,38 @@ export const ecommerceTemplate: TemplateDefinition = {
             verifiedPurchase: 1,
           },
         ];
+      },
+    },
+    // 5. Favorites
+    {
+      name: 'favorites',
+      dto: {
+        name: 'favorites',
+        type: 'base',
+        listRule: '@request.auth.id != ""',
+        viewRule: '@request.auth.id != ""',
+        createRule: '@request.auth.id != ""',
+        updateRule: '@request.auth.id != ""',
+        deleteRule: '@request.auth.id != ""',
+        schema: [
+          {
+            id: 'f_fav_user',
+            name: 'user',
+            type: 'relation',
+            required: true,
+            options: { collectionId: 'users' },
+          },
+          {
+            id: 'f_fav_prod',
+            name: 'product',
+            type: 'relation',
+            required: true,
+            options: { collectionId: 'products' },
+          },
+        ],
+      },
+      seed: async (_ctx: TemplateSeedContext): Promise<Array<Record<string, any>>> => {
+        return [];
       },
     },
   ],

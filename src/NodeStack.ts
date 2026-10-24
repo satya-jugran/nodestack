@@ -35,6 +35,8 @@ import { TemplateService } from './templates/TemplateService';
 import { TemplateController } from './http/controllers/TemplateController';
 import { DemoService } from './demo/DemoService';
 import { DemoController } from './http/controllers/DemoController';
+import { SnapshotService } from './snapshots/SnapshotService';
+import { SnapshotController } from './http/controllers/SnapshotController';
 import { AuditLogService } from './audit/AuditLogService';
 import { AuditLogController } from './http/controllers/AuditLogController';
 import { WebhookService } from './webhooks/WebhookService';
@@ -72,6 +74,7 @@ export class NodeStack {
   public readonly mockData: MockDataService;
   public readonly templates: TemplateService;
   public readonly auth: AuthService;
+  public readonly snapshots: SnapshotService;
   public readonly demo: DemoService;
   public readonly files: FileStorageService;
   public readonly realtime: RealtimeService;
@@ -181,6 +184,8 @@ export class NodeStack {
     this.container.bindInstance(TOKENS.TemplateService, this.templates);
 
     // 13.6 Demo Service ("Reset to Demo State")
+    this.snapshots = this.defaultApp.snapshots;
+    this.container.bindInstance(TOKENS.SnapshotService, this.snapshots);
     this.demo = this.defaultApp.demo;
     this.container.bindInstance(TOKENS.DemoService, this.demo);
 
@@ -217,6 +222,8 @@ export class NodeStack {
     this.container.bindInstance(TOKENS.TemplateController, templateCtrl);
     const demoCtrl = new DemoController(this.demo);
     this.container.bindInstance(TOKENS.DemoController, demoCtrl);
+    const snapshotCtrl = new SnapshotController(this.snapshots);
+    this.container.bindInstance(TOKENS.SnapshotController, snapshotCtrl);
 
     // 17.5 Audit Log Service ("Read-Only Audit Trail")
     this.auditLogs = this.defaultApp.auditLogs;
@@ -255,6 +262,7 @@ export class NodeStack {
       this.chaos,
       templateCtrl,
       demoCtrl,
+      snapshotCtrl,
       this.maintenanceGate,
       auditLogCtrl,
       webhookCtrl,
@@ -381,6 +389,21 @@ export class NodeStack {
 
   public onDemoSnapshot(handler: (metadata: any) => void | Promise<void>): this {
     this.eventBus.on('demo:snapshot', handler);
+    return this;
+  }
+
+  public onSnapshotCreate(handler: (metadata: any) => void | Promise<void>): this {
+    this.eventBus.on('snapshot:create', handler);
+    return this;
+  }
+
+  public onSnapshotRestore(handler: (result: any) => void | Promise<void>): this {
+    this.eventBus.on('snapshot:restore', handler);
+    return this;
+  }
+
+  public onSnapshotDelete(handler: (info: any) => void | Promise<void>): this {
+    this.eventBus.on('snapshot:delete', handler);
     return this;
   }
 

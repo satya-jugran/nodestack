@@ -76,3 +76,16 @@ GET /_/openapi.json
 | `POST` | `/api/webhooks/:id/test` | Dispatch a test payload. |
 | `GET` | `/api/webhooks/:id/deliveries` | Retrieve delivery logs. |
 | `POST` | `/api/webhooks/deliveries/:deliveryId/retry` | Retry failed delivery. |
+
+### Applications & Multi-Tenancy (v2.0)
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/apps` | List all applications (Superuser). |
+| `POST` | `/api/apps` | Create a new application with optional template (Superuser). |
+| `GET` | `/api/apps/:id` | Get details for an application by ID or slug (Superuser). |
+| `PATCH` | `/api/apps/:id` | Update application name or metadata (Superuser). |
+| `DELETE` | `/api/apps/:id` | Delete an application, its database, and files (`default` app is protected) (Superuser). |
+| Any | `/api/apps/:appId/*` | Route any collection, auth, file, or search request to a specific application tenant. |
+
+> [!TIP]
+> Clients can also route requests to any application without changing URLs by passing the `x-nodestack-app: <appId-or-slug>` HTTP header. See the [Multi-Application Platform Guide](../core-concepts/multi-application.md).

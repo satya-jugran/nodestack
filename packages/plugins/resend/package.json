@@ -20,10 +20,10 @@
     "access": "public"
   },
   "peerDependencies": {
-    "nodestack": "^1.2.0"
+    "@nodestackapp/server": ">=1.3.0"
   },
   "peerDependenciesMeta": {
-    "nodestack": {
+    "@nodestackapp/server": {
       "optional": true
     }
   },

@@ -5,12 +5,13 @@
 > Published on npm: [`nodestack-client`](https://www.npmjs.com/package/nodestack-client)
 
 [![npm version](https://img.shields.io/npm/v/nodestack-client.svg?color=blue)](https://www.npmjs.com/package/nodestack-client)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-7.x-blue.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A zero-dependency, isomorphic JavaScript and TypeScript client for NodeStack with out-of-the-box support for:
 - ⚡ **Zero runtime dependencies**: Built purely on standard Web APIs (`fetch`, `FormData`, `AbortController`, `EventSource`).
 - 🪶 **Ultra-lightweight footprint**: `< 10 KB` minified + gzipped.
+- 🏢 **Multi-Application & App Scoping (v2.0)**: Fluent `client.app(slug)` scoping with automatic `x-nodestack-app` header injection, scoped SSE streams, and administrative `client.apps` management.
 - 🔒 **Pluggable & Reactive Auth**: `LocalAuthStore` (localStorage), `MemoryAuthStore` (Node/SSR/testing), and reactive `onChange` state subscriptions.
 - 📦 **Fluent Record CRUD & Batch Pagination**: `getList`, `getFullList`, `getFirstListItem`, `create`, `update`, `delete`, `export`, and `import`.
 - 🔍 **SQLite FTS5 Full-Text Search**: Embedded BM25 relevance ranking, keyword prefix matching, and contextual snippet highlighting.
@@ -18,7 +19,7 @@ A zero-dependency, isomorphic JavaScript and TypeScript client for NodeStack wit
 - 📁 **File Uploads & Protected File URLs**: Seamless `FormData` file uploads and URL generation with automatic token appending.
 - 📡 **Multiplexed Realtime SSE**: Single persistent connection with auto-handshake (`NS_CONNECT`), dynamic subscription sync, and automatic reconnection.
 - 🎯 **100% Type Safety**: Works seamlessly with `nodestack typegen` and `GET /api/types.d.ts` for autocompleted collection names and typed record returns.
-- 🌐 **Isomorphic**: Modern Browsers, React / Next.js (SSR + Client), Vue, Svelte, Node.js (18+ / 22+), Bun, Deno, and React Native.
+- 🌐 **Isomorphic**: Modern Browsers, React / Next.js (SSR + Client), Vue, Svelte, Node.js (20+ / 22+ / 24+), Bun, Deno, and React Native.
 
 ---
 
@@ -95,6 +96,63 @@ import { NodeStackClient, MemoryAuthStore } from 'nodestack-client';
 const serverClient = new NodeStackClient('http://127.0.0.1:8090', {
   authStore: new MemoryAuthStore(),
 });
+```
+
+---
+
+## 🏢 Multi-Application & App Scoping (v2.0)
+
+NodeStack v2.0 supports hosting multiple isolated applications on a single backend instance. `nodestack-client` makes targeting and managing applications seamless:
+
+### 1. Scoped Client Instances (`client.app`)
+Call `client.app(slug)` to create a scoped client. It shares the same connection config and auth store (or a custom one) while automatically scoping all requests:
+- Automatically injects `x-nodestack-app: slug` on all collection requests.
+- Scopes Realtime SSE streams (`/api/realtime?app=slug`).
+- Generates scoped file URLs (`/api/apps/:appId/files/...`).
+
+```typescript
+const client = new NodeStackClient('http://127.0.0.1:8090');
+
+// Scope to the 'ecommerce' application
+const shopClient = client.app('ecommerce');
+
+// All queries now operate within 'ecommerce' SQLite database
+const products = await shopClient.collection('products').getList(1, 20);
+
+// File URLs automatically point to the app-scoped file route:
+// http://127.0.0.1:8090/api/apps/ecommerce/files/products/rec_123/image.png
+const imgUrl = shopClient.files.getUrl(products.items[0], products.items[0].cover);
+
+// Realtime SSE scoped to 'ecommerce'
+shopClient.collection('orders').subscribe('*', (e) => {
+  console.log('New shop order:', e.record);
+});
+```
+
+### 2. Multi-App Management Service (`client.apps`)
+Administrative scripts or superusers can provision, inspect, and delete applications programmatically:
+
+```typescript
+// Authenticate as superuser
+await client.admins.authWithPassword('admin@nodestack.io', 'AdminPass123!');
+
+// List hosted applications
+const apps = await client.apps.getList(1, 50);
+
+// Create a new app from a starter template ('saas' | 'blog' | 'ecommerce' | 'blank')
+const newApp = await client.apps.create({
+  name: 'Analytics Dashboard',
+  slug: 'analytics',
+  template: 'saas',
+});
+
+// Update app details
+await client.apps.update(newApp.id, {
+  name: 'Analytics Production',
+});
+
+// Delete an application (deletes its SQLite DB & uploaded files)
+await client.apps.delete(newApp.id);
 ```
 
 ---

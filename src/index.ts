@@ -118,6 +118,11 @@ export { TemplateImageGenerator } from './templates/TemplateImageGenerator';
 export { STARTER_TEMPLATES, ecommerceTemplate, blogTemplate, crmTemplate } from './templates/definitions';
 export * from './templates/types';
 
+// Application Snapshots Management
+export { SnapshotService } from './snapshots/SnapshotService';
+export { SnapshotController } from './http/controllers/SnapshotController';
+export * from './snapshots/types';
+
 // Demo State Management ("Reset to Demo State")
 export {
   DemoService,

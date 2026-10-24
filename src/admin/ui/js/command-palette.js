@@ -85,8 +85,9 @@ function getAllCommandPaletteItems() {
 
   items.push({
     id: 'nav-snapshots',
-    title: 'Demo Snapshots',
-    description: 'Capture or restore database demo state snapshots',
+    title: 'Snapshots',
+    description: 'Capture or restore application state snapshots',
+
     category: 'Navigation',
     badge: 'PAGE',
     icon: '📸',

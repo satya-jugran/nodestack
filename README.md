@@ -3,9 +3,9 @@
 > **The TypeScript-Native Embedded Backend Stack**  
 > A self-hosted, single-process backend with embedded SQLite, instant CRUD, Auth, Realtime, Files, FTS5 Search, Webhooks, and Web Admin UI.
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-22%20%7C%2024-green.svg)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](https://github.com/satya-jugran/nodestack/releases)
+[![TypeScript](https://img.shields.io/badge/TypeScript-7.x-blue.svg)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.5-green.svg)](https://nodejs.org/)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/satya-jugran/nodestack/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://img.shields.io/badge/docs-online-blue.svg)](https://satya-jugran.github.io/nodestack/)
 
@@ -30,6 +30,7 @@ Building modern web and mobile apps often requires managing external database se
 NodeStack delivers an instant, complete backend stack in a **single Node.js process**:
 
 * **Zero-Compilation Embedded SQLite**: Powered natively by Node.js (`node:sqlite`). Zero C++ compilers, Python, or external database daemon installations required.
+* **Multi-Application Platform (v2.0)**: Host multiple completely isolated application tenants within a single process—with separate SQLite databases, file storage directories, auth collections, realtime SSE buses, and 1-click app deletion.
 * **Instant CRUD & Realtime SSE**: Automatically exposes REST endpoints and Server-Sent Events change streams for every collection.
 * **Embedded Web Admin Dashboard**: A sleek, reactive dashboard served directly from `http://localhost:8090/_/` without needing an external web server.
 * **Native SQLite FTS5 Full-Text Search (v1.3)**: High-performance BM25 relevance scoring, prefix queries, and highlighted snippet excerpts without external search services.
@@ -107,16 +108,48 @@ const client = new NodeStackClient('http://localhost:8090');
 // 1. Authenticate
 await client.collection('users').authWithPassword('user@example.com', 'secret');
 
-// 2. Query with FTS5 Full-Text Search & BM25 Scoring (v1.3)
+// 2. Query with FTS5 Full-Text Search & BM25 Scoring
 const results = await client.collection('posts').getList(1, 10, {
   search: 'distributed systems',
   snippetTag: 'mark',
 });
 
-// 3. Realtime Server-Sent Events (SSE)
+// 3. Multi-Application Scoping (v2.0)
+const shopClient = client.app('shop'); // Automatically scopes headers, SSE, and file URLs
+const products = await shopClient.collection('products').getList(1, 10);
+
+// 4. Realtime Server-Sent Events (SSE)
 client.collection('posts').subscribe('*', (event) => {
   console.log('Post changed:', event.action, event.record);
 });
+```
+
+---
+
+## 🛒 Example Applications
+
+### Official React E-Commerce Storefront (`examples/ecommerce-react`)
+
+A modern, full-featured retail storefront showcasing NodeStack's multi-tenancy, authentication, instant CRUD, and real-time capabilities:
+
+* **Authentication & Profiles**: Registration, JWT sessions with `LocalAuthStore`, and 1-click demo login (`alex.vance@nodestack.dev`).
+* **Product Catalog & Images**: 20 products across 5 categories with SVG hero imagery served directly via NodeStack file storage.
+* **Faceted Search & Filters**: Live search, category pills, price range, in-stock filters, and dynamic star rating computation.
+* **Wishlist / Favorites**: Real-time heart toggles synced to the backend `favorites` collection.
+* **Cart & Checkout**: Slide-out cart drawer, free shipping threshold progress meter, and order submission to the `orders` collection.
+* **Order Tracking & Reviews**: Visual status stepper (`Pending` → `Processing` → `Shipped` → `Delivered`) and verified buyer review forms with live average score updates.
+* **Multi-App Scoping**: Configure `VITE_NODESTACK_APP` in `.env.local` to connect seamlessly to isolated tenant databases.
+
+```bash
+# 1. Start the NodeStack backend with e-commerce template (Port 8090)
+# Instant NPX (no cloning required):
+npx @nodestackapp/server start --template ecommerce
+
+# Or locally from this repo:
+npm run demo:backend
+
+# 2. Start the React storefront (Port 5173 - requires cloning repo)
+npm run demo:frontend
 ```
 
 ---
@@ -132,6 +165,7 @@ Full documentation, guides, and tutorials are available on the [Official Documen
 | [**Collections & Schema**](https://satya-jugran.github.io/nodestack/core-concepts/collections) | Field types, validation, and automated schema inference. |
 | [**SQLite FTS5 Search**](https://satya-jugran.github.io/nodestack/core-concepts/fts5-search) | Embedded BM25 relevance scoring and snippet highlighting. |
 | [**Visual Access Rules**](https://satya-jugran.github.io/nodestack/core-concepts/access-rules) | Row-level security model and the visual clause builder. |
+| [**Multi-Application Platform**](https://satya-jugran.github.io/nodestack/core-concepts/multi-application) | Multi-tenancy, isolated SQLite databases, asset storage, and app scoping. |
 | [**Auth & Security**](https://satya-jugran.github.io/nodestack/auth-and-security/authentication) | JWT tokens, bcrypt password hashing, and session revocation. |
 | [**Immutable Audit Logs**](https://satya-jugran.github.io/nodestack/auth-and-security/audit-logging) | Field-level diff computation, actor attribution, and timeline drawer. |
 | [**Realtime SSE**](https://satya-jugran.github.io/nodestack/realtime/realtime-sse) | Server-Sent Events engine and topic subscriptions. |

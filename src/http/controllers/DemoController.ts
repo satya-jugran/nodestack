@@ -33,6 +33,7 @@ export class DemoController extends BaseController {
     const metadata = await demo.snapshot({
       name: req.body?.name,
       description: req.body?.description,
+      evictOldest: true,
     });
     this.ok(reply, metadata, 201);
   }

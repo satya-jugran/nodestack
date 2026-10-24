@@ -18,6 +18,7 @@ import { RecordService } from '../records/RecordService';
 import { MockDataService } from '../records/MockDataService';
 import { TemplateService } from '../templates/TemplateService';
 import { DemoService } from '../demo/DemoService';
+import { SnapshotService } from '../snapshots/SnapshotService';
 import { AnalyticsService } from '../analytics/AnalyticsService';
 import { AuditLogService } from '../audit/AuditLogService';
 import { WebhookService } from '../webhooks/WebhookService';
@@ -42,6 +43,7 @@ export class AppScope {
   public readonly records: RecordService;
   public readonly mockData: MockDataService;
   public readonly templates: TemplateService;
+  public readonly snapshots: SnapshotService;
   public readonly demo: DemoService;
   public readonly analytics: AnalyticsService;
   public readonly auditLogs: AuditLogService;
@@ -115,7 +117,7 @@ export class AppScope {
 
     const appDbPath = config.getAppDbPath(app.slug);
     const appSnapshotDir = config.getAppSnapshotDir(app.slug);
-    this.demo = new DemoService(
+    this.snapshots = new SnapshotService(
       this.config,
       this.db,
       this.schema,
@@ -126,10 +128,11 @@ export class AppScope {
       {
         dbPath: appDbPath,
         storageDir: appStorageDir,
-        snapshotDir: appSnapshotDir,
+        snapshotsDir: appSnapshotDir,
       }
     );
 
+    this.demo = this.snapshots as unknown as DemoService;
     this.analytics = new AnalyticsService(this.db, this.config, this.schema, this.realtime, {
       dbPath: appDbPath,
     });
