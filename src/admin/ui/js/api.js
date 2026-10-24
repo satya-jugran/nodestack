@@ -273,6 +273,9 @@
         }
 
         closeModal();
+        if (typeof fetchApps === 'function') {
+          await fetchApps();
+        }
         await loadCollections();
         if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
         if (typeof loadWebhookStats === 'function') loadWebhookStats();
@@ -335,6 +338,9 @@
         localStorage.setItem('nodestack_admin', JSON.stringify(res.admin));
 
         closeModal();
+        if (typeof fetchApps === 'function') {
+          await fetchApps();
+        }
         await loadCollections();
         if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
         if (typeof loadWebhookStats === 'function') loadWebhookStats();

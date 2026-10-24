@@ -1,3 +1,5 @@
+import { FilterCodec } from '../records/FilterCodec';
+
 export interface RuleEvaluationContext {
   auth?: {
     id: string;
@@ -11,6 +13,161 @@ export interface RuleEvaluationContext {
 }
 
 export class RuleEngine {
+  /**
+   * Evaluates an access rule for a request in the context of listing records.
+   * - If context.auth?.isAdmin is true, returns allowed: true with no filter.
+   * - If rule is null: disallowed for non-admin.
+   * - If rule is "": allowed with no filter (public).
+   * - Otherwise: evaluates request-level checks and resolves record-level checks into
+   *   a SQL-compatible filter expression with @request values substituted.
+   */
+  public buildListFilter(
+    rule: string | null | undefined,
+    context: RuleEvaluationContext,
+    schemaFields: Set<string>
+  ): { allowed: boolean; filter?: string } {
+    if (context.auth?.isAdmin) {
+      return { allowed: true };
+    }
+
+    if (rule === null || rule === undefined) {
+      return { allowed: false };
+    }
+
+    const trimmed = rule.trim();
+    if (trimmed === '') {
+      return { allowed: true };
+    }
+
+    try {
+      return this.resolveListExpression(trimmed, context, schemaFields);
+    } catch (e) {
+      console.warn(`[RuleEngine] buildListFilter error for rule "${rule}":`, e);
+      return { allowed: false };
+    }
+  }
+
+  private resolveListExpression(
+    expr: string,
+    context: RuleEvaluationContext,
+    schemaFields: Set<string>
+  ): { allowed: boolean; filter?: string } {
+    // 1. Top-level || (OR)
+    const orParts = this.splitTopLevel(expr, '||');
+    if (orParts.length > 1) {
+      const rowFilters: string[] = [];
+      for (const part of orParts) {
+        const res = this.resolveListExpression(part.trim(), context, schemaFields);
+        if (res.allowed && !res.filter) {
+          // If an unconditional OR branch passed (e.g. admin role check), entire rule allows without row filter
+          return { allowed: true };
+        }
+        if (res.allowed && res.filter) {
+          rowFilters.push(res.filter);
+        }
+      }
+      if (rowFilters.length === 0) {
+        return { allowed: false };
+      }
+      return {
+        allowed: true,
+        filter: rowFilters.length > 1 ? `(${rowFilters.join(' || ')})` : rowFilters[0],
+      };
+    }
+
+    // 2. Top-level && (AND)
+    const andParts = this.splitTopLevel(expr, '&&');
+    if (andParts.length > 1) {
+      const rowFilters: string[] = [];
+      for (const part of andParts) {
+        const res = this.resolveListExpression(part.trim(), context, schemaFields);
+        if (!res.allowed) {
+          return { allowed: false };
+        }
+        if (res.filter) {
+          rowFilters.push(res.filter);
+        }
+      }
+      return {
+        allowed: true,
+        filter: rowFilters.length > 0 ? rowFilters.join(' && ') : undefined,
+      };
+    }
+
+    // 3. Parentheses unwrapping
+    const trimmed = expr.trim();
+    if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
+      if (this.isFullyEnclosed(trimmed)) {
+        const inner = this.resolveListExpression(trimmed.slice(1, -1).trim(), context, schemaFields);
+        if (!inner.allowed) return { allowed: false };
+        return {
+          allowed: true,
+          filter: inner.filter ? `(${inner.filter})` : undefined,
+        };
+      }
+    }
+
+    // 4. Comparison parsing
+    const operators = ['!=', '==', '>=', '<=', '=', '>', '<', '!~', '~'];
+    for (const op of operators) {
+      const idx = this.findOperatorIndex(trimmed, op);
+      if (idx !== -1) {
+        const leftExpr = trimmed.substring(0, idx).trim();
+        const rightExpr = trimmed.substring(idx + op.length).trim();
+
+        const hasRecordField = schemaFields.has(leftExpr) || schemaFields.has(rightExpr);
+
+        if (!hasRecordField) {
+          // Pure request-level check (e.g. @request.auth.id != "")
+          const passes = this.evaluateComparison(trimmed, context);
+          return { allowed: passes };
+        } else {
+          // Row-level check: substitute @request variables
+          const substitutedLeft = this.substituteVariables(leftExpr, context);
+          const substitutedRight = this.substituteVariables(rightExpr, context);
+          const normalizedOp = op === '==' ? '=' : op;
+          return {
+            allowed: true,
+            filter: `${substitutedLeft} ${normalizedOp} ${substitutedRight}`,
+          };
+        }
+      }
+    }
+
+    // 5. Single boolean or identifier check
+    if (schemaFields.has(trimmed)) {
+      return { allowed: true, filter: `${trimmed} = true` };
+    }
+    const val = this.resolveValue(trimmed, context);
+    return { allowed: Boolean(val) };
+  }
+
+  private substituteVariables(token: string, context: RuleEvaluationContext): string {
+    const trimmed = token.trim();
+    if (trimmed.startsWith('@request.auth.')) {
+      const prop = trimmed.replace('@request.auth.', '');
+      const val = context.auth ? (context.auth as any)[prop] : undefined;
+      if (val === undefined || val === null) {
+        return "''";
+      }
+      if (typeof val === 'number' || typeof val === 'boolean') {
+        return String(val);
+      }
+      return FilterCodec.encode(String(val));
+    }
+    if (trimmed.startsWith('@request.query.')) {
+      const prop = trimmed.replace('@request.query.', '');
+      const val = context.query ? (context.query as any)[prop] : undefined;
+      if (val === undefined || val === null) {
+        return "''";
+      }
+      if (typeof val === 'number' || typeof val === 'boolean') {
+        return String(val);
+      }
+      return FilterCodec.encode(String(val));
+    }
+    return trimmed;
+  }
   /**
    * Evaluate an access rule against a given context.
    * - If context.auth?.isAdmin is true, always returns true.

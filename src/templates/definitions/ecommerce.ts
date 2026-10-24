@@ -445,11 +445,11 @@ export const ecommerceTemplate: TemplateDefinition = {
       dto: {
         name: 'orders',
         type: 'base',
-        listRule: '@request.auth.id != ""',
-        viewRule: '@request.auth.id != ""',
+        listRule: '@request.auth.id != "" && user = @request.auth.id',
+        viewRule: '@request.auth.id != "" && user = @request.auth.id',
         createRule: '',
-        updateRule: '@request.auth.id != ""',
-        deleteRule: '@request.auth.id != ""',
+        updateRule: '@request.auth.id != "" && user = @request.auth.id',
+        deleteRule: '@request.auth.id != "" && user = @request.auth.id',
         schema: [
           { id: 'f_ord_no', name: 'orderNumber', type: 'text', required: true, unique: true },
           { id: 'f_ord_user', name: 'user', type: 'relation', options: { collectionId: 'users' } },
@@ -760,11 +760,11 @@ export const ecommerceTemplate: TemplateDefinition = {
       dto: {
         name: 'favorites',
         type: 'base',
-        listRule: '@request.auth.id != ""',
-        viewRule: '@request.auth.id != ""',
+        listRule: '@request.auth.id != "" && user = @request.auth.id',
+        viewRule: '@request.auth.id != "" && user = @request.auth.id',
         createRule: '@request.auth.id != ""',
-        updateRule: '@request.auth.id != ""',
-        deleteRule: '@request.auth.id != ""',
+        updateRule: '@request.auth.id != "" && user = @request.auth.id',
+        deleteRule: '@request.auth.id != "" && user = @request.auth.id',
         schema: [
           {
             id: 'f_fav_user',

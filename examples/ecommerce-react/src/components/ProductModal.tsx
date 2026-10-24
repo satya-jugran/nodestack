@@ -78,7 +78,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       }
       try {
         const res = await client.collection('orders').getList(1, 50, {
-          filter: `customerEmail = "${user.email}"`,
+          filter: `user = "${user.id}"`,
         });
         let purchased = false;
         for (const order of res.items) {

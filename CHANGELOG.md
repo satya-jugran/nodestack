@@ -90,6 +90,15 @@ Release v2.0.0 is a milestone major release introducing complete **Multi-Applica
 * **CLI Tooling**:
   * Added `nodestack snapshots [list|create|restore|delete|clear]` with `--evict-oldest` flag support alongside backwards-compatible `nodestack demo` commands.
 
+#### 5. Security & Row-Level Access Rule Enforcement
+* **Server-Side Row-Level List Rule Enforcement (`RecordService.getList`, `exportRecords`)**:
+  * Implemented `RuleEngine.buildListFilter()` to dynamically resolve declarative access rules (e.g. `@request.auth.id != "" && user = @request.auth.id`) into parameterized SQL WHERE clauses against authenticated callers.
+  * Replaced client-side privacy filters with strict server-side boundary enforcement: unauthenticated callers are blocked at the request gate, and authenticated clients cannot view, list, or export records belonging to other users even if custom client filters are submitted.
+  * Fixed an empty-parenthesis syntax generation bug in `QueryFilterParser` when sub-filters on unauthorized fields are omitted.
+* **E-Commerce Starter Template Hardening**:
+  * Updated `orders` and `favorites` collections to enforce owner-scoped access rules (`listRule`, `viewRule`, `updateRule`, `deleteRule`: `@request.auth.id != "" && user = @request.auth.id`).
+  * Updated `examples/ecommerce-react` (`OrdersModal.tsx`, `ProductModal.tsx`) to remove unsafe unauthenticated order querying and align with server-side owner scoping.
+
 ---
 
 ## [1.3.0] - 2026-10-20

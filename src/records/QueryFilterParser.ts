@@ -116,7 +116,8 @@ export class QueryFilterParser {
     const trimmed = expr.trim();
     if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
       if (this.isFullyEnclosed(trimmed)) {
-        return `(${this.convertFilterExpression(trimmed.slice(1, -1).trim(), params, allowedFields, tablePrefix)})`;
+        const inner = this.convertFilterExpression(trimmed.slice(1, -1).trim(), params, allowedFields, tablePrefix);
+        return inner ? `(${inner})` : '';
       }
     }
 

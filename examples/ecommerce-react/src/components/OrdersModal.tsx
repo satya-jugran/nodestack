@@ -58,15 +58,9 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
         let backendOrders: Order[] = [];
         try {
           if (isAuthenticated && user) {
-            const filterExpr = `user = "${user.id}" || customerEmail = "${user.email}"`;
+            const filterExpr = `user = "${user.id}"`;
             const orderRes = await client.collection('orders').getList(1, 50, {
               filter: filterExpr,
-              sort: '-created',
-            });
-            backendOrders = orderRes.items as unknown as Order[];
-          } else {
-            // For guests, check if they have public/sample orders
-            const orderRes = await client.collection('orders').getList(1, 10, {
               sort: '-created',
             });
             backendOrders = orderRes.items as unknown as Order[];
