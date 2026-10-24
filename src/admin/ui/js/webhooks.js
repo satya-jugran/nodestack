@@ -159,6 +159,17 @@ async function loadWebhookStats() {
         sidebarBadge.title = `${stats.activeWebhooks || 0} active / ${stats.totalWebhooks || 0} total`;
         sidebarBadge.style.display = count > 0 ? 'inline-block' : 'none';
       }
+
+      const homeWhEl = document.getElementById('home-stat-webhooks');
+      const homeWhSubEl = document.getElementById('home-stat-webhooks-sub');
+      if (homeWhEl) {
+        homeWhEl.textContent = (stats.totalWebhooks !== undefined ? stats.totalWebhooks : 0).toString();
+      }
+      if (homeWhSubEl) {
+        const active = stats.activeWebhooks || 0;
+        const deliveries = stats.totalDeliveries || 0;
+        homeWhSubEl.textContent = `${active} active${deliveries > 0 ? ` • ${deliveries} delivered` : ' • 0 delivered'}`;
+      }
     }
   } catch (err) {
     console.error('Failed to load webhook stats:', err);

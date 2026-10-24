@@ -584,4 +584,28 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(panel?.classList.contains('open')).toBe(false);
     });
   });
+
+  describe('Overview Page Hub & Vitals', () => {
+    it('should render 6 KPI vital cards including Webhooks and Plugins and exclude Quick Access Collections table', () => {
+      const { win, doc } = createTestDOM({ activeNav: 'home' });
+      win.renderHomeView();
+
+      // Verify 6 KPI vitals are present
+      expect(doc.getElementById('home-stat-collections')).not.toBeNull();
+      expect(doc.getElementById('home-stat-records')).not.toBeNull();
+      expect(doc.getElementById('home-stat-size')).not.toBeNull();
+      expect(doc.getElementById('home-stat-realtime')).not.toBeNull();
+      expect(doc.getElementById('home-stat-webhooks')).not.toBeNull();
+      expect(doc.getElementById('home-stat-plugins')).not.toBeNull();
+
+      // Verify arbitrary Quick Access Collections table is NOT present
+      expect(doc.body.innerHTML).not.toContain('Quick Access Collections');
+      expect(doc.getElementById('col-count-products')).toBeNull();
+
+      // Verify New Collection button is in Starter Accelerators
+      const homeTools = doc.querySelector('.home-tools-grid');
+      expect(homeTools).not.toBeNull();
+      expect(homeTools?.textContent).toContain('New Collection');
+    });
+  });
 });

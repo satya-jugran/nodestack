@@ -3,10 +3,19 @@
       const main = document.getElementById('page-view-home') || document.getElementById('main-body');
       const collections = state.collections || [];
       const collectionsCount = collections.length;
-      const isSysCol = (col) => Boolean(col.system || (col.name && col.name.startsWith('_')));
-      const userCollections = collections.filter(c => !isSysCol(c));
-      const systemCollections = collections.filter(c => isSysCol(c));
-      const quickCollections = userCollections.slice(0, 5);
+
+      // Webhooks initial count
+      const webhooksInitial = (typeof webhooksState !== 'undefined' && webhooksState.stats?.totalWebhooks !== undefined)
+        ? webhooksState.stats.totalWebhooks
+        : (typeof webhooksState !== 'undefined' && Array.isArray(webhooksState.webhooks))
+          ? webhooksState.webhooks.length
+          : '--';
+
+      // Plugins initial count
+      const pluginsInitial = (state.pluginNavItems && Array.isArray(state.pluginNavItems))
+        ? state.pluginNavItems.length
+        : '--';
+
       main.innerHTML = `
         <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
           
@@ -40,10 +49,10 @@
             </div>
           </div>
 
-          <!-- Zone 1 (Vitals Strip): High-Density 4-KPI Row + Integrated Telemetry Bar -->
+          <!-- Zone 1 (Vitals Strip): High-Density 6-KPI Row + Integrated Telemetry Bar -->
           <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden;">
-            <!-- Top: 4 Horizontal KPI Metrics (Responsive auto-fitting row) -->
-            <div class="home-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 0.75rem; padding: 0.85rem 1.15rem;">
+            <!-- Top: 6 Horizontal KPI Metrics (Responsive auto-fitting row) -->
+            <div class="home-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 0.75rem; padding: 0.85rem 1.15rem;">
               <!-- KPI 1: Collections -->
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('collections')" title="Click to view all collections directory">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
@@ -86,6 +95,32 @@
                 <div style="font-size: 22px; font-weight: 800; color: #c084fc;" id="home-stat-realtime">--</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Connected SSE clients</div>
               </div>
+
+              <!-- KPI 5: Webhooks -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('webhooks')" title="Click to view webhooks and delivery logs">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#f59e0b;"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Webhooks</span>
+                  </div>
+                  <span style="font-size: 11px; color: #f59e0b; font-weight: 600;">View ➔</span>
+                </div>
+                <div style="font-size: 22px; font-weight: 800; color: #f59e0b;" id="home-stat-webhooks">${webhooksInitial}</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-webhooks-sub">Endpoints & deliveries</div>
+              </div>
+
+              <!-- KPI 6: Plugins -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('plugins')" title="Click to browse plugins and extensions">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 13px;">🧩</span>
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Plugins</span>
+                  </div>
+                  <span style="font-size: 11px; color: #38bdf8; font-weight: 600;">View ➔</span>
+                </div>
+                <div style="font-size: 22px; font-weight: 800; color: #38bdf8;" id="home-stat-plugins">${pluginsInitial}</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-plugins-sub">Active extensions</div>
+              </div>
             </div>
 
             <!-- Bottom: Integrated 24h Telemetry Strip -->
@@ -109,98 +144,7 @@
             </div>
           </div>
 
-          <!-- Zone 2 (Workspace Centerpiece): Quick Access Collections -->
-          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
-            <div style="padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 16px;">📂</span>
-                <h3 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0;">Quick Access Collections</h3>
-                <span class="badge badge-post" style="font-size: 11px;">${userCollections.length} User Collection${userCollections.length === 1 ? '' : 's'}</span>
-              </div>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <button class="btn btn-secondary btn-sm" onclick="selectNav('collections')" style="display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600;">
-                  <span>View All Collections (${collectionsCount})</span>
-                  <span>➔</span>
-                </button>
-                <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()" style="display: inline-flex; align-items: center; gap: 5px; font-weight: 600;">
-                  <span>+</span><span>New Collection</span>
-                </button>
-              </div>
-            </div>
-
-            ${collectionsCount === 0 ? `
-              <div style="padding: 2.5rem; text-align: center; color: var(--text-muted); font-size: 13px;">
-                <p style="font-size: 14px; color: #fff; margin-bottom: 0.5rem; font-weight: 600;">No collections created yet</p>
-                <p style="max-width: 480px; margin: 0 auto 1.25rem; line-height: 1.5;">Launch an instant working demo with pre-seeded data, or design your first collection schema from scratch.</p>
-                <div style="display: flex; justify-content: center; gap: 0.75rem;">
-                  <button class="btn btn-primary btn-sm" onclick="openApplyTemplateConfirmModal('ecommerce')">🚀 Launch E-Commerce</button>
-                  <button class="btn btn-secondary btn-sm" onclick="openNewCollectionModal()">+ Create Blank Collection</button>
-                </div>
-              </div>
-            ` : userCollections.length === 0 ? `
-              <div style="padding: 2.25rem 1.5rem; text-align: center; color: var(--text-muted); font-size: 13px;">
-                <p style="font-size: 14px; color: #fff; margin-bottom: 0.4rem; font-weight: 600;">No custom user collections created yet</p>
-                <p style="max-width: 480px; margin: 0 auto 1.25rem; line-height: 1.5;">Your database currently contains ${systemCollections.length} system/internal table${systemCollections.length === 1 ? '' : 's'}. Create your first custom collection or launch a starter template.</p>
-                <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
-                  <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ Create Blank Collection</button>
-                  <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('ecommerce')">🚀 Launch E-Commerce</button>
-                  <button class="btn btn-secondary btn-sm" onclick="selectNav('collections')">View System Tables (${systemCollections.length}) ➔</button>
-                </div>
-              </div>
-            ` : `
-              <div style="overflow-x: auto;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
-                  <thead>
-                    <tr style="border-bottom: 1px solid var(--border-subtle); background: rgba(0,0,0,0.15); color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;">
-                      <th style="padding: 0.75rem 1.25rem;">Collection Name</th>
-                      <th style="padding: 0.75rem 1rem;">Type</th>
-                      <th style="padding: 0.75rem 1rem;">Fields</th>
-                      <th style="padding: 0.75rem 1rem;">Records</th>
-                      <th style="padding: 0.75rem 1.25rem; text-align: right;">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${quickCollections.map(c => `
-                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.03); transition: background 0.15s ease; cursor: pointer;" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background='transparent'" onclick="selectCollection('${c.name}')">
-                        <td style="padding: 0.8rem 1.25rem;">
-                          <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 14px;">📄</span>
-                            <span style="font-weight: 700; color: #fff;">${c.name}</span>
-                          </div>
-                        </td>
-                        <td style="padding: 0.8rem 1rem;">
-                          <span class="collection-badge">${c.type}</span>
-                        </td>
-                        <td style="padding: 0.8rem 1rem; color: var(--text-muted);">
-                          ${(c.schema || []).length} fields
-                        </td>
-                        <td style="padding: 0.8rem 1rem;">
-                          <span id="col-count-${c.name}" style="font-family: var(--font-mono); font-weight: 600; color: #93c5fd;">--</span>
-                        </td>
-                        <td style="padding: 0.8rem 1.25rem; text-align: right;" onclick="event.stopPropagation()">
-                          <button class="btn btn-secondary btn-sm" style="padding: 3px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" onclick="selectCollection('${c.name}')">
-                            Open ➔
-                          </button>
-                        </td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              </div>
-              <div style="background: rgba(0, 0, 0, 0.2); border-top: 1px solid var(--border-subtle); padding: 0.65rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 12px; color: var(--text-muted);">
-                <span>
-                  Showing <strong>${quickCollections.length}</strong> of <strong>${userCollections.length}</strong> user collections
-                  ${systemCollections.length > 0 ? ` • ${systemCollections.length} system table${systemCollections.length === 1 ? '' : 's'}` : ''}
-                </span>
-                <button class="btn btn-secondary btn-sm" onclick="selectNav('collections')" style="font-size: 11px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px;">
-                  <span>Browse All Collections Directory</span>
-                  <span>➔</span>
-                </button>
-              </div>
-            `}
-          </div>
-
-          <!-- Zone 3 (Accelerators & Tools): Side-by-Side Starter Templates & Developer Tools -->
+          <!-- Zone 2 (Accelerators & Tools): Starter Templates & Developer Tools -->
           <div class="home-tools-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 1rem;">
             <!-- Left: Starter Accelerators & Schema Recipes -->
             <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.1rem 1.25rem; display: flex; flex-direction: column; justify-content: space-between; gap: 0.85rem;">
@@ -214,13 +158,16 @@
                     All Recipes ➔
                   </button>
                 </div>
-                <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 0.2rem;">1-Click Schema Templates</h4>
+                <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 0.2rem;">Schema Creation & Recipes</h4>
                 <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4; margin: 0;">
-                  Launch pre-seeded schemas with confirmation or auto-infer structures from JSON payload.
+                  Design a new table schema from scratch, launch pre-seeded templates, or auto-infer structures from JSON.
                 </p>
               </div>
 
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr)); gap: 0.6rem;">
+                <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()" style="font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Create new blank collection">
+                  <span>+</span><span>New Collection</span>
+                </button>
                 <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('ecommerce')" style="border-color: rgba(59, 130, 246, 0.35); font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Preview & install E-Commerce recipe">
                   <span>🛒</span><span>E-Commerce</span>
                 </button>
@@ -332,15 +279,35 @@
         if (peakEl && metrics.traffic24h?.peakHourRequests !== undefined) {
           peakEl.textContent = `${metrics.traffic24h.peakHourRequests} req/h`;
         }
+      }).catch(() => {});
 
-        // Update record counts in collections table
-        if (metrics.database?.collectionsBreakdown && Array.isArray(metrics.database.collectionsBreakdown)) {
-          for (const item of metrics.database.collectionsBreakdown) {
-            const countEl = document.getElementById(`col-count-${item.collection}`);
-            if (countEl) {
-              countEl.textContent = (item.count || 0).toLocaleString();
-            }
-          }
+      // Asynchronously load webhook vitals
+      api('/api/webhooks/stats').then((stats) => {
+        if (!stats) return;
+        const whEl = document.getElementById('home-stat-webhooks');
+        const whSubEl = document.getElementById('home-stat-webhooks-sub');
+        if (whEl) {
+          whEl.textContent = (stats.totalWebhooks !== undefined ? stats.totalWebhooks : 0).toString();
+        }
+        if (whSubEl) {
+          const active = stats.activeWebhooks || 0;
+          const deliveries = stats.totalDeliveries || 0;
+          whSubEl.textContent = `${active} active${deliveries > 0 ? ` • ${deliveries} delivered` : ' • 0 delivered'}`;
+        }
+      }).catch(() => {});
+
+      // Asynchronously load plugin vitals
+      api('/api/plugins').then((pluginData) => {
+        if (!pluginData) return;
+        const plugEl = document.getElementById('home-stat-plugins');
+        const plugSubEl = document.getElementById('home-stat-plugins-sub');
+        const navItems = pluginData.navItems || [];
+        const catalog = pluginData.catalog || [];
+        if (plugEl) {
+          plugEl.textContent = (navItems.length || 0).toString();
+        }
+        if (plugSubEl) {
+          plugSubEl.textContent = `${navItems.length} active / ${catalog.length || 5} available`;
         }
       }).catch(() => {});
     }

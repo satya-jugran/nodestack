@@ -15,6 +15,16 @@ function renderPluginNavItems() {
     railCount.textContent = String(items.length);
   }
 
+  const homePlugEl = document.getElementById('home-stat-plugins');
+  const homePlugSubEl = document.getElementById('home-stat-plugins-sub');
+  if (homePlugEl) {
+    homePlugEl.textContent = String(items.length);
+  }
+  if (homePlugSubEl) {
+    const catalogCount = (state.pluginCatalog && state.pluginCatalog.length) || 5;
+    homePlugSubEl.textContent = `${items.length} active / ${catalogCount} available`;
+  }
+
   if (!group || !container) return;
 
   if (items.length === 0) {
