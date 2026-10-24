@@ -4,6 +4,7 @@ import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
 import { NodeStackClient } from '../packages/client/src/Client';
 import { runCli } from '../src/cli/cli';
+import { DemoService, DemoServicePaths } from '../src/demo/DemoService';
 
 describe('"Reset to Demo State" & Snapshot Demo Baseline Feature Tests', () => {
   const testDir = path.resolve(__dirname, '../.test_demo_state_data');
@@ -538,6 +539,92 @@ describe('"Reset to Demo State" & Snapshot Demo Baseline Feature Tests', () => {
       // Maintenance gate must be unlocked in finally
       expect(gate.isMaintenanceActive()).toBe(false);
       expect(gate.isExclusiveActive()).toBe(false);
+    });
+  });
+
+  describe('8. DemoService Backwards Compatibility with custom snapshotDir', () => {
+    const customSnapshotDir = path.resolve(testDir, 'custom_legacy_snapshot_dir');
+    const legacyMigrateDir = path.resolve(testDir, 'custom_legacy_pre_existing_dir');
+
+    afterAll(() => {
+      if (fs.existsSync(customSnapshotDir)) {
+        try { fs.rmSync(customSnapshotDir, { recursive: true, force: true }); } catch {}
+      }
+      if (fs.existsSync(legacyMigrateDir)) {
+        try { fs.rmSync(legacyMigrateDir, { recursive: true, force: true }); } catch {}
+      }
+    });
+
+    it('should map customPaths.snapshotDir to snapshotsDir and write snapshots to custom location', async () => {
+      const customPaths: DemoServicePaths = {
+        snapshotDir: customSnapshotDir,
+      };
+
+      const demo = new DemoService(
+        app.config,
+        app.db,
+        app.schema,
+        app.files,
+        app.eventBus,
+        app.realtime,
+        app.maintenanceGate,
+        customPaths
+      );
+
+      expect(demo.snapshotsDir).toBe(customSnapshotDir);
+
+      // Create snapshot using demo.snapshot() alias
+      const snap = await demo.snapshot({ name: 'Custom Snapshot Location' });
+      expect(snap.name).toBe('Custom Snapshot Location');
+
+      // Verify files are written directly into customSnapshotDir
+      expect(fs.existsSync(path.join(customSnapshotDir, 'manifest.json'))).toBe(true);
+      expect(fs.existsSync(path.join(customSnapshotDir, snap.id, 'data.db'))).toBe(true);
+      expect(fs.existsSync(path.join(customSnapshotDir, snap.id, 'metadata.json'))).toBe(true);
+
+      // Ensure it did NOT write to the default app .snapshots location for this custom instance
+      const defaultSnapshotsDir = path.join(app.config.dataDir, '.snapshots');
+      const manifestInDefault = path.join(defaultSnapshotsDir, 'manifest.json');
+      if (fs.existsSync(manifestInDefault)) {
+        const defaultManifest = JSON.parse(fs.readFileSync(manifestInDefault, 'utf8'));
+        expect(defaultManifest.snapshots.some((s: any) => s.id === snap.id)).toBe(false);
+      }
+    });
+
+    it('should migrate pre-existing legacy snapshot found in custom snapshotDir', async () => {
+      fs.mkdirSync(legacyMigrateDir, { recursive: true });
+      fs.copyFileSync(app.snapshots.dbPath, path.join(legacyMigrateDir, 'data.db'));
+      fs.writeFileSync(
+        path.join(legacyMigrateDir, 'metadata.json'),
+        JSON.stringify({
+          id: 'snap_legacy_custom_001',
+          name: 'Legacy Pre-Existing Demo State',
+          createdAt: new Date().toISOString(),
+          collections: [],
+          totalCollections: 1,
+          totalRecords: 1,
+          totalFiles: 0,
+          storageSizeBytes: 0,
+          dbSizeBytes: 1024,
+        }),
+        'utf8'
+      );
+
+      const legacyDemo = new DemoService(
+        app.config,
+        app.db,
+        app.schema,
+        app.files,
+        app.eventBus,
+        app.realtime,
+        app.maintenanceGate,
+        { snapshotDir: legacyMigrateDir }
+      );
+
+      expect(legacyDemo.hasSnapshot()).toBe(true);
+      const status = legacyDemo.getStatus();
+      expect(status.hasSnapshot).toBe(true);
+      expect(status.snapshot?.name).toBe('Legacy Pre-Existing Demo State');
     });
   });
 });

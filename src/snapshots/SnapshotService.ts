@@ -55,7 +55,7 @@ export class SnapshotService {
   }
 
   public get snapshotsDir(): string {
-    return this.customPaths?.snapshotsDir || path.join(this.config.dataDir, '.snapshots');
+    return this.customPaths?.snapshotsDir || this.customPaths?.snapshotDir || path.join(this.config.dataDir, '.snapshots');
   }
 
   private get manifestPath(): string {
@@ -66,8 +66,11 @@ export class SnapshotService {
     if (this.customPaths && 'legacySnapshotDir' in this.customPaths) {
       return this.customPaths.legacySnapshotDir;
     }
+    if (this.customPaths && this.customPaths.snapshotDir) {
+      return this.customPaths.snapshotDir;
+    }
     // Only default to global .demo_snapshot if this is the standalone/root service (not scoped with custom paths)
-    if (!this.customPaths || !this.customPaths.snapshotsDir) {
+    if (!this.customPaths || (!this.customPaths.snapshotsDir && !this.customPaths.snapshotDir)) {
       return path.join(this.config.dataDir, '.demo_snapshot');
     }
     return undefined;

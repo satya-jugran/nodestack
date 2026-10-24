@@ -63,6 +63,7 @@ export interface SnapshotServicePaths {
   storageDir?: string;
   snapshotsDir?: string;
   legacySnapshotDir?: string;
+  snapshotDir?: string;
 }
 
 export const MAX_SNAPSHOTS = 10;

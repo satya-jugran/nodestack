@@ -127,6 +127,7 @@ export * from './snapshots/types';
 export {
   DemoService,
   DemoSnapshotOptions,
+  DemoServicePaths,
   DemoCollectionSummary,
   DemoSnapshotMetadata,
   DemoSnapshotStatus,
