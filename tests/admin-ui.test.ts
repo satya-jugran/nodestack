@@ -1457,6 +1457,57 @@ describe('Multi-Application Switcher UI (apps.js)', () => {
     }
   });
 
+  it('should update sidebar webhook count badge when switching applications via selectApp', async () => {
+    const bundled = AdminUIBundler.bundle(uiDir);
+    const dom = new JSDOM(bundled, {
+      runScripts: 'dangerously',
+      url: 'http://127.0.0.1:8090/_/',
+    });
+    const win = dom.window as any;
+
+    win.state.token = 'test-token';
+    win.state.apps = [
+      { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true },
+      { id: 'app_ecommerce', slug: 'ecommerce', name: 'E-Commerce', isDefault: false },
+    ];
+    win.state.activeApp = win.state.apps[0];
+
+    // Mock API calls
+    win.api = vi.fn().mockImplementation(async (path: string) => {
+      if (path === '/api/webhooks/stats') {
+        const appSlug = win.state.activeApp?.slug;
+        if (appSlug === 'default') {
+          return { totalWebhooks: 2, activeWebhooks: 2, totalDeliveries: 10, successDeliveries: 10, failedDeliveries: 0, successRate: '100%' };
+        } else {
+          return { totalWebhooks: 0, activeWebhooks: 0, totalDeliveries: 0, successDeliveries: 0, failedDeliveries: 0, successRate: '100%' };
+        }
+      }
+      if (path === '/api/collections') return [];
+      if (path === '/api/plugins') return { navItems: [], catalog: [] };
+      return null;
+    });
+
+    const badge = win.document.getElementById('sidebar-webhooks-count');
+    expect(badge).not.toBeNull();
+
+    // 1. Initial load for default app
+    await win.loadWebhookStats();
+    expect(badge.textContent).toBe('2');
+    expect(badge.style.display).toBe('inline-block');
+
+    // 2. Switch to ecommerce app (0 webhooks)
+    await win.selectApp('ecommerce');
+    expect(win.state.activeApp.slug).toBe('ecommerce');
+    expect(badge.textContent).toBe('0');
+    expect(badge.style.display).toBe('none');
+
+    // 3. Switch back to default app (2 webhooks)
+    await win.selectApp('default');
+    expect(win.state.activeApp.slug).toBe('default');
+    expect(badge.textContent).toBe('2');
+    expect(badge.style.display).toBe('inline-block');
+  });
+
   it('should exclude x-nodestack-app header on global bootstrap endpoints like /api/apps', async () => {
     const bundled = AdminUIBundler.bundle(uiDir);
     const dom = new JSDOM(bundled, {

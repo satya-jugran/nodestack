@@ -179,6 +179,13 @@ async function loadWebhooksList() {
     const webhooks = await api('/api/webhooks');
     webhooksState.webhooks = webhooks || [];
 
+    const sidebarBadge = document.getElementById('sidebar-webhooks-count');
+    if (sidebarBadge) {
+      const count = webhooksState.webhooks.length;
+      sidebarBadge.textContent = String(count);
+      sidebarBadge.style.display = count > 0 ? 'inline-block' : 'none';
+    }
+
     if (!webhooks || webhooks.length === 0) {
       content.innerHTML = `
         <div style="text-align:center; padding: 4rem 2rem; background: var(--bg-card); border: 1px dashed var(--border-subtle); border-radius: 8px;">

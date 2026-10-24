@@ -147,6 +147,10 @@ async function selectApp(slugOrId) {
   // Refresh active context
   state.collections = [];
   state.activeCollection = null;
+  if (typeof webhooksState !== 'undefined') {
+    webhooksState.webhooks = [];
+    webhooksState.deliveries = [];
+  }
 
   try {
     if (typeof loadCollections === 'function') {
@@ -154,6 +158,9 @@ async function selectApp(slugOrId) {
     }
     if (typeof fetchDemoStatus === 'function') {
       await fetchDemoStatus();
+    }
+    if (typeof loadWebhookStats === 'function') {
+      await loadWebhookStats();
     }
     if (typeof loadWebhooksList === 'function' && state.activeNav === 'webhooks') {
       await loadWebhooksList();
