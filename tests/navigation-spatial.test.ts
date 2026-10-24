@@ -197,6 +197,26 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       const adminColItem = doc.querySelector('.collection-item.active');
       expect(adminColItem?.textContent).toContain('_admins');
     });
+
+    it('should have primary sidebar navigation items in order: Overview, Analytics, Collections, Webhooks, Plugins, Snapshots, Audit Logs', () => {
+      const { doc } = createTestDOM();
+
+      const topNav = doc.querySelector('.sidebar > div[style*="flex-direction: column"]') as HTMLElement;
+      const navItems = Array.from(topNav.querySelectorAll('.sidebar-nav-item')).map((el: any) => ({
+        id: el.id,
+        label: el.querySelector('span')?.textContent?.trim(),
+      }));
+
+      expect(navItems).toEqual([
+        { id: 'nav-home', label: 'Overview' },
+        { id: 'nav-analytics', label: 'Analytics' },
+        { id: 'nav-collections', label: 'Collections' },
+        { id: 'nav-webhooks', label: 'Webhooks' },
+        { id: 'nav-plugins', label: 'Plugins' },
+        { id: 'nav-snapshots', label: 'Snapshots' },
+        { id: 'nav-logs', label: 'Audit Logs' },
+      ]);
+    });
   });
 
   describe('Breadcrumb Top Bar Navigation', () => {
@@ -270,6 +290,19 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
 
       const trail = doc.getElementById('breadcrumb-trail') as HTMLElement;
       expect(trail.textContent).toContain('Records');
+    });
+
+    it('should render "NodeStack / Audit Logs" when in audit logs view', async () => {
+      const { win, doc } = createTestDOM();
+
+      await win.selectNav('logs');
+
+      const trail = doc.getElementById('breadcrumb-trail') as HTMLElement;
+      expect(trail).not.toBeNull();
+
+      const items = Array.from(trail.querySelectorAll('.breadcrumb-item')).map((el: any) => el.textContent.replace('/', '').trim());
+      expect(items).toEqual(['NodeStack', 'Audit Logs']);
+      expect(doc.getElementById('view-title')?.textContent).toBe('Audit Logs');
     });
   });
 
@@ -346,6 +379,31 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       // Palette should close and active nav should be "analytics"
       expect(doc.getElementById('command-palette-backdrop')).toBeNull();
       expect(win.state.activeNav).toBe('analytics');
+    });
+
+    it('should jump to Audit Logs when typing "audit" and pressing Enter', async () => {
+      const { win, doc } = createTestDOM();
+
+      win.openCommandPalette();
+      const input = doc.getElementById('command-palette-input') as HTMLInputElement;
+
+      // Type "audit"
+      input.value = 'audit';
+      win.handleCommandPaletteInput('audit');
+
+      const results = doc.querySelectorAll('.command-palette-item');
+      expect(results.length).toBeGreaterThan(0);
+
+      // Top result should be "Audit Logs"
+      const topTitle = results[0].querySelector('.command-palette-item-title')?.textContent;
+      expect(topTitle).toBe('Audit Logs');
+
+      // Press Enter
+      input.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+      // Palette should close and active nav should be "logs"
+      expect(doc.getElementById('command-palette-backdrop')).toBeNull();
+      expect(win.state.activeNav).toBe('logs');
     });
 
     it('should trigger current collection export when typing "export" and pressing Enter', async () => {

@@ -42,20 +42,24 @@
           <span>Collections</span>
           <span class="badge badge-get" id="sidebar-collections-count" style="margin-left: auto; font-size: 10px; padding: 1px 6px;">0</span>
         </div>
-        <div class="sidebar-nav-item" id="nav-plugins" onclick="selectNav('plugins')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-          <span>Plugins</span>
-          <span class="badge badge-primary" id="sidebar-plugins-badge" style="margin-left: auto; font-size: 10px; padding: 1px 6px; display: none;">0</span>
-        </div>
         <div class="sidebar-nav-item" id="nav-webhooks" onclick="selectNav('webhooks')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c0-2.21 1.79-4 4-4h5.99c1.1 0 1.95-.94 2.48-1.9A4 4 0 0 1 22 13c0 2.21-1.79 4-4 4z"/><circle cx="6" cy="17" r="1"/><circle cx="18" cy="13" r="1"/></svg>
           <span>Webhooks</span>
           <span class="badge badge-primary" id="sidebar-webhooks-count" style="margin-left: auto; font-size: 10px; padding: 1px 6px; display: none;">0</span>
         </div>
+        <div class="sidebar-nav-item" id="nav-plugins" onclick="selectNav('plugins')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>Plugins</span>
+          <span class="badge badge-primary" id="sidebar-plugins-badge" style="margin-left: auto; font-size: 10px; padding: 1px 6px; display: none;">0</span>
+        </div>
         <div class="sidebar-nav-item" id="nav-snapshots" onclick="selectNav('snapshots')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
           <span>Snapshots</span>
           <span id="sidebar-snapshot-dot" style="margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: #10b981; display: none;"></span>
+        </div>
+        <div class="sidebar-nav-item" id="nav-logs" onclick="selectNav('logs')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          <span>Audit Logs</span>
         </div>
       </div>
 
@@ -70,10 +74,6 @@
           <span>API Docs (OpenAPI)</span>
           <span style="margin-left: auto; font-size: 11px; opacity: 0.6; color: var(--accent-primary);">↗</span>
         </a>
-        <div class="sidebar-nav-item" id="nav-logs" onclick="selectNav('logs')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-          <span>Logs & Traffic</span>
-        </div>
         <div class="sidebar-nav-item" id="nav-settings" onclick="selectNav('settings')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           <span>System Info</span>
@@ -288,7 +288,7 @@
         <!-- 5. Demo Snapshots Page View -->
         <div id="page-view-snapshots" class="app-page-view" style="display: none;"></div>
 
-        <!-- 6. Traffic & Logs Page View -->
+        <!-- 6. Audit Logs Page View -->
         <div id="page-view-logs" class="app-page-view" style="display: none;"></div>
 
         <!-- 7. System Info Page View -->

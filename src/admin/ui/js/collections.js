@@ -350,7 +350,7 @@ function updateBreadcrumbs() {
   } else if (state.activeNav === 'snapshots') {
     crumbs.push({ label: 'Snapshots', active: true });
   } else if (state.activeNav === 'logs') {
-    crumbs.push({ label: 'Traffic & Logs', active: true });
+    crumbs.push({ label: 'Audit Logs', active: true });
   } else if (state.activeNav === 'settings') {
     crumbs.push({ label: 'System Info', active: true });
   } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === state.activeNav)) {

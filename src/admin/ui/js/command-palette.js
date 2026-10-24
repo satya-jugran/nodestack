@@ -97,12 +97,12 @@ function getAllCommandPaletteItems() {
 
   items.push({
     id: 'nav-logs',
-    title: 'Traffic & Logs',
+    title: 'Audit Logs',
     description: 'Live HTTP request activity, errors and slow queries',
     category: 'Navigation',
     badge: 'PAGE',
     icon: '📝',
-    keywords: ['logs', 'traffic', 'requests', 'errors', 'debug'],
+    keywords: ['audit', 'logs', 'traffic', 'requests', 'errors', 'debug'],
     action: () => selectNav('logs')
   });
 

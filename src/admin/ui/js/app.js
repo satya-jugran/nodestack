@@ -130,7 +130,7 @@ async function selectNav(nav) {
     document.getElementById('collection-tabs').style.display = 'none';
     document.getElementById('view-badge').style.display = 'none';
     document.getElementById('nav-logs')?.classList.add('active');
-    document.getElementById('view-title').textContent = 'Traffic & Logs';
+    document.getElementById('view-title').textContent = 'Audit Logs';
     if (typeof renderLogsView === 'function') renderLogsView();
     if (typeof loadLogsSubTab === 'function') {
       loadLogsSubTab();
