@@ -37,7 +37,7 @@
                     </span>
                   </div>
                   <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 1px;">
-                    Embedded SQLite Backend Stack • WAL Mode • Realtime SSE • End-to-End Type Safety
+                    TypeScript-Native Backend • Multi-App Multi-Tenancy • Realtime SSE • Extensible Plugins
                   </div>
                 </div>
               </div>
