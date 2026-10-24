@@ -11,15 +11,19 @@ import type {
   WebhookClearDeliveriesResult,
 } from '../types';
 
+declare const require: any;
+declare const Buffer: any;
+
 /**
  * Computes an HMAC-SHA256 signature for a payload and secret string.
  */
 export function computeWebhookSignature(payload: string | object, secret: string): string {
   const str = typeof payload === 'string' ? payload : JSON.stringify(payload);
   try {
-    const globalObj = typeof globalThis !== 'undefined' ? (globalThis as any) : {};
-    const reqFn = typeof globalObj.require === 'function' ? globalObj.require : null;
-    const nodeCrypto = reqFn ? reqFn('crypto') : globalObj.crypto;
+    const nodeCrypto =
+      typeof require !== 'undefined'
+        ? require('crypto')
+        : (typeof globalThis !== 'undefined' ? (globalThis as any).require?.('crypto') || (globalThis as any).crypto : null);
     if (nodeCrypto && typeof nodeCrypto.createHmac === 'function') {
       return nodeCrypto.createHmac('sha256', secret).update(str, 'utf8').digest('hex');
     }
@@ -55,12 +59,13 @@ export function verifyWebhookSignature(
   if (cleanHeader.length !== expected.length) return false;
 
   try {
-    const globalObj = typeof globalThis !== 'undefined' ? (globalThis as any) : {};
-    const reqFn = typeof globalObj.require === 'function' ? globalObj.require : null;
-    const nodeCrypto = reqFn ? reqFn('crypto') : null;
-    const bufferObj = globalObj.Buffer;
-    if (nodeCrypto && typeof nodeCrypto.timingSafeEqual === 'function' && bufferObj) {
-      return nodeCrypto.timingSafeEqual(bufferObj.from(cleanHeader, 'hex'), bufferObj.from(expected, 'hex'));
+    const nodeCrypto =
+      typeof require !== 'undefined'
+        ? require('crypto')
+        : (typeof globalThis !== 'undefined' ? (globalThis as any).require?.('crypto') : null);
+    const buf = typeof Buffer !== 'undefined' ? Buffer : (typeof globalThis !== 'undefined' ? (globalThis as any).Buffer : null);
+    if (nodeCrypto && typeof nodeCrypto.timingSafeEqual === 'function' && buf) {
+      return nodeCrypto.timingSafeEqual(buf.from(cleanHeader, 'hex'), buf.from(expected, 'hex'));
     }
   } catch {}
 
