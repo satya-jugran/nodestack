@@ -19,7 +19,7 @@ describe('"Paste JSON → Instant API" (Schema Auto-Inference) Tests', () => {
 
   beforeAll(async () => {
     if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
+      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
     }
 
     app = new NodeStack({
@@ -45,7 +45,7 @@ describe('"Paste JSON → Instant API" (Schema Auto-Inference) Tests', () => {
   afterAll(async () => {
     await app.stop();
     if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
+      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
     }
   });
 

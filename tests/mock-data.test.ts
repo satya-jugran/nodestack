@@ -16,7 +16,7 @@ describe('1-Click Mock Data Generator (Faker Engine) Tests', () => {
 
   beforeAll(async () => {
     if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
+      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
     }
 
     app = new NodeStack({
@@ -86,7 +86,7 @@ describe('1-Click Mock Data Generator (Faker Engine) Tests', () => {
   afterAll(async () => {
     await app.stop();
     if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
+      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
     }
   });
 

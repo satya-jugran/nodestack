@@ -588,7 +588,7 @@ describe('Latency & Chaos Simulation (For Testing Frontend States)', () => {
 
       prodApp.db.close();
       if (fs.existsSync(prodDir)) {
-        fs.rmSync(prodDir, { recursive: true, force: true });
+        try { fs.rmSync(prodDir, { recursive: true, force: true }); } catch {}
       }
     });
   });

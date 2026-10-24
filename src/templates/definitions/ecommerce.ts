@@ -596,7 +596,7 @@ export const ecommerceTemplate: TemplateDefinition = {
         type: 'base',
         listRule: '',
         viewRule: '',
-        createRule: '',
+        createRule: '@request.auth.id != "" && user = @request.auth.id',
         updateRule: '@request.auth.id != "" && user = @request.auth.id',
         deleteRule: '@request.auth.id != "" && user = @request.auth.id',
         schema: [
@@ -606,7 +606,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             type: 'relation',
             options: { collectionId: 'products' },
           },
-          { id: 'f_rev_user', name: 'user', type: 'relation', options: { collectionId: 'users' } },
+          { id: 'f_rev_user', name: 'user', type: 'relation', required: true, options: { collectionId: 'users' } },
           { id: 'f_rev_author', name: 'author', type: 'text', required: true },
           { id: 'f_rev_rating', name: 'rating', type: 'number', required: true },
           { id: 'f_rev_title', name: 'title', type: 'text' },
@@ -762,7 +762,7 @@ export const ecommerceTemplate: TemplateDefinition = {
         type: 'base',
         listRule: '@request.auth.id != "" && user = @request.auth.id',
         viewRule: '@request.auth.id != "" && user = @request.auth.id',
-        createRule: '@request.auth.id != ""',
+        createRule: '@request.auth.id != "" && user = @request.auth.id',
         updateRule: '@request.auth.id != "" && user = @request.auth.id',
         deleteRule: '@request.auth.id != "" && user = @request.auth.id',
         schema: [

@@ -297,9 +297,12 @@ export class RuleEngine {
       return context.query ? (context.query as any)[prop] : undefined;
     }
 
-    // Field on current record
+    // Field on current record or incoming data payload
     if (context.record && Object.prototype.hasOwnProperty.call(context.record, trimmed)) {
       return context.record[trimmed];
+    }
+    if (context.data && Object.prototype.hasOwnProperty.call(context.data, trimmed)) {
+      return context.data[trimmed];
     }
 
     return undefined;

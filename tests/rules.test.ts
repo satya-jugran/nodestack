@@ -69,6 +69,25 @@ describe('RuleEngine', () => {
     expect(engine.evaluate('title ~ "architecture"', ctx)).toBe(true);
   });
 
+      it('should evaluate bare field identifiers against data payload when record is absent (create)', () => {
+      const ctxValid = {
+        auth: { id: 'usr_owner_1' },
+        data: { user: 'usr_owner_1', product: 'prod_1' },
+      };
+      expect(engine.evaluate('@request.auth.id != "" && user = @request.auth.id', ctxValid)).toBe(true);
+
+      const ctxSpoofed = {
+        auth: { id: 'usr_owner_1' },
+        data: { user: 'usr_victim_2', product: 'prod_1' },
+      };
+      expect(engine.evaluate('@request.auth.id != "" && user = @request.auth.id', ctxSpoofed)).toBe(false);
+
+      const ctxUnauth = {
+        data: { user: 'usr_owner_1' },
+      };
+      expect(engine.evaluate('@request.auth.id != "" && user = @request.auth.id', ctxUnauth)).toBe(false);
+    });
+
   describe('buildListFilter() - Row-Level Rule Scoping', () => {
     const fields = new Set(['id', 'user', 'customerEmail', 'status', 'created', 'updated']);
 
@@ -241,6 +260,142 @@ describe('RuleEngine', () => {
       // 10. Super Admin can delete orders
       await app.records.delete('orders', ord1.id, adminAuth);
       await expect(app.records.getOne('orders', ord1.id, {}, adminAuth)).rejects.toThrow();
+    });
+    it('should enforce authentication and requester relation binding on reviews collection', async () => {
+      const reviewsCol = app.schema.getCollectionOrThrow('reviews');
+      expect(reviewsCol.createRule).toBe('@request.auth.id != "" && user = @request.auth.id');
+      expect(reviewsCol.updateRule).toBe('@request.auth.id != "" && user = @request.auth.id');
+      expect(reviewsCol.deleteRule).toBe('@request.auth.id != "" && user = @request.auth.id');
+
+      const alphaAuth = { id: 'cust_alpha', email: 'alpha@domain.com' };
+      const betaAuth = { id: 'cust_beta', email: 'beta@domain.com' };
+
+      // 1. Guest review creation rejected with 403 Forbidden
+      await expect(
+        app.records.create('reviews', {
+          product: 'prod_01',
+          user: 'cust_alpha',
+          author: 'Guest Spoofer',
+          rating: 1,
+          content: 'Malicious review',
+        })
+      ).rejects.toThrow(ForbiddenError);
+
+      // 2. Caller attempting to submit a review with someone else user relation rejected
+      await expect(
+        app.records.create(
+          'reviews',
+          {
+            product: 'prod_01',
+            user: 'cust_beta',
+            author: 'Alpha Impersonating Beta',
+            rating: 1,
+            content: 'Fake review by someone else',
+          },
+          alphaAuth
+        )
+      ).rejects.toThrow(ForbiddenError);
+
+      // 3. Caller submitting review without user field rejected
+      await expect(
+        app.records.create(
+          'reviews',
+          {
+            product: 'prod_01',
+            author: 'Alpha without user',
+            rating: 5,
+            content: 'Review without user relation',
+          },
+          alphaAuth
+        )
+      ).rejects.toThrow();
+
+      // 4. Authenticated caller submitting review bound to their own auth id succeeds
+      const rev = await app.records.create(
+        'reviews',
+        {
+          product: 'prod_01',
+          user: 'cust_alpha',
+          author: 'Customer Alpha',
+          rating: 5,
+          content: 'Legitimate five star review',
+        },
+        alphaAuth
+      );
+      expect(rev.id).toBeDefined();
+      expect(rev.user).toBe('cust_alpha');
+
+      // 5. Customer Beta cannot edit or delete Customer Alpha's review
+      await expect(
+        app.records.update('reviews', rev.id, { rating: 2 }, betaAuth)
+      ).rejects.toThrow(ForbiddenError);
+      await expect(
+        app.records.delete('reviews', rev.id, betaAuth)
+      ).rejects.toThrow(ForbiddenError);
+
+      // 6. Customer Alpha can update and delete their own review
+      const updatedRev = await app.records.update('reviews', rev.id, { title: 'Updated Title' }, alphaAuth);
+      expect(updatedRev.title).toBe('Updated Title');
+      await app.records.delete('reviews', rev.id, alphaAuth);
+    });
+
+    it('should bind all 5 operations to user = @request.auth.id on favorites collection', async () => {
+      const favCol = app.schema.getCollectionOrThrow('favorites');
+      expect(favCol.listRule).toBe('@request.auth.id != "" && user = @request.auth.id');
+      expect(favCol.viewRule).toBe('@request.auth.id != "" && user = @request.auth.id');
+      expect(favCol.createRule).toBe('@request.auth.id != "" && user = @request.auth.id');
+      expect(favCol.updateRule).toBe('@request.auth.id != "" && user = @request.auth.id');
+      expect(favCol.deleteRule).toBe('@request.auth.id != "" && user = @request.auth.id');
+
+      const alphaAuth = { id: 'cust_alpha', email: 'alpha@domain.com' };
+      const betaAuth = { id: 'cust_beta', email: 'beta@domain.com' };
+      const adminAuth = { id: 'admin_root', isAdmin: true };
+
+      // 1. Unauthenticated guest cannot perform any of the 5 operations
+      await expect(app.records.getList('favorites')).rejects.toThrow(ForbiddenError);
+      await expect(app.records.create('favorites', { user: 'cust_alpha', product: 'prod_01' })).rejects.toThrow(ForbiddenError);
+
+      // 2. Alpha cannot create a favorite with Beta's user relation
+      await expect(
+        app.records.create('favorites', { user: 'cust_beta', product: 'prod_01' }, alphaAuth)
+      ).rejects.toThrow(ForbiddenError);
+
+      // 3. Alpha creates their own favorite
+      const favAlpha = await app.records.create('favorites', { user: 'cust_alpha', product: 'prod_01' }, alphaAuth);
+      expect(favAlpha.id).toBeDefined();
+      expect(favAlpha.user).toBe('cust_alpha');
+
+      // 4. Beta creates their own favorite
+      const favBeta = await app.records.create('favorites', { user: 'cust_beta', product: 'prod_02' }, betaAuth);
+      expect(favBeta.id).toBeDefined();
+      expect(favBeta.user).toBe('cust_beta');
+
+      // 5. Alpha lists favorites -> sees only favAlpha
+      const alphaList = await app.records.getList('favorites', {}, alphaAuth);
+      expect(alphaList.items.length).toBe(1);
+      expect(alphaList.items[0].id).toBe(favAlpha.id);
+
+      // 6. Beta lists favorites -> sees only favBeta
+      const betaList = await app.records.getList('favorites', {}, betaAuth);
+      expect(betaList.items.length).toBe(1);
+      expect(betaList.items[0].id).toBe(favBeta.id);
+
+      // 7. Alpha cannot view Beta's favorite via getOne
+      await expect(app.records.getOne('favorites', favBeta.id, {}, alphaAuth)).rejects.toThrow(ForbiddenError);
+
+      // 8. Alpha cannot update or delete Beta's favorite
+      await expect(app.records.update('favorites', favBeta.id, { product: 'prod_03' }, alphaAuth)).rejects.toThrow(ForbiddenError);
+      await expect(app.records.delete('favorites', favBeta.id, alphaAuth)).rejects.toThrow(ForbiddenError);
+
+      // 9. Alpha can view and delete their own favorite
+      const viewSelf = await app.records.getOne('favorites', favAlpha.id, {}, alphaAuth);
+      expect(viewSelf.id).toBe(favAlpha.id);
+      await app.records.delete('favorites', favAlpha.id, alphaAuth);
+
+      // 10. Admin can list, view, and delete across users
+      const adminList = await app.records.getList('favorites', {}, adminAuth);
+      expect(adminList.items.some((f: any) => f.id === favBeta.id)).toBe(true);
+      await app.records.delete('favorites', favBeta.id, adminAuth);
     });
   });
 });
