@@ -24,6 +24,11 @@ function renderAnalyticsView() {
             <span class="live-pulse-dot"></span>
             <span>Realtime Active</span>
           </span>
+          <span class="analytics-status-tag" id="analytics-uptime-tag" style="background: rgba(99, 102, 241, 0.1); border-color: rgba(99, 102, 241, 0.25); color: #a5b4fc;" title="Server Process Uptime">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block; vertical-align:-1px; margin-right:3px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span style="color: var(--text-muted); font-size: 11px; font-weight: 500;">Uptime:</span>
+            <span id="analytics-uptime-val" style="font-family: var(--font-mono); font-weight: 600;">--</span>
+          </span>
         </div>
         <div style="display: flex; align-items: center; gap: 0.75rem;">
           <button id="analytics-autorefresh-btn" class="btn btn-secondary btn-sm" onclick="toggleAnalyticsAutoRefresh()">
@@ -198,6 +203,20 @@ async function loadAnalytics() {
   }
 }
 
+function formatUptime(seconds) {
+  if (typeof seconds !== 'number' || isNaN(seconds) || seconds < 0) return '0s';
+  const sec = Math.floor(seconds);
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
 function updateAnalyticsUI(data) {
   if (!data) return;
 
@@ -220,6 +239,16 @@ function updateAnalyticsUI(data) {
   const appBadge = document.getElementById('analytics-app-badge');
   if (appBadge && typeof state !== 'undefined' && state.activeApp) {
     appBadge.textContent = state.activeApp.name || 'Default App';
+  }
+
+  const uptimeVal = document.getElementById('analytics-uptime-val');
+  if (uptimeVal) {
+    const uptimeSec = data.system?.uptime || 0;
+    uptimeVal.textContent = formatUptime(uptimeSec);
+    const uptimeTag = document.getElementById('analytics-uptime-tag');
+    if (uptimeTag) {
+      uptimeTag.title = `Server process uptime: ${Math.floor(uptimeSec)} seconds (${formatUptime(uptimeSec)})`;
+    }
   }
 
   const kpiDbWal = document.getElementById('kpi-db-wal');

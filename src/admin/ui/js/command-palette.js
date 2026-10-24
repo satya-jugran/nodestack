@@ -79,7 +79,7 @@ function getAllCommandPaletteItems() {
     category: 'Navigation',
     badge: 'PAGE',
     icon: '📊',
-    keywords: ['metrics', 'analytics', 'telemetry', 'stats', 'traffic', 'latency'],
+    keywords: ['metrics', 'analytics', 'telemetry', 'stats', 'traffic', 'latency', 'uptime', 'system'],
     action: () => selectNav('analytics')
   });
 
@@ -104,17 +104,6 @@ function getAllCommandPaletteItems() {
     icon: '📝',
     keywords: ['audit', 'logs', 'traffic', 'requests', 'errors', 'debug'],
     action: () => selectNav('logs')
-  });
-
-  items.push({
-    id: 'nav-settings',
-    title: 'System Info',
-    description: 'System specifications, runtime version, and server hooks',
-    category: 'Navigation',
-    badge: 'PAGE',
-    icon: '⚙️',
-    keywords: ['settings', 'system', 'system info', 'info', 'runtime', 'uptime', 'version', 'hooks'],
-    action: () => selectNav('settings')
   });
 
   // 2.5 Plugin navigation items

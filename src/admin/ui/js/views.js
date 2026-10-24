@@ -1,4 +1,4 @@
-// Overview, Logs & Settings Views
+// Overview & Logs Views
     function renderHomeView() {
       const main = document.getElementById('page-view-home') || document.getElementById('main-body');
       const collections = state.collections || [];
@@ -664,51 +664,4 @@
       }
     }
 
-    // Settings View
-    async function renderSettingsView() {
-      const main = document.getElementById('page-view-settings') || document.getElementById('main-body');
-      let health = { version: '2.0.0', appName: 'NodeStack' };
-      try {
-        health = await api('/api/health');
-      } catch {}
 
-      main.innerHTML = `
-        <div style="max-width: 700px; display:flex; flex-direction:column; gap:1.5rem;">
-          <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:1.5rem;">
-            <h3 style="font-size:16px; font-weight:700; margin-bottom:1rem;">NodeStack System Info</h3>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; font-size:13px;">
-              <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-subtle); padding-bottom:0.5rem;">
-                <span style="color:var(--text-muted);">Version</span>
-                <code>${health.version}</code>
-              </div>
-              <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-subtle); padding-bottom:0.5rem;">
-                <span style="color:var(--text-muted);">Uptime</span>
-                <code>${Math.floor(health.uptime || 0)} seconds</code>
-              </div>
-              <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-subtle); padding-bottom:0.5rem;">
-                <span style="color:var(--text-muted);">Node.js Runtime</span>
-                <code>${window.navigator.userAgent}</code>
-              </div>
-            </div>
-          </div>
-
-          <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:1.5rem;">
-            <h3 style="font-size:16px; font-weight:700; margin-bottom:0.5rem;">TypeScript Server Hooks</h3>
-            <p style="color:var(--text-muted); font-size:13px; margin-bottom:1rem;">
-              Extend your backend using standard TypeScript with full access to npm:
-            </p>
-            <pre style="background:var(--bg-input); padding:1rem; border-radius:6px; font-family:var(--font-mono); font-size:12px; overflow-x:auto;">
-import { NodeStack } from 'nodestack';
-
-const app = new NodeStack();
-
-app.onRecordBeforeCreate('posts', async (e) => {
-  // Validate, enrich data, or call any npm library
-  console.log('Creating post:', e.record.title);
-});
-
-await app.start(8090);</pre>
-          </div>
-        </div>
-      `;
-    }

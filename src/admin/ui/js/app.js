@@ -1,7 +1,7 @@
 // Application Navigation & Lifecycle
 
 function showPageView(viewName) {
-  const views = ['home', 'collections', 'plugins', 'webhooks', 'analytics', 'snapshots', 'logs', 'settings'];
+  const views = ['home', 'collections', 'plugins', 'webhooks', 'analytics', 'snapshots', 'logs'];
   for (const v of views) {
     const el = document.getElementById('page-view-' + v);
     if (el) {
@@ -15,7 +15,7 @@ function showPageView(viewName) {
 }
 
 function clearSidebarNavActive() {
-  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-analytics', 'nav-snapshots', 'nav-logs', 'nav-settings'];
+  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-analytics', 'nav-snapshots', 'nav-logs'];
   for (const id of navIds) {
     document.getElementById(id)?.classList.remove('active');
   }
@@ -137,16 +137,7 @@ async function selectNav(nav) {
     } else if (typeof loadLogs === 'function') {
       loadLogs();
     }
-  } else if (nav === 'settings') {
-    state.activeCollection = null;
-    if (typeof renderCollectionsList === 'function') renderCollectionsList();
-    showPageView('settings');
-    document.getElementById('collection-tabs').style.display = 'none';
-    document.getElementById('view-badge').style.display = 'none';
-    document.getElementById('nav-settings')?.classList.add('active');
-    document.getElementById('view-title').textContent = 'System Info';
-    document.getElementById('view-actions').innerHTML = '';
-    if (typeof renderSettingsView === 'function') renderSettingsView();
+
   } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === nav || (nav === 'resend' && p.id === 'resend-email'))) {
     state.activeCollection = null;
     if (typeof renderCollectionsList === 'function') renderCollectionsList();

@@ -178,7 +178,7 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(doc.getElementById('nav-snapshots')?.classList.contains('active')).toBe(false);
       expect(doc.getElementById('nav-home')?.classList.contains('active')).toBe(false);
       expect(doc.getElementById('nav-logs')?.classList.contains('active')).toBe(false);
-      expect(doc.getElementById('nav-settings')?.classList.contains('active')).toBe(false);
+      expect(doc.getElementById('nav-settings')).toBeNull();
 
       // Products collection item must have .active
       const activeColItem = doc.querySelector('.collection-item.active');
@@ -216,6 +216,39 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
         { id: 'nav-snapshots', label: 'Snapshots' },
         { id: 'nav-logs', label: 'Audit Logs' },
       ]);
+    });
+
+    it('should have removed System Info item and page view completely from DOM', () => {
+      const { doc } = createTestDOM();
+
+      expect(doc.getElementById('nav-settings')).toBeNull();
+      expect(doc.getElementById('page-view-settings')).toBeNull();
+      expect(doc.querySelector('.sidebar-bottom')?.textContent).not.toContain('System Info');
+    });
+
+    it('should display system uptime in the Analytics header', async () => {
+      const { win, doc } = createTestDOM();
+
+      win.api = vi.fn().mockImplementation(async (path: string) => {
+        if (path === '/api/metrics') {
+          return {
+            database: { totalRecords: 120, sizeFormatted: '1.2 MB', collectionsBreakdown: [] },
+            realtime: { connectedClients: 3 },
+            traffic24h: { totalRequests: 500, series: [] },
+            system: { uptime: 3665 },
+          };
+        }
+        return {};
+      });
+
+      await win.selectNav('analytics');
+      const uptimeTag = doc.getElementById('analytics-uptime-tag');
+      const uptimeVal = doc.getElementById('analytics-uptime-val');
+
+      expect(uptimeTag).not.toBeNull();
+      expect(uptimeVal).not.toBeNull();
+      expect(uptimeVal?.textContent).toBe('1h 1m 5s');
+      expect(uptimeTag?.getAttribute('title')).toContain('3665 seconds');
     });
   });
 
