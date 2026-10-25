@@ -48,7 +48,7 @@ npx nodestack start --log-level debug
 When using NodeStack as a library in TypeScript:
 
 ```typescript
-import { NodeStack } from 'nodestack';
+import { NodeStack } from '@nodestackapp/server';
 
 const app = new NodeStack({
   dataDir: './my_app_data',

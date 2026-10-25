@@ -27,7 +27,7 @@ For any collection:
 ## Example: Validation & Auto-Slugging
 
 ```typescript
-import { NodeStack } from 'nodestack';
+import { NodeStack } from '@nodestackapp/server';
 
 const app = new NodeStack({ dataDir: './nodestack_data' });
 

@@ -14,7 +14,7 @@ In addition to running as a standalone CLI server, NodeStack is an importable Ty
 ## Installation
 
 ```bash
-npm install nodestack
+npm install @nodestackapp/server
 ```
 
 ---
@@ -24,7 +24,7 @@ npm install nodestack
 Create an `index.ts` file:
 
 ```typescript
-import { NodeStack } from 'nodestack';
+import { NodeStack } from '@nodestackapp/server';
 
 const app = new NodeStack({
   dataDir: './nodestack_data',

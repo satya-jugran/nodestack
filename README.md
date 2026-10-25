@@ -48,7 +48,7 @@ NodeStack delivers an instant, complete backend stack in a **single Node.js proc
 ### 1. Launch with NPX (Instant Backend)
 
 ```bash
-npx nodestack start
+npx @nodestackapp/server start
 ```
 
 Visit **`http://localhost:8090/_/`** to complete the first-time admin setup and start designing your schema.
@@ -56,7 +56,7 @@ Visit **`http://localhost:8090/_/`** to complete the first-time admin setup and 
 ### 2. Create an Admin / Superuser via CLI
 
 ```bash
-npx nodestack superuser create admin@example.com MySecretPassword123!
+npx @nodestackapp/server superuser create admin@example.com MySecretPassword123!
 ```
 
 ---
@@ -66,7 +66,7 @@ npx nodestack superuser create admin@example.com MySecretPassword123!
 NodeStack is also an importable framework that integrates into your application:
 
 ```typescript
-import { NodeStack } from 'nodestack';
+import { NodeStack } from '@nodestackapp/server';
 
 const app = new NodeStack({
   dataDir: './nodestack_data',

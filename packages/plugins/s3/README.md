@@ -16,12 +16,12 @@ Official S3 & S3-compatible cloud storage plugin (AWS S3, Cloudflare R2, MinIO, 
 npm install @nodestackapp/plugin-s3
 ```
 
-*(Ensure `nodestack` is installed as a peer dependency: `npm install nodestack`)*
+*(Ensure `@nodestackapp/server` is installed as a peer dependency: `npm install @nodestackapp/server`)*
 
 ## Usage
 
 ```typescript
-import { NodeStack } from 'nodestack';
+import { NodeStack } from '@nodestackapp/server';
 import { s3StoragePlugin } from '@nodestackapp/plugin-s3';
 
 const app = new NodeStack();

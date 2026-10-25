@@ -16,7 +16,7 @@ NodeStack's underlying HTTP layer is powered by **Fastify**, the fastest web fra
 Use the `router` property on your `NodeStack` instance:
 
 ```typescript
-import { NodeStack } from 'nodestack';
+import { NodeStack } from '@nodestackapp/server';
 
 const app = new NodeStack();
 

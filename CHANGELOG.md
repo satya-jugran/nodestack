@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [2.0.0] - 2026-10-23
+## [2.0.0] - 2026-10-25
 
 Release v2.0.0 is a milestone major release introducing complete **Multi-Application Support** across the entire NodeStack ecosystem, upgrading to **TypeScript 7.0** and **Node.js 24+**, introducing generic **Application Snapshots & Checkpoints**, complete **System, Light, and Dark Theming** in the Admin Portal, and delivering a 1-click application lifecycle in the Web Admin Dashboard.
 

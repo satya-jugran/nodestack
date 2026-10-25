@@ -23,7 +23,7 @@ NodeStack includes a modular plugin architecture that allows packaging collectio
 ## Using a Plugin
 
 ```typescript
-import { NodeStack } from 'nodestack';
+import { NodeStack } from '@nodestackapp/server';
 import { s3StoragePlugin } from '@nodestack/plugin-s3';
 
 const app = new NodeStack();
@@ -45,7 +45,7 @@ await app.start();
 A plugin is simply a function that receives the `NodeStack` instance:
 
 ```typescript
-import { NodeStackPlugin } from 'nodestack';
+import { NodeStackPlugin } from '@nodestackapp/server';
 
 export const analyticsPlugin: NodeStackPlugin = (app, options) => {
   // 1. Hook into record creation

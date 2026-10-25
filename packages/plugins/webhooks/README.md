@@ -16,12 +16,12 @@ Official Discord & Slack realtime database mutation alerts and webhook audit log
 npm install @nodestackapp/plugin-webhooks
 ```
 
-*(Ensure `nodestack` is installed as a peer dependency: `npm install nodestack`)*
+*(Ensure `@nodestackapp/server` is installed as a peer dependency: `npm install @nodestackapp/server`)*
 
 ## Usage
 
 ```typescript
-import { NodeStack } from 'nodestack';
+import { NodeStack } from '@nodestackapp/server';
 import { webhookPlugin } from '@nodestackapp/plugin-webhooks';
 
 const app = new NodeStack();

@@ -16,12 +16,12 @@ Official Resend transactional email delivery and dispatch audit logging plugin f
 npm install @nodestackapp/plugin-resend
 ```
 
-*(Ensure `nodestack` is installed as a peer dependency: `npm install nodestack`)*
+*(Ensure `@nodestackapp/server` is installed as a peer dependency: `npm install @nodestackapp/server`)*
 
 ## Usage
 
 ```typescript
-import { NodeStack } from 'nodestack';
+import { NodeStack } from '@nodestackapp/server';
 import { resendPlugin, ResendEmailService } from '@nodestackapp/plugin-resend';
 
 const app = new NodeStack();

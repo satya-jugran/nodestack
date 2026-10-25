@@ -16,12 +16,12 @@ Official Stripe payments, checkout sessions, customer billing, and webhook integ
 npm install @nodestackapp/plugin-stripe
 ```
 
-*(Ensure `nodestack` is installed as a peer dependency: `npm install nodestack`)*
+*(Ensure `@nodestackapp/server` is installed as a peer dependency: `npm install @nodestackapp/server`)*
 
 ## Usage
 
 ```typescript
-import { NodeStack } from 'nodestack';
+import { NodeStack } from '@nodestackapp/server';
 import { stripePlugin } from '@nodestackapp/plugin-stripe';
 
 const app = new NodeStack();

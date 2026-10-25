@@ -16,12 +16,12 @@ Official Algolia instant search synchronization and automated index pipeline plu
 npm install @nodestackapp/plugin-algolia
 ```
 
-*(Ensure `nodestack` is installed as a peer dependency: `npm install nodestack`)*
+*(Ensure `@nodestackapp/server` is installed as a peer dependency: `npm install @nodestackapp/server`)*
 
 ## Usage
 
 ```typescript
-import { NodeStack } from 'nodestack';
+import { NodeStack } from '@nodestackapp/server';
 import { algoliaPlugin } from '@nodestackapp/plugin-algolia';
 
 const app = new NodeStack();
