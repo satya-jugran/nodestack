@@ -75,11 +75,11 @@ function renderWebhooksView() {
         </div>
         <div class="webhook-stat-card">
           <span class="webhook-stat-label">Success Rate</span>
-          <div class="webhook-stat-value" style="color: #34d399;" id="wh-stat-rate">100%</div>
+          <div class="webhook-stat-value" style="color: var(--accent-success);" id="wh-stat-rate">100%</div>
         </div>
         <div class="webhook-stat-card">
           <span class="webhook-stat-label">Failed Deliveries</span>
-          <div class="webhook-stat-value" style="color: #f87171;" id="wh-stat-failed">0</div>
+          <div class="webhook-stat-value" style="color: var(--accent-danger);" id="wh-stat-failed">0</div>
         </div>
       </div>
 
@@ -272,7 +272,7 @@ async function loadWebhooksList() {
                       <button class="btn btn-secondary btn-sm" data-id="${escapeHtml(wh.id)}" onclick="openEditWebhookModal(this.getAttribute('data-id'))" title="Edit Webhook" style="padding: 3px 8px; font-size: 11px;">
                         Edit
                       </button>
-                      <button class="btn btn-secondary btn-sm" data-id="${escapeHtml(wh.id)}" data-name="${escapeHtml(wh.name)}" onclick="handleDeleteWebhookClick(this)" title="Delete Webhook" style="padding: 3px 6px; font-size: 11px; color: #f87171;">
+                      <button class="btn btn-secondary btn-sm" data-id="${escapeHtml(wh.id)}" data-name="${escapeHtml(wh.name)}" onclick="handleDeleteWebhookClick(this)" title="Delete Webhook" style="padding: 3px 6px; font-size: 11px; color: var(--accent-danger);">
                         ✕
                       </button>
                     </div>
@@ -285,7 +285,7 @@ async function loadWebhooksList() {
       </div>
     `;
   } catch (err) {
-    content.innerHTML = `<div style="color:#f87171; padding:2rem; text-align:center;">Failed to load webhooks: ${escapeHtml(err.message || String(err))}</div>`;
+    content.innerHTML = `<div style="color: var(--accent-danger); padding:2rem; text-align:center;">Failed to load webhooks: ${escapeHtml(err.message || String(err))}</div>`;
   }
 }
 
@@ -342,7 +342,7 @@ async function loadWebhookDeliveries() {
       </div>
 
       <div>
-        <button class="btn btn-secondary btn-sm" onclick="clearAllDeliveryLogs()" style="color: #f87171; font-size: 11px; padding: 4px 8px;">
+        <button class="btn btn-secondary btn-sm" onclick="clearAllDeliveryLogs()" style="color: var(--accent-danger); font-size: 11px; padding: 4px 8px;">
           Clear Logs
         </button>
       </div>
@@ -437,7 +437,7 @@ async function fetchAndRenderDeliveriesRows() {
             <div style="font-family:'JetBrains Mono', monospace; font-size: 12px; color: var(--text-main); word-break: break-all;">
               ${escapeHtml(del.url)}
             </div>
-            ${del.error ? `<div style="font-size: 11px; color: #f87171; margin-top: 2px;">Error: ${escapeHtml(del.error)}</div>` : ''}
+            ${del.error ? `<div style="font-size: 11px; color: var(--accent-danger); margin-top: 2px;">Error: ${escapeHtml(del.error)}</div>` : ''}
           </td>
           <td>
             <div style="font-size: 12px; color: var(--text-main);">${del.durationMs}ms</div>
@@ -463,7 +463,7 @@ async function fetchAndRenderDeliveriesRows() {
       `;
     }).join('');
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="6" style="color:#f87171; text-align:center; padding:2rem;">Failed to fetch deliveries: ${escapeHtml(err.message || String(err))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="color: var(--accent-danger); text-align:center; padding:2rem;">Failed to fetch deliveries: ${escapeHtml(err.message || String(err))}</td></tr>`;
   }
 }
 
@@ -926,7 +926,7 @@ async function openDeliveryDetailDrawer(deliveryId) {
 
           <!-- Error Alert Banner (if failed) -->
           ${del.error ? `
-            <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 14px; font-size:12px; color:#f87171;">
+            <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 14px; font-size:12px; color: var(--accent-danger);">
               <strong>Delivery Error:</strong> ${escapeHtml(del.error)}
             </div>
           ` : ''}
@@ -945,7 +945,7 @@ async function openDeliveryDetailDrawer(deliveryId) {
           <!-- Outbound Request Card -->
           <div class="webhook-drawer-card">
             <div class="webhook-drawer-card-header">
-              <span style="font-size:11px; font-weight:700; text-transform:uppercase; color:#93c5fd;">Outbound Request</span>
+              <span style="font-size:11px; font-weight:700; text-transform:uppercase; color: var(--accent-primary);">Outbound Request</span>
               <button class="btn btn-secondary btn-sm" id="btn-copy-webhook-payload" onclick="handleCopyWebhookPayload()" style="padding:2px 8px; font-size:10px;">Copy Payload</button>
             </div>
             <div class="webhook-drawer-card-body">

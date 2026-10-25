@@ -600,19 +600,19 @@
             </div>
             <div class="modal-body">
               <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 1.25rem;">
-                <div style="font-weight: 600; font-size: 11px; color: #93c5fd; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">Or Start Fast With:</div>
+                <div style="font-weight: 600; font-size: 11px; color: var(--accent-primary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">Or Start Fast With:</div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                   <button type="button" class="btn btn-secondary btn-sm" onclick="openTemplatesModal()" style="display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 7px 10px; border-color: rgba(147, 197, 253, 0.25); text-align: left;">
                     <span style="font-size: 16px;">✨</span>
                     <div>
-                      <div style="font-weight: 600; font-size: 12px; color: #fff;">Starter Templates</div>
+                      <div style="font-weight: 600; font-size: 12px; color: var(--text-heading);">Starter Templates</div>
                       <div style="font-size: 10px; color: var(--text-muted);">E-Commerce, Blog, CRM</div>
                     </div>
                   </button>
                   <button type="button" class="btn btn-secondary btn-sm" onclick="openImportJsonModal()" style="display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 7px 10px; border-color: rgba(147, 197, 253, 0.25); text-align: left;">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#60a5fa;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     <div>
-                      <div style="font-weight: 600; font-size: 12px; color: #fff;">Paste JSON → Instant API</div>
+                      <div style="font-weight: 600; font-size: 12px; color: var(--text-heading);">Paste JSON → Instant API</div>
                       <div style="font-size: 10px; color: var(--text-muted);">Auto-infer schema in 1 second</div>
                     </div>
                   </button>
@@ -989,7 +989,7 @@
       previewContainer.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; border-bottom:1px solid var(--border-subtle); padding-bottom:0.5rem;">
           <div style="display:flex; align-items:center; gap:8px;">
-            <span style="font-weight:700; font-size:13px; color:#fff;">✓ ${parsedRecords.length} record${parsedRecords.length === 1 ? '' : 's'} detected</span>
+            <span style="font-weight:700; font-size:13px; color: var(--text-heading);">✓ ${parsedRecords.length} record${parsedRecords.length === 1 ? '' : 's'} detected</span>
             <span class="badge badge-get" style="font-size:11px;">${inferredFields.length} columns inferred</span>
           </div>
           <span style="font-size:11px; color:var(--text-muted);">Instant SQLite columns</span>
@@ -999,7 +999,7 @@
           ${inferredFields.map((f, idx) => `
             <div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg-card); padding:6px 10px; border-radius:6px; border:1px solid var(--border-subtle); font-size:12px;">
               <div style="display:flex; align-items:center; gap:8px; min-width:140px;">
-                <span style="font-family:monospace; font-weight:600; color:#fff;">${f.name}</span>
+                <span style="font-family:monospace; font-weight:600; color: var(--text-heading);">${f.name}</span>
                 ${f.originalKey !== f.name ? `<span style="font-size:10px; color:var(--text-muted); font-family:monospace;">(from "${f.originalKey}")</span>` : ''}
               </div>
               <div style="display:flex; align-items:center; gap:8px;">
@@ -1023,7 +1023,7 @@
         <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(59,130,246,0.2); border-radius:6px; padding:6px 10px; font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
           <div>
             <span style="color:#60a5fa; font-weight:600;">REST API ready:</span>
-            <code style="margin-left:6px; color:#fff;">GET /api/collections/${colName}/records</code>
+            <code style="margin-left:6px; color: var(--text-heading);">GET /api/collections/${colName}/records</code>
           </div>
           <span style="font-size:10px; color:#34d399;">● Full CRUD + Realtime + Docs</span>
         </div>
@@ -2052,9 +2052,9 @@
                     <div>
                       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.6rem;">
                         <span style="font-size:24px;">${t.icon}</span>
-                        <span class="badge" style="background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.15); font-size:11px; color:#fff;">${t.badge}</span>
+                        <span class="badge" style="background:var(--bg-hover-subtle); border-color:rgba(255,255,255,0.15); font-size:11px; color: var(--text-heading);">${t.badge}</span>
                       </div>
-                      <h3 style="font-size:16px; font-weight:700; margin-bottom:0.3rem; color:#fff;">${t.name}</h3>
+                      <h3 style="font-size:16px; font-weight:700; margin-bottom:0.3rem; color: var(--text-heading);">${t.name}</h3>
                       <p style="font-size:12px; color:var(--text-muted); line-height:1.4; margin-bottom:0.75rem;">${t.description}</p>
                       
                       <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:6px; padding:0.6rem; margin-bottom:0.5rem;">
@@ -2149,7 +2149,7 @@
                   ${t.icon}
                 </div>
                 <div>
-                  <h2 class="modal-title" style="font-size: 16px; margin: 0; color: #fff;">Confirm Template Launch: ${t.name}</h2>
+                  <h2 class="modal-title" style="font-size: 16px; margin: 0; color: var(--text-heading);">Confirm Template Launch: ${t.name}</h2>
                   <span style="font-size: 11px; color: var(--text-muted);">${t.badge}</span>
                 </div>
               </div>
@@ -2169,14 +2169,14 @@
                   ${t.collections.map(c => `
                     <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); padding-bottom: 0.35rem;">
                       <div>
-                        <strong style="color: #fff; font-family: var(--font-mono);">${c.name}</strong>
+                        <strong style="color: var(--text-heading); font-family: var(--font-mono);">${c.name}</strong>
                         <span style="color: var(--text-muted); font-size: 11px; margin-left: 6px;">(${c.desc})</span>
                       </div>
                       <span class="badge badge-get" style="font-size: 10px; flex-shrink: 0;">${c.count} records</span>
                     </div>
                   `).join('')}
                 </div>
-                <div style="margin-top: 0.6rem; font-size: 11px; color: #93c5fd;">
+                <div style="margin-top: 0.6rem; font-size: 11px; color: var(--accent-primary);">
                   ✨ ${t.stats}
                 </div>
               </div>
@@ -2187,7 +2187,7 @@
                     ⚠️ Existing Collections Detected
                   </div>
                   <div style="font-size: 12px; color: #cbd5e1; line-height: 1.4;">
-                    The following collection(s) already exist: <strong style="color:#fff;">${existingMatches.map(m => m.name).join(', ')}</strong>.
+                    The following collection(s) already exist: <strong style="color: var(--text-heading);">${existingMatches.map(m => m.name).join(', ')}</strong>.
                   </div>
                 </div>
               ` : ''}
@@ -2196,7 +2196,7 @@
                 <label style="display: flex; align-items: flex-start; gap: 0.6rem; font-size: 12px; color: var(--text-main); cursor: pointer;">
                   <input type="checkbox" id="confirm-template-overwrite" style="margin-top: 2px;">
                   <div>
-                    <strong style="color: #fff;">Overwrite existing collections if they match</strong>
+                    <strong style="color: var(--text-heading);">Overwrite existing collections if they match</strong>
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
                       If checked, matching tables and their records will be overwritten with the template data.
                     </div>
@@ -2288,7 +2288,7 @@
             </div>
             <div class="modal-body" style="padding:1.25rem; display:flex; flex-direction:column; gap:1rem;">
               <p style="font-size:13px; color:#cbd5e1; line-height:1.5; margin:0;">
-                Are you sure you want to permanently delete the collection <strong style="color:#fff; font-family:var(--font-mono);">${col.name}</strong>?
+                Are you sure you want to permanently delete the collection <strong style="color: var(--text-heading); font-family:var(--font-mono);">${col.name}</strong>?
               </p>
               <div style="background:rgba(239, 68, 68, 0.08); border:1px solid rgba(239, 68, 68, 0.25); border-radius:6px; padding:0.75rem; font-size:12px; color:#fca5a5; line-height:1.4;">
                 This will drop the SQLite table <strong style="font-family:var(--font-mono);">${col.name}</strong>, remove all schema definitions, and permanently erase all stored records and file assets.

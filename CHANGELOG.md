@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.0] - 2026-10-23
 
-Release v2.0.0 is a milestone major release introducing complete **Multi-Application Support** across the entire NodeStack ecosystem, upgrading to **TypeScript 7.0** and **Node.js 24+**, introducing generic **Application Snapshots & Checkpoints**, and delivering a 1-click application lifecycle in the Web Admin Dashboard.
+Release v2.0.0 is a milestone major release introducing complete **Multi-Application Support** across the entire NodeStack ecosystem, upgrading to **TypeScript 7.0** and **Node.js 24+**, introducing generic **Application Snapshots & Checkpoints**, complete **System, Light, and Dark Theming** in the Admin Portal, and delivering a 1-click application lifecycle in the Web Admin Dashboard.
 
 ### ⚠️ Breaking Changes
 * **Package Scope & Version**: The server package is published under `@nodestackapp/server` at major version `2.0.0` (alongside `nodestack-client@2.0.0` and official plugins `@nodestackapp/plugin-*@2.0.0`).
@@ -91,7 +91,7 @@ Release v2.0.0 is a milestone major release introducing complete **Multi-Applica
 * **CLI Tooling**:
   * Added `nodestack snapshots [list|create|restore|delete|clear]` with `--evict-oldest` flag support alongside backwards-compatible `nodestack demo` commands.
 
-#### 5. Security & Row-Level Access Rule Enforcement
+#### 6. Security & Row-Level Access Rule Enforcement
 * **Server-Side Row-Level List Rule Enforcement (`RecordService.getList`, `exportRecords`)**:
   * Implemented `RuleEngine.buildListFilter()` to dynamically resolve declarative access rules (e.g. `@request.auth.id != "" && user = @request.auth.id`) into parameterized SQL WHERE clauses against authenticated callers.
   * Replaced client-side privacy filters with strict server-side boundary enforcement: unauthenticated callers are blocked at the request gate, and authenticated clients cannot view, list, or export records belonging to other users even if custom client filters are submitted.
@@ -99,6 +99,20 @@ Release v2.0.0 is a milestone major release introducing complete **Multi-Applica
 * **E-Commerce Starter Template Hardening**:
   * Updated `orders` and `favorites` collections to enforce owner-scoped access rules (`listRule`, `viewRule`, `updateRule`, `deleteRule`: `@request.auth.id != "" && user = @request.auth.id`).
   * Updated `examples/ecommerce-react` (`OrdersModal.tsx`, `ProductModal.tsx`) to remove unsafe unauthenticated order querying and align with server-side owner scoping.
+
+#### 7. Admin Portal Appearance & Theming (System, Light, Dark)
+* **Tri-State Theme Switcher (`ThemeManager`)**:
+  * Seamless runtime switching between **Light** (☀️), **Dark** (🌙), and **System** (💻 Auto) modes.
+  * Persistent user preferences stored in `localStorage` (`nodestack_theme`) with automatic OS color-scheme synchronization via `window.matchMedia('(prefers-color-scheme: dark)')`.
+  * Dedicated 3-way segmented theme selector in the sidebar bottom navigation.
+  * Global Command Palette (`Ctrl + K` / `Cmd + K`) quick commands: `Theme: Light Mode`, `Theme: Dark Mode`, and `Theme: System (Auto)`.
+* **Zero-Flicker Loading (Anti-FOUC)**:
+  * Inlined `<head>` resolution script ensuring zero flash of unstyled content by resolving stored preferences and system settings prior to DOM paint and stylesheet execution.
+* **Dual-Palette Semantic Token Design System**:
+  * Dual semantic CSS variable palettes (`:root` / `html.dark` and `html.light`) providing WCAG-compliant high-contrast readability across all surfaces, cards, inputs, dialogs, and slide-over drawers.
+  * Light-mode optimized navigation states, high-contrast badges for HTTP verbs (`GET`, `POST`, `PATCH`, `DELETE`), system tables, application indicators, and JSON schema field types.
+* **Theme-Reactive SVG Analytics Charts**:
+  * Real-time chart re-rendering listening to custom `nodestack-theme-changed` events, updating axes, gridlines, data points, and tooltips dynamically without page reloads.
 
 ---
 

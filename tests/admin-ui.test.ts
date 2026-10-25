@@ -1692,3 +1692,78 @@ describe('Multi-Application Switcher UI (apps.js)', () => {
     expect(modalRoot?.innerHTML).toBe('');
   });
 });
+
+describe('Admin Portal Appearance & Theming (System, Light, Dark)', () => {
+  const uiDir = path.resolve(__dirname, '../src/admin/ui');
+
+  it('should bundle theme switcher, anti-flicker script, and dual palettes into HTML', () => {
+    const bundled = AdminUIBundler.bundle(uiDir);
+
+    // Anti-flicker script in head
+    expect(bundled).toContain("localStorage.getItem('nodestack_theme')");
+    expect(bundled).toContain('prefers-color-scheme: dark');
+
+    // Theme selector markup in sidebar
+    expect(bundled).toContain('id="sidebar-theme-selector"');
+    expect(bundled).toContain('id="theme-btn-light"');
+    expect(bundled).toContain('id="theme-btn-dark"');
+    expect(bundled).toContain('id="theme-btn-system"');
+
+    // Dual palette CSS tokens
+    expect(bundled).toContain('html.light {');
+    expect(bundled).toContain('--bg-main: #f8fafc;');
+    expect(bundled).toContain('--text-heading: #0f172a;');
+    expect(bundled).toContain('--chart-grid: rgba(0, 0, 0, 0.06);');
+
+    // ThemeManager in bundled script
+    expect(bundled).toContain('const ThemeManager = {');
+    expect(bundled).toContain('function setTheme(theme)');
+    expect(bundled).toContain('window.ThemeManager = ThemeManager');
+
+    // Command palette theme items
+    expect(bundled).toContain('Theme: Light Mode');
+    expect(bundled).toContain('Theme: Dark Mode');
+    expect(bundled).toContain('Theme: System (Auto)');
+  });
+
+  it('should switch themes dynamically and update DOM and localStorage', () => {
+    const bundledHtml = AdminUIBundler.bundle(uiDir);
+    const dom = new JSDOM(bundledHtml, {
+      runScripts: 'dangerously',
+      url: 'http://127.0.0.1:8090/_/',
+    });
+    const win = dom.window as any;
+    const doc = win.document;
+
+    expect(typeof win.setTheme).toBe('function');
+    expect(win.ThemeManager).toBeDefined();
+
+    // 1. Switch to Light
+    win.setTheme('light');
+    expect(doc.documentElement.classList.contains('light')).toBe(true);
+    expect(doc.documentElement.classList.contains('dark')).toBe(false);
+    expect(doc.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(win.localStorage.getItem('nodestack_theme')).toBe('light');
+
+    const lightBtn = doc.getElementById('theme-btn-light');
+    const darkBtn = doc.getElementById('theme-btn-dark');
+    expect(lightBtn?.classList.contains('active')).toBe(true);
+    expect(darkBtn?.classList.contains('active')).toBe(false);
+
+    // 2. Switch to Dark
+    win.setTheme('dark');
+    expect(doc.documentElement.classList.contains('dark')).toBe(true);
+    expect(doc.documentElement.classList.contains('light')).toBe(false);
+    expect(doc.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(win.localStorage.getItem('nodestack_theme')).toBe('dark');
+    expect(darkBtn?.classList.contains('active')).toBe(true);
+    expect(lightBtn?.classList.contains('active')).toBe(false);
+
+    // 3. Switch to System
+    win.setTheme('system');
+    expect(doc.documentElement.getAttribute('data-theme')).toBe('system');
+    expect(win.localStorage.getItem('nodestack_theme')).toBe('system');
+    const sysBtn = doc.getElementById('theme-btn-system');
+    expect(sysBtn?.classList.contains('active')).toBe(true);
+  });
+});

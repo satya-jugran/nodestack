@@ -42,7 +42,7 @@ function openPluginTesterDrawer(pluginId) {
           <div>Live Stripe Secret Key (<code>sk_live_...</code>) is configured. Creating checkout sessions will initiate REAL credit card transactions and monetary deductions!</div>
         </div>
       ` : `
-        <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.85rem; color: #93c5fd; font-size: 11px;">
+        <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.85rem; color: var(--accent-primary); font-size: 11px;">
           🛡️ <strong>Test Mode Active:</strong> Using Stripe test credentials (<code>sk_test_...</code>). Simulated charges will not debit real payment cards.
         </div>
       `}
@@ -206,7 +206,7 @@ function openPluginTesterDrawer(pluginId) {
       <div class="drawer-section-title">Plugin Workbench</div>
       <div class="drawer-card">
         <div style="font-size: 12.5px; color: var(--text-muted);">
-          Custom registered plugin: <code style="color: #60a5fa;">${escapeHtml(cleanId)}</code>
+          Custom registered plugin: <code style="color: var(--accent-primary);">${escapeHtml(cleanId)}</code>
         </div>
         <button class="btn btn-primary btn-sm" onclick="checkPluginTesterStatus('${escapeHtml(cleanId)}')" style="margin-top: 4px;">
           Check Extension Status
@@ -227,7 +227,7 @@ function openPluginTesterDrawer(pluginId) {
   );
   const isUnconfigured = activePluginNavItem && (activePluginNavItem.badge === 'UNCONFIGURED' || activePluginNavItem.badgeVariant === 'warning');
   const statusBadgeHtml = isUnconfigured
-    ? `<span class="badge badge-warning" style="font-size: 10px; background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);">● UNCONFIGURED</span>`
+    ? `<span class="badge badge-warning" style="font-size: 10px;">● UNCONFIGURED</span>`
     : `<span class="badge badge-success" style="font-size: 10px;">● ACTIVE</span>`;
 
   root.innerHTML = `
@@ -328,7 +328,7 @@ async function executePluginTest(actionFn) {
   const output = document.getElementById('plugin-tester-output');
   if (badge) {
     badge.textContent = 'Status: Executing...';
-    badge.style.color = '#60a5fa';
+    badge.style.color = 'var(--accent-primary)';
   }
   if (output) output.textContent = '// Sending request...';
   const start = performance.now();
@@ -338,7 +338,7 @@ async function executePluginTest(actionFn) {
     if (latency) latency.textContent = `${duration}ms`;
     if (badge) {
       badge.textContent = 'Status: 200 OK';
-      badge.style.color = '#34d399';
+      badge.style.color = 'var(--accent-success)';
     }
     if (output) output.textContent = JSON.stringify(data, null, 2);
     toast('Action completed successfully!', 'success');
@@ -347,7 +347,7 @@ async function executePluginTest(actionFn) {
     if (latency) latency.textContent = `${duration}ms`;
     if (badge) {
       badge.textContent = `Status: ${err.status ? err.status + ' Error' : 'Error'}`;
-      badge.style.color = '#ef4444';
+      badge.style.color = 'var(--accent-danger)';
     }
     const errPayload = err.data || { error: err.message };
     if (output) output.textContent = JSON.stringify(errPayload, null, 2);

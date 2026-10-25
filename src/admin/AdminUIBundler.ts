@@ -38,6 +38,7 @@ export class AdminUIBundler {
     if (fs.existsSync(jsDir)) {
       const jsFiles = [
         'state.js',
+        'theme.js',
         'api.js',
         'apps.js',
         'rules.js',

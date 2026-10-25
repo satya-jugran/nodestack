@@ -296,7 +296,7 @@
       let badgeHtml = '';
       if (r.mode === 'admin') badgeHtml = '<span class="badge" style="background:rgba(239,68,68,0.18); color:#fca5a5;">🔒 Admin Only</span>';
       else if (r.mode === 'public') badgeHtml = '<span class="badge" style="background:rgba(16,185,129,0.18); color:#6ee7b7;">🌐 Public</span>';
-      else if (r.mode === 'auth') badgeHtml = '<span class="badge" style="background:rgba(59,130,246,0.18); color:#93c5fd;">👤 Auth Users</span>';
+      else if (r.mode === 'auth') badgeHtml = '<span class="badge" style="background:rgba(59,130,246,0.18); color: var(--accent-primary);">👤 Auth Users</span>';
       else badgeHtml = '<span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24;">⚙ Custom Rule</span>';
 
       return `

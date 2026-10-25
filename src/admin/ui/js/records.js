@@ -171,7 +171,7 @@
               <span>Export</span>
               <span style="font-size:10px; margin-left:1px; opacity:0.7;">▾</span>
             </button>
-            <div id="export-dropdown-menu" style="display:none; position:absolute; right:0; top:calc(100% + 4px); background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:6px; box-shadow:0 10px 25px rgba(0,0,0,0.5); min-width:150px; z-index:100; padding:4px 0;">
+            <div id="export-dropdown-menu" style="display:none; position:absolute; right:0; top:calc(100% + 4px); background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:6px; box-shadow:var(--shadow-dropdown); min-width:150px; z-index:100; padding:4px 0;">
               <button class="dropdown-menu-item" onclick="exportData('csv')">
                 <span style="color:#60a5fa; font-weight:bold;">CSV</span> Export as CSV
               </button>
@@ -186,7 +186,7 @@
             <span>Import CSV</span>
           </button>
 
-          <button class="btn btn-secondary btn-sm" onclick="openMockDataModal()" title="1-Click Generate Mock Data (Built-in Faker Engine)" style="border-color: rgba(96, 165, 250, 0.4); color: #93c5fd;">
+          <button class="btn btn-secondary btn-sm" onclick="openMockDataModal()" title="1-Click Generate Mock Data (Built-in Faker Engine)" style="border-color: rgba(96, 165, 250, 0.4); color: var(--accent-primary);">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
             <span>Generate Mock Data</span>
           </button>
@@ -719,7 +719,7 @@
               <div class="drawer-field-item">
                 <div class="drawer-field-header">
                   <span class="drawer-field-name">id</span>
-                  <span class="badge" style="background:rgba(255,255,255,0.06); color:var(--text-muted);">system</span>
+                  <span class="badge" style="background:var(--bg-hover-subtle); color:var(--text-muted);">system</span>
                 </div>
                 <div class="drawer-field-value" style="display:flex; align-items:center; justify-content:space-between;">
                   <span class="id-pill">${safeRecId}</span>
@@ -730,7 +730,7 @@
               <div class="drawer-field-item">
                 <div class="drawer-field-header">
                   <span class="drawer-field-name">created</span>
-                  <span class="badge" style="background:rgba(255,255,255,0.06); color:var(--text-muted);">datetime</span>
+                  <span class="badge" style="background:var(--bg-hover-subtle); color:var(--text-muted);">datetime</span>
                 </div>
                 <div class="drawer-field-value" style="font-size:12px; color:var(--text-muted);">
                   ${new Date(rec.created).toLocaleString()} <span style="font-family:var(--font-mono); opacity:0.7;">(${escapeHtml(rec.created)})</span>
@@ -741,7 +741,7 @@
                 <div class="drawer-field-item">
                   <div class="drawer-field-header">
                     <span class="drawer-field-name">updated</span>
-                    <span class="badge" style="background:rgba(255,255,255,0.06); color:var(--text-muted);">datetime</span>
+                    <span class="badge" style="background:var(--bg-hover-subtle); color:var(--text-muted);">datetime</span>
                   </div>
                   <div class="drawer-field-value" style="font-size:12px; color:var(--text-muted);">
                     ${new Date(rec.updated).toLocaleString()} <span style="font-family:var(--font-mono); opacity:0.7;">(${escapeHtml(rec.updated)})</span>
@@ -756,14 +756,14 @@
                     <span class="badge badge-get">auth</span>
                   </div>
                   <div class="drawer-field-value" style="display:flex; align-items:center; justify-content:space-between;">
-                    <span style="font-family:var(--font-mono); color:#93c5fd;">${escapeHtml(rec.email || '—')}</span>
+                    <span style="font-family:var(--font-mono); color: var(--accent-primary);">${escapeHtml(rec.email || '—')}</span>
                     <button class="btn btn-secondary btn-sm" style="padding:2px 6px; font-size:11px;" data-email="${escapeHtml(rec.email || '')}" onclick="handleDrawerCopyEmail(this)">Copy</button>
                   </div>
                 </div>
                 <div class="drawer-field-item">
                   <div class="drawer-field-header">
                     <span class="drawer-field-name">verified</span>
-                    <span class="badge" style="background:rgba(255,255,255,0.06); color:var(--text-muted);">auth</span>
+                    <span class="badge" style="background:var(--bg-hover-subtle); color:var(--text-muted);">auth</span>
                   </div>
                   <div class="drawer-field-value">
                     <span class="badge ${rec.verified ? 'badge-get' : 'badge-delete'}">${rec.verified ? 'Verified' : 'Unverified'}</span>
@@ -772,7 +772,7 @@
                 <div class="drawer-field-item">
                   <div class="drawer-field-header">
                     <span class="drawer-field-name">emailVisibility</span>
-                    <span class="badge" style="background:rgba(255,255,255,0.06); color:var(--text-muted);">auth</span>
+                    <span class="badge" style="background:var(--bg-hover-subtle); color:var(--text-muted);">auth</span>
                   </div>
                   <div class="drawer-field-value">
                     <span class="badge ${rec.emailVisibility ? 'badge-get' : 'badge-delete'}">${rec.emailVisibility ? 'Public' : 'Hidden'}</span>
@@ -868,7 +868,7 @@
       }
 
       if (typeof val === 'number' || field.type === 'number') {
-        return `<span style="font-family:var(--font-mono); font-weight:600; color:#93c5fd;">${val}</span>`;
+        return `<span style="font-family:var(--font-mono); font-weight:600; color: var(--accent-primary);">${val}</span>`;
       }
 
       // Plain text or long text: display full inspection with copy button

@@ -61,8 +61,8 @@ function renderSnapshotsView() {
     <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border-subtle);">
       <div>
         <div style="display:flex; align-items:center; gap:10px;">
-          <h2 style="font-size:18px; font-weight:800; color:#fff; margin:0;">Application Snapshots</h2>
-          <span class="badge" style="font-size:11.5px; background:rgba(59, 130, 246, 0.12); border:1px solid rgba(59, 130, 246, 0.3); color:#60a5fa; font-weight:600; padding:2px 8px;">
+          <h2 style="font-size:18px; font-weight:800; color: var(--text-heading); margin:0;">Application Snapshots</h2>
+          <span class="badge" class="badge badge-primary" style="font-size:11.5px; font-weight:600; padding:2px 8px;">
             ${total} / ${maxLimit} Used
           </span>
         </div>
@@ -96,15 +96,15 @@ function renderSnapshotsView() {
       : 'Content modified';
 
     const statusBadge = isModified
-      ? `<span class="badge badge-post" style="font-size:11px; background:rgba(245, 158, 11, 0.15); border-color:rgba(245, 158, 11, 0.4); color:#fbbf24; padding:2px 8px;">Live Data Modified (${driftLabel})</span>`
-      : `<span class="badge badge-get" style="font-size:11px; background:rgba(16, 185, 129, 0.15); border-color:rgba(16, 185, 129, 0.4); color:#34d399; padding:2px 8px;">Live Matches Baseline</span>`;
+      ? `<span class="badge badge-warning" style="font-size:11px; padding:2px 8px;">Live Data Modified (${driftLabel})</span>`
+      : `<span class="badge badge-success" style="font-size:11px; padding:2px 8px;">Live Matches Baseline</span>`;
 
     activeCardHtml = `
       <div style="background: var(--bg-card); border: 1px solid rgba(59, 130, 246, 0.35); border-left: 3px solid #3b82f6; border-radius: 8px; padding: 1.1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
         <div>
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
             <span style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.06em;">Active Restore Baseline:</span>
-            <strong style="font-size: 15px; color: #fff;">${activeSnap.name}</strong>
+            <strong style="font-size: 15px; color: var(--text-heading);">${activeSnap.name}</strong>
             ${statusBadge}
           </div>
           <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
@@ -130,7 +130,7 @@ function renderSnapshotsView() {
     listHtml = `
       <div style="display:flex; flex-direction:column; gap:0.85rem;">
         <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
-          <h3 style="font-size:13.5px; font-weight:700; color:#fff; margin:0;">
+          <h3 style="font-size:13.5px; font-weight:700; color: var(--text-heading); margin:0;">
             Saved Checkpoints (${snapshots.length} of ${maxLimit})
           </h3>
           <span style="font-size:11.5px; color:var(--text-muted);">
@@ -149,7 +149,7 @@ function renderSnapshotsView() {
               <div style="background:var(--bg-card); border:1px solid ${isSnapActive ? 'rgba(59, 130, 246, 0.45)' : 'var(--border-subtle)'}; border-left:${isSnapActive ? '3px solid #3b82f6' : '1px solid var(--border-subtle)'}; border-radius:8px; padding:1rem 1.25rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem; transition:border-color 0.15s ease;">
                 <div style="flex:1; min-width:240px;">
                   <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                    <h4 style="font-size:14px; font-weight:700; color:#fff; margin:0;">${snap.name}</h4>
+                    <h4 style="font-size:14px; font-weight:700; color: var(--text-heading); margin:0;">${snap.name}</h4>
                     ${isSnapActive ? `<span class="badge badge-get" style="font-size:10px; padding:2px 6px;">Active Baseline</span>` : ''}
                     <code style="font-size:10.5px; color:var(--text-muted); background:var(--bg-input); padding:2px 6px; border-radius:4px; font-family:var(--font-mono);">${snap.id}</code>
                   </div>
@@ -160,7 +160,7 @@ function renderSnapshotsView() {
                   <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; font-size:11.5px; color:var(--text-muted);">
                     <span><strong style="color:#60a5fa;">${snap.totalRecords}</strong> records</span>
                     <span style="opacity:0.35;">•</span>
-                    <span><strong style="color:#fff;">${snap.totalCollections}</strong> collections</span>
+                    <span><strong style="color: var(--text-heading);">${snap.totalCollections}</strong> collections</span>
                     <span style="opacity:0.35;">•</span>
                     <span><strong style="color:#cbd5e1;">${snap.totalFiles}</strong> files (${storageKb} KB)</span>
                     <span style="opacity:0.35;">•</span>
@@ -186,7 +186,7 @@ function renderSnapshotsView() {
     // Empty State (no tacky icons)
     listHtml = `
       <div style="background: var(--bg-card); border: 1px dashed var(--border-subtle); border-radius: 8px; padding: 2.5rem 1.5rem; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
-        <h2 style="font-size: 16px; font-weight: 700; color: #fff; margin: 0;">No Snapshots Saved Yet</h2>
+        <h2 style="font-size: 16px; font-weight: 700; color: var(--text-heading); margin: 0;">No Snapshots Saved Yet</h2>
         <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin: 0; max-width: 480px;">
           Capture full application state snapshots of your database and storage files. Restore from any point in time without losing newer checkpoints.
         </p>
@@ -200,7 +200,7 @@ function renderSnapshotsView() {
   // 4. Feature Guide Card (clean and structured)
   const guideHtml = `
     <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.25rem;">
-      <h3 style="font-size: 13.5px; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">
+      <h3 style="font-size: 13.5px; font-weight: 700; color: var(--text-heading); margin-bottom: 0.75rem;">
         How Application Snapshots Work
       </h3>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
@@ -261,8 +261,8 @@ function updateDemoHomeCardUI() {
     card.innerHTML = `
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
         <div style="display:flex; align-items:center; gap:8px;">
-          <strong style="color:#fff; font-size:13px;">Snapshot: ${active.name}</strong>
-          <span class="badge" style="font-size:10px; background:rgba(59, 130, 246, 0.15); color:#60a5fa;">${total}/10 saved</span>
+          <strong style="color: var(--text-heading); font-size:13px;">Snapshot: ${active.name}</strong>
+          <span class="badge badge-primary" style="font-size:10px;">${total}/10 saved</span>
           ${statusPill}
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
@@ -279,7 +279,7 @@ function updateDemoHomeCardUI() {
     card.innerHTML = `
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
         <div>
-          <span style="color:#fff; font-size:13px; font-weight:600;">Application Snapshots & Checkpoints</span>
+          <span style="color: var(--text-heading); font-size:13px; font-weight:600;">Application Snapshots & Checkpoints</span>
           <span class="badge" style="font-size:10.5px; opacity:0.7; margin-left:6px;">No Snapshots Saved</span>
         </div>
         <button class="btn btn-secondary btn-sm" onclick="selectNav('snapshots')" style="padding:3px 9px; font-size:11px;">
@@ -306,7 +306,7 @@ function updateDemoSettingsUI() {
         </div>
         <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-subtle); padding-bottom:0.5rem;">
           <span style="color:var(--text-muted);">Active Baseline</span>
-          <strong style="color:#fff;">${active.name}</strong>
+          <strong style="color: var(--text-heading);">${active.name}</strong>
         </div>
         <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-subtle); padding-bottom:0.5rem;">
           <span style="color:var(--text-muted);">Created At</span>
@@ -347,14 +347,14 @@ function openCreateSnapshotModal() {
     const oldestDate = new Date(oldestSnapshot.createdAt).toLocaleString();
     limitWarningHtml = `
       <div style="background:rgba(239, 68, 68, 0.08); border:1px solid rgba(239, 68, 68, 0.3); border-radius:8px; padding:0.85rem 1rem;">
-        <div style="font-size:13px; font-weight:700; color:#f87171; margin-bottom:4px;">
+        <div style="font-size:13px; font-weight:700; color:var(--accent-danger); margin-bottom:4px;">
           Snapshot Capacity Limit Reached (${total} / ${maxLimit})
         </div>
         <div style="font-size:12px; color:#cbd5e1; line-height:1.4;">
           Taking this new snapshot will <strong>permanently delete the oldest snapshot</strong>:
         </div>
         <div style="margin-top:6px; background:rgba(0,0,0,0.25); border:1px solid rgba(239, 68, 68, 0.2); border-radius:6px; padding:6px 10px; font-size:11.5px;">
-          <strong style="color:#fff;">${oldestSnapshot.name}</strong> • ${oldestDate} (${oldestSnapshot.totalRecords} records)
+          <strong style="color: var(--text-heading);">${oldestSnapshot.name}</strong> • ${oldestDate} (${oldestSnapshot.totalRecords} records)
         </div>
       </div>
     `;
@@ -379,7 +379,7 @@ function openCreateSnapshotModal() {
           <div style="background:var(--bg-input); border:1px solid var(--border-subtle); border-radius:8px; padding:0.85rem 1rem; display:flex; align-items:center; justify-content:space-between;">
             <div>
               <div style="font-size:11px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Active Application State</div>
-              <div style="font-size:14px; font-weight:700; color:#fff; margin-top:2px;">${collectionsCount} Collections Active</div>
+              <div style="font-size:14px; font-weight:700; color: var(--text-heading); margin-top:2px;">${collectionsCount} Collections Active</div>
             </div>
             <span class="badge badge-get" style="font-size:11px;">SQLite WAL & Storage</span>
           </div>
@@ -465,7 +465,7 @@ function openEvictionConfirmationModal(name, description, oldest) {
 
           ${oldest ? `
             <div style="background:rgba(239, 68, 68, 0.08); border:1px solid rgba(239, 68, 68, 0.3); border-radius:8px; padding:0.85rem 1rem;">
-              <strong style="color:#fff; font-size:13px;">${oldest.name}</strong>
+              <strong style="color: var(--text-heading); font-size:13px;">${oldest.name}</strong>
               <div style="font-size:11.5px; color:var(--text-muted); margin-top:2px;">
                 Created: ${new Date(oldest.createdAt).toLocaleString()}
               </div>
@@ -537,18 +537,18 @@ function openRestoreSnapshotModal(snapshotId) {
 
         <div class="modal-body" style="display:flex; flex-direction:column; gap:1rem;">
           <div style="background:rgba(245, 158, 11, 0.08); border:1px solid rgba(245, 158, 11, 0.3); border-radius:8px; padding:0.85rem 1rem;">
-            <div style="font-size:13px; font-weight:700; color:#fbbf24; margin-bottom:4px;">
+            <div style="font-size:13px; font-weight:700; color:var(--accent-warning); margin-bottom:4px;">
               Restore checkpoint '${snap.name}'?
             </div>
             <div style="font-size:12px; color:#e2e8f0; line-height:1.4;">
-              Your live database and uploaded files will be reverted to this checkpoint taken on <strong style="color:#fff;">${snapTime}</strong>.
+              Your live database and uploaded files will be reverted to this checkpoint taken on <strong style="color: var(--text-heading);">${snapTime}</strong>.
             </div>
           </div>
 
           <div style="background:var(--bg-input); border:1px solid var(--border-subtle); border-radius:8px; padding:0.85rem 1rem; display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
             <div>
               <div style="font-size:11px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Collections</div>
-              <div style="font-size:15px; font-weight:700; color:#fff; margin-top:2px;">${snap.totalCollections} Collections</div>
+              <div style="font-size:15px; font-weight:700; color: var(--text-heading); margin-top:2px;">${snap.totalCollections} Collections</div>
             </div>
             <div>
               <div style="font-size:11px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Records</div>
@@ -556,7 +556,7 @@ function openRestoreSnapshotModal(snapshotId) {
             </div>
           </div>
 
-          <div style="font-size:12px; color:#34d399; background:rgba(16, 185, 129, 0.08); border:1px solid rgba(16, 185, 129, 0.25); border-radius:6px; padding:0.6rem 0.85rem;">
+          <div style="font-size:12px; color:var(--accent-success); background:var(--accent-success-subtle); border:1px solid var(--border-subtle); border-radius:6px; padding:0.6rem 0.85rem;">
             Safe restoration: Older and newer snapshots in your history will remain safe and unaffected.
           </div>
         </div>

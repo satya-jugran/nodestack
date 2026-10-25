@@ -94,13 +94,9 @@
   transition: all 0.15s ease;
 }
 
-.webhook-tab-btn:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.05);
-}
+.webhook-tab-btn:hover { color: var(--text-heading); background: var(--bg-hover-subtle); }
 
-.webhook-tab-btn.active {
-  color: #fff;
+.webhook-tab-btn.active { color: var(--text-heading);
   background: var(--bg-card-hover, #334155);
   border-color: var(--border-subtle, #475569);
 }
@@ -293,16 +289,16 @@
 }
 
 .webhook-drawer-card {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border-subtle, #334155);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   overflow: hidden;
 }
 
 .webhook-drawer-card-header {
-  background: #11141d;
+  background: var(--bg-card-hover);
   padding: 8px 14px;
-  border-bottom: 1px solid var(--border-subtle, #334155);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -333,4 +329,32 @@
 
 .webhook-status-dot.paused {
   background: #64748b;
+}
+
+/* Light Mode High-Contrast Webhooks Badges */
+html.light .badge-event {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+html.light .badge-signature {
+  background: #f3e8ff;
+  color: #7e22ce;
+  border-color: #e9d5ff;
+}
+html.light .badge-status-2xx {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #86efac;
+}
+html.light .badge-status-4xx {
+  background: #fef3c7;
+  color: #b45309;
+  border-color: #fde68a;
+}
+html.light .badge-status-5xx,
+html.light .badge-status-failed {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
 }

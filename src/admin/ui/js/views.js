@@ -24,13 +24,13 @@
             <!-- Core Header Status Line -->
             <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
               <div style="display: flex; align-items: center; gap: 0.75rem;">
-                <div style="width: 34px; height: 34px; border-radius: 8px; background: #0c0e14; border: 1px solid rgba(59, 130, 246, 0.4); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <div style="width: 34px; height: 34px; border-radius: 8px; background: var(--bg-main); border: 1px solid rgba(59, 130, 246, 0.4); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                   <img src="/_/icon.svg" width="22" height="22" alt="NodeStack" style="display: block;" />
                 </div>
                 <div>
                   <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-weight: 800; font-size: 15px; color: #fff; letter-spacing: -0.02em;">NodeStack Core</span>
-                    <span class="version-tag" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd; font-size: 10.5px;">v2.0.0</span>
+                    <span style="font-weight: 800; font-size: 15px; color: var(--text-heading); letter-spacing: -0.02em;">NodeStack Core</span>
+                    <span class="version-tag version-tag-accent">v2.0.0</span>
                     <span class="badge badge-get" style="font-size: 10.5px; display: inline-flex; align-items: center; gap: 5px;">
                       <span class="live-dot" style="width: 6px; height: 6px;"></span>
                       <span>Server Online</span>
@@ -44,7 +44,7 @@
             </div>
 
             <!-- Demo State Notification Bar (populated dynamically by demo.js) -->
-            <div id="demo-state-home-card" style="border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 0.55rem;">
+            <div id="demo-state-home-card" style="border-top: 1px solid var(--border-subtle); padding-top: 0.55rem;">
               <!-- Populated dynamically by demo.js -->
             </div>
           </div>
@@ -62,7 +62,7 @@
                   </div>
                   <span style="font-size: 11px; color: #60a5fa; font-weight: 600;">View ➔</span>
                 </div>
-                <div style="font-size: 22px; font-weight: 800; color: #fff;" id="home-stat-collections">${collectionsCount}</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-collections">${collectionsCount}</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Registered tables</div>
               </div>
 
@@ -72,7 +72,7 @@
                   <span style="font-size: 13px;">📝</span>
                   <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Total Records</span>
                 </div>
-                <div style="font-size: 22px; font-weight: 800; color: #60a5fa;" id="home-stat-records">--</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--accent-primary);" id="home-stat-records">--</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Active database rows</div>
               </div>
 
@@ -82,7 +82,7 @@
                   <span style="font-size: 13px;">💾</span>
                   <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Storage Size</span>
                 </div>
-                <div style="font-size: 22px; font-weight: 800; color: #34d399;" id="home-stat-size">--</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--accent-success);" id="home-stat-size">--</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">data.db + WAL journal</div>
               </div>
 
@@ -92,7 +92,7 @@
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#c084fc;"><path d="M4.93 4.93a10 10 0 0 0 0 14.14M8.46 8.46a5 5 0 0 0 0 7.08M12 12h.01"/></svg>
                   <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Realtime Streams</span>
                 </div>
-                <div style="font-size: 22px; font-weight: 800; color: #c084fc;" id="home-stat-realtime">--</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--accent-info);" id="home-stat-realtime">--</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Connected SSE clients</div>
               </div>
 
@@ -105,7 +105,7 @@
                   </div>
                   <span style="font-size: 11px; color: #f59e0b; font-weight: 600;">View ➔</span>
                 </div>
-                <div style="font-size: 22px; font-weight: 800; color: #f59e0b;" id="home-stat-webhooks">${webhooksInitial}</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--accent-warning);" id="home-stat-webhooks">${webhooksInitial}</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-webhooks-sub">Endpoints & deliveries</div>
               </div>
 
@@ -118,24 +118,24 @@
                   </div>
                   <span style="font-size: 11px; color: #38bdf8; font-weight: 600;">View ➔</span>
                 </div>
-                <div style="font-size: 22px; font-weight: 800; color: #38bdf8;" id="home-stat-plugins">${pluginsInitial}</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--accent-primary);" id="home-stat-plugins">${pluginsInitial}</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-plugins-sub">Active extensions</div>
               </div>
             </div>
 
             <!-- Bottom: Integrated 24h Telemetry Strip -->
-            <div style="background: rgba(0, 0, 0, 0.25); border-top: 1px solid var(--border-subtle); padding: 0.65rem 1.15rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+            <div style="background: var(--bg-hover-subtle); border-top: 1px solid var(--border-subtle); padding: 0.65rem 1.15rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
               <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <span style="font-size: 13px;">📊</span>
-                  <span style="font-size: 11px; font-weight: 700; color: #fff; text-transform: uppercase; letter-spacing: 0.04em;">24h Telemetry</span>
+                  <span style="font-size: 11px; font-weight: 700; color: var(--text-heading); text-transform: uppercase; letter-spacing: 0.04em;">24h Telemetry</span>
                   <span class="badge badge-status-200" style="font-size: 9.5px; padding: 1px 5px;">Live</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; font-size: 12px; color: var(--text-muted);">
-                  <span>Requests: <strong id="home-snap-requests" style="color: #fff; font-family: var(--font-mono); font-weight: 700;">--</strong></span>
-                  <span>Latency: <strong id="home-snap-latency" style="color: #60a5fa; font-family: var(--font-mono); font-weight: 700;">--</strong></span>
-                  <span>Error Rate: <strong id="home-snap-errors" style="color: #34d399; font-family: var(--font-mono); font-weight: 700;">--</strong></span>
-                  <span>Peak: <strong id="home-snap-peak" style="color: #c084fc; font-family: var(--font-mono); font-weight: 700;">--</strong></span>
+                  <span>Requests: <strong id="home-snap-requests" style="color: var(--text-heading); font-family: var(--font-mono); font-weight: 700;">--</strong></span>
+                  <span>Latency: <strong id="home-snap-latency" style="color: var(--accent-primary); font-family: var(--font-mono); font-weight: 700;">--</strong></span>
+                  <span>Error Rate: <strong id="home-snap-errors" style="color: var(--accent-success); font-family: var(--font-mono); font-weight: 700;">--</strong></span>
+                  <span>Peak: <strong id="home-snap-peak" style="color: var(--accent-info); font-family: var(--font-mono); font-weight: 700;">--</strong></span>
                 </div>
               </div>
               <button class="btn btn-secondary btn-sm" onclick="selectNav('analytics')" style="padding: 2px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="Open in-depth analytics">
@@ -158,7 +158,7 @@
                     All Recipes ➔
                   </button>
                 </div>
-                <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 0.2rem;">Schema Creation & Recipes</h4>
+                <h4 style="font-size: 14px; font-weight: 700; color: var(--text-heading); margin: 0 0 0.2rem;">Schema Creation & Recipes</h4>
                 <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4; margin: 0;">
                   Design a new table schema from scratch, launch pre-seeded templates, or auto-infer structures from JSON.
                 </p>
@@ -193,7 +193,7 @@
                   </div>
                   <span class="badge badge-get" style="font-size: 10px;">SDK & API</span>
                 </div>
-                <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 0.2rem;">TypeGen & API Endpoints</h4>
+                <h4 style="font-size: 14px; font-weight: 700; color: var(--text-heading); margin: 0 0 0.2rem;">TypeGen & API Endpoints</h4>
                 <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4; margin: 0;">
                   End-to-end type generation and connection URLs for client applications.
                 </p>
@@ -203,7 +203,7 @@
                 <!-- Tool Row 1: TypeGen -->
                 <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.65rem 0.9rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
                   <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 12.5px; font-weight: 700; color: #fff;">TypeScript TypeGen</span>
+                    <span style="font-size: 12.5px; font-weight: 700; color: var(--text-heading);">TypeScript TypeGen</span>
                     <span class="badge badge-get" style="font-size: 10px; padding: 1px 6px;">types.d.ts</span>
                   </div>
                   <div style="display: flex; align-items: center; gap: 6px;">
@@ -215,11 +215,9 @@
                 <!-- Tool Row 2: API Endpoints -->
                 <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.65rem 0.9rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
                   <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
-                    <span style="font-size: 12.5px; font-weight: 700; color: #fff; white-space: nowrap;">API Base</span>
+                    <span style="font-size: 12.5px; font-weight: 700; color: var(--text-heading); white-space: nowrap;">API Base</span>
                     <span class="badge badge-post" style="font-size: 10px; padding: 1px 6px; white-space: nowrap;">REST + SSE</span>
-                    <code style="background: rgba(0,0,0,0.3); padding: 2px 8px; border-radius: 4px; font-family: var(--font-mono); font-size: 11px; color: #93c5fd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${window.location.origin}/api">
-                      ${window.location.origin}/api
-                    </code>
+                    <code class="code-badge" title="${window.location.origin}/api">${window.location.origin}/api</code>
                   </div>
                   <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
                     <button class="btn btn-secondary btn-sm" style="padding: 3px 9px; font-size: 11.5px;" onclick="copyToClipboard('${window.location.origin}/api', this)" title="Copy REST API URL">Copy API</button>
@@ -530,7 +528,7 @@
                 const newVal = fieldDiff?.new;
                 return `
                   <span style="display:inline-flex; align-items:center; gap:4px; margin:2px 4px; font-size:11px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px;">
-                    <strong style="color:#e2e8f0;">${escapeHtml(k)}:</strong>
+                    <strong style="color:var(--text-heading);">${escapeHtml(k)}:</strong>
                     <span class="audit-diff-val-old">${formatAuditValue(oldVal)}</span>
                     <span class="audit-diff-arrow">➔</span>
                     <span class="audit-diff-val-new">${formatAuditValue(newVal)}</span>
@@ -547,7 +545,7 @@
               <td><span class="badge badge-post">${safeCol}</span></td>
               <td><span class="id-pill" title="${safeRecId}">${safeRecId}</span></td>
               <td>
-                <span style="color:#93c5fd; font-size:12px; font-weight:600;" title="${escapeHtml(log.authCollection || '')}">
+                <span style="color: var(--accent-primary); font-size:12px; font-weight:600;" title="${escapeHtml(log.authCollection || '')}">
                   ${escapeHtml(actorText)}
                 </span>
               </td>
@@ -560,7 +558,7 @@
           `;
         }).join('');
       } catch (err) {
-        tb.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:2rem;color:#fca5a5;">Failed to load audit logs: ${escapeHtml(err.message)}</td></tr>`;
+        tb.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--accent-danger);">Failed to load audit logs: ${escapeHtml(err.message)}</td></tr>`;
       }
     }
 

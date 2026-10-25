@@ -105,11 +105,11 @@ function renderPluginView(item) {
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
           <div style="background: rgba(0,0,0,0.2); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
             <div style="font-size: 11px; color: var(--text-muted);">Plugin ID</div>
-            <div style="font-size: 13px; font-weight: 600; color: #60a5fa; font-family: monospace;">${escapeHtml(item.id)}</div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--accent-primary); font-family: monospace;">${escapeHtml(item.id)}</div>
           </div>
           <div style="background: rgba(0,0,0,0.2); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
             <div style="font-size: 11px; color: var(--text-muted);">Lifecycle State</div>
-            <div style="font-size: 13px; font-weight: 600; color: #34d399;">Active & Mounted</div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--accent-success);">Active & Mounted</div>
           </div>
         </div>
       </div>
@@ -120,12 +120,12 @@ function renderPluginView(item) {
     <div id="plugin-overview-card-${escapeHtml(item.id)}" style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
       <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
         <div style="display: flex; align-items: center; gap: 0.75rem;">
-          <div style="width: 40px; height: 40px; border-radius: 10px; background: #0c0e14; border: 1px solid rgba(59, 130, 246, 0.4); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+          <div style="width: 40px; height: 40px; border-radius: 10px; background: var(--bg-main); border: 1px solid rgba(59, 130, 246, 0.4); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
             <span style="font-size: 20px;">🧩</span>
           </div>
           <div>
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span id="plugin-overview-title-${escapeHtml(item.id)}" style="font-weight: 800; font-size: 16px; color: #fff;">${escapeHtml(title)}</span>
+              <span id="plugin-overview-title-${escapeHtml(item.id)}" style="font-weight: 800; font-size: 16px; color: var(--text-heading);">${escapeHtml(title)}</span>
               <span id="plugin-overview-badge-${escapeHtml(item.id)}">${item.badge ? `<span class="badge ${item.badgeVariant ? 'badge-' + item.badgeVariant : 'badge-get'}">${escapeHtml(item.badge)}</span>` : ''}</span>
             </div>
             <div id="plugin-overview-desc-${escapeHtml(item.id)}" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
@@ -216,11 +216,11 @@ function syncPluginOverview(pluginId, fields) {
           </div>
           <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
             <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Region</div>
-            <div style="font-size: 13px; font-weight: 700; color: #34d399; font-family: monospace; margin-top: 4px;">${escapeHtml(curRegion)}</div>
+            <div style="font-size: 13px; font-weight: 700; color: var(--accent-success); font-family: monospace; margin-top: 4px;">${escapeHtml(curRegion)}</div>
           </div>
           <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem;">
             <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Tracking Collection</div>
-            <div style="font-size: 13px; font-weight: 700; color: #eab308; font-family: monospace; margin-top: 4px;">_s3_uploads</div>
+            <div style="font-size: 13px; font-weight: 700; color: var(--accent-warning); font-family: monospace; margin-top: 4px;">_s3_uploads</div>
           </div>
         </div>
       `;
@@ -306,7 +306,7 @@ async function loadPluginConfig(pluginId) {
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.85rem;">
           <div>
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-weight: 800; font-size: 15px; color: #fff;">⚙️ Configuration & Credentials</span>
+              <span style="font-weight: 800; font-size: 15px; color: var(--text-heading);">⚙️ Configuration & Credentials</span>
               <span class="badge badge-info" style="font-size: 10.5px;">Option B Precedence</span>
             </div>
             <div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">
@@ -314,8 +314,8 @@ async function loadPluginConfig(pluginId) {
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 11.5px;">
-            <span class="badge" style="background: rgba(30,41,59,0.8); border: 1px solid rgba(148,163,184,0.25); color: #94a3b8;">🔒 ${lockedCount} Locked</span>
-            <span class="badge" style="background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #34d399;">✏️ ${editableCount} Editable</span>
+            <span class="badge badge-secondary">🔒 ${lockedCount} Locked</span>
+            <span class="badge badge-success">✏️ ${editableCount} Editable</span>
           </div>
         </div>
 
@@ -326,19 +326,19 @@ async function loadPluginConfig(pluginId) {
             return `
               <div style="background: var(--bg-input); border: 1px solid ${isLocked ? 'rgba(255,255,255,0.06)' : 'var(--border-subtle)'}; border-radius: 8px; padding: 0.85rem 1rem; display: flex; flex-direction: column; gap: 0.45rem;">
                 <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
-                  <label style="font-size: 12.5px; font-weight: 700; color: #fff;" for="${fieldId}">
+                  <label style="font-size: 12.5px; font-weight: 700; color: var(--text-heading);" for="${fieldId}">
                     ${escapeHtml(field.label)} ${field.required ? '<span style="color:#ef4444;">*</span>' : ''}
                   </label>
                   ${isLocked ? `
-                    <span class="badge" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(148,163,184,0.3); color: #94a3b8; font-size: 10px; padding: 2px 6px;" title="${escapeHtml(field.lockReason || 'Locked')}">
+                    <span class="badge badge-secondary" style="font-size: 10px; padding: 2px 6px;" title="${escapeHtml(field.lockReason || 'Locked')}">
                       🔒 ENV LOCKED
                     </span>
                   ` : (field.source === 'db' ? `
-                    <span class="badge" style="background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #34d399; font-size: 10px; padding: 2px 6px;">
+                    <span class="badge badge-success" style="font-size: 10px; padding: 2px 6px;">
                       ✏️ DATABASE OVERRIDE
                     </span>
                   ` : `
-                    <span class="badge" style="background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); color: #60a5fa; font-size: 10px; padding: 2px 6px;">
+                    <span class="badge badge-primary" style="font-size: 10px; padding: 2px 6px;">
                       ✏️ ${field.source === 'code' ? 'CODE DEFAULT' : 'DEFAULT'}
                     </span>
                   `)}
@@ -347,7 +347,7 @@ async function loadPluginConfig(pluginId) {
                 ${isLocked ? `
                   ${field.type === 'select' ? `
                     <select class="form-input" disabled
-                      style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.35); font-size: 12.5px; border-color: rgba(255,255,255,0.06); color: #fff;">
+                      style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.35); font-size: 12.5px; border-color: rgba(255,255,255,0.06); color: var(--text-heading);">
                       ${field.value !== undefined && !(field.options || []).some(opt => String(typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt) === String(field.value)) ? `
                         <option value="${escapeHtml(String(field.value))}" selected>${escapeHtml(String(field.value))}</option>
                       ` : ''}
@@ -368,11 +368,11 @@ async function loadPluginConfig(pluginId) {
                 ` : (field.type === 'boolean' ? `
                   <div style="display: flex; align-items: center; gap: 0.5rem; height: 36px;">
                     <input type="checkbox" id="${fieldId}" ${field.value ? 'checked' : ''} style="cursor: pointer; width: 18px; height: 18px;" />
-                    <label for="${fieldId}" style="font-size: 12.5px; color: #e2e8f0; cursor: pointer;">Enabled</label>
+                    <label for="${fieldId}" style="font-size: 12.5px; color: var(--text-main); cursor: pointer;">Enabled</label>
                   </div>
                 ` : (field.type === 'select' ? `
                   <select class="form-input" id="${fieldId}"
-                    style="cursor: pointer; font-size: 12.5px; background: var(--bg-card); color: #fff;">
+                    style="cursor: pointer; font-size: 12.5px; background: var(--bg-card); color: var(--text-heading);">
                     ${!field.required && !(field.options || []).some(opt => (typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt) === '') ? `
                       <option value="" ${field.value === undefined || field.value === '' ? 'selected' : ''}>${escapeHtml(field.placeholder || '-- Select an option --')}</option>
                     ` : (field.placeholder && (field.value === undefined || field.value === '') ? `
@@ -391,7 +391,7 @@ async function loadPluginConfig(pluginId) {
                     autocomplete="new-password"
                     style="font-family: monospace; font-size: 12.5px;" />
                   ${field.hasValue ? `
-                    <div style="font-size: 10.5px; color: #34d399; display: flex; align-items: center; gap: 4px; margin-top: 2px;">
+                    <div style="font-size: 10.5px; color: var(--accent-success); display: flex; align-items: center; gap: 4px; margin-top: 2px;">
                       <span>✓</span> <span>Secret is configured. Leave blank to keep existing secret.</span>
                     </div>
                   ` : ''}
@@ -623,7 +623,7 @@ function renderPluginsHubView() {
     <div class="hub-hero-banner">
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
         <div>
-          <h2 style="font-size:18px; font-weight:800; color:#fff; letter-spacing:-0.02em;">Installed Extensions & Plugins Hub</h2>
+          <h2 style="font-size:18px; font-weight:800; color: var(--text-heading); letter-spacing:-0.02em;">Installed Extensions & Plugins Hub</h2>
           <p style="font-size:12px; color:var(--text-muted); margin-top:3px;">
             Modular official plugins extending NodeStack with Stripe payments, S3 cloud storage, Resend emails, Webhooks, and Algolia search.
           </p>
@@ -636,11 +636,11 @@ function renderPluginsHubView() {
       <div class="hub-stats-row" style="margin-top:0.5rem;">
         <div class="hub-stat-card">
           <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Active Extensions</span>
-          <span style="font-size:20px; font-weight:800; color:#60a5fa;">${items.length}</span>
+          <span style="font-size:20px; font-weight:800; color:var(--accent-primary);">${items.length}</span>
         </div>
         <div class="hub-stat-card">
           <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Architecture</span>
-          <span style="font-size:13px; font-weight:700; color:#34d399; margin-top:4px;">app.use(plugin)</span>
+          <span style="font-size:13px; font-weight:700; color:var(--accent-success); margin-top:4px;">app.use(plugin)</span>
         </div>
         <div class="hub-stat-card">
           <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Official Catalog</span>
@@ -694,7 +694,7 @@ function renderPluginsHubView() {
     ` : `
       <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:10px; padding:1.25rem; text-align:center; color:var(--text-muted); margin-bottom:1.5rem;">
         <div style="font-size:22px; margin-bottom:0.25rem;">🧩</div>
-        <div style="font-weight:700; font-size:14px; color:#fff;">No Extensions Currently Active</div>
+        <div style="font-weight:700; font-size:14px; color: var(--text-heading);">No Extensions Currently Active</div>
         <div style="font-size:12px; margin-top:4px;">Enable any of the official community extensions below with 1-click, or mount custom plugins using <code>app.use(plugin)</code> in code.</div>
       </div>
     `}

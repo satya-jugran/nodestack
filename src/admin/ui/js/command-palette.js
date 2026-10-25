@@ -322,6 +322,47 @@ function getAllCommandPaletteItems() {
     }
   });
 
+
+  // 9. Appearance & Theme
+  items.push({
+    id: 'theme-system',
+    title: 'Theme: System (Auto)',
+    description: 'Sync admin appearance with your operating system preference',
+    category: 'Appearance',
+    badge: 'THEME',
+    icon: '💻',
+    keywords: ['theme', 'appearance', 'system', 'auto', 'mode', 'color'],
+    action: () => {
+      if (typeof setTheme === 'function') setTheme('system');
+    }
+  });
+
+  items.push({
+    id: 'theme-light',
+    title: 'Theme: Light Mode',
+    description: 'Switch admin portal to clean light appearance',
+    category: 'Appearance',
+    badge: 'THEME',
+    icon: '☀️',
+    keywords: ['theme', 'appearance', 'light', 'white', 'day', 'mode', 'color'],
+    action: () => {
+      if (typeof setTheme === 'function') setTheme('light');
+    }
+  });
+
+  items.push({
+    id: 'theme-dark',
+    title: 'Theme: Dark Mode',
+    description: 'Switch admin portal to dark night appearance',
+    category: 'Appearance',
+    badge: 'THEME',
+    icon: '🌙',
+    keywords: ['theme', 'appearance', 'dark', 'black', 'night', 'mode', 'color'],
+    action: () => {
+      if (typeof setTheme === 'function') setTheme('dark');
+    }
+  });
+
   return items;
 }
 

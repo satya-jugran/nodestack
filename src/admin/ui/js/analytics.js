@@ -17,17 +17,17 @@ function renderAnalyticsView() {
       <div class="analytics-top-header">
         <div class="analytics-header-title">
           <h2>Analytics</h2>
-          <span id="analytics-app-badge" class="badge" style="font-size: 11px; padding: 2px 8px; background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3);">
+          <span id="analytics-app-badge" class="badge badge-app-active">
             ${typeof state !== 'undefined' && state.activeApp ? escapeHtml(state.activeApp.name) : 'Default App'}
           </span>
           <span class="analytics-status-tag">
             <span class="live-pulse-dot"></span>
             <span>Realtime Active</span>
           </span>
-          <span class="analytics-status-tag" id="analytics-uptime-tag" style="background: rgba(99, 102, 241, 0.1); border-color: rgba(99, 102, 241, 0.25); color: #a5b4fc;" title="Server Process Uptime">
+          <span class="analytics-uptime-tag" id="analytics-uptime-tag" title="Server Process Uptime">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block; vertical-align:-1px; margin-right:3px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            <span style="color: var(--text-muted); font-size: 11px; font-weight: 500;">Uptime:</span>
-            <span id="analytics-uptime-val" style="font-family: var(--font-mono); font-weight: 600;">--</span>
+            <span class="uptime-label">Uptime:</span>
+            <span id="analytics-uptime-val" class="uptime-val">--</span>
           </span>
         </div>
         <div style="display: flex; align-items: center; gap: 0.75rem;">
@@ -111,7 +111,7 @@ function renderAnalyticsView() {
           </div>
           <div class="analytics-card-sub">
             <span id="kpi-traffic-error-rate">Error Rate: --</span>
-            <span id="kpi-traffic-latency" style="color:#93c5fd; font-family:var(--font-mono); font-size:11px;">-- ms avg</span>
+            <span id="kpi-traffic-latency" style="color: var(--accent-primary); font-family:var(--font-mono); font-size:11px;">-- ms avg</span>
           </div>
         </div>
       </div>
@@ -152,7 +152,7 @@ function renderAnalyticsView() {
               <p>Percentage and volume of 4xx client and 5xx server errors</p>
             </div>
             <div class="chart-summary-stat">
-              <div class="stat-num" id="error-rate-avg-stat" style="color:#f87171;">--%</div>
+              <div class="stat-num" id="error-rate-avg-stat" style="color:var(--accent-danger);">--%</div>
               <div class="stat-lbl">24h Error Rate</div>
             </div>
           </div>
@@ -169,7 +169,7 @@ function renderAnalyticsView() {
       <div class="collections-distribution-panel">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
           <div>
-            <h3 style="font-size:15px; font-weight:700; color:#fff;">Collections Storage Breakdown</h3>
+            <h3 style="font-size:15px; font-weight:700; color: var(--text-heading);">Collections Storage Breakdown</h3>
             <p style="font-size:12px; color:var(--text-muted); margin-top:2px;">Record distribution across all schema tables</p>
           </div>
           <button class="btn btn-secondary btn-sm" onclick="selectNav('home')">View All Collections ➔</button>
@@ -279,9 +279,9 @@ function updateAnalyticsUI(data) {
   if (kpiErrorRate) {
     const rate = data.traffic24h?.overallErrorRate || 0;
     const errors = data.traffic24h?.totalErrors || 0;
-    let color = '#34d399';
-    if (rate > 5) color = '#f87171';
-    else if (rate > 1) color = '#fbbf24';
+    let color = 'var(--accent-success)';
+    if (rate > 5) color = 'var(--accent-danger)';
+    else if (rate > 1) color = 'var(--accent-warning)';
     kpiErrorRate.innerHTML = `Error Rate: <strong style="color:${color};">${rate}%</strong> (${errors} err)`;
   }
   const kpiLatency = document.getElementById('kpi-traffic-latency');
@@ -299,7 +299,7 @@ function updateAnalyticsUI(data) {
   if (errorStat) {
     const rate = data.traffic24h?.overallErrorRate || 0;
     errorStat.textContent = `${rate}%`;
-    errorStat.style.color = rate > 5 ? '#f87171' : rate > 1 ? '#fbbf24' : '#34d399';
+    errorStat.style.color = rate > 5 ? 'var(--accent-danger)' : rate > 1 ? 'var(--accent-warning)' : 'var(--accent-success)';
   }
 
   // 6. Draw Charts
@@ -319,7 +319,7 @@ function updateAnalyticsUI(data) {
         const pct = total > 0 ? ((item.count / total) * 100).toFixed(1) : 0;
         return `
           <tr>
-            <td style="font-weight:600; color:#fff;">
+            <td style="font-weight:600; color: var(--text-heading);">
               <span style="cursor:pointer;" onclick="selectCollection('${item.collection}')">${item.collection}</span>
             </td>
             <td><span class="collection-badge">${item.type}</span></td>
@@ -365,8 +365,8 @@ function drawThroughputChart(series) {
   const gridLines = yTicks.map((val) => {
     const y = padTop + chartH - (val / maxVal) * chartH;
     return `
-      <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3,3" />
-      <text x="${padLeft - 8}" y="${y + 4}" fill="#6b7280" font-size="10" text-anchor="end" font-family="var(--font-mono)">${val}</text>
+      <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="var(--chart-grid)" stroke-dasharray="3,3" />
+      <text x="${padLeft - 8}" y="${y + 4}" fill="var(--text-muted)" font-size="10" text-anchor="end" font-family="var(--font-mono)">${val}</text>
     `;
   }).join('');
 
@@ -400,7 +400,7 @@ function drawThroughputChart(series) {
     // Only label every 3rd hour on X-axis for clean readability
     if (i % 3 === 0 || i === series.length - 1) {
       bars.push(`
-        <text x="${cx}" y="${height - 8}" fill="#9ca3af" font-size="10" text-anchor="middle" font-family="var(--font-mono)">
+        <text x="${cx}" y="${height - 8}" fill="var(--text-muted)" font-size="10" text-anchor="middle" font-family="var(--font-mono)">
           ${d.label}
         </text>
       `);
@@ -420,7 +420,7 @@ function drawThroughputChart(series) {
       ${gridLines}
       ${bars.join('')}
       <!-- Baseline -->
-      <line x1="${padLeft}" y1="${padTop + chartH}" x2="${width - padRight}" y2="${padTop + chartH}" stroke="#374151" stroke-width="1" />
+      <line x1="${padLeft}" y1="${padTop + chartH}" x2="${width - padRight}" y2="${padTop + chartH}" stroke="var(--chart-axis)" stroke-width="1" />
     </svg>
   `;
 
@@ -446,15 +446,15 @@ function drawThroughputChart(series) {
         </div>
         <div class="chart-tooltip-row">
           <span>Successes:</span>
-          <span style="color:#34d399;">${d.successRequests}</span>
+          <span style="color:var(--accent-success); font-weight:600;">${d.successRequests}</span>
         </div>
         <div class="chart-tooltip-row">
           <span>Errors (>=400):</span>
-          <span style="color:#f87171;">${d.errorRequests}</span>
+          <span style="color:var(--accent-danger); font-weight:600;">${d.errorRequests}</span>
         </div>
         <div class="chart-tooltip-row">
           <span>Avg Latency:</span>
-          <span style="color:#60a5fa;">${d.avgDuration} ms</span>
+          <span style="color:var(--accent-primary); font-weight:600;">${d.avgDuration} ms</span>
         </div>
       `;
 
@@ -501,8 +501,8 @@ function drawErrorRateChart(series) {
   const gridLines = yTicks.map((val) => {
     const y = padTop + chartH - (val / maxVal) * chartH;
     return `
-      <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3,3" />
-      <text x="${padLeft - 8}" y="${y + 4}" fill="#6b7280" font-size="10" text-anchor="end" font-family="var(--font-mono)">${val}%</text>
+      <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="var(--chart-grid)" stroke-dasharray="3,3" />
+      <text x="${padLeft - 8}" y="${y + 4}" fill="var(--text-muted)" font-size="10" text-anchor="end" font-family="var(--font-mono)">${val}%</text>
     `;
   }).join('');
 
@@ -524,7 +524,7 @@ function drawErrorRateChart(series) {
         cy="${y}" 
         r="${d.errorRequests > 0 ? 5 : 3}" 
         fill="${d.errorRequests > 0 ? '#ef4444' : '#6b7280'}" 
-        stroke="#151821" 
+        stroke="var(--bg-card)" 
         stroke-width="2" 
         data-index="${i}"
         style="cursor: pointer; transition: r 0.15s ease;"
@@ -533,7 +533,7 @@ function drawErrorRateChart(series) {
 
     if (i % 3 === 0 || i === series.length - 1) {
       xLabels.push(`
-        <text x="${x}" y="${height - 8}" fill="#9ca3af" font-size="10" text-anchor="middle" font-family="var(--font-mono)">
+        <text x="${x}" y="${height - 8}" fill="var(--text-muted)" font-size="10" text-anchor="middle" font-family="var(--font-mono)">
           ${d.label}
         </text>
       `);
@@ -557,7 +557,7 @@ function drawErrorRateChart(series) {
       ${markers.join('')}
       ${xLabels.join('')}
       <!-- Baseline -->
-      <line x1="${padLeft}" y1="${padTop + chartH}" x2="${width - padRight}" y2="${padTop + chartH}" stroke="#374151" stroke-width="1" />
+      <line x1="${padLeft}" y1="${padTop + chartH}" x2="${width - padRight}" y2="${padTop + chartH}" stroke="var(--chart-axis)" stroke-width="1" />
     </svg>
   `;
 
@@ -578,11 +578,11 @@ function drawErrorRateChart(series) {
         <div class="chart-tooltip-title">${d.hourKey}:00 UTC (${d.label})</div>
         <div class="chart-tooltip-row">
           <span>Error Rate:</span>
-          <strong style="color:${d.errorRate > 0 ? '#f87171' : '#34d399'};">${d.errorRate}%</strong>
+          <strong style="color:${d.errorRate > 0 ? 'var(--accent-danger)' : 'var(--accent-success)'};">${d.errorRate}%</strong>
         </div>
         <div class="chart-tooltip-row">
           <span>Failed Requests:</span>
-          <span style="color:#f87171;">${d.errorRequests}</span>
+          <span style="color:var(--accent-danger); font-weight:600;">${d.errorRequests}</span>
         </div>
         <div class="chart-tooltip-row">
           <span>Total Requests:</span>
@@ -650,4 +650,24 @@ function formatBytesInClient(bytes) {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+}
+
+let lastRenderedAnalyticsData = null;
+
+// Hook to cache analytics data for theme re-rendering
+const originalUpdateAnalyticsUI = updateAnalyticsUI;
+updateAnalyticsUI = function(data) {
+  lastRenderedAnalyticsData = data;
+  return originalUpdateAnalyticsUI(data);
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('nodestack-theme-changed', () => {
+    if (lastRenderedAnalyticsData?.traffic24h?.series) {
+      try {
+        drawThroughputChart(lastRenderedAnalyticsData.traffic24h.series);
+        drawErrorRateChart(lastRenderedAnalyticsData.traffic24h.series);
+      } catch (e) {}
+    }
+  });
 }

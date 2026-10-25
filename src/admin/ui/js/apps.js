@@ -67,14 +67,14 @@ function updateAppSwitcherUI() {
       <div 
         class="app-switcher-item ${isActive ? 'active' : ''}" 
         onclick="selectApp('${escapeHtml(app.slug)}')"
-        style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: background 0.15s ease; ${isActive ? 'background: rgba(99, 102, 241, 0.15); font-weight: 600;' : ''}"
+        style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: background 0.15s ease; ${isActive ? 'background: var(--nav-active-bg); color: var(--nav-active-text); font-weight: 600;' : ''}"
         onmouseover="this.style.background='var(--bg-surface-elevated, #242933)'"
-        onmouseout="this.style.background='${isActive ? 'rgba(99, 102, 241, 0.15)' : 'transparent'}'"
+        onmouseout="this.style.background='${isActive ? 'var(--nav-active-bg)' : 'transparent'}'"
       >
         <div style="display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
           <span>${isDefault ? '⚡' : '🚀'}</span>
           <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(app.name)}</span>
-          ${isDefault ? '<span style="font-size: 10px; opacity: 0.6; padding: 1px 4px; border-radius: 4px; background: rgba(255,255,255,0.08);">default</span>' : ''}
+          ${isDefault ? '<span class="badge" style="font-size: 10px; padding: 1px 4px; background: var(--bg-hover-subtle); color: var(--text-muted); border: 1px solid var(--border-subtle);">default</span>' : ''}
         </div>
         <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted, #94a3b8); flex-shrink: 0;">
           ${countInfo ? `<span>${countInfo}</span>` : ''}
@@ -379,7 +379,7 @@ function promptDeleteApp(slug, name) {
         </div>
         <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
           <p style="font-size: 13px; color: #cbd5e1; line-height: 1.5; margin: 0;">
-            Are you sure you want to permanently delete application <strong style="color: #fff; font-family: var(--font-mono);">${escapeHtml(name)}</strong> (<code style="font-size: 12px; color: var(--accent-primary, #6366f1);">${escapeHtml(slug)}</code>)?
+            Are you sure you want to permanently delete application <strong style="color: var(--text-heading); font-family: var(--font-mono);">${escapeHtml(name)}</strong> (<code style="font-size: 12px; color: var(--accent-primary, #6366f1);">${escapeHtml(slug)}</code>)?
           </p>
           <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; padding: 0.75rem; font-size: 12px; color: #fca5a5; line-height: 1.4;">
             This will permanently delete its SQLite database, files in storage, and schema collections. This action cannot be undone.

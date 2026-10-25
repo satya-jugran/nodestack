@@ -4,16 +4,13 @@
       flex-direction: column;
       gap: 1rem;
     }
-    .rule-card {
-      background: #11141d;
+    .rule-card { background: var(--bg-card);
       border: 1px solid var(--border-subtle);
       border-radius: 8px;
       padding: 1rem 1.15rem;
       transition: border-color 0.2s ease;
     }
-    .rule-card:hover {
-      border-color: #2e364a;
-    }
+    .rule-card:hover { border-color: var(--border-accent); }
     .rule-card-header {
       display: flex;
       align-items: center;
@@ -187,9 +184,9 @@
     .rule-chip {
       font-family: var(--font-mono);
       font-size: 11px;
-      background: rgba(255, 255, 255, 0.05);
+      background: var(--bg-hover-subtle);
       border: 1px solid var(--border-subtle);
-      color: #cbd5e1;
+      color: var(--text-main);
       padding: 2px 6px;
       border-radius: 4px;
       cursor: pointer;
@@ -211,19 +208,19 @@
       line-height: 1.4;
     }
     .rule-status-banner.admin {
-      background: rgba(239, 68, 68, 0.08);
-      border: 1px solid rgba(239, 68, 68, 0.2);
-      color: #fca5a5;
+      background: var(--accent-danger-subtle);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: var(--accent-danger);
     }
     .rule-status-banner.public {
-      background: rgba(16, 185, 129, 0.08);
-      border: 1px solid rgba(16, 185, 129, 0.2);
-      color: #6ee7b7;
+      background: var(--accent-success-subtle);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: var(--accent-success);
     }
     .rule-status-banner.auth {
-      background: rgba(59, 130, 246, 0.08);
-      border: 1px solid rgba(59, 130, 246, 0.2);
-      color: #93c5fd;
+      background: var(--accent-primary-subtle);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      color: var(--accent-primary);
     }
     .rule-preview-box {
       margin-top: 0.6rem;
@@ -254,11 +251,42 @@
       padding: 1px 2px;
       line-height: 1.3;
     }
-    .rule-summary-banner-box {
-      background: rgba(255, 255, 255, 0.03);
+    .rule-summary-banner-box { background: var(--bg-hover-subtle);
       border: 1px solid var(--border-subtle);
       border-radius: 6px;
       padding: 0.45rem 0.75rem;
       margin-bottom: 0.6rem;
     }
 
+
+/* Light Mode High-Contrast Rules Badges & Preset Buttons */
+html.light .rule-preset-btn.active-admin {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+html.light .rule-preset-btn.active-public {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #86efac;
+}
+html.light .rule-preset-btn.active-auth {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+html.light .rule-preset-btn.active-custom {
+  background: #fef3c7;
+  color: #b45309;
+  border-color: #fde68a;
+}
+html.light .rule-join-pill.active {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+html.light .rule-chip-val {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
