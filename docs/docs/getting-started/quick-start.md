@@ -16,7 +16,7 @@ Get a complete backend running on your machine in less than a minute.
 Run the following command in any terminal:
 
 ```bash
-npx nodestack start
+npx @nodestackapp/server start
 ```
 
 This immediately:
@@ -38,7 +38,7 @@ This immediately:
 Alternatively, you can create the first superuser directly via the CLI:
 
 ```bash
-npx nodestack superuser create admin@example.com MySecretPassword123!
+npx @nodestackapp/server superuser create admin@example.com MySecretPassword123!
 ```
 
 ---

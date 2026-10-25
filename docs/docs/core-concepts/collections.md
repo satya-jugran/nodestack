@@ -17,9 +17,9 @@ When NodeStack initializes, it automatically provisions system collections prefi
 
 * **`users` (`_auth`)**: Handles user authentication, email addresses, password hashes, and token invalidation.
 * **`_superusers`**: Master administrators with unrestricted access to the Web Admin UI and system APIs.
-* **`_audit_logs` (v1.3)**: Immutable record of field-level data mutations, actor IDs, timestamps, and old-to-new diffs.
-* **`_webhooks` (v1.3)**: Outbound webhook endpoint registrations, action triggers, and secrets.
-* **`_webhook_deliveries` (v1.3)**: Outbound HTTP dispatch attempt logs, response status codes, latency, and retry counts.
+* **`_audit_logs`**: Immutable record of field-level data mutations, actor IDs, timestamps, and old-to-new diffs.
+* **`_webhooks`**: Outbound webhook endpoint registrations, action triggers, and secrets.
+* **`_webhook_deliveries`**: Outbound HTTP dispatch attempt logs, response status codes, latency, and retry counts.
 
 ---
 
@@ -47,7 +47,7 @@ Every field in a collection is backed by an SQLite data type and validated at ru
 NodeStack supports automatic schema inference. If you have existing JSON records or CSV data, the CLI can automatically infer the optimal column types:
 
 ```bash
-npx nodestack schema infer ./sample-data.json --collection products
+npx @nodestackapp/server schema infer ./sample-data.json --collection products
 ```
 
 ---

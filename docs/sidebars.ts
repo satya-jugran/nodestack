@@ -23,6 +23,7 @@ const sidebars: SidebarsConfig = {
         'core-concepts/fts5-search',
         'core-concepts/access-rules',
         'core-concepts/multi-application',
+        'core-concepts/snapshots',
       ],
     },
     {

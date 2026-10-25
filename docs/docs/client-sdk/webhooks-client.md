@@ -1,13 +1,13 @@
 ---
 sidebar_position: 4
 id: webhooks-client
-title: Webhooks Client Service (v1.3)
+title: Webhooks Client Service
 description: Programmatic webhook management and HMAC-SHA256 signature verification
 ---
 
-Webhooks Client Service (v1.3)
+# Webhooks Client Service
 
-NodeStack v1.3 adds a first-class `client.webhooks` service to `nodestack-client` for managing outbound webhooks and verifying incoming signatures.
+NodeStack provides a first-class `client.webhooks` service in `nodestack-client` for managing outbound webhooks and verifying incoming signatures.
 
 ---
 

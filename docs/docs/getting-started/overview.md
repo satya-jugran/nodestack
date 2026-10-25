@@ -24,9 +24,11 @@ NodeStack packages this entire backend architecture into a **single Node.js proc
 - **Multi-Application Platform (v2.0)**: Host multiple completely isolated application tenants within a single process—with separate SQLite databases, file storage directories, auth collections, and realtime SSE buses.
 - **Instant REST CRUD & Server-Sent Events (SSE)**: Immediately exposes JSON endpoints and realtime change event streams for every collection.
 - **Embedded Web Admin Dashboard**: A responsive dashboard served directly from `http://localhost:8090/_/` without needing an external web server.
-- **Native SQLite FTS5 Full-Text Search (v1.3)**: High-performance BM25 relevance ranking, keyword prefix matching, and contextual snippet highlighting.
-- **Outbound Webhooks Subsystem (v1.3)**: Trigger-based HTTP dispatch with HMAC-SHA256 signature verification and automated retries.
-- **Immutable Audit Logging (v1.3)**: Field-level `{ old, new }` diff computation, actor attribution, sensitive field masking, and visual record timeline.
+- **Application Snapshots & Checkpoints (v2.0)**: Atomic transactional state checkpoints, non-destructive rollbacks, and live schema drift detection.
+- **Themed Admin Portal (v2.0)**: Instant runtime switching between System, Light, and Dark modes with zero-flicker loading.
+- **Native SQLite FTS5 Full-Text Search**: High-performance BM25 relevance ranking, keyword prefix matching, and contextual snippet highlighting.
+- **Outbound Webhooks Subsystem**: Trigger-based HTTP dispatch with HMAC-SHA256 signature verification and automated retries.
+- **Immutable Audit Logging**: Field-level `{ old, new }` diff computation, actor attribution, sensitive field masking, and visual record timeline.
 - **Built-in Authentication & File Storage**: JWT tokens, bcrypt password hashing, auth collections (`users`), and multipart file uploads with MIME validation.
 - **End-to-End TypeScript Type Safety**: One-command type generation (`nodestack typegen`) and live HTTP type exports (`GET /_/types.d.ts`).
 - **Interactive OpenAPI 3.0 Documentation**: Live Scalar and Swagger UI API documentation and dynamic spec generation at `/_/docs`.

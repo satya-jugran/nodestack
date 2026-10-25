@@ -16,7 +16,7 @@ NodeStack bridges the gap between your SQLite schema and frontend client code wi
 Run the `typegen` command in your terminal:
 
 ```bash
-npx nodestack typegen --out src/nodestack-types.ts
+npx @nodestackapp/server typegen --out src/nodestack-types.ts
 ```
 
 This inspects your live database schema and outputs TypeScript interfaces for every collection, field constraints, and relation links:

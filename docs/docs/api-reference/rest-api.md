@@ -68,7 +68,7 @@ GET /_/openapi.json
 | `POST` | `/api/realtime` | Submit topic subscriptions. |
 | `GET` | `/api/files/:collection/:recordId/:filename` | Stream uploaded binary file. |
 
-### Webhooks (v1.3)
+### Webhooks
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/webhooks` | List registered webhooks. |
@@ -89,3 +89,15 @@ GET /_/openapi.json
 
 > [!TIP]
 > Clients can also route requests to any application without changing URLs by passing the `x-nodestack-app: <appId-or-slug>` HTTP header. See the [Multi-Application Platform Guide](../core-concepts/multi-application.md).
+
+### Application Snapshots (v2.0)
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/snapshots` | List all snapshots, capacity status, and schema drift (Superuser). |
+| `POST` | `/api/snapshots` | Create an atomic state snapshot checkpoint (`{ label, description, evictOldest }`) (Superuser). |
+| `GET` | `/api/snapshots/:id` | Get details and metadata for a specific snapshot (Superuser). |
+| `POST` | `/api/snapshots/:id/restore` | Non-destructively restore application state to this checkpoint (Superuser). |
+| `DELETE` | `/api/snapshots/:id` | Delete a snapshot checkpoint (Superuser). |
+| `POST` | `/api/snapshots/clear` | Delete all snapshots for the active application (Superuser). |
+| `GET` | `/api/snapshots/status` | Retrieve snapshot count, 10-snapshot limit, and capacity warnings (Superuser). |
+| Any | `/api/apps/:appId/snapshots/*` | Route any snapshot operation to a specific application tenant. |

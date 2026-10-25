@@ -89,7 +89,7 @@ const config: Config = {
         {
           type: 'html',
           position: 'right',
-          value: '<span class="badge badge--info" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 9999px;">v1.3</span>',
+          value: '<span class="badge badge--info" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 9999px;">v2.0</span>',
         },
         {
           href: 'https://github.com/satya-jugran/nodestack',
@@ -113,11 +113,19 @@ const config: Config = {
               to: '/getting-started/quick-start',
             },
             {
-              label: 'SQLite FTS5 Search (v1.3)',
+              label: 'Multi-Application Platform (v2.0)',
+              to: '/core-concepts/multi-application',
+            },
+            {
+              label: 'Application Snapshots (v2.0)',
+              to: '/core-concepts/snapshots',
+            },
+            {
+              label: 'SQLite FTS5 Search',
               to: '/core-concepts/fts5-search',
             },
             {
-              label: 'Outbound Webhooks (v1.3)',
+              label: 'Outbound Webhooks',
               to: '/webhooks/outbound-webhooks',
             },
           ],

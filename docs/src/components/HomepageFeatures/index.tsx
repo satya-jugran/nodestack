@@ -11,6 +11,24 @@ type FeatureItem = {
 
 const FeatureList: FeatureItem[] = [
   {
+    title: 'Multi-Application Platform',
+    badge: 'v2.0',
+    description: (
+      <>
+        Host multiple completely isolated application tenants in a single process—with dedicated SQLite databases, asset storage, auth pools, and realtime SSE streams.
+      </>
+    ),
+  },
+  {
+    title: 'Snapshots & Time-Travel',
+    badge: 'v2.0',
+    description: (
+      <>
+        Atomic SQLite state checkpoints with non-destructive rollbacks, file storage preservation, live schema drift tracking, and FIFO capacity limits.
+      </>
+    ),
+  },
+  {
     title: 'Zero-Compilation SQLite',
     description: (
       <>
@@ -22,40 +40,24 @@ const FeatureList: FeatureItem[] = [
     title: 'Instant CRUD & Realtime SSE',
     description: (
       <>
-        Automatic REST endpoints, visual schema designer, and live Server-Sent Events (SSE) change streams for every collection.
+        Automatic REST endpoints, visual schema designer, and live Server-Sent Events (SSE) change streams for every collection with row-level security.
       </>
     ),
   },
   {
-    title: 'FTS5, Webhooks & Auditing',
-    badge: 'v1.3',
+    title: 'FTS5 Search, Webhooks & Audits',
     description: (
       <>
-        Embedded BM25 full-text search with highlights, outbound webhooks with HMAC-SHA256 signatures, and field-level audit change history.
+        Embedded BM25 full-text search with highlights, outbound webhooks with HMAC-SHA256 signatures, and field-level change history diffs.
       </>
     ),
   },
   {
-    title: 'Built-in Auth & File Storage',
+    title: 'Themed Web Admin Dashboard',
+    badge: 'v2.0',
     description: (
       <>
-        JWT authentication, bcrypt password hashing, session revocation, and multipart binary file uploads with MIME validation.
-      </>
-    ),
-  },
-  {
-    title: '100% Type-Safe TypeScript SDK',
-    description: (
-      <>
-        One-command type generation (<code>nodestack typegen</code>) and lightweight (<code>&lt;10KB</code>) client SDK for React, Next.js, and Node.js.
-      </>
-    ),
-  },
-  {
-    title: 'Embedded Web Admin Dashboard',
-    description: (
-      <>
-        Sleek, reactive dashboard served directly from <code>/_/</code> with data grid, visual access rule builder, and analytics charts.
+        Sleek, reactive dashboard served directly from <code>/_/</code> with System, Light, and Dark modes, data grid, and visual rule builder.
       </>
     ),
   },

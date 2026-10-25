@@ -24,7 +24,7 @@ Superusers have administrative control over the backend:
 Create a superuser from your terminal:
 
 ```bash
-npx nodestack superuser create admin@example.com MySecretPassword123!
+npx @nodestackapp/server superuser create admin@example.com MySecretPassword123!
 ```
 
 ---

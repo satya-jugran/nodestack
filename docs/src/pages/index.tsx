@@ -34,7 +34,7 @@ function HomepageHeader() {
           marginBottom: '2rem',
           color: '#e2e8f0',
         }}>
-          $ npx nodestack start
+          $ npx @nodestackapp/server start
         </div>
 
         <div className={styles.buttons} style={{display: 'flex', gap: '1rem', justifyContent: 'center'}}>
@@ -60,7 +60,7 @@ export default function Home(): ReactNode {
   return (
     <Layout
       title={`${siteConfig.title} — ${siteConfig.tagline}`}
-      description="The TypeScript-Native Embedded Backend Stack with SQLite, instant CRUD, Auth, Realtime SSE, and Web Admin UI.">
+      description="The TypeScript-Native Multi-Application Backend Platform with embedded SQLite, instant CRUD, Auth, Realtime SSE, Snapshots, and Themed Admin UI.">
       <HomepageHeader />
       <main>
         <HomepageFeatures />

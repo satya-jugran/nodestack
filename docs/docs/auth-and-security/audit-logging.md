@@ -1,13 +1,13 @@
 ---
 sidebar_position: 3
 id: audit-logging
-title: Immutable Audit Logs (v1.3)
+title: Immutable Audit Logs
 description: Field-level change diffs, actor attribution, and record history timeline
 ---
 
-Immutable Audit Logs (v1.3)
+# Immutable Audit Logs
 
-NodeStack v1.3 introduces an automated, tamper-evident audit logging subsystem. Every data mutation (`create`, `update`, `delete`) can be audited with field-level diffs and actor attribution.
+NodeStack introduces an automated, tamper-evident audit logging subsystem. Every data mutation (`create`, `update`, `delete`) can be audited with field-level diffs and actor attribution.
 
 ---
 

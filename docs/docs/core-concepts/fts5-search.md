@@ -1,13 +1,13 @@
 ---
 sidebar_position: 4
 id: fts5-search
-title: Native SQLite FTS5 Search (v1.3)
+title: Native SQLite FTS5 Search
 description: High-performance BM25 full-text search, keyword prefix matching, and snippets
 ---
 
-Native SQLite FTS5 Search (v1.3)
+# Native SQLite FTS5 Search
 
-NodeStack v1.3 includes an embedded Full-Text Search Subsystem (FTSS) powered by SQLite's native `FTS5` virtual table engine. It delivers Google-like search capabilities directly in-process without requiring external search engines like Elasticsearch, Meilisearch, or Algolia.
+NodeStack includes an embedded Full-Text Search Subsystem (FTSS) powered by SQLite's native `FTS5` virtual table engine. It delivers Google-like search capabilities directly in-process without requiring external search engines like Elasticsearch, Meilisearch, or Algolia.
 
 ---
 

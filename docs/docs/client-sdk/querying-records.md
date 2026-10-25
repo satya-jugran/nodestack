@@ -27,7 +27,7 @@ console.log('Records:', result.items);
 
 ---
 
-## 2. Full-Text Search with BM25 Scoring & Snippets (v1.3)
+## 2. Full-Text Search with BM25 Scoring & Snippets
 
 Query records using SQLite FTS5:
 

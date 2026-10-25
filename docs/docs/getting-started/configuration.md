@@ -32,13 +32,13 @@ You can pass configuration flags directly when launching NodeStack:
 
 ```bash
 # Launch on custom port and host
-npx nodestack start --port 3000 --host 0.0.0.0
+npx @nodestackapp/server start --port 3000 --host 0.0.0.0
 
 # Specify a custom data directory
-npx nodestack start --dir /var/data/nodestack
+npx @nodestackapp/server start --dir /var/data/nodestack
 
 # Enable debug logging
-npx nodestack start --log-level debug
+npx @nodestackapp/server start --log-level debug
 ```
 
 ---

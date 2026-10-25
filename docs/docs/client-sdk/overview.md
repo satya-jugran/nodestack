@@ -16,8 +16,9 @@ The `nodestack-client` is a zero-dependency, isomorphic TypeScript & JavaScript 
 **Multi-Application Scoping (v2.0)**: Fluent `client.app(slug)` scoping, automatic `x-nodestack-app` header injection, and `client.apps` management service.
 **Reactive Auth**: `LocalAuthStore` (browser `localStorage`), `MemoryAuthStore` (Node/SSR/testing), with `onChange` subscriptions.
 **Fluent CRUD Operations**: `getList`, `getFullList`, `getFirstListItem`, `create`, `update`, `delete`.
-**FTS5 Full-Text Search (v1.3)**: Built-in support for BM25 ranking, prefix queries, and highlighted snippet excerpts.
-**Webhooks Client Service (v1.3)**: Webhook registration, delivery logs, test dispatch, and HMAC verification.
+**Application Snapshots (v2.0)**: Programmatic checkpoint management with `client.snapshots` (create, restore, drift checks, FIFO eviction).
+**FTS5 Full-Text Search**: Built-in support for BM25 ranking, prefix queries, and highlighted snippet excerpts.
+**Webhooks Client Service**: Webhook registration, delivery logs, test dispatch, and HMAC verification.
 **Multiplexed SSE Realtime**: Persistent connection with auto-handshake and auto-reconnect.
 **100% Type-Safe**: Works with `nodestack typegen` for complete end-to-end typing.
 
@@ -92,3 +93,28 @@ shopClient.collection('orders').subscribe('*', (e) => {
 ```
 
 For more details on managing applications and architecture, see the [Multi-Application Platform Guide](../core-concepts/multi-application.md).
+
+---
+
+## Application Snapshots (v2.0)
+
+Manage time-travel checkpoints programmatically using `client.snapshots`:
+
+```typescript
+// 1. Create a snapshot checkpoint
+const snapshot = await client.snapshots.create({
+  label: 'Before Product Migration',
+  description: 'Schema backup prior to v2 product catalog update',
+  evictOldest: true, // Auto-evict oldest checkpoint if at 10-snapshot limit
+});
+
+// 2. List all snapshots and drift status
+const list = await client.snapshots.list();
+console.log('Active snapshots:', list.snapshots);
+console.log('Database drift detected:', list.driftDetected);
+
+// 3. Restore to checkpoint non-destructively
+await client.snapshots.restore(snapshot.id);
+```
+
+For more details, see the [Application Snapshots Guide](../core-concepts/snapshots.md).

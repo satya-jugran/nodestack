@@ -1,13 +1,13 @@
 ---
 sidebar_position: 1
 id: outbound-webhooks
-title: Outbound Webhooks Engine (v1.3)
+title: Outbound Webhooks Engine
 description: Automated HTTP callbacks, HMAC-SHA256 signature verification, and delivery retries
 ---
 
-Outbound Webhooks Engine (v1.3)
+# Outbound Webhooks Engine
 
-NodeStack v1.3 includes a dedicated Outbound Webhook Subsystem that dispatches HTTP callbacks whenever collection mutations occur.
+NodeStack includes a dedicated Outbound Webhook Subsystem that dispatches HTTP callbacks whenever collection mutations occur.
 
 ---
 
