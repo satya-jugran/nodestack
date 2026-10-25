@@ -1,7 +1,7 @@
 # NodeStack
 
-> **The TypeScript-Native Embedded Backend Stack**  
-> A self-hosted, single-process backend with embedded SQLite, instant CRUD, Auth, Realtime, Files, FTS5 Search, Webhooks, and Web Admin UI.
+> **The TypeScript-Native Multi-Application Backend Platform**  
+> A self-hosted, single-process backend with embedded SQLite multi-tenancy, instant CRUD, Auth, Realtime SSE, Snapshots, Webhooks, and Themed Admin UI.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-7.x-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D24.0-green.svg)](https://nodejs.org/)
@@ -10,7 +10,7 @@
 [![Documentation](https://img.shields.io/badge/docs-online-blue.svg)](https://satya-jugran.github.io/nodestack/)
 
 <p align="center">
-  <img width="800" height="500" alt="NodeStack Admin Dashboard" src="https://github.com/user-attachments/assets/0bcb7416-1cd0-4955-8a87-337bc9aebb12" />
+  <img width="800" height="500" alt="NodeStack Admin Dashboard" src="https://github.com/user-attachments/assets/49c9d492-759b-4fed-9311-9d0afddc95b3" />
 </p>
 
 <p align="center">
