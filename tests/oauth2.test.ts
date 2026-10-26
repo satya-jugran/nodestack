@@ -8,6 +8,7 @@ import { NodeStackClient } from '../packages/client/src/Client';
 import { PkceUtil } from '../packages/client/src/auth/PkceUtil';
 import { IOAuthProvider, OAuthExchangeResult, OAuthProfile } from '../src/auth/oauth/types';
 import { AppleProvider } from '../src/auth/oauth/AppleProvider';
+import { GitHubProvider } from '../src/auth/oauth/GitHubProvider';
 
 class MockOAuthProvider implements IOAuthProvider {
   public name: string;
@@ -809,6 +810,150 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       await expect(
         (appleProvider as any).fetchUserProfile('mock_access_token', { id_token: missingSubToken })
       ).rejects.toThrow(/missing sub claim/);
+    });
+  });
+
+  describe('7. GitHub Provider Email Verification Metadata Resolution', () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    it('should mark email as unverified if public profile email is not verified in /user/emails', async () => {
+      const provider = new GitHubProvider({
+        clientId: 'mock_gh_client',
+        clientSecret: 'mock_gh_secret',
+      });
+
+      globalThis.fetch = (async (url: any) => {
+        if (String(url) === 'https://api.github.com/user') {
+          return {
+            ok: true,
+            json: async () => ({
+              id: 12345,
+              login: 'attacker',
+              email: 'victim@company.com',
+            }),
+          };
+        }
+        if (String(url) === 'https://api.github.com/user/emails') {
+          return {
+            ok: true,
+            json: async () => [
+              { email: 'victim@company.com', primary: false, verified: false },
+              { email: 'attacker_real@gmail.com', primary: true, verified: false },
+            ],
+          };
+        }
+        return originalFetch(url);
+      }) as any;
+
+      const profile = await (provider as any).fetchUserProfile('mock_token');
+      expect(profile.id).toBe('12345');
+      expect(profile.email).toBe('victim@company.com');
+      // Crucial: Must NOT be marked verified
+      expect(profile.isEmailVerified).toBe(false);
+    });
+
+    it('should use primary verified email from /user/emails even if public profile email is unverified', async () => {
+      const provider = new GitHubProvider({
+        clientId: 'mock_gh_client',
+        clientSecret: 'mock_gh_secret',
+      });
+
+      globalThis.fetch = (async (url: any) => {
+        if (String(url) === 'https://api.github.com/user') {
+          return {
+            ok: true,
+            json: async () => ({
+              id: 67890,
+              login: 'developer',
+              email: 'unverified-public@other.com',
+            }),
+          };
+        }
+        if (String(url) === 'https://api.github.com/user/emails') {
+          return {
+            ok: true,
+            json: async () => [
+              { email: 'unverified-public@other.com', primary: false, verified: false },
+              { email: 'verified-primary@developer.com', primary: true, verified: true },
+            ],
+          };
+        }
+        return originalFetch(url);
+      }) as any;
+
+      const profile = await (provider as any).fetchUserProfile('mock_token');
+      expect(profile.id).toBe('67890');
+      // Resolves to genuine verified primary email
+      expect(profile.email).toBe('verified-primary@developer.com');
+      expect(profile.isEmailVerified).toBe(true);
+    });
+
+    it('should mark email as verified if public profile email is verified in /user/emails', async () => {
+      const provider = new GitHubProvider({
+        clientId: 'mock_gh_client',
+        clientSecret: 'mock_gh_secret',
+      });
+
+      globalThis.fetch = (async (url: any) => {
+        if (String(url) === 'https://api.github.com/user') {
+          return {
+            ok: true,
+            json: async () => ({
+              id: 54321,
+              login: 'alice',
+              email: 'alice@company.com',
+            }),
+          };
+        }
+        if (String(url) === 'https://api.github.com/user/emails') {
+          return {
+            ok: true,
+            json: async () => [
+              { email: 'alice@company.com', primary: true, verified: true },
+            ],
+          };
+        }
+        return originalFetch(url);
+      }) as any;
+
+      const profile = await (provider as any).fetchUserProfile('mock_token');
+      expect(profile.id).toBe('54321');
+      expect(profile.email).toBe('alice@company.com');
+      expect(profile.isEmailVerified).toBe(true);
+    });
+
+    it('should fail closed (unverified) if /user/emails request fails', async () => {
+      const provider = new GitHubProvider({
+        clientId: 'mock_gh_client',
+        clientSecret: 'mock_gh_secret',
+      });
+
+      globalThis.fetch = (async (url: any) => {
+        if (String(url) === 'https://api.github.com/user') {
+          return {
+            ok: true,
+            json: async () => ({
+              id: 99999,
+              login: 'bob',
+              email: 'bob@example.com',
+            }),
+          };
+        }
+        if (String(url) === 'https://api.github.com/user/emails') {
+          throw new Error('Network error or rate limited');
+        }
+        return originalFetch(url);
+      }) as any;
+
+      const profile = await (provider as any).fetchUserProfile('mock_token');
+      expect(profile.id).toBe('99999');
+      expect(profile.email).toBe('bob@example.com');
+      // Must fail closed: cannot verify without /user/emails confirmation
+      expect(profile.isEmailVerified).toBe(false);
     });
   });
 });

@@ -2,8 +2,16 @@ import { BaseOAuthProvider } from './BaseOAuthProvider';
 import { OAuthProfile, OAuthProviderConfig } from './types';
 import { AppError } from '../../core/errors/AppError';
 
+export interface GitHubProviderConfig extends Partial<OAuthProviderConfig> {
+  clientId: string;
+  clientSecret: string;
+  emailsUrl?: string;
+}
+
 export class GitHubProvider extends BaseOAuthProvider {
-  constructor(config: Partial<OAuthProviderConfig> & { clientId: string; clientSecret: string }) {
+  private emailsUrl: string;
+
+  constructor(config: GitHubProviderConfig) {
     super({
       name: 'github',
       displayName: 'GitHub',
@@ -13,9 +21,10 @@ export class GitHubProvider extends BaseOAuthProvider {
       scopes: ['read:user', 'user:email'],
       ...config,
     });
+    this.emailsUrl = config.emailsUrl || 'https://api.github.com/user/emails';
   }
 
-  protected async fetchUserProfile(accessToken: string, _tokenData?: any): Promise<OAuthProfile> {
+  protected override async fetchUserProfile(accessToken: string, _tokenData?: any): Promise<OAuthProfile> {
     const userRes = await fetch(this.userinfoUrl, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -29,32 +38,51 @@ export class GitHubProvider extends BaseOAuthProvider {
     }
 
     const userData = (await userRes.json()) as any;
-    let email = userData.email;
+    let email: string | undefined = userData.email;
     let isEmailVerified = false;
 
-    // If email is null (private profile), fetch user emails list
-    if (!email) {
-      try {
-        const emailsRes = await fetch('https://api.github.com/user/emails', {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'User-Agent': 'NodeStack-OAuth',
-            Accept: 'application/json',
-          },
-        });
-        if (emailsRes.ok) {
-          const emails = (await emailsRes.json()) as any[];
-          if (Array.isArray(emails)) {
-            const primary = emails.find((e) => e.primary && e.verified) || emails.find((e) => e.verified) || emails[0];
-            if (primary) {
-              email = primary.email;
-              isEmailVerified = Boolean(primary.verified);
+    // Consult GitHub's /user/emails endpoint to verify email ownership and verification metadata
+    try {
+      const emailsRes = await fetch(this.emailsUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'User-Agent': 'NodeStack-OAuth',
+          Accept: 'application/json',
+        },
+      });
+
+      if (emailsRes.ok) {
+        const emails = (await emailsRes.json()) as any[];
+        if (Array.isArray(emails) && emails.length > 0) {
+          // 1. Prefer primary verified email
+          const primaryVerified = emails.find((e) => e.primary && e.verified);
+          if (primaryVerified) {
+            email = primaryVerified.email;
+            isEmailVerified = true;
+          } else {
+            // 2. Check if public profile email matches a verified entry in the account's emails
+            const matchingEntry = email
+              ? emails.find((e) => String(e.email).toLowerCase() === String(email).toLowerCase())
+              : undefined;
+
+            if (matchingEntry) {
+              isEmailVerified = Boolean(matchingEntry.verified);
+            } else {
+              // 3. Fallback to any verified email in the account
+              const anyVerified = emails.find((e) => e.verified);
+              if (anyVerified) {
+                email = anyVerified.email;
+                isEmailVerified = true;
+              } else {
+                // Public profile email is not verified in /user/emails
+                isEmailVerified = false;
+              }
             }
           }
         }
-      } catch {}
-    } else {
-      isEmailVerified = true;
+      }
+    } catch {
+      // If /user/emails request fails, fail-closed: leave isEmailVerified as false
     }
 
     return {
