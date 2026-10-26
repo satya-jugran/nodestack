@@ -94,6 +94,16 @@ console.log('Logged in via Google:', authData.record);
 console.log('Is newly registered user:', authData.meta.isNew);
 ```
 
+#### One-Step Popup Authentication (Single-Page Apps)
+```typescript
+// nodestack-client verifies popup origin, window source, and binds CSRF state automatically:
+const authData = await client.collection('users').authWithOAuth2({
+  provider: 'google',
+  urlCallback: (url) => window.open(url, '_blank', 'width=500,height=650'),
+  redirectUrl: 'http://localhost:3000/callback',
+});
+```
+
 ### Machine-to-Machine (M2M) Authentication with API Keys
 For background workers, cron daemons, serverless scripts, and CI/CD pipelines:
 

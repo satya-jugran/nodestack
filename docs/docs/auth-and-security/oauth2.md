@@ -80,7 +80,9 @@ Each provider object contains:
 Redirect the user or open a popup with `google.authUrl`. Once the user grants consent, the provider redirects back to your redirect URI with `?code=...&state=...`.
 
 ### 3. Complete Token Exchange
-Exchange the authorization code and PKCE code verifier for an active NodeStack JWT session:
+
+#### Option A: Direct Redirect Flow
+Exchange the authorization code and PKCE code verifier on your callback page:
 
 ```typescript
 // On your OAuth callback page (/callback):
@@ -98,6 +100,36 @@ console.log('Logged in user:', authData.record);
 console.log('Is new registration:', authData.meta.isNew);
 console.log('Session valid:', client.authStore.isValid);
 ```
+
+#### Option B: Popup Flow (Recommended for Single-Page Apps)
+You can let `nodestack-client` handle the exchange seamlessly in a popup window:
+
+```typescript
+// In your SPA component:
+const authData = await client.collection('users').authWithOAuth2({
+  provider: 'google',
+  urlCallback: (url) => window.open(url, '_blank', 'width=500,height=650'),
+  redirectUrl: 'http://localhost:3000/callback',
+});
+```
+
+And on your callback page (`/callback`), notify the opener:
+```html
+<script>
+  const params = new URLSearchParams(window.location.search);
+  if (window.opener) {
+    window.opener.postMessage({
+      type: 'nodestack_oauth_callback',
+      code: params.get('code'),
+      state: params.get('state'),
+      error: params.get('error') || params.get('error_description'),
+    }, window.location.origin);
+  }
+</script>
+```
+
+> [!TIP] Security Guardrails in Popup Flow
+> `nodestack-client` strictly validates incoming `postMessage` events against the expected origin, the specific popup window source, and the session's cryptographic `state` before exchanging tokens, failing closed against spoofed frames or hijacked messages.
 
 On success, `nodestack-client` automatically persists the token and user record in `authStore`.
 

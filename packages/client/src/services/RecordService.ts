@@ -235,7 +235,7 @@ export class RecordService<T = RecordModel> extends BaseService {
     let code = options.code;
     let codeVerifier = options.codeVerifier;
 
-    if (options.urlCallback && (!code || !codeVerifier)) {
+    if ((options.urlCallback || options.popup || (typeof window !== 'undefined' && !code && !codeVerifier)) && (!code || !codeVerifier)) {
       const authMethods = await this.listAuthMethods(options.redirectUrl);
       const provider = authMethods.authProviders.find(
         (p) => p.name.toLowerCase() === options.provider.toLowerCase()
@@ -246,30 +246,117 @@ export class RecordService<T = RecordModel> extends BaseService {
       }
 
       codeVerifier = provider.codeVerifier;
-      options.urlCallback(provider.authUrl);
+      const expectedState = provider.state;
+
+      let expectedOrigin: string | null = null;
+      if (typeof window !== 'undefined' && window.location) {
+        if (options.redirectUrl) {
+          try {
+            expectedOrigin = new URL(options.redirectUrl, window.location.href).origin;
+          } catch {
+            expectedOrigin = window.location.origin;
+          }
+        } else {
+          expectedOrigin = window.location.origin;
+        }
+      }
+
+      let popup: Window | null = options.popup || null;
+      if (options.urlCallback) {
+        const cbResult = options.urlCallback(provider.authUrl);
+        if (!popup && cbResult && typeof (cbResult as any).postMessage === 'function') {
+          popup = cbResult as Window;
+        }
+      } else if (typeof window !== 'undefined' && typeof window.open === 'function') {
+        popup = window.open(provider.authUrl, '_blank', 'width=600,height=700');
+        if (!popup) {
+          throw new Error('Failed to open OAuth popup window. It may have been blocked by the browser.');
+        }
+      }
+
       return new Promise<RecordOAuthResponse<T>>((resolve, reject) => {
         if (typeof window !== 'undefined' && window.addEventListener) {
-          const handler = async (event: MessageEvent) => {
-            if (event.data && typeof event.data === 'object' && event.data.type === 'nodestack_oauth_callback') {
+          let pollTimer: any = null;
+
+          const cleanup = () => {
+            if (pollTimer) {
+              clearInterval(pollTimer);
+              pollTimer = null;
+            }
+            if (typeof window !== 'undefined' && window.removeEventListener) {
               window.removeEventListener('message', handler);
-              if (event.data.error) {
-                return reject(new Error(event.data.error));
-              }
-              try {
-                const res = await this.authWithOAuth2({
-                  provider: options.provider,
-                  code: event.data.code,
-                  codeVerifier,
-                  redirectUrl: options.redirectUrl,
-                  createData: options.createData,
-                });
-                resolve(res);
-              } catch (err) {
-                reject(err);
-              }
             }
           };
+
+          const handler = async (event: MessageEvent) => {
+            // 1. Validate payload structure
+            if (!event.data || typeof event.data !== 'object' || event.data.type !== 'nodestack_oauth_callback') {
+              return;
+            }
+
+            // 2. Restrict messages to the expected redirect origin
+            if (expectedOrigin && event.origin !== expectedOrigin) {
+              return;
+            }
+
+            // 3. Restrict messages to the popup/source window associated with this request
+            if (popup) {
+              if (event.source !== popup) {
+                return;
+              }
+            } else if (event.source === window) {
+              return;
+            }
+
+            // 4. Bind message to the expected state before exchanging it
+            if (expectedState && event.data.state !== expectedState) {
+              return;
+            }
+
+            // Valid matching message received; clean up listener and poll timer
+            cleanup();
+
+            if (popup && typeof popup.close === 'function') {
+              try {
+                popup.close();
+              } catch {}
+            }
+
+            if (event.data.error) {
+              const errMsg = typeof event.data.error === 'string'
+                ? event.data.error
+                : (event.data.error.message || event.data.error_description || JSON.stringify(event.data.error));
+              return reject(new Error(errMsg));
+            }
+
+            if (!event.data.code) {
+              return reject(new Error('OAuth callback message is missing authorization code.'));
+            }
+
+            try {
+              const res = await this.authWithOAuth2({
+                provider: options.provider,
+                code: event.data.code,
+                codeVerifier,
+                redirectUrl: options.redirectUrl,
+                createData: options.createData,
+              });
+              resolve(res);
+            } catch (err) {
+              reject(err);
+            }
+          };
+
           window.addEventListener('message', handler);
+
+          if (popup) {
+            pollTimer = setInterval(() => {
+              if (popup && popup.closed) {
+                cleanup();
+                reject(new Error('The OAuth popup window was closed before completing authentication.'));
+              }
+            }, 500);
+          }
         } else {
           reject(new Error('urlCallback requires code and codeVerifier in non-browser environments.'));
         }

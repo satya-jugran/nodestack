@@ -326,5 +326,168 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(client.authStore.isValid).toBe(true);
       expect(client.authStore.token).toBe(result.token);
     });
+
+    it('should securely handle popup postMessage flow (enforcing origin, source, and state binding)', async () => {
+      const mockDiscord = new MockOAuthProvider('discord', 'Discord', {
+        id: 'discord_popup_user',
+        email: 'popup@discord.com',
+        isEmailVerified: true,
+        rawUser: { id: 'discord_popup_user' },
+      });
+      app.auth.getOAuthRegistry().register(mockDiscord);
+
+      const messageListeners: ((event: any) => void)[] = [];
+      const mockPopup: any = {
+        closed: false,
+        postMessage: () => {},
+        close: () => {
+          mockPopup.closed = true;
+        },
+      };
+      const mockAttackerWindow: any = {
+        closed: false,
+        postMessage: () => {},
+      };
+
+      const originalWindow = (globalThis as any).window;
+      (globalThis as any).window = {
+        location: {
+          href: 'http://localhost:3000/app',
+          origin: 'http://localhost:3000',
+        },
+        addEventListener: (event: string, listener: any) => {
+          if (event === 'message') messageListeners.push(listener);
+        },
+        removeEventListener: (event: string, listener: any) => {
+          if (event === 'message') {
+            const idx = messageListeners.indexOf(listener);
+            if (idx >= 0) messageListeners.splice(idx, 1);
+          }
+        },
+      };
+
+      try {
+        const client = new NodeStackClient(serverUrl);
+        let capturedAuthUrl = '';
+
+        const authPromise = client.collection('users').authWithOAuth2({
+          provider: 'discord',
+          redirectUrl: 'http://localhost:3000/callback',
+          urlCallback: (url) => {
+            capturedAuthUrl = url;
+            return mockPopup;
+          },
+        });
+
+        // Wait a tick for async listAuthMethods to complete
+        await new Promise((r) => setTimeout(r, 50));
+
+        const parsedUrl = new URL(capturedAuthUrl);
+        const expectedState = parsedUrl.searchParams.get('state')!;
+        expect(expectedState).toBeDefined();
+
+        expect(messageListeners.length).toBe(1);
+        const listener = messageListeners[0];
+
+        // 1. Attacker sends injected error from foreign origin -> MUST BE IGNORED
+        await listener({
+          origin: 'https://evil-site.com',
+          source: mockPopup,
+          data: { type: 'nodestack_oauth_callback', state: expectedState, error: 'fake error' },
+        });
+        expect(messageListeners.length).toBe(1); // Listener NOT removed
+
+        // 2. Attacker frame on correct origin sends injected message from wrong source -> MUST BE IGNORED
+        await listener({
+          origin: 'http://localhost:3000',
+          source: mockAttackerWindow,
+          data: { type: 'nodestack_oauth_callback', state: expectedState, code: 'stolen_code' },
+        });
+        expect(messageListeners.length).toBe(1); // Listener NOT removed
+
+        // 3. Popup sends message with mismatched state (CSRF / stale flow) -> MUST BE IGNORED
+        await listener({
+          origin: 'http://localhost:3000',
+          source: mockPopup,
+          data: { type: 'nodestack_oauth_callback', state: 'wrong_state_value', code: 'valid_code' },
+        });
+        expect(messageListeners.length).toBe(1); // Listener NOT removed
+
+        // 4. Valid message from expected popup, matching origin, matching state -> MUST BE ACCEPTED
+        await listener({
+          origin: 'http://localhost:3000',
+          source: mockPopup,
+          data: {
+            type: 'nodestack_oauth_callback',
+            state: expectedState,
+            code: 'discord_popup_code',
+          },
+        });
+
+        const authResult = await authPromise;
+        expect(authResult.token).toBeDefined();
+        expect(authResult.record.email).toBe('popup@discord.com');
+        expect(messageListeners.length).toBe(0); // Listener cleaned up
+        expect(mockPopup.closed).toBe(true); // Popup closed
+      } finally {
+        (globalThis as any).window = originalWindow;
+      }
+    });
+
+    it('should reject when OAuth popup is closed by user before completion', async () => {
+      const mockDiscord = new MockOAuthProvider('discord', 'Discord', {
+        id: 'discord_popup_user_2',
+        email: 'popup2@discord.com',
+        isEmailVerified: true,
+        rawUser: { id: 'discord_popup_user_2' },
+      });
+      app.auth.getOAuthRegistry().register(mockDiscord);
+
+      const messageListeners: ((event: any) => void)[] = [];
+      const mockPopup: any = {
+        closed: false,
+        postMessage: () => {},
+        close: () => {
+          mockPopup.closed = true;
+        },
+      };
+
+      const originalWindow = (globalThis as any).window;
+      (globalThis as any).window = {
+        location: {
+          href: 'http://localhost:3000/app',
+          origin: 'http://localhost:3000',
+        },
+        addEventListener: (event: string, listener: any) => {
+          if (event === 'message') messageListeners.push(listener);
+        },
+        removeEventListener: (event: string, listener: any) => {
+          if (event === 'message') {
+            const idx = messageListeners.indexOf(listener);
+            if (idx >= 0) messageListeners.splice(idx, 1);
+          }
+        },
+      };
+
+      try {
+        const client = new NodeStackClient(serverUrl);
+        const authPromise = client.collection('users').authWithOAuth2({
+          provider: 'discord',
+          redirectUrl: 'http://localhost:3000/callback',
+          urlCallback: () => mockPopup,
+        });
+
+        // Wait a tick for async listAuthMethods to register listener & timer
+        await new Promise((r) => setTimeout(r, 50));
+
+        // Simulate user closing the popup window
+        mockPopup.closed = true;
+
+        await expect(authPromise).rejects.toThrow('The OAuth popup window was closed before completing authentication.');
+        expect(messageListeners.length).toBe(0); // Cleaned up
+      } finally {
+        (globalThis as any).window = originalWindow;
+      }
+    });
   });
 });
