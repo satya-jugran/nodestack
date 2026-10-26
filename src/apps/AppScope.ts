@@ -80,7 +80,15 @@ export class AppScope {
     });
 
     this.ruleEngine = new RuleEngine();
-    this.auth = new AuthService(this.db, this.config, this.schema, registry, undefined, this.ruleEngine);
+    this.auth = new AuthService(
+      this.db,
+      this.config,
+      this.schema,
+      registry,
+      undefined,
+      this.ruleEngine,
+      this.eventBus
+    );
     this.apiKeys = new ApiKeyService(this.db, this.config);
 
     const appStorageDir = config.getAppStorageDir(app.slug);
@@ -90,6 +98,7 @@ export class AppScope {
     this.files = new FileStorageService(this.config, appStorageDir);
 
     this.realtime = new RealtimeService(this.ruleEngine, this.schema);
+    this.auth.setRealtimeService(this.realtime);
     this.logs = new LogService(this.db);
 
     this.records = new RecordService(

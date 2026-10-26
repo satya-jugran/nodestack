@@ -386,6 +386,205 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       usersCol.schema = usersCol.schema.filter((f) => f.name !== 'company');
       app.schema.updateCollection('users', usersCol);
     });
+
+    it('should enforce type, length, and value constraints on custom schema fields during OAuth2 provisioning', async () => {
+      const usersCol = app.schema.getCollectionOrThrow('users');
+      usersCol.schema.push(
+        {
+          name: 'phone',
+          type: 'text',
+          options: { min: 10, max: 15 },
+        },
+        {
+          name: 'age',
+          type: 'number',
+          options: { min: 18 },
+        }
+      );
+      app.schema.updateCollection('users', usersCol);
+
+      const mockProvider = new MockOAuthProvider('google', 'Google', {
+        id: 'g_constraints_test',
+        email: 'constraints@test.com',
+        isEmailVerified: true,
+        rawUser: { id: 'g_constraints_test' },
+      });
+      app.auth.getOAuthRegistry().register(mockProvider);
+
+      // 1. Rejected when text length is below minimum constraint
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'state_too_short',
+        provider: 'google',
+        collection: 'users',
+      });
+      const resTooShort = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'code_short',
+          codeVerifier: 'verifier_short',
+          state: 'state_too_short',
+          createData: {
+            phone: '123', // < 10 characters
+            age: 25,
+          },
+        }),
+      });
+      expect(resTooShort.status).toBe(422);
+      const errTooShort = await resTooShort.json();
+      expect(errTooShort.message).toContain("Field 'phone' must be at least 10 characters");
+
+      // 2. Rejected when number value is below minimum constraint
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'state_underage',
+        provider: 'google',
+        collection: 'users',
+      });
+      const resUnderage = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'code_underage',
+          codeVerifier: 'verifier_underage',
+          state: 'state_underage',
+          createData: {
+            phone: '+12345678901',
+            age: 16, // < 18
+          },
+        }),
+      });
+      expect(resUnderage.status).toBe(422);
+      const errUnderage = await resUnderage.json();
+      expect(errUnderage.message).toContain("Field 'age' must be greater than or equal to 18");
+
+      // 3. Accepted when constraints are satisfied
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'state_valid_constraints',
+        provider: 'google',
+        collection: 'users',
+      });
+      const resValid = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'code_valid',
+          codeVerifier: 'verifier_valid',
+          state: 'state_valid_constraints',
+          createData: {
+            phone: '+12345678901',
+            age: '25', // Should be normalized to number 25
+          },
+        }),
+      });
+      expect(resValid.status).toBe(200);
+      const dataValid = await resValid.json();
+      expect(dataValid.record.phone).toBe('+12345678901');
+      expect(dataValid.record.age).toBe(25);
+
+      // Clean up schema
+      usersCol.schema = usersCol.schema.filter((f) => f.name !== 'phone' && f.name !== 'age');
+      app.schema.updateCollection('users', usersCol);
+    });
+
+    it('should trigger record lifecycle hooks (onRecordBeforeCreate & onRecordAfterCreate) during OAuth2 provisioning', async () => {
+      const usersCol = app.schema.getCollectionOrThrow('users');
+      usersCol.schema.push({
+        name: 'role',
+        type: 'text',
+      });
+      app.schema.updateCollection('users', usersCol);
+
+      let beforeHookInvoked = false;
+      let afterCreatedId: string | null = null;
+
+      const unregisterBefore = app.eventBus.onRecordBeforeCreate('users', async (ctx) => {
+        beforeHookInvoked = true;
+        // Hook mutates record data before persistence
+        ctx.record.role = 'vip_member';
+      });
+
+      const unregisterAfter = app.eventBus.onRecordAfterCreate('users', async (ctx) => {
+        afterCreatedId = ctx.record.id;
+      });
+
+      try {
+        const mockProvider = new MockOAuthProvider('google', 'Google', {
+          id: 'g_hooks_user',
+          email: 'hooks@test.com',
+          isEmailVerified: true,
+          rawUser: { id: 'g_hooks_user' },
+        });
+        app.auth.getOAuthRegistry().register(mockProvider);
+        app.auth.getOAuthRegistry().registerSession({
+          state: 'state_hooks_test',
+          provider: 'google',
+          collection: 'users',
+        });
+
+        const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: 'google',
+            code: 'code_hooks',
+            codeVerifier: 'verifier_hooks',
+            state: 'state_hooks_test',
+          }),
+        });
+
+        expect(res.status).toBe(200);
+        const data = await res.json();
+        expect(beforeHookInvoked).toBe(true);
+        expect(data.record.role).toBe('vip_member'); // Modified by onRecordBeforeCreate hook!
+        expect(afterCreatedId).toBe(data.record.id);
+      } finally {
+        unregisterBefore();
+        unregisterAfter();
+        usersCol.schema = usersCol.schema.filter((f) => f.name !== 'role');
+        app.schema.updateCollection('users', usersCol);
+      }
+    });
+
+    it('should allow onRecordBeforeCreate lifecycle hook to cancel OAuth2 user provisioning', async () => {
+      const unregisterCancelHook = app.eventBus.onRecordBeforeCreate('users', async (ctx) => {
+        ctx.cancel('Registration is temporarily closed for maintenance');
+      });
+
+      try {
+        const mockProvider = new MockOAuthProvider('google', 'Google', {
+          id: 'g_cancel_test',
+          email: 'cancelled@test.com',
+          isEmailVerified: true,
+          rawUser: { id: 'g_cancel_test' },
+        });
+        app.auth.getOAuthRegistry().register(mockProvider);
+        app.auth.getOAuthRegistry().registerSession({
+          state: 'state_cancel_test',
+          provider: 'google',
+          collection: 'users',
+        });
+
+        const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: 'google',
+            code: 'code_cancel',
+            codeVerifier: 'verifier_cancel',
+            state: 'state_cancel_test',
+          }),
+        });
+
+        expect(res.status).toBe(400);
+        const err = await res.json();
+        expect(err.message).toContain('Registration is temporarily closed for maintenance');
+      } finally {
+        unregisterCancelHook();
+      }
+    });
   });
 
   describe('4. External Identities Management (List & Unlink)', () => {

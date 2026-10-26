@@ -11,6 +11,8 @@ import { AuthMethodProviderInfo, ExternalAuthModel, OAuthProfile } from './oauth
 import { FileStorageService } from '../files/FileStorageService';
 import { RuleEngine } from '../rules/RuleEngine';
 import { RecordValidator } from '../records/RecordValidator';
+import { EventBus } from '../core/events/EventBus';
+import { RealtimeService } from '../realtime/RealtimeService';
 
 export interface AuthClaims {
   id: string;
@@ -42,6 +44,8 @@ export interface OAuthAuthResult extends AuthResult {
 export class AuthService {
   private oauthRegistry: OAuthProviderRegistry;
   private ruleEngine: RuleEngine;
+  private eventBus?: EventBus;
+  private realtimeService?: RealtimeService;
 
   constructor(
     private db: DatabaseService,
@@ -49,10 +53,22 @@ export class AuthService {
     private schemaService: SchemaService,
     private registry?: AppRegistry,
     oauthRegistry?: OAuthProviderRegistry,
-    ruleEngine?: RuleEngine
+    ruleEngine?: RuleEngine,
+    eventBus?: EventBus,
+    realtimeService?: RealtimeService
   ) {
     this.oauthRegistry = oauthRegistry || new OAuthProviderRegistry();
     this.ruleEngine = ruleEngine || new RuleEngine();
+    this.eventBus = eventBus;
+    this.realtimeService = realtimeService;
+  }
+
+  public setEventBus(eventBus: EventBus): void {
+    this.eventBus = eventBus;
+  }
+
+  public setRealtimeService(realtimeService: RealtimeService): void {
+    this.realtimeService = realtimeService;
   }
 
   public getOAuthRegistry(): OAuthProviderRegistry {
@@ -373,7 +389,8 @@ export class AuthService {
     createData?: Record<string, any>,
     fileStorageService?: FileStorageService,
     callerAuth?: any,
-    state?: string
+    state?: string,
+    httpContext?: any
   ): Promise<OAuthAuthResult> {
     const col = this.schemaService.getCollectionOrThrow(collectionName);
     if (col.type !== 'auth') {
@@ -461,7 +478,7 @@ export class AuthService {
       const passwordHash = await this.hashPassword(randomPassword);
       const tokenKey = crypto.randomBytes(16).toString('hex');
 
-      const insertRecord: Record<string, any> = {
+      let insertRecord: Record<string, any> = {
         id: newId,
         email: cleanEmail || `${cleanProviderName}_${providerUserId}@oauth.nodestack.local`,
         emailVisibility: 0,
@@ -506,21 +523,33 @@ export class AuthService {
       }
 
       if (createData && typeof createData === 'object') {
+        const reservedFields = new Set(['id', 'passwordHash', 'tokenKey', 'created', 'updated']);
         for (const [key, val] of Object.entries(createData)) {
-          if (!(key in insertRecord)) {
+          if (!reservedFields.has(key)) {
             insertRecord[key] = val;
           }
         }
       }
 
-      // 1. Enforce collection schema validation semantics before insertion
+      // 1. Trigger lifecycle hook: onRecordBeforeCreate
+      const effectiveEventBus = this.eventBus || (httpContext as any)?.appScope?.eventBus;
+      if (effectiveEventBus) {
+        insertRecord = await effectiveEventBus.triggerRecordBeforeCreate(
+          col.name,
+          insertRecord,
+          callerAuth,
+          httpContext
+        );
+      }
+
+      // 2. Enforce collection schema validation semantics before insertion
       for (const field of col.schema) {
         const val = insertRecord[field.name];
         RecordValidator.validateField(field, val);
         insertRecord[field.name] = RecordValidator.normalizeFieldValue(field, val);
       }
 
-      // 2. Enforce collection create authorization rule semantics
+      // 3. Enforce collection create authorization rule semantics
       const isAllowed = this.ruleEngine.evaluate(col.createRule, {
         auth: callerAuth,
         data: insertRecord,
@@ -533,6 +562,7 @@ export class AuthService {
         throw new ForbiddenError(`You are not allowed to create records in '${collectionName}'`);
       }
 
+      // 4. Insert into database
       const columns = Object.keys(insertRecord).map((k) => `"${k}"`);
       const placeholders = Object.keys(insertRecord).map(() => '?');
       const values = Object.values(insertRecord);
@@ -542,6 +572,7 @@ export class AuthService {
         VALUES (${placeholders.join(', ')})
       `).run(...values);
 
+      // 5. Link external social identity
       const linkId = `ea_${crypto.randomBytes(6).toString('hex')}`;
       this.db.prepare(`
         INSERT INTO _external_auths (id, collection, recordId, provider, providerUserId, email, created, updated)
@@ -549,6 +580,24 @@ export class AuthService {
       `).run(linkId, col.name, newId, cleanProviderName, providerUserId, cleanEmail || null, now, now);
 
       targetRecord = insertRecord;
+
+      // 6. Trigger lifecycle hook: onRecordAfterCreate
+      if (effectiveEventBus) {
+        const hookRecord = { ...insertRecord, password: '[SET]' };
+        await effectiveEventBus.triggerRecordAfterCreate(
+          col.name,
+          hookRecord,
+          callerAuth,
+          httpContext
+        );
+      }
+
+      // 7. Broadcast realtime event
+      const effectiveRealtime = this.realtimeService || (httpContext as any)?.appScope?.realtime;
+      if (effectiveRealtime) {
+        const { passwordHash: _, tokenKey: __, ...publicRecord } = insertRecord;
+        effectiveRealtime.broadcast('create', col.name, publicRecord);
+      }
     }
 
     if (!targetRecord) {

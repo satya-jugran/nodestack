@@ -130,7 +130,8 @@ export class AuthController extends BaseController {
       createData,
       files,
       req.auth,
-      state
+      state,
+      req
     );
 
     this.ok(reply, result);
