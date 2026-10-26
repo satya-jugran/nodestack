@@ -244,6 +244,96 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       const err = await res.json();
       expect(err.message).toContain('is not verified');
     });
+
+    it('should enforce collection createRule on OAuth2 provisioning (rejecting conditional rules such as @request.auth.id != "")', async () => {
+      // Configure createRule requiring an existing authenticated user
+      const usersCol = app.schema.getCollectionOrThrow('users');
+      usersCol.createRule = '@request.auth.id != ""';
+      app.schema.updateCollection('users', usersCol);
+
+      const mockMs = new MockOAuthProvider('microsoft', 'Microsoft', {
+        id: 'ms_restricted',
+        email: 'ms@restricted.com',
+        isEmailVerified: true,
+        rawUser: { id: 'ms_restricted' },
+      });
+      app.auth.getOAuthRegistry().register(mockMs);
+
+      const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'microsoft',
+          code: 'ms_code',
+          codeVerifier: 'ms_verifier',
+        }),
+      });
+
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.message).toContain('You are not allowed to create records');
+
+      // Reset createRule
+      usersCol.createRule = '';
+      app.schema.updateCollection('users', usersCol);
+    });
+
+    it('should enforce collection schema validation semantics on OAuth2 provisioning (rejecting missing required fields)', async () => {
+      // Add a required field to users collection
+      const usersCol = app.schema.getCollectionOrThrow('users');
+      usersCol.schema.push({
+        name: 'company',
+        type: 'text',
+        required: true,
+      });
+      app.schema.updateCollection('users', usersCol);
+
+      const mockMs = new MockOAuthProvider('microsoft', 'Microsoft', {
+        id: 'ms_validation_test',
+        email: 'msval@company.com',
+        isEmailVerified: true,
+        rawUser: { id: 'ms_validation_test' },
+      });
+      app.auth.getOAuthRegistry().register(mockMs);
+
+      // Attempt provisioning without the required 'company' field in createData
+      const resFail = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'microsoft',
+          code: 'ms_code_fail',
+          codeVerifier: 'ms_verifier_fail',
+        }),
+      });
+
+      expect(resFail.status).toBe(422);
+      const err = await resFail.json();
+      expect(err.message).toContain("Field 'company' is required");
+
+      // Now provision WITH the required 'company' field in createData
+      const resSuccess = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'microsoft',
+          code: 'ms_code_success',
+          codeVerifier: 'ms_verifier_success',
+          createData: {
+            company: 'Acme Corp',
+          },
+        }),
+      });
+
+      expect(resSuccess.status).toBe(200);
+      const dataSuccess = await resSuccess.json();
+      expect(dataSuccess.record.company).toBe('Acme Corp');
+      expect(dataSuccess.meta.isNew).toBe(true);
+
+      // Clean up schema
+      usersCol.schema = usersCol.schema.filter((f) => f.name !== 'company');
+      app.schema.updateCollection('users', usersCol);
+    });
   });
 
   describe('4. External Identities Management (List & Unlink)', () => {
@@ -379,8 +469,12 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
           },
         });
 
-        // Wait a tick for async listAuthMethods to complete
-        await new Promise((r) => setTimeout(r, 50));
+        // Wait until urlCallback is called and listener is attached
+        let attempts = 0;
+        while (!capturedAuthUrl && attempts < 50) {
+          await new Promise((r) => setTimeout(r, 20));
+          attempts++;
+        }
 
         const parsedUrl = new URL(capturedAuthUrl);
         const expectedState = parsedUrl.searchParams.get('state')!;
@@ -471,14 +565,24 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
 
       try {
         const client = new NodeStackClient(serverUrl);
+        let opened = false;
         const authPromise = client.collection('users').authWithOAuth2({
           provider: 'discord',
           redirectUrl: 'http://localhost:3000/callback',
-          urlCallback: () => mockPopup,
+          urlCallback: () => {
+            opened = true;
+            return mockPopup;
+          },
         });
 
-        // Wait a tick for async listAuthMethods to register listener & timer
-        await new Promise((r) => setTimeout(r, 50));
+        // Wait until urlCallback is invoked and listener is attached
+        let attempts = 0;
+        while (!opened && attempts < 50) {
+          await new Promise((r) => setTimeout(r, 20));
+          attempts++;
+        }
+
+        expect(messageListeners.length).toBe(1);
 
         // Simulate user closing the popup window
         mockPopup.closed = true;

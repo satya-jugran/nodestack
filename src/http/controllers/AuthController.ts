@@ -128,7 +128,8 @@ export class AuthController extends BaseController {
       codeVerifier,
       redirectUrl || redirectUri,
       createData,
-      files
+      files,
+      req.auth
     );
 
     this.ok(reply, result);

@@ -80,7 +80,7 @@ export class AppScope {
     });
 
     this.ruleEngine = new RuleEngine();
-    this.auth = new AuthService(this.db, this.config, this.schema, registry);
+    this.auth = new AuthService(this.db, this.config, this.schema, registry, undefined, this.ruleEngine);
     this.apiKeys = new ApiKeyService(this.db, this.config);
 
     const appStorageDir = config.getAppStorageDir(app.slug);

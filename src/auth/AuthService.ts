@@ -9,6 +9,8 @@ import { AppRegistry } from '../apps/AppRegistry';
 import { OAuthProviderRegistry } from './oauth/OAuthProviderRegistry';
 import { AuthMethodProviderInfo, ExternalAuthModel, OAuthProfile } from './oauth/types';
 import { FileStorageService } from '../files/FileStorageService';
+import { RuleEngine } from '../rules/RuleEngine';
+import { RecordValidator } from '../records/RecordValidator';
 
 export interface AuthClaims {
   id: string;
@@ -39,15 +41,18 @@ export interface OAuthAuthResult extends AuthResult {
 
 export class AuthService {
   private oauthRegistry: OAuthProviderRegistry;
+  private ruleEngine: RuleEngine;
 
   constructor(
     private db: DatabaseService,
     private config: ConfigService,
     private schemaService: SchemaService,
     private registry?: AppRegistry,
-    oauthRegistry?: OAuthProviderRegistry
+    oauthRegistry?: OAuthProviderRegistry,
+    ruleEngine?: RuleEngine
   ) {
     this.oauthRegistry = oauthRegistry || new OAuthProviderRegistry();
+    this.ruleEngine = ruleEngine || new RuleEngine();
   }
 
   public getOAuthRegistry(): OAuthProviderRegistry {
@@ -366,7 +371,8 @@ export class AuthService {
     codeVerifier: string,
     redirectUri?: string,
     createData?: Record<string, any>,
-    fileStorageService?: FileStorageService
+    fileStorageService?: FileStorageService,
+    callerAuth?: any
   ): Promise<OAuthAuthResult> {
     const col = this.schemaService.getCollectionOrThrow(collectionName);
     if (col.type !== 'auth') {
@@ -433,10 +439,6 @@ export class AuthService {
 
     // 4. Provision new user if not found
     if (!targetRecord) {
-      if (col.createRule === null) {
-        throw new ForbiddenError(`Public registration is disabled for collection '${collectionName}'`);
-      }
-
       isNewUser = true;
       const newId = `r_${crypto.randomBytes(6).toString('hex')}`;
       const randomPassword = crypto.randomBytes(32).toString('hex');
@@ -488,11 +490,31 @@ export class AuthService {
       }
 
       if (createData && typeof createData === 'object') {
-        for (const field of col.schema) {
-          if (field.name in createData && !(field.name in insertRecord)) {
-            insertRecord[field.name] = createData[field.name];
+        for (const [key, val] of Object.entries(createData)) {
+          if (!(key in insertRecord)) {
+            insertRecord[key] = val;
           }
         }
+      }
+
+      // 1. Enforce collection schema validation semantics before insertion
+      for (const field of col.schema) {
+        const val = insertRecord[field.name];
+        RecordValidator.validateField(field, val);
+        insertRecord[field.name] = RecordValidator.normalizeFieldValue(field, val);
+      }
+
+      // 2. Enforce collection create authorization rule semantics
+      const isAllowed = this.ruleEngine.evaluate(col.createRule, {
+        auth: callerAuth,
+        data: insertRecord,
+      });
+
+      if (!isAllowed) {
+        if (col.createRule === null) {
+          throw new ForbiddenError(`Public registration is disabled for collection '${collectionName}'`);
+        }
+        throw new ForbiddenError(`You are not allowed to create records in '${collectionName}'`);
       }
 
       const columns = Object.keys(insertRecord).map((k) => `"${k}"`);

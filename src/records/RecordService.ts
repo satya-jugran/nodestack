@@ -13,6 +13,7 @@ import { AppError, ConflictError, ForbiddenError, NotFoundError, ValidationError
 import { CollectionModel } from '../schema/models/Collection';
 import { SchemaField } from '../schema/models/Field';
 import { hasScope } from '../auth/ApiKeyService';
+import { RecordValidator } from './RecordValidator';
 
 export interface ListResult<T = any> {
   page: number;
@@ -861,43 +862,11 @@ export class RecordService {
   }
 
   private validateField(field: SchemaField, value: any): void {
-    if (field.required && (value === undefined || value === null || value === '')) {
-      throw new ValidationError(`Field '${field.name}' is required`);
-    }
-
-    if (value === undefined || value === null || value === '') {
-      return;
-    }
-
-    if (field.type === 'number' && isNaN(Number(value))) {
-      throw new ValidationError(`Field '${field.name}' must be a valid number`);
-    }
-
-    if (field.type === 'select' && field.options?.values) {
-      if (!field.options.values.includes(String(value))) {
-        throw new ValidationError(`Invalid value for select field '${field.name}'. Allowed: ${field.options.values.join(', ')}`);
-      }
-    }
+    RecordValidator.validateField(field, value);
   }
 
   private normalizeFieldValue(field: SchemaField, value: any): any {
-    if (value === undefined || value === null || (value === '' && field.type !== 'text')) {
-      if (field.type === 'bool') {
-        return field.defaultValue ? 1 : 0;
-      }
-      return field.defaultValue !== undefined ? field.defaultValue : null;
-    }
-
-    switch (field.type) {
-      case 'bool':
-        return value === true || value === 'true' || value === 1 || value === '1' ? 1 : 0;
-      case 'number':
-        return Number(value);
-      case 'json':
-        return typeof value === 'string' ? value : JSON.stringify(value);
-      default:
-        return String(value);
-    }
+    return RecordValidator.normalizeFieldValue(field, value);
   }
 
   private sanitizeRecord(
