@@ -23,6 +23,7 @@ import type {
 export class NodeStackClient<TCollections extends Record<string, any> = Record<string, RecordModel>> {
   public readonly baseUrl: string;
   public readonly authStore: BaseAuthStore;
+  public apiKey?: string;
   public readonly files: FileService;
   public readonly realtime: RealtimeService;
   public readonly admins: AdminService;
@@ -42,6 +43,7 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
   constructor(baseUrl: string = '/', options: ClientOptions = {}) {
     this.baseUrl = (baseUrl || '/').replace(/\/+$/, '');
     this.authStore = options.authStore || new LocalAuthStore();
+    this.apiKey = options.apiKey;
     this.customFetch = options.fetch;
     this.defaultHeaders = options.headers || {};
     this.defaultTimeout = options.timeout || 120000; // 2 minutes default
@@ -126,7 +128,9 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
       ...(options.headers || {}),
     };
 
-    if (this.authStore.token && !headers['Authorization'] && !headers['authorization']) {
+    if (this.apiKey && !headers['Authorization'] && !headers['authorization'] && !headers['x-api-key'] && !headers['X-API-Key']) {
+      headers['Authorization'] = `Bearer ${this.apiKey}`;
+    } else if (this.authStore.token && !headers['Authorization'] && !headers['authorization']) {
       headers['Authorization'] = `Bearer ${this.authStore.token}`;
     }
 

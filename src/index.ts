@@ -61,8 +61,18 @@ export {
   COMMON_AUTH_FIELDS,
 } from './rules/RuleBuilder';
 
-// Auth & Files
-export { AuthService, AuthClaims, AuthResult } from './auth/AuthService';
+// Auth, API Keys & OAuth2
+export { AuthService, AuthClaims, AuthResult, OAuthAuthResult } from './auth/AuthService';
+export {
+  ApiKeyService,
+  ApiKeyModel,
+  SafeApiKeyModel,
+  CreateApiKeyDto,
+  UpdateApiKeyDto,
+  hasScope,
+} from './auth/ApiKeyService';
+export { OAuthProviderRegistry } from './auth/oauth/OAuthProviderRegistry';
+export * from './auth/oauth/types';
 export { FileStorageService, SavedFileMeta } from './files/FileStorageService';
 
 // Realtime & Logging

@@ -5,10 +5,11 @@ export { NodeStackClient as default } from './Client';
 // Errors
 export { ClientResponseError, ClientResponseErrorOptions } from './errors/ClientResponseError';
 
-// Auth Stores
+// Auth Stores & PKCE
 export { BaseAuthStore, AuthChangeListener, decodeJwtPayload } from './auth/BaseAuthStore';
 export { LocalAuthStore, StorageLike } from './auth/LocalAuthStore';
 export { MemoryAuthStore } from './auth/MemoryAuthStore';
+export { PkceUtil } from './auth/PkceUtil';
 
 // Services
 export { BaseService, ClientInterface } from './services/BaseService';

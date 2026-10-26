@@ -11,6 +11,7 @@ import { TypeGenerator } from '../schema/TypeGenerator';
 import { OpenApiGenerator } from '../schema/OpenApiGenerator';
 import { RuleEngine } from '../rules/RuleEngine';
 import { AuthService } from '../auth/AuthService';
+import { ApiKeyService } from '../auth/ApiKeyService';
 import { FileStorageService } from '../files/FileStorageService';
 import { RealtimeService } from '../realtime/RealtimeService';
 import { LogService } from '../logger/LogService';
@@ -37,6 +38,7 @@ export class AppScope {
   public readonly openapi: OpenApiGenerator;
   public readonly ruleEngine: RuleEngine;
   public readonly auth: AuthService;
+  public readonly apiKeys: ApiKeyService;
   public readonly files: FileStorageService;
   public readonly realtime: RealtimeService;
   public readonly logs: LogService;
@@ -79,6 +81,7 @@ export class AppScope {
 
     this.ruleEngine = new RuleEngine();
     this.auth = new AuthService(this.db, this.config, this.schema, registry);
+    this.apiKeys = new ApiKeyService(this.db, this.config);
 
     const appStorageDir = config.getAppStorageDir(app.slug);
     if (!fs.existsSync(appStorageDir)) {
@@ -299,6 +302,12 @@ export class AppScope {
     // 1. Dispose RealtimeService (clears heartbeat interval and disconnects all SSE clients)
     try {
       this.realtime.dispose();
+    } catch {
+      // ignore
+    }
+
+    try {
+      this.apiKeys.dispose();
     } catch {
       // ignore
     }

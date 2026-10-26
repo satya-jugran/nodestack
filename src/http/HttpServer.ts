@@ -21,6 +21,7 @@ import { AuditLogController } from './controllers/AuditLogController';
 import { WebhookController } from './controllers/WebhookController';
 import { AppController } from './controllers/AppController';
 import { AppResolutionMiddleware } from './middleware/AppResolutionMiddleware';
+import { ApiKeyController } from './controllers/ApiKeyController';
 import { AdminUIService } from '../admin/AdminUIService';
 import { DocsService } from '../admin/DocsService';
 import { TypeGenerator } from '../schema/TypeGenerator';
@@ -31,8 +32,13 @@ export class HttpServer {
   public readonly app: FastifyInstance;
   public readonly chaosMiddleware: ChaosMiddleware;
   public readonly maintenanceGate?: MaintenanceGate;
+  private apiKeyController?: ApiKeyController;
   private dynamicRouteHandler?: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>;
   private dynamicRouteMatcher?: (method: string, path: string) => any;
+
+  public setApiKeyController(controller: ApiKeyController): void {
+    this.apiKeyController = controller;
+  }
 
   public setDynamicRouteHandler(handler: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>): void {
     this.dynamicRouteHandler = handler;
@@ -65,9 +71,13 @@ export class HttpServer {
     private auditLogController?: AuditLogController,
     private webhookController?: WebhookController,
     private appController?: AppController,
-    private appResolutionMiddleware?: AppResolutionMiddleware
+    private appResolutionMiddleware?: AppResolutionMiddleware,
+    apiKeyController?: ApiKeyController
   ) {
     this.maintenanceGate = maintenanceGate;
+    if (apiKeyController) {
+      this.apiKeyController = apiKeyController;
+    }
 
     let analyticsController: AnalyticsController | undefined;
     if (analyticsControllerOrChaos instanceof ChaosMiddleware) {
@@ -384,6 +394,38 @@ export class HttpServer {
     app.post('/api/apps/:appId/collections/:collection/auth-with-password', (req: any, reply) =>
       this.authController.recordLogin(req, reply)
     );
+    app.get('/api/apps/:appId/collections/:collection/auth-methods', (req: any, reply) =>
+      this.authController.listAuthMethods(req, reply)
+    );
+    app.post('/api/apps/:appId/collections/:collection/auth-with-oauth2', (req: any, reply) =>
+      this.authController.authWithOAuth2(req, reply)
+    );
+    app.get('/api/apps/:appId/collections/:collection/records/:id/external-auths', (req: any, reply) =>
+      this.authController.getExternalAuths(req, reply)
+    );
+    app.delete('/api/apps/:appId/collections/:collection/records/:id/external-auths/:provider', (req: any, reply) =>
+      this.authController.unlinkExternalAuth(req, reply)
+    );
+
+    // Scoped API Keys & Service Accounts
+    app.get('/api/apps/:appId/api-keys', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.list(req, reply) : reply.status(501).send()
+    );
+    app.post('/api/apps/:appId/api-keys', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.create(req, reply) : reply.status(501).send()
+    );
+    app.get('/api/apps/:appId/api-keys/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.getOne(req, reply) : reply.status(501).send()
+    );
+    app.patch('/api/apps/:appId/api-keys/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.update(req, reply) : reply.status(501).send()
+    );
+    app.delete('/api/apps/:appId/api-keys/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.delete(req, reply) : reply.status(501).send()
+    );
+    app.post('/api/apps/:appId/api-keys/:id/rotate', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.rotate(req, reply) : reply.status(501).send()
+    );
     app.get('/api/apps/:appId/files/:collection/:recordId/:filename', (req: any, reply) =>
       this.fileController.getFile(req, reply)
     );
@@ -490,6 +532,38 @@ export class HttpServer {
     app.get('/api/admins/me', (req, reply) => this.authController.getAdminMe(req, reply));
     app.post('/api/collections/:collection/auth-with-password', (req: any, reply) =>
       this.authController.recordLogin(req, reply)
+    );
+    app.get('/api/collections/:collection/auth-methods', (req: any, reply) =>
+      this.authController.listAuthMethods(req, reply)
+    );
+    app.post('/api/collections/:collection/auth-with-oauth2', (req: any, reply) =>
+      this.authController.authWithOAuth2(req, reply)
+    );
+    app.get('/api/collections/:collection/records/:id/external-auths', (req: any, reply) =>
+      this.authController.getExternalAuths(req, reply)
+    );
+    app.delete('/api/collections/:collection/records/:id/external-auths/:provider', (req: any, reply) =>
+      this.authController.unlinkExternalAuth(req, reply)
+    );
+
+    // 2.5 API Keys & Machine-to-Machine (M2M) Endpoints (Super-admin only)
+    app.get('/api/api-keys', { preHandler: requireAdmin }, (req, reply) =>
+      this.apiKeyController ? this.apiKeyController.list(req, reply) : reply.status(501).send()
+    );
+    app.post('/api/api-keys', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.create(req, reply) : reply.status(501).send()
+    );
+    app.get('/api/api-keys/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.getOne(req, reply) : reply.status(501).send()
+    );
+    app.patch('/api/api-keys/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.update(req, reply) : reply.status(501).send()
+    );
+    app.delete('/api/api-keys/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.delete(req, reply) : reply.status(501).send()
+    );
+    app.post('/api/api-keys/:id/rotate', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.rotate(req, reply) : reply.status(501).send()
     );
 
     // 3. Collection Schema Endpoints (Admin only)

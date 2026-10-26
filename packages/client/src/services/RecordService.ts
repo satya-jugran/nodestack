@@ -1,10 +1,15 @@
 import { BaseService, ClientInterface } from './BaseService';
 import { ClientResponseError } from '../errors/ClientResponseError';
+import { PkceUtil } from '../auth/PkceUtil';
 import type {
   ListResult,
   QueryOptions,
   RecordModel,
   RecordAuthResponse,
+  RecordOAuthResponse,
+  AuthMethodsList,
+  OAuth2AuthOptions,
+  ExternalAuthModel,
   ImportResult,
   RealtimeCallback,
   UnsubscribeFunc,
@@ -205,6 +210,120 @@ export class RecordService<T = RecordModel> extends BaseService {
     }
 
     return result;
+  }
+
+  /**
+   * Returns a list of configured and enabled OAuth2 authentication providers.
+   */
+  public async listAuthMethods(redirectUri?: string): Promise<AuthMethodsList> {
+    return this.send<AuthMethodsList>(
+      `/api/collections/${encodeURIComponent(this.collectionName)}/auth-methods`,
+      {
+        method: 'GET',
+        query: redirectUri ? { redirectUri } : undefined,
+      }
+    );
+  }
+
+  /**
+   * Authenticates against an auth collection using OAuth2 with PKCE code exchange.
+   * On success, automatically persists the token and record to authStore.
+   */
+  public async authWithOAuth2(
+    options: OAuth2AuthOptions
+  ): Promise<RecordOAuthResponse<T>> {
+    let code = options.code;
+    let codeVerifier = options.codeVerifier;
+
+    if (options.urlCallback && (!code || !codeVerifier)) {
+      const authMethods = await this.listAuthMethods(options.redirectUrl);
+      const provider = authMethods.authProviders.find(
+        (p) => p.name.toLowerCase() === options.provider.toLowerCase()
+      );
+
+      if (!provider) {
+        throw new Error(`OAuth provider '${options.provider}' is not enabled or configured.`);
+      }
+
+      codeVerifier = provider.codeVerifier;
+      options.urlCallback(provider.authUrl);
+      return new Promise<RecordOAuthResponse<T>>((resolve, reject) => {
+        if (typeof window !== 'undefined' && window.addEventListener) {
+          const handler = async (event: MessageEvent) => {
+            if (event.data && typeof event.data === 'object' && event.data.type === 'nodestack_oauth_callback') {
+              window.removeEventListener('message', handler);
+              if (event.data.error) {
+                return reject(new Error(event.data.error));
+              }
+              try {
+                const res = await this.authWithOAuth2({
+                  provider: options.provider,
+                  code: event.data.code,
+                  codeVerifier,
+                  redirectUrl: options.redirectUrl,
+                  createData: options.createData,
+                });
+                resolve(res);
+              } catch (err) {
+                reject(err);
+              }
+            }
+          };
+          window.addEventListener('message', handler);
+        } else {
+          reject(new Error('urlCallback requires code and codeVerifier in non-browser environments.'));
+        }
+      });
+    }
+
+    if (!code || !codeVerifier) {
+      throw new Error('Both code and codeVerifier are required for OAuth2 authentication');
+    }
+
+    const result = await this.send<RecordOAuthResponse<T>>(
+      `/api/collections/${encodeURIComponent(this.collectionName)}/auth-with-oauth2`,
+      {
+        method: 'POST',
+        body: {
+          provider: options.provider,
+          code,
+          codeVerifier,
+          redirectUrl: options.redirectUrl,
+          createData: options.createData,
+        },
+      }
+    );
+
+    if (result && result.token) {
+      this.client.authStore.save(result.token, result.record as any);
+    }
+
+    return result;
+  }
+
+  /**
+   * Lists external social identities linked to a specific record.
+   */
+  public async listExternalAuths(recordId: string): Promise<ExternalAuthModel[]> {
+    return this.send<ExternalAuthModel[]>(
+      `/api/collections/${encodeURIComponent(this.collectionName)}/records/${encodeURIComponent(recordId)}/external-auths`,
+      {
+        method: 'GET',
+      }
+    );
+  }
+
+  /**
+   * Unlinks an external social identity from a record.
+   */
+  public async unlinkExternalAuth(recordId: string, provider: string): Promise<boolean> {
+    await this.send<void>(
+      `/api/collections/${encodeURIComponent(this.collectionName)}/records/${encodeURIComponent(recordId)}/external-auths/${encodeURIComponent(provider)}`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return true;
   }
 
   /**

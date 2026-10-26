@@ -4,8 +4,11 @@ import * as jwt from 'jsonwebtoken';
 import { DatabaseService } from '../database/DatabaseService';
 import { ConfigService } from '../core/config/ConfigService';
 import { SchemaService } from '../schema/SchemaService';
-import { AppError, ConflictError, NotFoundError, UnauthorizedError } from '../core/errors/AppError';
+import { AppError, ConflictError, NotFoundError, UnauthorizedError, ForbiddenError } from '../core/errors/AppError';
 import { AppRegistry } from '../apps/AppRegistry';
+import { OAuthProviderRegistry } from './oauth/OAuthProviderRegistry';
+import { AuthMethodProviderInfo, ExternalAuthModel, OAuthProfile } from './oauth/types';
+import { FileStorageService } from '../files/FileStorageService';
 
 export interface AuthClaims {
   id: string;
@@ -13,6 +16,11 @@ export interface AuthClaims {
   collection: string;
   tokenKey: string;
   isAdmin: boolean;
+  isApiKey?: boolean;
+  apiKeyId?: string;
+  apiKeyName?: string;
+  scopes?: string[];
+  allowedIps?: string[];
 }
 
 export interface AuthResult {
@@ -20,13 +28,31 @@ export interface AuthResult {
   record: Record<string, any>;
 }
 
+export interface OAuthAuthResult extends AuthResult {
+  meta: {
+    provider: string;
+    isNew: boolean;
+    providerUserId: string;
+    rawUser: Record<string, any>;
+  };
+}
+
 export class AuthService {
+  private oauthRegistry: OAuthProviderRegistry;
+
   constructor(
     private db: DatabaseService,
     private config: ConfigService,
     private schemaService: SchemaService,
-    private registry?: AppRegistry
-  ) {}
+    private registry?: AppRegistry,
+    oauthRegistry?: OAuthProviderRegistry
+  ) {
+    this.oauthRegistry = oauthRegistry || new OAuthProviderRegistry();
+  }
+
+  public getOAuthRegistry(): OAuthProviderRegistry {
+    return this.oauthRegistry;
+  }
 
   public async hashPassword(password: string): Promise<string> {
     const salt = await bcrypt.genSalt(10);
@@ -318,5 +344,218 @@ export class AuthService {
       token,
       record: recordSafe,
     };
+  }
+
+  // --- OAuth2 / Social Logins ---
+
+  public listAuthMethods(collectionName: string, redirectUri?: string): { authProviders: AuthMethodProviderInfo[] } {
+    const col = this.schemaService.getCollectionOrThrow(collectionName);
+    if (col.type !== 'auth') {
+      throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
+    }
+    const providers = this.oauthRegistry.listAuthMethods(redirectUri);
+    return {
+      authProviders: providers,
+    };
+  }
+
+  public async authenticateOAuth2(
+    collectionName: string,
+    providerName: string,
+    code: string,
+    codeVerifier: string,
+    redirectUri?: string,
+    createData?: Record<string, any>,
+    fileStorageService?: FileStorageService
+  ): Promise<OAuthAuthResult> {
+    const col = this.schemaService.getCollectionOrThrow(collectionName);
+    if (col.type !== 'auth') {
+      throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
+    }
+
+    const cleanProviderName = providerName.trim().toLowerCase();
+    const provider = this.oauthRegistry.getProvider(cleanProviderName);
+    if (!provider) {
+      throw new AppError(`OAuth2 provider '${cleanProviderName}' is not configured or enabled`, 400);
+    }
+
+    // 1. Exchange authorization code and code_verifier with provider
+    const exchange = await provider.exchangeCode(code, codeVerifier, redirectUri);
+    const { id: providerUserId, email: rawEmail, name, avatarUrl, isEmailVerified, rawUser } = exchange.profile;
+    const cleanEmail = (rawEmail || '').toLowerCase().trim();
+
+    // 2. Check if external auth identity is already linked
+    const existingLink = this.db.get<any>(
+      'SELECT * FROM _external_auths WHERE collection = ? AND provider = ? AND providerUserId = ?',
+      [col.name, cleanProviderName, providerUserId]
+    );
+
+    let targetRecord: Record<string, any> | undefined;
+    let isNewUser = false;
+    const now = new Date().toISOString();
+
+    if (existingLink) {
+      targetRecord = this.db.get<any>(`SELECT * FROM "${col.name}" WHERE id = ?`, [existingLink.recordId]);
+      if (targetRecord) {
+        this.db.prepare('UPDATE _external_auths SET updated = ? WHERE id = ?').run(now, existingLink.id);
+      } else {
+        this.db.prepare('DELETE FROM _external_auths WHERE id = ?').run(existingLink.id);
+      }
+    }
+
+    if (!targetRecord) {
+      // 3. Check if account with same email already exists
+      if (cleanEmail) {
+        const existingByEmail = this.db.get<any>(
+          `SELECT * FROM "${col.name}" WHERE email = ?`,
+          [cleanEmail]
+        );
+
+        if (existingByEmail) {
+          // Strict policy: provider email MUST be verified to prevent account takeover
+          if (!isEmailVerified) {
+            throw new AppError(
+              `Cannot automatically link ${provider.displayName} account: provider email '${cleanEmail}' is not verified`,
+              400
+            );
+          }
+
+          targetRecord = existingByEmail;
+          // Link this external auth to the existing user
+          const linkId = `ea_${crypto.randomBytes(6).toString('hex')}`;
+          this.db.prepare(`
+            INSERT INTO _external_auths (id, collection, recordId, provider, providerUserId, email, created, updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(linkId, col.name, existingByEmail.id, cleanProviderName, providerUserId, cleanEmail || null, now, now);
+        }
+      }
+    }
+
+    // 4. Provision new user if not found
+    if (!targetRecord) {
+      if (col.createRule === null) {
+        throw new ForbiddenError(`Public registration is disabled for collection '${collectionName}'`);
+      }
+
+      isNewUser = true;
+      const newId = `r_${crypto.randomBytes(6).toString('hex')}`;
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      const passwordHash = await this.hashPassword(randomPassword);
+      const tokenKey = crypto.randomBytes(16).toString('hex');
+
+      const insertRecord: Record<string, any> = {
+        id: newId,
+        email: cleanEmail || `${cleanProviderName}_${providerUserId}@oauth.nodestack.local`,
+        emailVisibility: 0,
+        verified: isEmailVerified ? 1 : 0,
+        passwordHash,
+        tokenKey,
+        created: now,
+        updated: now,
+      };
+
+      const hasNameField = col.schema.some((f) => f.name === 'name');
+      if (hasNameField && name) {
+        insertRecord.name = name;
+      }
+
+      const avatarField = col.schema.find((f) => f.name === 'avatar');
+      if (avatarField && avatarUrl) {
+        if (avatarField.type === 'file' && fileStorageService) {
+          try {
+            const avatarRes = await fetch(avatarUrl);
+            if (avatarRes.ok) {
+              const arrayBuf = await avatarRes.arrayBuffer();
+              const buffer = Buffer.from(arrayBuf);
+              const mimeType = avatarRes.headers.get('content-type') || 'image/png';
+              const ext = mimeType.includes('jpeg') ? '.jpg' : mimeType.includes('gif') ? '.gif' : mimeType.includes('webp') ? '.webp' : '.png';
+              const savedMeta = await fileStorageService.saveFile(
+                col.id,
+                newId,
+                `avatar_${cleanProviderName}${ext}`,
+                buffer,
+                mimeType,
+                avatarField.options
+              );
+              insertRecord.avatar = savedMeta.filename;
+            }
+          } catch {
+            // Non-fatal if avatar download fails
+          }
+        } else if (avatarField.type === 'text' || avatarField.type === 'url') {
+          insertRecord.avatar = avatarUrl;
+        }
+      }
+
+      if (createData && typeof createData === 'object') {
+        for (const field of col.schema) {
+          if (field.name in createData && !(field.name in insertRecord)) {
+            insertRecord[field.name] = createData[field.name];
+          }
+        }
+      }
+
+      const columns = Object.keys(insertRecord).map((k) => `"${k}"`);
+      const placeholders = Object.keys(insertRecord).map(() => '?');
+      const values = Object.values(insertRecord);
+
+      this.db.prepare(`
+        INSERT INTO "${col.name}" (${columns.join(', ')})
+        VALUES (${placeholders.join(', ')})
+      `).run(...values);
+
+      const linkId = `ea_${crypto.randomBytes(6).toString('hex')}`;
+      this.db.prepare(`
+        INSERT INTO _external_auths (id, collection, recordId, provider, providerUserId, email, created, updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(linkId, col.name, newId, cleanProviderName, providerUserId, cleanEmail || null, now, now);
+
+      targetRecord = insertRecord;
+    }
+
+    if (!targetRecord) {
+      throw new AppError('Failed to resolve authenticated user', 500);
+    }
+
+    // 5. Issue JWT session token
+    const claims: AuthClaims = {
+      id: targetRecord.id,
+      email: targetRecord.email,
+      collection: col.name,
+      tokenKey: targetRecord.tokenKey,
+      isAdmin: false,
+    };
+
+    const token = this.generateToken(claims, '7d');
+    const { passwordHash: _, tokenKey: __, ...recordSafe } = targetRecord;
+
+    return {
+      token,
+      record: recordSafe,
+      meta: {
+        provider: cleanProviderName,
+        isNew: isNewUser,
+        providerUserId,
+        rawUser,
+      },
+    };
+  }
+
+  public getExternalAuths(collectionName: string, recordId: string): ExternalAuthModel[] {
+    const rows = this.db.all<any>(
+      'SELECT * FROM _external_auths WHERE collection = ? AND recordId = ? ORDER BY created ASC',
+      [collectionName, recordId]
+    );
+    return rows;
+  }
+
+  public unlinkExternalAuth(collectionName: string, recordId: string, provider: string): void {
+    const result = this.db.run(
+      'DELETE FROM _external_auths WHERE collection = ? AND recordId = ? AND provider = ?',
+      [collectionName, recordId, provider.toLowerCase()]
+    );
+    if (result.changes === 0) {
+      throw new NotFoundError(`External auth '${provider}' not linked to record '${recordId}'`);
+    }
   }
 }

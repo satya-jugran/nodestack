@@ -127,6 +127,48 @@ export class SystemMigrations {
         CREATE INDEX IF NOT EXISTS idx_webhook_del_status ON _webhook_deliveries(status);
       `);
 
+      // 7. External OAuth2 Linked Accounts
+      driver.exec(`
+        CREATE TABLE IF NOT EXISTS _external_auths (
+          id TEXT PRIMARY KEY,
+          collection TEXT NOT NULL,
+          recordId TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          providerUserId TEXT NOT NULL,
+          email TEXT,
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL,
+          UNIQUE(collection, provider, providerUserId)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ext_auth_rec ON _external_auths(collection, recordId);
+        CREATE INDEX IF NOT EXISTS idx_ext_auth_prov ON _external_auths(provider, providerUserId);
+      `);
+
+      // 8. API Keys & Machine-to-Machine (M2M) Service Accounts
+      driver.exec(`
+        CREATE TABLE IF NOT EXISTS _api_keys (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          keyPrefix TEXT NOT NULL,
+          secretHash TEXT NOT NULL,
+          redactedKey TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'service',
+          scopes TEXT NOT NULL DEFAULT '[]',
+          allowedIps TEXT NOT NULL DEFAULT '[]',
+          expiresAt TEXT,
+          lastUsedAt TEXT,
+          lastUsedIp TEXT,
+          totalRequests INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'active',
+          createdBy TEXT,
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_prefix ON _api_keys(keyPrefix);
+        CREATE INDEX IF NOT EXISTS idx_api_keys_status ON _api_keys(status);
+      `);
+
       // Create default "users" auth collection if not already existing
       const usersExists = driver.prepare('SELECT id FROM _collections WHERE name = ?').get('users');
       if (!usersExists) {
