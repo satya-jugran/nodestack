@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
+import * as jwt from 'jsonwebtoken';
 import { NodeStack } from '../src/NodeStack';
 import { NodeStackClient } from '../packages/client/src/Client';
 import { PkceUtil } from '../packages/client/src/auth/PkceUtil';
 import { IOAuthProvider, OAuthExchangeResult, OAuthProfile } from '../src/auth/oauth/types';
+import { AppleProvider } from '../src/auth/oauth/AppleProvider';
 
 class MockOAuthProvider implements IOAuthProvider {
   public name: string;
@@ -592,6 +595,220 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       } finally {
         (globalThis as any).window = originalWindow;
       }
+    });
+  });
+
+  describe('6. Apple Provider JWS Cryptographic Verification', () => {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const { privateKey: attackerPrivateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+
+    const testKid = 'apple_key_2026';
+    const jwk = publicKey.export({ format: 'jwk' }) as any;
+    jwk.kid = testKid;
+    jwk.alg = 'RS256';
+    jwk.use = 'sig';
+
+    const clientId = 'com.nodestack.service';
+    const clientSecret = 'mock_apple_client_secret';
+
+    it('should verify valid Apple id_token against JWKS public key and extract profile', async () => {
+      const appleProvider = new AppleProvider({
+        clientId,
+        clientSecret,
+        customKeys: [jwk],
+      });
+
+      const validToken = jwt.sign(
+        {
+          iss: 'https://appleid.apple.com',
+          aud: clientId,
+          sub: 'apple_unique_sub_123',
+          email: 'johndoe@apple.com',
+          email_verified: 'true',
+        },
+        privateKey,
+        {
+          algorithm: 'RS256',
+          expiresIn: '10m',
+          keyid: testKid,
+        }
+      );
+
+      const profile = await (appleProvider as any).fetchUserProfile('mock_access_token', {
+        id_token: validToken,
+      });
+
+      expect(profile.id).toBe('apple_unique_sub_123');
+      expect(profile.email).toBe('johndoe@apple.com');
+      expect(profile.isEmailVerified).toBe(true);
+      expect(profile.rawUser.sub).toBe('apple_unique_sub_123');
+    });
+
+    it('should reject Apple id_token with forged signature', async () => {
+      const appleProvider = new AppleProvider({
+        clientId,
+        clientSecret,
+        customKeys: [jwk],
+      });
+
+      const forgedToken = jwt.sign(
+        {
+          iss: 'https://appleid.apple.com',
+          aud: clientId,
+          sub: 'victim_apple_id',
+          email: 'victim@apple.com',
+          email_verified: true,
+        },
+        attackerPrivateKey,
+        {
+          algorithm: 'RS256',
+          expiresIn: '10m',
+          keyid: testKid,
+        }
+      );
+
+      await expect(
+        (appleProvider as any).fetchUserProfile('mock_access_token', { id_token: forgedToken })
+      ).rejects.toThrow(/invalid signature/);
+    });
+
+    it('should reject Apple id_token with mismatched audience', async () => {
+      const appleProvider = new AppleProvider({
+        clientId,
+        clientSecret,
+        customKeys: [jwk],
+      });
+
+      const wrongAudToken = jwt.sign(
+        {
+          iss: 'https://appleid.apple.com',
+          aud: 'com.anotherapp.client',
+          sub: 'apple_sub_456',
+          email: 'test@apple.com',
+          email_verified: true,
+        },
+        privateKey,
+        {
+          algorithm: 'RS256',
+          expiresIn: '10m',
+          keyid: testKid,
+        }
+      );
+
+      await expect(
+        (appleProvider as any).fetchUserProfile('mock_access_token', { id_token: wrongAudToken })
+      ).rejects.toThrow(/jwt audience invalid/);
+    });
+
+    it('should reject Apple id_token with mismatched issuer', async () => {
+      const appleProvider = new AppleProvider({
+        clientId,
+        clientSecret,
+        customKeys: [jwk],
+      });
+
+      const wrongIssToken = jwt.sign(
+        {
+          iss: 'https://rogue-apple.com',
+          aud: clientId,
+          sub: 'apple_sub_789',
+          email: 'test@apple.com',
+          email_verified: true,
+        },
+        privateKey,
+        {
+          algorithm: 'RS256',
+          expiresIn: '10m',
+          keyid: testKid,
+        }
+      );
+
+      await expect(
+        (appleProvider as any).fetchUserProfile('mock_access_token', { id_token: wrongIssToken })
+      ).rejects.toThrow(/jwt issuer invalid/);
+    });
+
+    it('should reject expired Apple id_token', async () => {
+      const appleProvider = new AppleProvider({
+        clientId,
+        clientSecret,
+        customKeys: [jwk],
+      });
+
+      const expiredToken = jwt.sign(
+        {
+          iss: 'https://appleid.apple.com',
+          aud: clientId,
+          sub: 'apple_sub_expired',
+          email: 'expired@apple.com',
+          email_verified: true,
+        },
+        privateKey,
+        {
+          algorithm: 'RS256',
+          expiresIn: '-10s',
+          keyid: testKid,
+        }
+      );
+
+      await expect(
+        (appleProvider as any).fetchUserProfile('mock_access_token', { id_token: expiredToken })
+      ).rejects.toThrow(/jwt expired/);
+    });
+
+    it('should reject Apple id_token when kid is not found in JWKS', async () => {
+      const appleProvider = new AppleProvider({
+        clientId,
+        clientSecret,
+        customKeys: [jwk],
+      });
+
+      const unknownKidToken = jwt.sign(
+        {
+          iss: 'https://appleid.apple.com',
+          aud: clientId,
+          sub: 'apple_sub_unknown_kid',
+          email: 'unknown@apple.com',
+          email_verified: true,
+        },
+        privateKey,
+        {
+          algorithm: 'RS256',
+          expiresIn: '10m',
+          keyid: 'unregistered_kid_999',
+        }
+      );
+
+      await expect(
+        (appleProvider as any).fetchUserProfile('mock_access_token', { id_token: unknownKidToken })
+      ).rejects.toThrow(/signing key not found/);
+    });
+
+    it('should reject Apple id_token when sub claim is missing', async () => {
+      const appleProvider = new AppleProvider({
+        clientId,
+        clientSecret,
+        customKeys: [jwk],
+      });
+
+      const missingSubToken = jwt.sign(
+        {
+          iss: 'https://appleid.apple.com',
+          aud: clientId,
+          email: 'nosub@apple.com',
+          email_verified: true,
+        },
+        privateKey,
+        {
+          algorithm: 'RS256',
+          expiresIn: '10m',
+          keyid: testKid,
+        }
+      );
+
+      await expect(
+        (appleProvider as any).fetchUserProfile('mock_access_token', { id_token: missingSubToken })
+      ).rejects.toThrow(/missing sub claim/);
     });
   });
 });

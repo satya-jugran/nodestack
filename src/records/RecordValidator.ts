@@ -1,4 +1,4 @@
-import { SchemaField } from '../schema/types';
+import { SchemaField } from '../schema/models/Field';
 import { ValidationError } from '../core/errors/AppError';
 
 export class RecordValidator {
