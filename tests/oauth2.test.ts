@@ -9,6 +9,7 @@ import { PkceUtil } from '../packages/client/src/auth/PkceUtil';
 import { IOAuthProvider, OAuthExchangeResult, OAuthProfile } from '../src/auth/oauth/types';
 import { AppleProvider } from '../src/auth/oauth/AppleProvider';
 import { GitHubProvider } from '../src/auth/oauth/GitHubProvider';
+import { MicrosoftProvider } from '../src/auth/oauth/MicrosoftProvider';
 
 class MockOAuthProvider implements IOAuthProvider {
   public name: string;
@@ -953,6 +954,152 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(profile.id).toBe('99999');
       expect(profile.email).toBe('bob@example.com');
       // Must fail closed: cannot verify without /user/emails confirmation
+      expect(profile.isEmailVerified).toBe(false);
+    });
+  });
+
+  describe('8. Microsoft Provider Email Verification Assertion Resolution', () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    it('should leave isEmailVerified as false when neither id_token nor Graph profile attests verification', async () => {
+      const provider = new MicrosoftProvider({
+        clientId: 'mock_ms_client',
+        clientSecret: 'mock_ms_secret',
+      });
+
+      globalThis.fetch = (async (url: any) => {
+        if (String(url) === 'https://graph.microsoft.com/v1.0/me') {
+          return {
+            ok: true,
+            json: async () => ({
+              id: 'ms_user_123',
+              displayName: 'Enterprise User',
+              mail: 'unverified@enterprise.com',
+              userPrincipalName: 'unverified@enterprise.com',
+            }),
+          };
+        }
+        return originalFetch(url);
+      }) as any;
+
+      const profile = await (provider as any).fetchUserProfile('mock_token');
+      expect(profile.id).toBe('ms_user_123');
+      expect(profile.email).toBe('unverified@enterprise.com');
+      expect(profile.isEmailVerified).toBe(false);
+    });
+
+    it('should mark isEmailVerified as true when id_token explicitly attests email_verified', async () => {
+      const provider = new MicrosoftProvider({
+        clientId: 'mock_ms_client',
+        clientSecret: 'mock_ms_secret',
+      });
+
+      globalThis.fetch = (async (url: any) => {
+        if (String(url) === 'https://graph.microsoft.com/v1.0/me') {
+          return {
+            ok: true,
+            json: async () => ({
+              id: 'ms_user_456',
+              displayName: 'Verified Consumer',
+              mail: 'consumer@outlook.com',
+              userPrincipalName: 'consumer@outlook.com',
+            }),
+          };
+        }
+        return originalFetch(url);
+      }) as any;
+
+      const idTokenPayload = {
+        sub: 'ms_user_456',
+        email: 'consumer@outlook.com',
+        email_verified: true,
+      };
+      const mockIdToken = `header.${Buffer.from(JSON.stringify(idTokenPayload)).toString('base64url')}.sig`;
+
+      const profile = await (provider as any).fetchUserProfile('mock_token', {
+        id_token: mockIdToken,
+      });
+
+      expect(profile.id).toBe('ms_user_456');
+      expect(profile.email).toBe('consumer@outlook.com');
+      expect(profile.isEmailVerified).toBe(true);
+    });
+
+    it('should mark isEmailVerified as true when id_token contains Entra ID xms_edov domain-verified claim', async () => {
+      const provider = new MicrosoftProvider({
+        clientId: 'mock_ms_client',
+        clientSecret: 'mock_ms_secret',
+      });
+
+      globalThis.fetch = (async (url: any) => {
+        if (String(url) === 'https://graph.microsoft.com/v1.0/me') {
+          return {
+            ok: true,
+            json: async () => ({
+              id: 'ms_user_789',
+              displayName: 'Corp Employee',
+              mail: 'employee@verified-tenant.com',
+              userPrincipalName: 'employee@verified-tenant.com',
+            }),
+          };
+        }
+        return originalFetch(url);
+      }) as any;
+
+      const idTokenPayload = {
+        sub: 'ms_user_789',
+        preferred_username: 'employee@verified-tenant.com',
+        xms_edov: '1',
+      };
+      const mockIdToken = `header.${Buffer.from(JSON.stringify(idTokenPayload)).toString('base64url')}.sig`;
+
+      const profile = await (provider as any).fetchUserProfile('mock_token', {
+        id_token: mockIdToken,
+      });
+
+      expect(profile.id).toBe('ms_user_789');
+      expect(profile.email).toBe('employee@verified-tenant.com');
+      expect(profile.isEmailVerified).toBe(true);
+    });
+
+    it('should leave isEmailVerified as false when id_token explicitly indicates email_verified: false', async () => {
+      const provider = new MicrosoftProvider({
+        clientId: 'mock_ms_client',
+        clientSecret: 'mock_ms_secret',
+      });
+
+      globalThis.fetch = (async (url: any) => {
+        if (String(url) === 'https://graph.microsoft.com/v1.0/me') {
+          return {
+            ok: true,
+            json: async () => ({
+              id: 'ms_user_000',
+              displayName: 'Unverified Guest',
+              mail: 'guest@external.com',
+              userPrincipalName: 'guest@external.com',
+            }),
+          };
+        }
+        return originalFetch(url);
+      }) as any;
+
+      const idTokenPayload = {
+        sub: 'ms_user_000',
+        email: 'guest@external.com',
+        email_verified: false,
+      };
+      const mockIdToken = `header.${Buffer.from(JSON.stringify(idTokenPayload)).toString('base64url')}.sig`;
+
+      const profile = await (provider as any).fetchUserProfile('mock_token', {
+        id_token: mockIdToken,
+      });
+
+      expect(profile.id).toBe('ms_user_000');
+      expect(profile.email).toBe('guest@external.com');
       expect(profile.isEmailVerified).toBe(false);
     });
   });
