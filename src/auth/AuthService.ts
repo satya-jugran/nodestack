@@ -4,8 +4,15 @@ import * as jwt from 'jsonwebtoken';
 import { DatabaseService } from '../database/DatabaseService';
 import { ConfigService } from '../core/config/ConfigService';
 import { SchemaService } from '../schema/SchemaService';
-import { AppError, ConflictError, NotFoundError, UnauthorizedError } from '../core/errors/AppError';
+import { AppError, ConflictError, NotFoundError, UnauthorizedError, ForbiddenError } from '../core/errors/AppError';
 import { AppRegistry } from '../apps/AppRegistry';
+import { OAuthProviderRegistry } from './oauth/OAuthProviderRegistry';
+import { AuthMethodProviderInfo, ExternalAuthModel, OAuthProfile } from './oauth/types';
+import { FileStorageService } from '../files/FileStorageService';
+import { RuleEngine } from '../rules/RuleEngine';
+import { RecordValidator } from '../records/RecordValidator';
+import { EventBus } from '../core/events/EventBus';
+import { RealtimeService } from '../realtime/RealtimeService';
 
 export interface AuthClaims {
   id: string;
@@ -13,6 +20,11 @@ export interface AuthClaims {
   collection: string;
   tokenKey: string;
   isAdmin: boolean;
+  isApiKey?: boolean;
+  apiKeyId?: string;
+  apiKeyName?: string;
+  scopes?: string[];
+  allowedIps?: string[];
 }
 
 export interface AuthResult {
@@ -20,13 +32,48 @@ export interface AuthResult {
   record: Record<string, any>;
 }
 
+export interface OAuthAuthResult extends AuthResult {
+  meta: {
+    provider: string;
+    isNew: boolean;
+    providerUserId: string;
+    rawUser: Record<string, any>;
+  };
+}
+
 export class AuthService {
+  private oauthRegistry: OAuthProviderRegistry;
+  private ruleEngine: RuleEngine;
+  private eventBus?: EventBus;
+  private realtimeService?: RealtimeService;
+
   constructor(
     private db: DatabaseService,
     private config: ConfigService,
     private schemaService: SchemaService,
-    private registry?: AppRegistry
-  ) {}
+    private registry?: AppRegistry,
+    oauthRegistry?: OAuthProviderRegistry,
+    ruleEngine?: RuleEngine,
+    eventBus?: EventBus,
+    realtimeService?: RealtimeService
+  ) {
+    this.oauthRegistry = oauthRegistry || new OAuthProviderRegistry();
+    this.ruleEngine = ruleEngine || new RuleEngine();
+    this.eventBus = eventBus;
+    this.realtimeService = realtimeService;
+  }
+
+  public setEventBus(eventBus: EventBus): void {
+    this.eventBus = eventBus;
+  }
+
+  public setRealtimeService(realtimeService: RealtimeService): void {
+    this.realtimeService = realtimeService;
+  }
+
+  public getOAuthRegistry(): OAuthProviderRegistry {
+    return this.oauthRegistry;
+  }
 
   public async hashPassword(password: string): Promise<string> {
     const salt = await bcrypt.genSalt(10);
@@ -318,5 +365,284 @@ export class AuthService {
       token,
       record: recordSafe,
     };
+  }
+
+  // --- OAuth2 / Social Logins ---
+
+  public listAuthMethods(collectionName: string, redirectUri?: string): { authProviders: AuthMethodProviderInfo[] } {
+    const col = this.schemaService.getCollectionOrThrow(collectionName);
+    if (col.type !== 'auth') {
+      throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
+    }
+    const providers = this.oauthRegistry.listAuthMethods(redirectUri, col.name);
+    return {
+      authProviders: providers,
+    };
+  }
+
+  public async authenticateOAuth2(
+    collectionName: string,
+    providerName: string,
+    code: string,
+    codeVerifier: string,
+    redirectUri?: string,
+    createData?: Record<string, any>,
+    fileStorageService?: FileStorageService,
+    callerAuth?: any,
+    state?: string,
+    httpContext?: any
+  ): Promise<OAuthAuthResult> {
+    const col = this.schemaService.getCollectionOrThrow(collectionName);
+    if (col.type !== 'auth') {
+      throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
+    }
+
+    const cleanProviderName = providerName.trim().toLowerCase();
+    const provider = this.oauthRegistry.getProvider(cleanProviderName);
+    if (!provider) {
+      throw new AppError(`OAuth2 provider '${cleanProviderName}' is not configured or enabled`, 400);
+    }
+
+    if (!state) {
+      throw new AppError('OAuth state parameter is required', 400);
+    }
+
+    // Validate and consume state before exchanging the code
+    const session = this.oauthRegistry.validateAndConsumeState(
+      state,
+      cleanProviderName,
+      col.name,
+      codeVerifier,
+      redirectUri
+    );
+
+    const effectiveRedirectUri = redirectUri || session.redirectUri;
+
+    // 1. Exchange authorization code and code_verifier with provider
+    const exchange = await provider.exchangeCode(code, codeVerifier, effectiveRedirectUri);
+    const { id: providerUserId, email: rawEmail, name, avatarUrl, isEmailVerified, rawUser } = exchange.profile;
+    const cleanEmail = (rawEmail || '').toLowerCase().trim();
+
+    // 2. Check if external auth identity is already linked
+    const existingLink = this.db.get<any>(
+      'SELECT * FROM _external_auths WHERE collection = ? AND provider = ? AND providerUserId = ?',
+      [col.name, cleanProviderName, providerUserId]
+    );
+
+    let targetRecord: Record<string, any> | undefined;
+    let isNewUser = false;
+    const now = new Date().toISOString();
+
+    if (existingLink) {
+      targetRecord = this.db.get<any>(`SELECT * FROM "${col.name}" WHERE id = ?`, [existingLink.recordId]);
+      if (targetRecord) {
+        this.db.prepare('UPDATE _external_auths SET updated = ? WHERE id = ?').run(now, existingLink.id);
+      } else {
+        this.db.prepare('DELETE FROM _external_auths WHERE id = ?').run(existingLink.id);
+      }
+    }
+
+    if (!targetRecord) {
+      // 3. Check if account with same email already exists
+      if (cleanEmail) {
+        const existingByEmail = this.db.get<any>(
+          `SELECT * FROM "${col.name}" WHERE email = ?`,
+          [cleanEmail]
+        );
+
+        if (existingByEmail) {
+          // Strict policy: provider email MUST be verified to prevent account takeover
+          if (!isEmailVerified) {
+            throw new AppError(
+              `Cannot automatically link ${provider.displayName} account: provider email '${cleanEmail}' is not verified`,
+              400
+            );
+          }
+
+          targetRecord = existingByEmail;
+          // Link this external auth to the existing user
+          const linkId = `ea_${crypto.randomBytes(6).toString('hex')}`;
+          this.db.prepare(`
+            INSERT INTO _external_auths (id, collection, recordId, provider, providerUserId, email, created, updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(linkId, col.name, existingByEmail.id, cleanProviderName, providerUserId, cleanEmail || null, now, now);
+        }
+      }
+    }
+
+    // 4. Provision new user if not found
+    if (!targetRecord) {
+      isNewUser = true;
+      const newId = `r_${crypto.randomBytes(6).toString('hex')}`;
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      const passwordHash = await this.hashPassword(randomPassword);
+      const tokenKey = crypto.randomBytes(16).toString('hex');
+
+      let insertRecord: Record<string, any> = {
+        id: newId,
+        email: cleanEmail || `${cleanProviderName}_${providerUserId}@oauth.nodestack.local`,
+        emailVisibility: 0,
+        verified: isEmailVerified ? 1 : 0,
+        passwordHash,
+        tokenKey,
+        created: now,
+        updated: now,
+      };
+
+      const hasNameField = col.schema.some((f) => f.name === 'name');
+      if (hasNameField && name) {
+        insertRecord.name = name;
+      }
+
+      const avatarField = col.schema.find((f) => f.name === 'avatar');
+      if (avatarField && avatarUrl) {
+        if (avatarField.type === 'file' && fileStorageService) {
+          try {
+            const avatarRes = await fetch(avatarUrl);
+            if (avatarRes.ok) {
+              const arrayBuf = await avatarRes.arrayBuffer();
+              const buffer = Buffer.from(arrayBuf);
+              const mimeType = avatarRes.headers.get('content-type') || 'image/png';
+              const ext = mimeType.includes('jpeg') ? '.jpg' : mimeType.includes('gif') ? '.gif' : mimeType.includes('webp') ? '.webp' : '.png';
+              const savedMeta = await fileStorageService.saveFile(
+                col.id,
+                newId,
+                `avatar_${cleanProviderName}${ext}`,
+                buffer,
+                mimeType,
+                avatarField.options
+              );
+              insertRecord.avatar = savedMeta.filename;
+            }
+          } catch {
+            // Non-fatal if avatar download fails
+          }
+        } else if (avatarField.type === 'text' || avatarField.type === 'url') {
+          insertRecord.avatar = avatarUrl;
+        }
+      }
+
+      if (createData && typeof createData === 'object') {
+        const reservedFields = new Set(['id', 'passwordHash', 'tokenKey', 'created', 'updated']);
+        for (const [key, val] of Object.entries(createData)) {
+          if (!reservedFields.has(key)) {
+            insertRecord[key] = val;
+          }
+        }
+      }
+
+      // 1. Trigger lifecycle hook: onRecordBeforeCreate
+      const effectiveEventBus = this.eventBus || (httpContext as any)?.appScope?.eventBus;
+      if (effectiveEventBus) {
+        insertRecord = await effectiveEventBus.triggerRecordBeforeCreate(
+          col.name,
+          insertRecord,
+          callerAuth,
+          httpContext
+        );
+      }
+
+      // 2. Enforce collection schema validation semantics before insertion
+      for (const field of col.schema) {
+        const val = insertRecord[field.name];
+        RecordValidator.validateField(field, val);
+        insertRecord[field.name] = RecordValidator.normalizeFieldValue(field, val);
+      }
+
+      // 3. Enforce collection create authorization rule semantics
+      const isAllowed = this.ruleEngine.evaluate(col.createRule, {
+        auth: callerAuth,
+        data: insertRecord,
+      });
+
+      if (!isAllowed) {
+        if (col.createRule === null) {
+          throw new ForbiddenError(`Public registration is disabled for collection '${collectionName}'`);
+        }
+        throw new ForbiddenError(`You are not allowed to create records in '${collectionName}'`);
+      }
+
+      // 4. Insert into database
+      const columns = Object.keys(insertRecord).map((k) => `"${k}"`);
+      const placeholders = Object.keys(insertRecord).map(() => '?');
+      const values = Object.values(insertRecord);
+
+      this.db.prepare(`
+        INSERT INTO "${col.name}" (${columns.join(', ')})
+        VALUES (${placeholders.join(', ')})
+      `).run(...values);
+
+      // 5. Link external social identity
+      const linkId = `ea_${crypto.randomBytes(6).toString('hex')}`;
+      this.db.prepare(`
+        INSERT INTO _external_auths (id, collection, recordId, provider, providerUserId, email, created, updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(linkId, col.name, newId, cleanProviderName, providerUserId, cleanEmail || null, now, now);
+
+      targetRecord = insertRecord;
+
+      // 6. Trigger lifecycle hook: onRecordAfterCreate
+      if (effectiveEventBus) {
+        const hookRecord = { ...insertRecord, password: '[SET]' };
+        await effectiveEventBus.triggerRecordAfterCreate(
+          col.name,
+          hookRecord,
+          callerAuth,
+          httpContext
+        );
+      }
+
+      // 7. Broadcast realtime event
+      const effectiveRealtime = this.realtimeService || (httpContext as any)?.appScope?.realtime;
+      if (effectiveRealtime) {
+        const { passwordHash: _, tokenKey: __, ...publicRecord } = insertRecord;
+        effectiveRealtime.broadcast('create', col.name, publicRecord);
+      }
+    }
+
+    if (!targetRecord) {
+      throw new AppError('Failed to resolve authenticated user', 500);
+    }
+
+    // 5. Issue JWT session token
+    const claims: AuthClaims = {
+      id: targetRecord.id,
+      email: targetRecord.email,
+      collection: col.name,
+      tokenKey: targetRecord.tokenKey,
+      isAdmin: false,
+    };
+
+    const token = this.generateToken(claims, '7d');
+    const { passwordHash: _, tokenKey: __, ...recordSafe } = targetRecord;
+
+    return {
+      token,
+      record: recordSafe,
+      meta: {
+        provider: cleanProviderName,
+        isNew: isNewUser,
+        providerUserId,
+        rawUser,
+      },
+    };
+  }
+
+  public getExternalAuths(collectionName: string, recordId: string): ExternalAuthModel[] {
+    const rows = this.db.all<any>(
+      'SELECT * FROM _external_auths WHERE collection = ? AND recordId = ? ORDER BY created ASC',
+      [collectionName, recordId]
+    );
+    return rows;
+  }
+
+  public unlinkExternalAuth(collectionName: string, recordId: string, provider: string): void {
+    const result = this.db.run(
+      'DELETE FROM _external_auths WHERE collection = ? AND recordId = ? AND provider = ?',
+      [collectionName, recordId, provider.toLowerCase()]
+    );
+    if (result.changes === 0) {
+      throw new NotFoundError(`External auth '${provider}' not linked to record '${recordId}'`);
+    }
   }
 }

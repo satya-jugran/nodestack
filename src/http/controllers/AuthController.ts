@@ -4,12 +4,19 @@ import { AuthService } from '../../auth/AuthService';
 import { AppError } from '../../core/errors/AppError';
 
 export class AuthController extends BaseController {
-  constructor(private authService: AuthService) {
+  constructor(
+    private authService: AuthService,
+    private fileStorageService?: any
+  ) {
     super();
   }
 
   private getAuth(req?: any): AuthService {
     return req?.appScope?.auth || this.authService;
+  }
+
+  private getFiles(req?: any): any {
+    return req?.appScope?.files || this.fileStorageService;
   }
 
   public async hasAdmins(req: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -88,5 +95,71 @@ export class AuthController extends BaseController {
       throw new AppError('Admin not found', 404);
     }
     this.ok(reply, admin);
+  }
+
+  public async listAuthMethods(
+    req: FastifyRequest<{ Params: { collection: string }; Querystring: { redirectUri?: string } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const { collection } = req.params;
+    const redirectUri = req.query?.redirectUri;
+    const auth = this.getAuth(req);
+    const result = auth.listAuthMethods(collection, redirectUri);
+    this.ok(reply, result);
+  }
+
+  public async authWithOAuth2(
+    req: FastifyRequest<{ Params: { collection: string } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const { collection } = req.params;
+    const { provider, code, codeVerifier, redirectUrl, redirectUri, createData, state } = (req.body as any) || {};
+
+    if (!provider || !code || !codeVerifier || !state) {
+      throw new AppError('provider, code, codeVerifier, and state are required for OAuth2 authentication', 400);
+    }
+
+    const auth = this.getAuth(req);
+    const files = this.getFiles(req);
+    const result = await auth.authenticateOAuth2(
+      collection,
+      provider,
+      code,
+      codeVerifier,
+      redirectUrl || redirectUri,
+      createData,
+      files,
+      req.auth,
+      state,
+      req
+    );
+
+    this.ok(reply, result);
+  }
+
+  public async getExternalAuths(
+    req: FastifyRequest<{ Params: { collection: string; id: string } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const { collection, id } = req.params;
+    if (!req.auth || (!req.auth.isAdmin && req.auth.id !== id)) {
+      throw new AppError('Unauthorized to view external auth identities', 401);
+    }
+    const auth = this.getAuth(req);
+    const list = auth.getExternalAuths(collection, id);
+    this.ok(reply, list);
+  }
+
+  public async unlinkExternalAuth(
+    req: FastifyRequest<{ Params: { collection: string; id: string; provider: string } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const { collection, id, provider } = req.params;
+    if (!req.auth || (!req.auth.isAdmin && req.auth.id !== id)) {
+      throw new AppError('Unauthorized to unlink external auth identity', 401);
+    }
+    const auth = this.getAuth(req);
+    auth.unlinkExternalAuth(collection, id, provider);
+    this.noContent(reply);
   }
 }

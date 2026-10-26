@@ -97,12 +97,83 @@ export interface SendOptions extends Omit<RequestInit, 'body'> {
 
 export interface ClientOptions {
   authStore?: BaseAuthStore;
+  apiKey?: string;
   fetch?: typeof fetch;
   EventSource?: any;
   headers?: Record<string, string>;
   timeout?: number;
   chaos?: ChaosOptions;
   app?: string;
+}
+
+export interface AuthProviderInfo {
+  name: string;
+  displayName: string;
+  state: string;
+  codeVerifier: string;
+  codeChallenge: string;
+  codeChallengeMethod: 'S256';
+  authUrl: string;
+}
+
+export interface AuthMethodsList {
+  authProviders: AuthProviderInfo[];
+}
+
+export interface OAuth2AuthOptions {
+  provider: string;
+  code?: string;
+  codeVerifier?: string;
+  state?: string;
+  redirectUrl?: string;
+  createData?: Record<string, any>;
+  urlCallback?: (url: string) => Window | null | void;
+  popup?: Window | null;
+}
+
+export interface RecordOAuthResponse<T = RecordModel> extends RecordAuthResponse<T> {
+  meta: {
+    provider: string;
+    isNew: boolean;
+    providerUserId: string;
+    rawUser: Record<string, any>;
+  };
+}
+
+export interface ExternalAuthModel {
+  id: string;
+  collection: string;
+  recordId: string;
+  provider: string;
+  providerUserId: string;
+  email?: string;
+  created: string;
+  updated: string;
+}
+
+export interface ApiKeyModel extends BaseSystemFields {
+  name: string;
+  description: string;
+  keyPrefix: string;
+  redactedKey: string;
+  role: 'admin' | 'service' | 'custom';
+  scopes: string[];
+  allowedIps: string[];
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  lastUsedIp: string | null;
+  totalRequests: number;
+  status: 'active' | 'revoked' | 'expired';
+}
+
+export interface CreateApiKeyOptions {
+  name: string;
+  description?: string;
+  role?: 'admin' | 'service' | 'custom';
+  scopes?: string[];
+  allowedIps?: string[];
+  expiresInDays?: number;
+  expiresAt?: string;
 }
 
 export interface AppModel extends BaseSystemFields {

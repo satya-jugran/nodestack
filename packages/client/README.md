@@ -68,6 +68,58 @@ console.log('JWT Token:', client.authStore.token);
 console.log('Is valid:', client.authStore.isValid);
 ```
 
+### Authenticate via OAuth2 / Social Login (PKCE)
+NodeStack supports native PKCE code exchange for Google, GitHub, Apple, Discord, and Microsoft:
+
+```typescript
+// 1. Fetch available providers and precomputed PKCE challenge & state
+const { authProviders } = await client.collection('users').listAuthMethods('http://localhost:3000/callback');
+const google = authProviders.find((p) => p.name === 'google');
+
+// 2. Redirect user or open popup with google.authUrl
+// window.location.href = google.authUrl;
+
+// 3. On your callback page (/callback), exchange code and codeVerifier
+const urlParams = new URLSearchParams(window.location.search);
+const code = urlParams.get('code');
+
+const authData = await client.collection('users').authWithOAuth2({
+  provider: 'google',
+  code: code!,
+  codeVerifier: google.codeVerifier,
+  state: google.state,
+  redirectUrl: 'http://localhost:3000/callback',
+});
+
+console.log('Logged in via Google:', authData.record);
+console.log('Is newly registered user:', authData.meta.isNew);
+```
+
+#### One-Step Popup Authentication (Single-Page Apps)
+```typescript
+// nodestack-client verifies popup origin, window source, and binds CSRF state automatically:
+const authData = await client.collection('users').authWithOAuth2({
+  provider: 'google',
+  urlCallback: (url) => window.open(url, '_blank', 'width=500,height=650'),
+  redirectUrl: 'http://localhost:3000/callback',
+});
+```
+
+### Machine-to-Machine (M2M) Authentication with API Keys
+For background workers, cron daemons, serverless scripts, and CI/CD pipelines:
+
+```typescript
+import { NodeStackClient } from 'nodestack-client';
+
+// Initialized with a scoped API key (e.g. "orders:*", "products:read")
+const client = new NodeStackClient('https://api.yourdomain.com', {
+  apiKey: process.env.NODESTACK_API_KEY, // 'nsk_live_...'
+});
+
+// Requests automatically inject Authorization: Bearer nsk_...
+const orders = await client.collection('orders').getList(1, 20);
+```
+
 ### Authenticate as a Superuser / Admin
 ```typescript
 const adminAuth = await client.admins.authWithPassword('admin@nodestack.io', 'MySecretAdminPassword');

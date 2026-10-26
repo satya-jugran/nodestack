@@ -53,13 +53,27 @@ GET /_/openapi.json
 | `PATCH` | `/api/collections/:collection/records/:id` | Update record fields. |
 | `DELETE` | `/api/collections/:collection/records/:id` | Delete record. |
 
-### Authentication
+### Authentication & OAuth2
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `POST` | `/api/collections/users/auth-with-password` | Authenticate user with email & password. |
+| `POST` | `/api/collections/:collection/auth-with-password` | Authenticate user with identity & password. |
+| `GET` | `/api/collections/:collection/auth-methods` | List active OAuth2 providers with PKCE challenge and auth URLs. |
+| `POST` | `/api/collections/:collection/auth-with-oauth2` | Exchange OAuth2 code and PKCE codeVerifier for session JWT. |
+| `GET` | `/api/collections/:collection/records/:id/external-auths` | List linked social identities for an authenticated user. |
+| `DELETE` | `/api/collections/:collection/records/:id/external-auths/:provider` | Unlink an external social identity. |
 | `POST` | `/api/collections/users/request-password-reset` | Send password reset email. |
 | `POST` | `/api/collections/users/confirm-password-reset` | Complete password reset with token. |
 | `POST` | `/api/collections/users/auth-refresh` | Refresh an active JWT session. |
+
+### API Keys & Machine-to-Machine (M2M) Tokens (Superuser)
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/api-keys` | List all API keys with redacted tokens and usage stats. |
+| `POST` | `/api/api-keys` | Generate a new scoped API key. |
+| `GET` | `/api/api-keys/:id` | Retrieve metadata for a single API key. |
+| `PATCH` | `/api/api-keys/:id` | Update key name, scopes, IP allowlist, or expiration. |
+| `DELETE` | `/api/api-keys/:id` | Revoke and delete an API key. |
+| `POST` | `/api/api-keys/:id/rotate` | Rotate secret key entropy. |
 
 ### Realtime & Files
 | Method | Endpoint | Description |

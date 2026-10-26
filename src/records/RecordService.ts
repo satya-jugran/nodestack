@@ -12,6 +12,8 @@ import { FtsService } from './FtsService';
 import { AppError, ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../core/errors/AppError';
 import { CollectionModel } from '../schema/models/Collection';
 import { SchemaField } from '../schema/models/Field';
+import { hasScope } from '../auth/ApiKeyService';
+import { RecordValidator } from './RecordValidator';
 
 export interface ListResult<T = any> {
   page: number;
@@ -88,6 +90,12 @@ export class RecordService {
     const page = Math.max(1, Number(options.page) || 1);
     const perPage = Math.min(500, Math.max(1, Number(options.perPage) || 30));
     const offset = (page - 1) * perPage;
+
+    if (auth?.isApiKey) {
+      if (!hasScope(auth, col.name, 'list')) {
+        throw new ForbiddenError(`API Key missing required scope for '${col.name}:list'`);
+      }
+    }
 
     const allowedFields = new Set(col.schema.map((f) => f.name));
     allowedFields.add('id');
@@ -274,6 +282,12 @@ export class RecordService {
       throw new NotFoundError(`Record with id '${id}' not found in '${collectionName}'`);
     }
 
+    if (auth?.isApiKey) {
+      if (!hasScope(auth, col.name, 'view')) {
+        throw new ForbiddenError(`API Key missing required scope for '${col.name}:view'`);
+      }
+    }
+
     // Rule check: viewRule
     if (!this.ruleEngine.evaluate(col.viewRule, { auth, record: raw, query: options })) {
       throw new ForbiddenError(`You are not allowed to view this record in '${collectionName}'`);
@@ -294,6 +308,12 @@ export class RecordService {
     httpContext?: any
   ): Promise<Record<string, any>> {
     const col = this.schemaService.getCollectionOrThrow(collectionName);
+
+    if (auth?.isApiKey) {
+      if (!hasScope(auth, col.name, 'create')) {
+        throw new ForbiddenError(`API Key missing required scope for '${col.name}:create'`);
+      }
+    }
 
     // Rule check: createRule
     if (!this.ruleEngine.evaluate(col.createRule, { auth, data })) {
@@ -384,6 +404,12 @@ export class RecordService {
 
     if (!current) {
       throw new NotFoundError(`Record '${id}' not found in '${collectionName}'`);
+    }
+
+    if (auth?.isApiKey) {
+      if (!hasScope(auth, col.name, 'update')) {
+        throw new ForbiddenError(`API Key missing required scope for '${col.name}:update'`);
+      }
     }
 
     // Rule check: updateRule
@@ -485,6 +511,12 @@ export class RecordService {
       throw new NotFoundError(`Record '${id}' not found in '${collectionName}'`);
     }
 
+    if (auth?.isApiKey) {
+      if (!hasScope(auth, col.name, 'delete')) {
+        throw new ForbiddenError(`API Key missing required scope for '${col.name}:delete'`);
+      }
+    }
+
     // Rule check: deleteRule
     if (!this.ruleEngine.evaluate(col.deleteRule, { auth, record: current })) {
       throw new ForbiddenError(`You are not allowed to delete this record in '${collectionName}'`);
@@ -517,6 +549,12 @@ export class RecordService {
     auth?: any
   ): Promise<ExportResult> {
     const col = this.schemaService.getCollectionOrThrow(collectionName);
+
+    if (auth?.isApiKey) {
+      if (!hasScope(auth, col.name, 'export') && !hasScope(auth, col.name, 'read')) {
+        throw new ForbiddenError(`API Key missing required scope for '${col.name}:export'`);
+      }
+    }
 
     const allowedFields = new Set(col.schema.map((f) => f.name));
     allowedFields.add('id');
@@ -667,6 +705,12 @@ export class RecordService {
   ): Promise<ImportResult> {
     const col = this.schemaService.getCollectionOrThrow(collectionName);
 
+    if (auth?.isApiKey) {
+      if (!hasScope(auth, col.name, 'import') && !hasScope(auth, col.name, 'write')) {
+        throw new ForbiddenError(`API Key missing required scope for '${col.name}:import'`);
+      }
+    }
+
     // Rule check: createRule
     if (!this.ruleEngine.evaluate(col.createRule, { auth })) {
       throw new ForbiddenError(`You are not allowed to create records in '${collectionName}'`);
@@ -797,43 +841,11 @@ export class RecordService {
   }
 
   private validateField(field: SchemaField, value: any): void {
-    if (field.required && (value === undefined || value === null || value === '')) {
-      throw new ValidationError(`Field '${field.name}' is required`);
-    }
-
-    if (value === undefined || value === null || value === '') {
-      return;
-    }
-
-    if (field.type === 'number' && isNaN(Number(value))) {
-      throw new ValidationError(`Field '${field.name}' must be a valid number`);
-    }
-
-    if (field.type === 'select' && field.options?.values) {
-      if (!field.options.values.includes(String(value))) {
-        throw new ValidationError(`Invalid value for select field '${field.name}'. Allowed: ${field.options.values.join(', ')}`);
-      }
-    }
+    RecordValidator.validateField(field, value);
   }
 
   private normalizeFieldValue(field: SchemaField, value: any): any {
-    if (value === undefined || value === null || (value === '' && field.type !== 'text')) {
-      if (field.type === 'bool') {
-        return field.defaultValue ? 1 : 0;
-      }
-      return field.defaultValue !== undefined ? field.defaultValue : null;
-    }
-
-    switch (field.type) {
-      case 'bool':
-        return value === true || value === 'true' || value === 1 || value === '1' ? 1 : 0;
-      case 'number':
-        return Number(value);
-      case 'json':
-        return typeof value === 'string' ? value : JSON.stringify(value);
-      default:
-        return String(value);
-    }
+    return RecordValidator.normalizeFieldValue(field, value);
   }
 
   private sanitizeRecord(

@@ -1,10 +1,15 @@
 import { BaseService, ClientInterface } from './BaseService';
 import { ClientResponseError } from '../errors/ClientResponseError';
+import { PkceUtil } from '../auth/PkceUtil';
 import type {
   ListResult,
   QueryOptions,
   RecordModel,
   RecordAuthResponse,
+  RecordOAuthResponse,
+  AuthMethodsList,
+  OAuth2AuthOptions,
+  ExternalAuthModel,
   ImportResult,
   RealtimeCallback,
   UnsubscribeFunc,
@@ -205,6 +210,209 @@ export class RecordService<T = RecordModel> extends BaseService {
     }
 
     return result;
+  }
+
+  /**
+   * Returns a list of configured and enabled OAuth2 authentication providers.
+   */
+  public async listAuthMethods(redirectUri?: string): Promise<AuthMethodsList> {
+    return this.send<AuthMethodsList>(
+      `/api/collections/${encodeURIComponent(this.collectionName)}/auth-methods`,
+      {
+        method: 'GET',
+        query: redirectUri ? { redirectUri } : undefined,
+      }
+    );
+  }
+
+  /**
+   * Authenticates against an auth collection using OAuth2 with PKCE code exchange.
+   * On success, automatically persists the token and record to authStore.
+   */
+  public async authWithOAuth2(
+    options: OAuth2AuthOptions
+  ): Promise<RecordOAuthResponse<T>> {
+    let code = options.code;
+    let codeVerifier = options.codeVerifier;
+
+    if ((options.urlCallback || options.popup || (typeof window !== 'undefined' && !code && !codeVerifier)) && (!code || !codeVerifier)) {
+      const authMethods = await this.listAuthMethods(options.redirectUrl);
+      const provider = authMethods.authProviders.find(
+        (p) => p.name.toLowerCase() === options.provider.toLowerCase()
+      );
+
+      if (!provider) {
+        throw new Error(`OAuth provider '${options.provider}' is not enabled or configured.`);
+      }
+
+      codeVerifier = provider.codeVerifier;
+      const expectedState = provider.state;
+
+      let expectedOrigin: string | null = null;
+      if (typeof window !== 'undefined' && window.location) {
+        if (options.redirectUrl) {
+          try {
+            expectedOrigin = new URL(options.redirectUrl, window.location.href).origin;
+          } catch {
+            expectedOrigin = window.location.origin;
+          }
+        } else {
+          expectedOrigin = window.location.origin;
+        }
+      }
+
+      let popup: Window | null = options.popup || null;
+      if (options.urlCallback) {
+        const cbResult = options.urlCallback(provider.authUrl);
+        if (!popup && cbResult && typeof (cbResult as any).postMessage === 'function') {
+          popup = cbResult as Window;
+        }
+      } else if (typeof window !== 'undefined' && typeof window.open === 'function') {
+        popup = window.open(provider.authUrl, '_blank', 'width=600,height=700');
+        if (!popup) {
+          throw new Error('Failed to open OAuth popup window. It may have been blocked by the browser.');
+        }
+      }
+
+      return new Promise<RecordOAuthResponse<T>>((resolve, reject) => {
+        if (typeof window !== 'undefined' && window.addEventListener) {
+          let pollTimer: any = null;
+
+          const cleanup = () => {
+            if (pollTimer) {
+              clearInterval(pollTimer);
+              pollTimer = null;
+            }
+            if (typeof window !== 'undefined' && window.removeEventListener) {
+              window.removeEventListener('message', handler);
+            }
+          };
+
+          const handler = async (event: MessageEvent) => {
+            // 1. Validate payload structure
+            if (!event.data || typeof event.data !== 'object' || event.data.type !== 'nodestack_oauth_callback') {
+              return;
+            }
+
+            // 2. Restrict messages to the expected redirect origin
+            if (expectedOrigin && event.origin !== expectedOrigin) {
+              return;
+            }
+
+            // 3. Restrict messages to the popup/source window associated with this request
+            if (popup) {
+              if (event.source !== popup) {
+                return;
+              }
+            } else if (event.source === window) {
+              return;
+            }
+
+            // 4. Bind message to the expected state before exchanging it
+            if (expectedState && event.data.state !== expectedState) {
+              return;
+            }
+
+            // Valid matching message received; clean up listener and poll timer
+            cleanup();
+
+            if (popup && typeof popup.close === 'function') {
+              try {
+                popup.close();
+              } catch {}
+            }
+
+            if (event.data.error) {
+              const errMsg = typeof event.data.error === 'string'
+                ? event.data.error
+                : (event.data.error.message || event.data.error_description || JSON.stringify(event.data.error));
+              return reject(new Error(errMsg));
+            }
+
+            if (!event.data.code) {
+              return reject(new Error('OAuth callback message is missing authorization code.'));
+            }
+
+            try {
+              const res = await this.authWithOAuth2({
+                provider: options.provider,
+                code: event.data.code,
+                codeVerifier,
+                redirectUrl: options.redirectUrl,
+                createData: options.createData,
+                state: expectedState,
+              });
+              resolve(res);
+            } catch (err) {
+              reject(err);
+            }
+          };
+
+          window.addEventListener('message', handler);
+
+          if (popup) {
+            pollTimer = setInterval(() => {
+              if (popup && popup.closed) {
+                cleanup();
+                reject(new Error('The OAuth popup window was closed before completing authentication.'));
+              }
+            }, 500);
+          }
+        } else {
+          reject(new Error('urlCallback requires code and codeVerifier in non-browser environments.'));
+        }
+      });
+    }
+
+    if (!code || !codeVerifier) {
+      throw new Error('Both code and codeVerifier are required for OAuth2 authentication');
+    }
+
+    const result = await this.send<RecordOAuthResponse<T>>(
+      `/api/collections/${encodeURIComponent(this.collectionName)}/auth-with-oauth2`,
+      {
+        method: 'POST',
+        body: {
+          provider: options.provider,
+          code,
+          codeVerifier,
+          state: options.state,
+          redirectUrl: options.redirectUrl,
+          createData: options.createData,
+        },
+      }
+    );
+
+    if (result && result.token) {
+      this.client.authStore.save(result.token, result.record as any);
+    }
+
+    return result;
+  }
+
+  /**
+   * Lists external social identities linked to a specific record.
+   */
+  public async listExternalAuths(recordId: string): Promise<ExternalAuthModel[]> {
+    return this.send<ExternalAuthModel[]>(
+      `/api/collections/${encodeURIComponent(this.collectionName)}/records/${encodeURIComponent(recordId)}/external-auths`,
+      {
+        method: 'GET',
+      }
+    );
+  }
+
+  /**
+   * Unlinks an external social identity from a record.
+   */
+  public async unlinkExternalAuth(recordId: string, provider: string): Promise<boolean> {
+    await this.send<void>(
+      `/api/collections/${encodeURIComponent(this.collectionName)}/records/${encodeURIComponent(recordId)}/external-auths/${encodeURIComponent(provider)}`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return true;
   }
 
   /**

@@ -11,6 +11,7 @@ import { OpenApiGenerator } from './schema/OpenApiGenerator';
 import { DocsService } from './admin/DocsService';
 import { RuleEngine } from './rules/RuleEngine';
 import { AuthService } from './auth/AuthService';
+import { ApiKeyService } from './auth/ApiKeyService';
 import { RecordService } from './records/RecordService';
 import { FtsService } from './records/FtsService';
 import { MockDataService } from './records/MockDataService';
@@ -23,6 +24,7 @@ import { AdminUIService } from './admin/AdminUIService';
 import { AuthMiddleware } from './http/middleware/AuthMiddleware';
 import { ChaosMiddleware } from './http/middleware/ChaosMiddleware';
 import { AuthController } from './http/controllers/AuthController';
+import { ApiKeyController } from './http/controllers/ApiKeyController';
 import { CollectionController } from './http/controllers/CollectionController';
 import { RecordController } from './http/controllers/RecordController';
 import { FileController } from './http/controllers/FileController';
@@ -74,6 +76,8 @@ export class NodeStack {
   public readonly mockData: MockDataService;
   public readonly templates: TemplateService;
   public readonly auth: AuthService;
+  public readonly apiKeys: ApiKeyService;
+  public readonly apiKeyController: ApiKeyController;
   public readonly snapshots: SnapshotService;
   public readonly demo: DemoService;
   public readonly files: FileStorageService;
@@ -208,9 +212,11 @@ export class NodeStack {
     this.chaos = new ChaosMiddleware(this.config);
     this.container.bindInstance(TOKENS.ChaosMiddleware, this.chaos);
 
-    this.authMiddleware = new AuthMiddleware(this.auth);
+    this.apiKeys = this.defaultApp.apiKeys;
+    this.apiKeyController = new ApiKeyController(this.apiKeys);
+    this.authMiddleware = new AuthMiddleware(this.auth, this.apiKeys);
     this.container.bindInstance(TOKENS.AuthMiddleware, this.authMiddleware);
-    const authCtrl = new AuthController(this.auth);
+    const authCtrl = new AuthController(this.auth, this.files);
     const collectionCtrl = new CollectionController(this.schema, this.schemaInference, this.files);
     const recordCtrl = new RecordController(this.records, this.schema, this.files, this.mockData);
     const fileCtrl = new FileController(this.files, this.schema, ruleEngine, this.db);
@@ -267,7 +273,8 @@ export class NodeStack {
       auditLogCtrl,
       webhookCtrl,
       this.appController,
-      this.appResolution
+      this.appResolution,
+      this.apiKeyController
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
 
