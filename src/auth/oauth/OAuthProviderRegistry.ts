@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
-import { IOAuthProvider, OAuthProviderConfig, AuthMethodProviderInfo } from './types';
+import { IOAuthProvider, OAuthProviderConfig, AuthMethodProviderInfo, PkceSession } from './types';
+import { AppError } from '../../core/errors/AppError';
 import { GoogleProvider } from './GoogleProvider';
 import { GitHubProvider } from './GitHubProvider';
 import { DiscordProvider } from './DiscordProvider';
@@ -8,6 +9,7 @@ import { AppleProvider } from './AppleProvider';
 
 export class OAuthProviderRegistry {
   private providers: Map<string, IOAuthProvider> = new Map();
+  private sessions: Map<string, PkceSession> = new Map();
 
   constructor(customConfigs?: OAuthProviderConfig[]) {
     this.initDefaultProviders(customConfigs);
@@ -89,9 +91,11 @@ export class OAuthProviderRegistry {
   }
 
   /**
-   * Generates PKCE challenge and state for each active provider.
+   * Generates PKCE challenge and state for each active provider,
+   * securely binding the state to a short-lived PKCE transaction session.
    */
-  public listAuthMethods(redirectUri?: string): AuthMethodProviderInfo[] {
+  public listAuthMethods(redirectUri?: string, collectionName = 'users'): AuthMethodProviderInfo[] {
+    this.cleanExpiredSessions();
     const methods: AuthMethodProviderInfo[] = [];
 
     for (const provider of this.providers.values()) {
@@ -103,6 +107,17 @@ export class OAuthProviderRegistry {
         .digest('base64url');
 
       const authUrl = provider.buildAuthUrl(state, codeChallenge, redirectUri);
+
+      // Bind state to short-lived transaction (10 minutes TTL)
+      this.sessions.set(state, {
+        state,
+        provider: provider.name.toLowerCase(),
+        collection: collectionName.toLowerCase(),
+        codeChallenge,
+        codeVerifier,
+        redirectUri,
+        expiresAt: Date.now() + 10 * 60 * 1000,
+      });
 
       methods.push({
         name: provider.name,
@@ -116,5 +131,91 @@ export class OAuthProviderRegistry {
     }
 
     return methods;
+  }
+
+  /**
+   * Registers a PKCE transaction session (useful for custom flows or test suites).
+   */
+  public registerSession(session: Partial<PkceSession> & { state: string; provider: string; collection: string }): void {
+    this.sessions.set(session.state, {
+      state: session.state,
+      provider: session.provider.toLowerCase(),
+      collection: session.collection.toLowerCase(),
+      codeChallenge: session.codeChallenge || '',
+      codeVerifier: session.codeVerifier,
+      redirectUri: session.redirectUri,
+      expiresAt: session.expiresAt || Date.now() + 10 * 60 * 1000,
+    });
+  }
+
+  /**
+   * Validates and immediately consumes the OAuth state parameter to prevent login-CSRF and replay attacks.
+   */
+  public validateAndConsumeState(
+    state: string,
+    providerName: string,
+    collectionName: string,
+    codeVerifier?: string,
+    redirectUri?: string
+  ): PkceSession {
+    this.cleanExpiredSessions();
+
+    if (!state || typeof state !== 'string') {
+      throw new AppError('OAuth state parameter is required', 400);
+    }
+
+    const session = this.sessions.get(state);
+    if (!session) {
+      throw new AppError('Invalid or expired OAuth state parameter', 400);
+    }
+
+    // Immediately consume to prevent replay attacks
+    this.sessions.delete(state);
+
+    if (Date.now() > session.expiresAt) {
+      throw new AppError('OAuth authorization session has expired', 400);
+    }
+
+    if (session.provider !== providerName.toLowerCase()) {
+      throw new AppError(
+        `OAuth state provider mismatch: expected '${session.provider}', got '${providerName.toLowerCase()}'`,
+        400
+      );
+    }
+
+    if (session.collection !== collectionName.toLowerCase()) {
+      throw new AppError(
+        `OAuth state collection mismatch: expected '${session.collection}', got '${collectionName.toLowerCase()}'`,
+        400
+      );
+    }
+
+    if (session.redirectUri && redirectUri && session.redirectUri !== redirectUri) {
+      throw new AppError(
+        `OAuth state redirect_uri mismatch: expected '${session.redirectUri}', got '${redirectUri}'`,
+        400
+      );
+    }
+
+    if (session.codeChallenge) {
+      if (!codeVerifier) {
+        throw new AppError('PKCE code_verifier is required', 400);
+      }
+      const computedChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+      if (computedChallenge !== session.codeChallenge) {
+        throw new AppError('PKCE code_verifier does not match the session code_challenge', 400);
+      }
+    }
+
+    return session;
+  }
+
+  private cleanExpiredSessions(): void {
+    const now = Date.now();
+    for (const [state, session] of this.sessions.entries()) {
+      if (now > session.expiresAt) {
+        this.sessions.delete(state);
+      }
+    }
   }
 }

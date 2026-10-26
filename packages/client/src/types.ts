@@ -124,6 +124,7 @@ export interface OAuth2AuthOptions {
   provider: string;
   code?: string;
   codeVerifier?: string;
+  state?: string;
   redirectUrl?: string;
   createData?: Record<string, any>;
   urlCallback?: (url: string) => Window | null | void;

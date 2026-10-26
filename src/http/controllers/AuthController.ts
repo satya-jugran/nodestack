@@ -113,10 +113,10 @@ export class AuthController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const { collection } = req.params;
-    const { provider, code, codeVerifier, redirectUrl, redirectUri, createData } = (req.body as any) || {};
+    const { provider, code, codeVerifier, redirectUrl, redirectUri, createData, state } = (req.body as any) || {};
 
-    if (!provider || !code || !codeVerifier) {
-      throw new AppError('provider, code, and codeVerifier are required for OAuth2 authentication', 400);
+    if (!provider || !code || !codeVerifier || !state) {
+      throw new AppError('provider, code, codeVerifier, and state are required for OAuth2 authentication', 400);
     }
 
     const auth = this.getAuth(req);
@@ -129,7 +129,8 @@ export class AuthController extends BaseController {
       redirectUrl || redirectUri,
       createData,
       files,
-      req.auth
+      req.auth,
+      state
     );
 
     this.ok(reply, result);

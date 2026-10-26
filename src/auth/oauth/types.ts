@@ -45,6 +45,16 @@ export interface AuthMethodProviderInfo {
   authUrl: string;
 }
 
+export interface PkceSession {
+  state: string;
+  provider: string;
+  collection: string;
+  codeChallenge: string;
+  codeVerifier?: string;
+  redirectUri?: string;
+  expiresAt: number;
+}
+
 export interface ExternalAuthModel {
   id: string;
   collection: string;

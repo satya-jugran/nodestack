@@ -340,6 +340,7 @@ export class RecordService<T = RecordModel> extends BaseService {
                 codeVerifier,
                 redirectUrl: options.redirectUrl,
                 createData: options.createData,
+                state: expectedState,
               });
               resolve(res);
             } catch (err) {
@@ -375,6 +376,7 @@ export class RecordService<T = RecordModel> extends BaseService {
           provider: options.provider,
           code,
           codeVerifier,
+          state: options.state,
           redirectUrl: options.redirectUrl,
           createData: options.createData,
         },

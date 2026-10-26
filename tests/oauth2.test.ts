@@ -131,6 +131,12 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
         rawUser: { id: 'gh_999', login: 'devcoder' },
       });
       app.auth.getOAuthRegistry().register(githubMock);
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'gh_state_1',
+        provider: 'github',
+        collection: 'users',
+        redirectUri: 'http://localhost:3000/callback',
+      });
 
       const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
         method: 'POST',
@@ -139,6 +145,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
           provider: 'github',
           code: 'valid_auth_code',
           codeVerifier: 'verifier_string_123',
+          state: 'gh_state_1',
           redirectUrl: 'http://localhost:3000/callback',
         }),
       });
@@ -155,6 +162,13 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(data.meta.provider).toBe('github');
 
       // Subsequent login with same external identity should return existing user (isNew: false)
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'gh_state_2',
+        provider: 'github',
+        collection: 'users',
+        redirectUri: 'http://localhost:3000/callback',
+      });
+
       const res2 = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -162,6 +176,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
           provider: 'github',
           code: 'valid_auth_code_2',
           codeVerifier: 'verifier_string_123',
+          state: 'gh_state_2',
           redirectUrl: 'http://localhost:3000/callback',
         }),
       });
@@ -191,6 +206,11 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
         rawUser: { id: 'disc_456' },
       });
       app.auth.getOAuthRegistry().register(discordMock);
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'disc_state_link',
+        provider: 'discord',
+        collection: 'users',
+      });
 
       const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
         method: 'POST',
@@ -199,6 +219,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
           provider: 'discord',
           code: 'code_discord',
           codeVerifier: 'verifier_discord',
+          state: 'disc_state_link',
         }),
       });
 
@@ -234,6 +255,11 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
         rawUser: { id: 'disc_attacker' },
       });
       app.auth.getOAuthRegistry().register(attackerMock);
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'attacker_state',
+        provider: 'discord',
+        collection: 'users',
+      });
 
       const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
         method: 'POST',
@@ -242,6 +268,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
           provider: 'discord',
           code: 'code_attacker',
           codeVerifier: 'verifier_attacker',
+          state: 'attacker_state',
         }),
       });
 
@@ -263,6 +290,11 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
         rawUser: { id: 'ms_restricted' },
       });
       app.auth.getOAuthRegistry().register(mockMs);
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'ms_state_rule',
+        provider: 'microsoft',
+        collection: 'users',
+      });
 
       const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
         method: 'POST',
@@ -271,6 +303,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
           provider: 'microsoft',
           code: 'ms_code',
           codeVerifier: 'ms_verifier',
+          state: 'ms_state_rule',
         }),
       });
 
@@ -302,6 +335,12 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       app.auth.getOAuthRegistry().register(mockMs);
 
       // Attempt provisioning without the required 'company' field in createData
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'ms_state_fail',
+        provider: 'microsoft',
+        collection: 'users',
+      });
+
       const resFail = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -309,6 +348,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
           provider: 'microsoft',
           code: 'ms_code_fail',
           codeVerifier: 'ms_verifier_fail',
+          state: 'ms_state_fail',
         }),
       });
 
@@ -317,6 +357,12 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(err.message).toContain("Field 'company' is required");
 
       // Now provision WITH the required 'company' field in createData
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'ms_state_success',
+        provider: 'microsoft',
+        collection: 'users',
+      });
+
       const resSuccess = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -324,6 +370,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
           provider: 'microsoft',
           code: 'ms_code_success',
           codeVerifier: 'ms_verifier_success',
+          state: 'ms_state_success',
           createData: {
             company: 'Acme Corp',
           },
@@ -353,6 +400,12 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       app.auth.getOAuthRegistry().register(mockGoogle);
 
       // Login via OAuth
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'g_state_link',
+        provider: 'google',
+        collection: 'users',
+      });
+
       const loginRes = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -360,6 +413,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
           provider: 'google',
           code: 'code_g',
           codeVerifier: 'verifier_g',
+          state: 'g_state_link',
         }),
       });
       const loginData = await loginRes.json();
@@ -406,13 +460,15 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
 
       // List auth methods via SDK
       const methods = await client.collection('users').listAuthMethods();
-      expect(methods.authProviders.some((p) => p.name === 'apple')).toBe(true);
+      const appleProvider = methods.authProviders.find((p) => p.name === 'apple')!;
+      expect(appleProvider).toBeDefined();
 
       // Perform authWithOAuth2 via SDK
       const result = await client.collection('users').authWithOAuth2({
         provider: 'apple',
         code: 'apple_code_123',
-        codeVerifier: 'apple_verifier_123',
+        codeVerifier: appleProvider.codeVerifier,
+        state: appleProvider.state,
       });
 
       expect(result.token).toBeDefined();
@@ -1101,6 +1157,307 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(profile.id).toBe('ms_user_000');
       expect(profile.email).toBe('guest@external.com');
       expect(profile.isEmailVerified).toBe(false);
+    });
+  });
+
+  describe('9. State Parameter & PKCE Session Binding (Login-CSRF & Account Swapping Protection)', () => {
+    it('should reject authentication when state parameter is missing', async () => {
+      const mockProvider = new MockOAuthProvider('google', 'Google', {
+        id: 'g_state_missing',
+        email: 'statemissing@google.com',
+        isEmailVerified: true,
+        rawUser: { id: 'g_state_missing' },
+      });
+      app.auth.getOAuthRegistry().register(mockProvider);
+
+      const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'valid_code',
+          codeVerifier: 'valid_verifier',
+          // state omitted
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.message).toContain('state');
+    });
+
+    it('should reject authentication when state is invalid or non-existent', async () => {
+      const mockProvider = new MockOAuthProvider('google', 'Google', {
+        id: 'g_state_invalid',
+        email: 'stateinvalid@google.com',
+        isEmailVerified: true,
+        rawUser: { id: 'g_state_invalid' },
+      });
+      app.auth.getOAuthRegistry().register(mockProvider);
+
+      const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'valid_code',
+          codeVerifier: 'valid_verifier',
+          state: 'unrecognized_random_state_98765',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.message).toContain('Invalid or expired OAuth state parameter');
+    });
+
+    it('should reject authentication when state session has expired', async () => {
+      const mockProvider = new MockOAuthProvider('google', 'Google', {
+        id: 'g_state_expired',
+        email: 'stateexpired@google.com',
+        isEmailVerified: true,
+        rawUser: { id: 'g_state_expired' },
+      });
+      app.auth.getOAuthRegistry().register(mockProvider);
+
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'expired_state_123',
+        provider: 'google',
+        collection: 'users',
+        expiresAt: Date.now() - 1000, // Expired in the past
+      });
+
+      const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'valid_code',
+          codeVerifier: 'valid_verifier',
+          state: 'expired_state_123',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.message).toMatch(/expired/i);
+    });
+
+    it('should prevent replay attacks by consuming the state session immediately on first exchange', async () => {
+      const mockProvider = new MockOAuthProvider('google', 'Google', {
+        id: 'g_replay_user',
+        email: 'replay@google.com',
+        isEmailVerified: true,
+        rawUser: { id: 'g_replay_user' },
+      });
+      app.auth.getOAuthRegistry().register(mockProvider);
+
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'single_use_state_token',
+        provider: 'google',
+        collection: 'users',
+      });
+
+      // First exchange: valid and consumes the state token
+      const res1 = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'code_1',
+          codeVerifier: 'verifier_1',
+          state: 'single_use_state_token',
+        }),
+      });
+      expect(res1.status).toBe(200);
+
+      // Replay attempt with same state token must fail
+      const res2 = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'code_2',
+          codeVerifier: 'verifier_2',
+          state: 'single_use_state_token',
+        }),
+      });
+      expect(res2.status).toBe(400);
+      const data2 = await res2.json();
+      expect(data2.message).toContain('Invalid or expired OAuth state parameter');
+    });
+
+    it('should reject authentication when state provider does not match the request provider', async () => {
+      const mockGithub = new MockOAuthProvider('github', 'GitHub', {
+        id: 'gh_prov_mismatch',
+        email: 'gh@mismatch.com',
+        isEmailVerified: true,
+        rawUser: { id: 'gh_prov_mismatch' },
+      });
+      app.auth.getOAuthRegistry().register(mockGithub);
+
+      // Session was registered for 'google'
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'google_session_state',
+        provider: 'google',
+        collection: 'users',
+      });
+
+      // Attacker or swapped request tries to exchange with 'github'
+      const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'github',
+          code: 'gh_code',
+          codeVerifier: 'gh_verifier',
+          state: 'google_session_state',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.message).toContain('OAuth state provider mismatch');
+    });
+
+    it('should reject authentication when state collection does not match the requested collection', async () => {
+      const mockGoogle = new MockOAuthProvider('google', 'Google', {
+        id: 'g_col_mismatch',
+        email: 'col@mismatch.com',
+        isEmailVerified: true,
+        rawUser: { id: 'g_col_mismatch' },
+      });
+      app.auth.getOAuthRegistry().register(mockGoogle);
+
+      // Session was registered for 'admins' collection
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'admins_session_state',
+        provider: 'google',
+        collection: 'admins',
+      });
+
+      // Request sent to 'users' collection
+      const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'g_code',
+          codeVerifier: 'g_verifier',
+          state: 'admins_session_state',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.message).toContain('OAuth state collection mismatch');
+    });
+
+    it('should reject authentication when PKCE code_verifier does not match the session code_challenge', async () => {
+      const mockGoogle = new MockOAuthProvider('google', 'Google', {
+        id: 'g_pkce_mismatch',
+        email: 'pkce@mismatch.com',
+        isEmailVerified: true,
+        rawUser: { id: 'g_pkce_mismatch' },
+      });
+      app.auth.getOAuthRegistry().register(mockGoogle);
+
+      const secretVerifier = 'real_super_secret_pkce_verifier_string_123';
+      const realChallenge = crypto.createHash('sha256').update(secretVerifier).digest('base64url');
+
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'pkce_bound_state',
+        provider: 'google',
+        collection: 'users',
+        codeChallenge: realChallenge,
+      });
+
+      // Attacker tries to exchange with a forged/mismatched code_verifier
+      const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'g_code',
+          codeVerifier: 'attacker_wrong_verifier_string_456',
+          state: 'pkce_bound_state',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.message).toContain('PKCE code_verifier does not match the session code_challenge');
+    });
+
+    it('should reject authentication when redirect_uri does not match the session redirect_uri', async () => {
+      const mockGoogle = new MockOAuthProvider('google', 'Google', {
+        id: 'g_uri_mismatch',
+        email: 'uri@mismatch.com',
+        isEmailVerified: true,
+        rawUser: { id: 'g_uri_mismatch' },
+      });
+      app.auth.getOAuthRegistry().register(mockGoogle);
+
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'redirect_bound_state',
+        provider: 'google',
+        collection: 'users',
+        redirectUri: 'http://localhost:3000/callback',
+      });
+
+      const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'g_code',
+          codeVerifier: 'g_verifier',
+          state: 'redirect_bound_state',
+          redirectUrl: 'http://evil-callback.com/callback',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.message).toContain('OAuth state redirect_uri mismatch');
+    });
+
+    it('should successfully authenticate when state, provider, collection, and PKCE challenge match', async () => {
+      const mockGoogle = new MockOAuthProvider('google', 'Google', {
+        id: 'g_pkce_success',
+        email: 'pkcesuccess@google.com',
+        isEmailVerified: true,
+        rawUser: { id: 'g_pkce_success' },
+      });
+      app.auth.getOAuthRegistry().register(mockGoogle);
+
+      const secretVerifier = 'valid_client_verifier_secret_1234567890';
+      const challenge = crypto.createHash('sha256').update(secretVerifier).digest('base64url');
+
+      app.auth.getOAuthRegistry().registerSession({
+        state: 'valid_session_state',
+        provider: 'google',
+        collection: 'users',
+        codeChallenge: challenge,
+        redirectUri: 'http://localhost:3000/callback',
+      });
+
+      const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'valid_pkce_code',
+          codeVerifier: secretVerifier,
+          state: 'valid_session_state',
+          redirectUrl: 'http://localhost:3000/callback',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.token).toBeDefined();
+      expect(data.record.email).toBe('pkcesuccess@google.com');
     });
   });
 });

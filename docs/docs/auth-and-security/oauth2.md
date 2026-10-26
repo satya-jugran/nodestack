@@ -93,6 +93,7 @@ const authData = await client.collection('users').authWithOAuth2({
   provider: 'google',
   code: code!,
   codeVerifier: google.codeVerifier, // Retrieved from step 1
+  state: google.state, // Or urlParams.get('state')
   redirectUrl: 'http://localhost:3000/callback',
 });
 

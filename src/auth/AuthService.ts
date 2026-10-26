@@ -358,7 +358,7 @@ export class AuthService {
     if (col.type !== 'auth') {
       throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
     }
-    const providers = this.oauthRegistry.listAuthMethods(redirectUri);
+    const providers = this.oauthRegistry.listAuthMethods(redirectUri, col.name);
     return {
       authProviders: providers,
     };
@@ -372,7 +372,8 @@ export class AuthService {
     redirectUri?: string,
     createData?: Record<string, any>,
     fileStorageService?: FileStorageService,
-    callerAuth?: any
+    callerAuth?: any,
+    state?: string
   ): Promise<OAuthAuthResult> {
     const col = this.schemaService.getCollectionOrThrow(collectionName);
     if (col.type !== 'auth') {
@@ -385,8 +386,23 @@ export class AuthService {
       throw new AppError(`OAuth2 provider '${cleanProviderName}' is not configured or enabled`, 400);
     }
 
+    if (!state) {
+      throw new AppError('OAuth state parameter is required', 400);
+    }
+
+    // Validate and consume state before exchanging the code
+    const session = this.oauthRegistry.validateAndConsumeState(
+      state,
+      cleanProviderName,
+      col.name,
+      codeVerifier,
+      redirectUri
+    );
+
+    const effectiveRedirectUri = redirectUri || session.redirectUri;
+
     // 1. Exchange authorization code and code_verifier with provider
-    const exchange = await provider.exchangeCode(code, codeVerifier, redirectUri);
+    const exchange = await provider.exchangeCode(code, codeVerifier, effectiveRedirectUri);
     const { id: providerUserId, email: rawEmail, name, avatarUrl, isEmailVerified, rawUser } = exchange.profile;
     const cleanEmail = (rawEmail || '').toLowerCase().trim();
 
