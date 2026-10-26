@@ -28,15 +28,15 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
     const authResult = await app.auth.authenticateAdmin('admin@nodestack.local', 'AdminSecretPass123!');
     adminToken = authResult.token;
 
-    // Create test collections (private collections: rules = null)
+    // Create test collections (private collections: require authenticated caller)
     app.schema.createCollection({
       name: 'orders',
       type: 'base',
-      listRule: null,
-      viewRule: null,
-      createRule: null,
-      updateRule: null,
-      deleteRule: null,
+      listRule: '@request.auth.id != ""',
+      viewRule: '@request.auth.id != ""',
+      createRule: '@request.auth.id != ""',
+      updateRule: '@request.auth.id != ""',
+      deleteRule: '@request.auth.id != ""',
       schema: [
         { name: 'item', type: 'text', required: true },
         { name: 'amount', type: 'number', required: true },
@@ -46,11 +46,11 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
     app.schema.createCollection({
       name: 'products',
       type: 'base',
-      listRule: null,
-      viewRule: null,
-      createRule: null,
-      updateRule: null,
-      deleteRule: null,
+      listRule: '@request.auth.id != ""',
+      viewRule: '@request.auth.id != ""',
+      createRule: '@request.auth.id != ""',
+      updateRule: '@request.auth.id != ""',
+      deleteRule: '@request.auth.id != ""',
       schema: [
         { name: 'title', type: 'text', required: true },
         { name: 'price', type: 'number', required: true },
@@ -317,6 +317,180 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       // List records using client SDK
       const list = await client.collection('orders').getList(1, 10);
       expect(list.items.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('5. Collection Rules Enforcement for Non-Admin API Keys', () => {
+    it('should strictly enforce conditional list/row rules on non-admin API keys without bypassing', async () => {
+      // Create collection with conditional listRule
+      app.schema.createCollection({
+        name: 'reports',
+        type: 'base',
+        listRule: 'status = "published"',
+        viewRule: 'status = "published"',
+        createRule: '@request.auth.id != ""',
+        schema: [
+          { name: 'title', type: 'text', required: true },
+          { name: 'status', type: 'text', required: true },
+        ],
+      });
+
+      const db = app.db;
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO reports (id, title, status, created, updated)
+        VALUES ('rep_draft', 'Draft Report', 'draft', ?, ?),
+               ('rep_published', 'Public Report', 'published', ?, ?)
+      `).run(now, now, now, now);
+
+      // Non-admin API key with reports:read scope
+      const reportsReader = app.apiKeys.createKey({
+        name: 'Reports Reader',
+        role: 'service',
+        scopes: ['reports:read'],
+      });
+
+      // 1. Non-admin key must evaluate row-level filter and only receive published records
+      const listRes = await fetch(`${serverUrl}/api/collections/reports/records`, {
+        headers: { Authorization: `Bearer ${reportsReader.secretKey}` },
+      });
+      expect(listRes.status).toBe(200);
+      const data = await listRes.json();
+      expect(data.items.length).toBe(1);
+      expect(data.items[0].id).toBe('rep_published');
+      expect(data.items[0].status).toBe('published');
+
+      // 2. Super-admin key with * scope bypasses all collection rules
+      const superAdminKey = app.apiKeys.createKey({
+        name: 'All Access SuperAdmin',
+        role: 'admin',
+        scopes: ['*'],
+      });
+      const adminListRes = await fetch(`${serverUrl}/api/collections/reports/records`, {
+        headers: { Authorization: `Bearer ${superAdminKey.secretKey}` },
+      });
+      expect(adminListRes.status).toBe(200);
+      const adminData = await adminListRes.json();
+      expect(adminData.items.length).toBe(2);
+    });
+
+    it('should strictly enforce conditional mutation rules (create, update, delete) on non-admin API keys', async () => {
+      app.schema.createCollection({
+        name: 'transactions',
+        type: 'base',
+        listRule: '@request.auth.id != ""',
+        viewRule: '@request.auth.id != ""',
+        createRule: 'amount > 0',
+        updateRule: 'status != "finalized"',
+        deleteRule: 'can_delete = true',
+        schema: [
+          { name: 'amount', type: 'number', required: true },
+          { name: 'status', type: 'text', defaultValue: 'pending' },
+          { name: 'can_delete', type: 'bool', defaultValue: false },
+        ],
+      });
+
+      const txManager = app.apiKeys.createKey({
+        name: 'Tx Manager',
+        role: 'service',
+        scopes: ['transactions:*'],
+      });
+
+      // 1. Rejected on create when createRule condition fails (amount <= 0)
+      const invalidCreateRes = await fetch(`${serverUrl}/api/collections/transactions/records`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${txManager.secretKey}`,
+        },
+        body: JSON.stringify({ amount: -50, status: 'pending', can_delete: false }),
+      });
+      expect(invalidCreateRes.status).toBe(403);
+      const invalidErr = await invalidCreateRes.json();
+      expect(invalidErr.message).toContain('You are not allowed to create records');
+
+      // 2. Allowed on create when createRule condition succeeds (amount > 0)
+      const validCreateRes = await fetch(`${serverUrl}/api/collections/transactions/records`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${txManager.secretKey}`,
+        },
+        body: JSON.stringify({ amount: 100, status: 'pending', can_delete: false }),
+      });
+      expect(validCreateRes.status).toBe(201);
+      const tx = await validCreateRes.json();
+
+      // 3. Update to finalized status succeeds while status is pending
+      const updateRes1 = await fetch(`${serverUrl}/api/collections/transactions/records/${tx.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${txManager.secretKey}`,
+        },
+        body: JSON.stringify({ status: 'finalized' }),
+      });
+      expect(updateRes1.status).toBe(200);
+
+      // 4. Update fails once status is finalized (updateRule 'status != "finalized"' fails)
+      const updateRes2 = await fetch(`${serverUrl}/api/collections/transactions/records/${tx.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${txManager.secretKey}`,
+        },
+        body: JSON.stringify({ amount: 999 }),
+      });
+      expect(updateRes2.status).toBe(403);
+      const updateErr = await updateRes2.json();
+      expect(updateErr.message).toContain('You are not allowed to update this record');
+
+      // 5. Delete fails because can_delete is false
+      const deleteRes = await fetch(`${serverUrl}/api/collections/transactions/records/${tx.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${txManager.secretKey}` },
+      });
+      expect(deleteRes.status).toBe(403);
+      const deleteErr = await deleteRes.json();
+      expect(deleteErr.message).toContain('You are not allowed to delete this record');
+    });
+
+    it('should reject non-admin API keys on locked collections (rule: null) while permitting super-admin keys', async () => {
+      app.schema.createCollection({
+        name: 'secret_vault',
+        type: 'base',
+        listRule: null, // Admin-only / locked
+        viewRule: null,
+        createRule: null,
+        schema: [
+          { name: 'secret_data', type: 'text', required: true },
+        ],
+      });
+
+      const vaultReader = app.apiKeys.createKey({
+        name: 'Vault Scoped Key',
+        role: 'service',
+        scopes: ['secret_vault:read'],
+      });
+
+      // Non-admin API key with collection scope MUST be rejected on rule: null
+      const resNonAdmin = await fetch(`${serverUrl}/api/collections/secret_vault/records`, {
+        headers: { Authorization: `Bearer ${vaultReader.secretKey}` },
+      });
+      expect(resNonAdmin.status).toBe(403);
+      const err = await resNonAdmin.json();
+      expect(err.message).toContain('You are not allowed to list records');
+
+      // Super-admin key (role: admin, scopes: ['*']) bypasses all rules
+      const superAdminKey = app.apiKeys.createKey({
+        name: 'Vault SuperAdmin',
+        role: 'admin',
+        scopes: ['*'],
+      });
+      const resAdmin = await fetch(`${serverUrl}/api/collections/secret_vault/records`, {
+        headers: { Authorization: `Bearer ${superAdminKey.secretKey}` },
+      });
+      expect(resAdmin.status).toBe(200);
     });
   });
 });

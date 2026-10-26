@@ -96,16 +96,13 @@ export class RecordService {
         throw new ForbiddenError(`API Key missing required scope for '${col.name}:list'`);
       }
     }
-    const effectiveAuth = auth?.isApiKey && hasScope(auth, col.name, 'list')
-      ? { ...auth, isAdmin: true }
-      : auth;
 
     const allowedFields = new Set(col.schema.map((f) => f.name));
     allowedFields.add('id');
     allowedFields.add('created');
     allowedFields.add('updated');
     if (col.type === 'auth') {
-      if (effectiveAuth?.isAdmin) {
+      if (auth?.isAdmin) {
         allowedFields.add('email');
       }
       allowedFields.add('emailVisibility');
@@ -113,7 +110,7 @@ export class RecordService {
     }
 
     // Rule check: listRule & row-level scope extraction
-    const listRuleResult = this.ruleEngine.buildListFilter(col.listRule, { auth: effectiveAuth, query: options }, allowedFields);
+    const listRuleResult = this.ruleEngine.buildListFilter(col.listRule, { auth, query: options }, allowedFields);
     if (!listRuleResult.allowed) {
       throw new ForbiddenError(`You are not allowed to list records in '${collectionName}'`);
     }
@@ -290,18 +287,15 @@ export class RecordService {
         throw new ForbiddenError(`API Key missing required scope for '${col.name}:view'`);
       }
     }
-    const effectiveAuth = auth?.isApiKey && hasScope(auth, col.name, 'view')
-      ? { ...auth, isAdmin: true }
-      : auth;
 
     // Rule check: viewRule
-    if (!this.ruleEngine.evaluate(col.viewRule, { auth: effectiveAuth, record: raw, query: options })) {
+    if (!this.ruleEngine.evaluate(col.viewRule, { auth, record: raw, query: options })) {
       throw new ForbiddenError(`You are not allowed to view this record in '${collectionName}'`);
     }
 
-    const clean = this.sanitizeRecord(raw, col, effectiveAuth);
+    const clean = this.sanitizeRecord(raw, col, auth);
     if (options.expand) {
-      await this.expandRecord(clean, col, options.expand, effectiveAuth);
+      await this.expandRecord(clean, col, options.expand, auth);
     }
 
     return clean;
@@ -320,12 +314,9 @@ export class RecordService {
         throw new ForbiddenError(`API Key missing required scope for '${col.name}:create'`);
       }
     }
-    const effectiveAuth = auth?.isApiKey && hasScope(auth, col.name, 'create')
-      ? { ...auth, isAdmin: true }
-      : auth;
 
     // Rule check: createRule
-    if (!this.ruleEngine.evaluate(col.createRule, { auth: effectiveAuth, data })) {
+    if (!this.ruleEngine.evaluate(col.createRule, { auth, data })) {
       throw new ForbiddenError(`You are not allowed to create records in '${collectionName}'`);
     }
 
@@ -420,12 +411,9 @@ export class RecordService {
         throw new ForbiddenError(`API Key missing required scope for '${col.name}:update'`);
       }
     }
-    const effectiveAuth = auth?.isApiKey && hasScope(auth, col.name, 'update')
-      ? { ...auth, isAdmin: true }
-      : auth;
 
     // Rule check: updateRule
-    if (!this.ruleEngine.evaluate(col.updateRule, { auth: effectiveAuth, record: current, data })) {
+    if (!this.ruleEngine.evaluate(col.updateRule, { auth, record: current, data })) {
       throw new ForbiddenError(`You are not allowed to update this record in '${collectionName}'`);
     }
 
@@ -528,12 +516,9 @@ export class RecordService {
         throw new ForbiddenError(`API Key missing required scope for '${col.name}:delete'`);
       }
     }
-    const effectiveAuth = auth?.isApiKey && hasScope(auth, col.name, 'delete')
-      ? { ...auth, isAdmin: true }
-      : auth;
 
     // Rule check: deleteRule
-    if (!this.ruleEngine.evaluate(col.deleteRule, { auth: effectiveAuth, record: current })) {
+    if (!this.ruleEngine.evaluate(col.deleteRule, { auth, record: current })) {
       throw new ForbiddenError(`You are not allowed to delete this record in '${collectionName}'`);
     }
 
@@ -570,16 +555,13 @@ export class RecordService {
         throw new ForbiddenError(`API Key missing required scope for '${col.name}:export'`);
       }
     }
-    const effectiveAuth = auth?.isApiKey && (hasScope(auth, col.name, 'export') || hasScope(auth, col.name, 'read'))
-      ? { ...auth, isAdmin: true }
-      : auth;
 
     const allowedFields = new Set(col.schema.map((f) => f.name));
     allowedFields.add('id');
     allowedFields.add('created');
     allowedFields.add('updated');
     if (col.type === 'auth') {
-      if (effectiveAuth?.isAdmin) {
+      if (auth?.isAdmin) {
         allowedFields.add('email');
       }
       allowedFields.add('emailVisibility');
@@ -587,7 +569,7 @@ export class RecordService {
     }
 
     // Rule check: listRule & row-level scope extraction
-    const listRuleResult = this.ruleEngine.buildListFilter(col.listRule, { auth: effectiveAuth, query: options }, allowedFields);
+    const listRuleResult = this.ruleEngine.buildListFilter(col.listRule, { auth, query: options }, allowedFields);
     if (!listRuleResult.allowed) {
       throw new ForbiddenError(`You are not allowed to export records from '${collectionName}'`);
     }
@@ -728,12 +710,9 @@ export class RecordService {
         throw new ForbiddenError(`API Key missing required scope for '${col.name}:import'`);
       }
     }
-    const effectiveAuth = auth?.isApiKey && (hasScope(auth, col.name, 'import') || hasScope(auth, col.name, 'write'))
-      ? { ...auth, isAdmin: true }
-      : auth;
 
     // Rule check: createRule
-    if (!this.ruleEngine.evaluate(col.createRule, { auth: effectiveAuth })) {
+    if (!this.ruleEngine.evaluate(col.createRule, { auth })) {
       throw new ForbiddenError(`You are not allowed to create records in '${collectionName}'`);
     }
 
