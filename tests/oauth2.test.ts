@@ -71,6 +71,21 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(challenge.length).toBe(43);
       expect(/^[A-Za-z0-9\-_]+$/.test(challenge)).toBe(true);
     });
+
+    it('should fail closed when no cryptographically secure RNG is available', () => {
+      const originalCrypto = globalThis.crypto;
+      try {
+        Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true });
+        const originalReq = (globalThis as any).require;
+        (globalThis as any).require = undefined;
+
+        expect(() => PkceUtil.generateVerifier()).toThrow(
+          /A cryptographically secure random number generator.*is required/
+        );
+      } finally {
+        Object.defineProperty(globalThis, 'crypto', { value: originalCrypto, configurable: true });
+      }
+    });
   });
 
   describe('2. Auth Methods Discovery', () => {

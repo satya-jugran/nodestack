@@ -23,9 +23,9 @@ export class PkceUtil {
       } catch {}
 
       if (!filled) {
-        for (let i = 0; i < clampedLength; i++) {
-          randomBytes[i] = Math.floor(Math.random() * 256);
-        }
+        throw new Error(
+          'A cryptographically secure random number generator (crypto.getRandomValues or node:crypto) is required to generate a PKCE code_verifier.'
+        );
       }
     }
 
