@@ -56,10 +56,23 @@ export class OAuthProviderRegistry {
   }
 
   public register(provider: IOAuthProvider): void {
+    if (provider.enabled === false) {
+      this.unregister(provider.name);
+      return;
+    }
     this.providers.set(provider.name.toLowerCase(), provider);
   }
 
+  public unregister(name: string): boolean {
+    return this.providers.delete(name.toLowerCase());
+  }
+
   public registerFromConfig(config: OAuthProviderConfig): void {
+    if (config.enabled === false) {
+      this.unregister(config.name);
+      return;
+    }
+
     const name = config.name.toLowerCase();
     switch (name) {
       case 'google':
@@ -83,11 +96,20 @@ export class OAuthProviderRegistry {
   }
 
   public getProvider(name: string): IOAuthProvider | undefined {
-    return this.providers.get(name.toLowerCase());
+    const provider = this.providers.get(name.toLowerCase());
+    if (!provider || provider.enabled === false) {
+      return undefined;
+    }
+    return provider;
+  }
+
+  public isProviderEnabled(name: string): boolean {
+    const provider = this.getProvider(name);
+    return Boolean(provider && provider.enabled !== false);
   }
 
   public getEnabledProviders(): IOAuthProvider[] {
-    return Array.from(this.providers.values());
+    return Array.from(this.providers.values()).filter((p) => p.enabled !== false);
   }
 
   /**
@@ -98,7 +120,7 @@ export class OAuthProviderRegistry {
     this.cleanExpiredSessions();
     const methods: AuthMethodProviderInfo[] = [];
 
-    for (const provider of this.providers.values()) {
+    for (const provider of this.getEnabledProviders()) {
       const state = crypto.randomBytes(16).toString('hex');
       const codeVerifier = crypto.randomBytes(32).toString('hex');
       const codeChallenge = crypto

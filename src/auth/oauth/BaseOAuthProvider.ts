@@ -4,6 +4,7 @@ import { AppError } from '../../core/errors/AppError';
 export abstract class BaseOAuthProvider implements IOAuthProvider {
   public readonly name: string;
   public readonly displayName: string;
+  public readonly enabled: boolean;
   protected clientId: string;
   protected clientSecret: string;
   protected authUrl: string;
@@ -15,6 +16,7 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
   constructor(config: OAuthProviderConfig) {
     this.name = config.name;
     this.displayName = config.displayName;
+    this.enabled = config.enabled !== false;
     this.clientId = config.clientId;
     this.clientSecret = config.clientSecret;
     this.authUrl = config.authUrl || '';

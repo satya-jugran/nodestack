@@ -31,6 +31,7 @@ export interface OAuthExchangeResult {
 export interface IOAuthProvider {
   readonly name: string;
   readonly displayName: string;
+  readonly enabled?: boolean;
   buildAuthUrl(state: string, codeChallenge: string, redirectUri?: string): string;
   exchangeCode(code: string, codeVerifier: string, redirectUri?: string): Promise<OAuthExchangeResult>;
 }

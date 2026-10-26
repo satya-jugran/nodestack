@@ -15,11 +15,13 @@ class MockOAuthProvider implements IOAuthProvider {
   public name: string;
   public displayName: string;
   public mockProfile: OAuthProfile;
+  public enabled?: boolean;
 
-  constructor(name: string, displayName: string, mockProfile: OAuthProfile) {
+  constructor(name: string, displayName: string, mockProfile: OAuthProfile, enabled: boolean = true) {
     this.name = name;
     this.displayName = displayName;
     this.mockProfile = mockProfile;
+    this.enabled = enabled;
   }
 
   public buildAuthUrl(state: string, codeChallenge: string, redirectUri?: string): string {
@@ -118,6 +120,105 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(providerInfo.codeVerifier).toBeDefined();
       expect(providerInfo.codeChallenge).toBeDefined();
       expect(providerInfo.authUrl).toContain('google.mock.auth');
+    });
+
+    it('should not register or advertise providers configured with enabled: false in registerFromConfig', async () => {
+      const registry = app.auth.getOAuthRegistry();
+
+      registry.registerFromConfig({
+        name: 'google',
+        displayName: 'Google',
+        clientId: 'google_id',
+        clientSecret: 'google_secret',
+        enabled: false,
+      });
+
+      expect(registry.getProvider('google')).toBeUndefined();
+      expect(registry.isProviderEnabled('google')).toBe(false);
+      expect(registry.getEnabledProviders().some((p) => p.name === 'google')).toBe(false);
+
+      const res = await fetch(`${serverUrl}/api/collections/users/auth-methods`);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.authProviders.some((p: any) => p.name === 'google')).toBe(false);
+    });
+
+    it('should unregister an existing provider if registerFromConfig is called with enabled: false', async () => {
+      const registry = app.auth.getOAuthRegistry();
+
+      registry.register(
+        new MockOAuthProvider('github', 'GitHub', {
+          id: 'gh_active',
+          email: 'active@github.com',
+          isEmailVerified: true,
+          rawUser: { id: 'gh_active' },
+        })
+      );
+      expect(registry.getProvider('github')).toBeDefined();
+
+      // Disable it via registerFromConfig
+      registry.registerFromConfig({
+        name: 'github',
+        displayName: 'GitHub',
+        clientId: 'gh_id',
+        clientSecret: 'gh_secret',
+        enabled: false,
+      });
+
+      expect(registry.getProvider('github')).toBeUndefined();
+      expect(registry.isProviderEnabled('github')).toBe(false);
+      expect(registry.getEnabledProviders().some((p) => p.name === 'github')).toBe(false);
+    });
+
+    it('should not register or advertise providers passed with enabled: false to register()', async () => {
+      const registry = app.auth.getOAuthRegistry();
+
+      const disabledMock = new MockOAuthProvider(
+        'discord',
+        'Discord',
+        {
+          id: 'disc_disabled',
+          email: 'disabled@discord.com',
+          isEmailVerified: true,
+          rawUser: { id: 'disc_disabled' },
+        },
+        false
+      );
+
+      registry.register(disabledMock);
+      expect(registry.getProvider('discord')).toBeUndefined();
+      expect(registry.isProviderEnabled('discord')).toBe(false);
+      expect(registry.getEnabledProviders().some((p) => p.name === 'discord')).toBe(false);
+
+      const res = await fetch(`${serverUrl}/api/collections/users/auth-methods`);
+      const data = await res.json();
+      expect(data.authProviders.some((p: any) => p.name === 'discord')).toBe(false);
+    });
+
+    it('should reject authWithOAuth2 when provider is disabled', async () => {
+      const registry = app.auth.getOAuthRegistry();
+      registry.registerFromConfig({
+        name: 'google',
+        displayName: 'Google',
+        clientId: 'google_id',
+        clientSecret: 'google_secret',
+        enabled: false,
+      });
+
+      const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'any_code',
+          codeVerifier: 'any_verifier',
+          state: 'any_state',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const err = await res.json();
+      expect(err.message).toContain("OAuth2 provider 'google' is not configured or enabled");
     });
   });
 
