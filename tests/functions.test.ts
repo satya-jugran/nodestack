@@ -107,6 +107,45 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         /Forbidden protocol 'file:'/
       );
     });
+
+    it('should normalize and block bracketed IPv6 literals (loopback, link-local, mapped)', async () => {
+      await expect(SsrfGuard.validateUrl('http://[::1]/secret')).rejects.toThrow(
+        /Direct access to private or metadata IP/
+      );
+      await expect(SsrfGuard.validateUrl('http://[::ffff:127.0.0.1]:8080/')).rejects.toThrow(
+        /Direct access to private or metadata IP/
+      );
+      await expect(SsrfGuard.validateUrl('http://[fe80::1]/')).rejects.toThrow(
+        /Direct access to private or metadata IP/
+      );
+    });
+
+    it('should block the full IPv6 Unique Local Address range (fc00::/7 including fd00::/8)', async () => {
+      await expect(SsrfGuard.validateUrl('http://[fc00::1]/admin')).rejects.toThrow(
+        /Direct access to private or metadata IP/
+      );
+      await expect(SsrfGuard.validateUrl('http://[fd00::1]/admin')).rejects.toThrow(
+        /Direct access to private or metadata IP/
+      );
+      await expect(SsrfGuard.validateUrl('http://[fd12:3456:789a::1]/config')).rejects.toThrow(
+        /Direct access to private or metadata IP/
+      );
+    });
+
+    it('should pin resolved address and reject SSRF attempts in createGuardedFetch', async () => {
+      const guardedFetch = SsrfGuard.createGuardedFetch();
+
+      // Direct private IPv4 and bracketed IPv6
+      await expect(guardedFetch('http://127.0.0.1:8080/')).rejects.toThrow(
+        /Direct access to private or metadata IP/
+      );
+      await expect(guardedFetch('http://[::1]:8080/')).rejects.toThrow(
+        /Direct access to private or metadata IP/
+      );
+      await expect(guardedFetch('http://[fd00::1]:8080/')).rejects.toThrow(
+        /Direct access to private or metadata IP/
+      );
+    });
   });
 
   // ==========================================
