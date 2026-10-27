@@ -95,7 +95,14 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
 
       expect(SsrfGuard.isAllowedDomain('api.stripe.com', allowed)).toBe(true);
       expect(SsrfGuard.isAllowedDomain('raw.github.com', allowed)).toBe(true);
+      expect(SsrfGuard.isAllowedDomain('github.com', allowed)).toBe(true);
+      expect(SsrfGuard.isAllowedDomain('evilgithub.com', allowed)).toBe(false);
+      expect(SsrfGuard.isAllowedDomain('not-github.com', allowed)).toBe(false);
       expect(SsrfGuard.isAllowedDomain('malicious-site.com', allowed)).toBe(false);
+
+      await expect(
+        SsrfGuard.validateUrl('https://evilgithub.com/api', allowed)
+      ).rejects.toThrow(/is not in the allowed domains whitelist/);
 
       await expect(
         SsrfGuard.validateUrl('https://malicious-site.com/api', allowed)
@@ -743,9 +750,9 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       app.db.prepare(`
         INSERT INTO _functions (
           id, name, description, code, enabled, authPolicy, methods,
-          routePath, eventTrigger, timeoutMs, memoryLimitMb, allowedDomains,
+          eventTrigger, timeoutMs, memoryLimitMb, allowedDomains,
           elevated, env, created, updated
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         corruptId,
         'corrupt-auth-fn',
@@ -754,7 +761,6 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         1,
         'admni',
         'GET',
-        null,
         null,
         1000,
         32,

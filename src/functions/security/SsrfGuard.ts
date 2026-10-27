@@ -59,8 +59,16 @@ export class SsrfGuard {
       if (cleanPattern === host) {
         return true;
       }
-      if (cleanPattern.startsWith('*.') && host.endsWith(cleanPattern.slice(2))) {
-        return true;
+      if (cleanPattern.startsWith('*.')) {
+        const suffix = cleanPattern.slice(2);
+        if (host === suffix || host.endsWith('.' + suffix)) {
+          return true;
+        }
+      } else if (cleanPattern.startsWith('.')) {
+        const suffix = cleanPattern.slice(1);
+        if (host === suffix || host.endsWith('.' + suffix)) {
+          return true;
+        }
       }
     }
     return false;

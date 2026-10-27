@@ -81,7 +81,6 @@ export class FunctionService {
           enabled INTEGER NOT NULL DEFAULT 1,
           authPolicy TEXT NOT NULL DEFAULT 'public',
           methods TEXT NOT NULL DEFAULT 'GET,POST',
-          routePath TEXT,
           eventTrigger TEXT,
           timeoutMs INTEGER NOT NULL DEFAULT 1000,
           memoryLimitMb INTEGER NOT NULL DEFAULT 32,
@@ -182,9 +181,9 @@ export class FunctionService {
     this.db.prepare(`
       INSERT INTO _functions (
         id, name, description, code, enabled, authPolicy, methods,
-        routePath, eventTrigger, timeoutMs, memoryLimitMb, allowedDomains,
+        eventTrigger, timeoutMs, memoryLimitMb, allowedDomains,
         elevated, env, created, updated
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       cleanName,
@@ -193,7 +192,6 @@ export class FunctionService {
       dto.enabled === false ? 0 : 1,
       dto.authPolicy || 'public',
       methods,
-      dto.routePath || null,
       dto.eventTrigger || null,
       dto.timeoutMs || 1000,
       dto.memoryLimitMb || 32,
@@ -236,7 +234,6 @@ export class FunctionService {
     const enabled = dto.enabled !== undefined ? (dto.enabled ? 1 : 0) : (current.enabled ? 1 : 0);
     const authPolicy = dto.authPolicy || current.authPolicy;
     const methods = dto.methods ? dto.methods.join(',') : current.methods.join(',');
-    const routePath = dto.routePath !== undefined ? dto.routePath : current.routePath;
     const eventTrigger = dto.eventTrigger !== undefined ? dto.eventTrigger : current.eventTrigger;
     const timeoutMs = dto.timeoutMs !== undefined ? dto.timeoutMs : current.timeoutMs;
     const memoryLimitMb = dto.memoryLimitMb !== undefined ? dto.memoryLimitMb : current.memoryLimitMb;
@@ -248,7 +245,7 @@ export class FunctionService {
     this.db.prepare(`
       UPDATE _functions SET
         name = ?, description = ?, code = ?, enabled = ?, authPolicy = ?,
-        methods = ?, routePath = ?, eventTrigger = ?, timeoutMs = ?, memoryLimitMb = ?,
+        methods = ?, eventTrigger = ?, timeoutMs = ?, memoryLimitMb = ?,
         allowedDomains = ?, elevated = ?, env = ?, updated = ?
       WHERE id = ?
     `).run(
@@ -258,7 +255,6 @@ export class FunctionService {
       enabled,
       authPolicy,
       methods,
-      routePath,
       eventTrigger,
       timeoutMs,
       memoryLimitMb,
@@ -747,7 +743,6 @@ export class FunctionService {
       enabled: Boolean(row.enabled),
       authPolicy: row.authPolicy || 'public',
       methods: row.methods ? row.methods.split(',').map((m: string) => m.trim()) : ['GET', 'POST'],
-      routePath: row.routePath || undefined,
       eventTrigger: row.eventTrigger || null,
       timeoutMs: row.timeoutMs || 1000,
       memoryLimitMb: row.memoryLimitMb || 32,

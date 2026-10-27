@@ -9,7 +9,6 @@ export interface FunctionConfig {
   enabled: boolean;
   authPolicy: FunctionAuthPolicy;
   methods: string[];
-  routePath?: string;
   eventTrigger?: string | null;
   timeoutMs: number;
   memoryLimitMb: number;
