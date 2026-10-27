@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { DatabaseService } from '../database/DatabaseService';
 import { SchemaService } from '../schema/SchemaService';
 import { RecordService } from '../records/RecordService';
@@ -16,18 +17,24 @@ import {
   FunctionExecutionResult,
   FunctionLog,
   FunctionRecordQueryOptions,
+  FunctionAuthPolicy,
 } from './types';
+
+export const ALLOWED_AUTH_POLICIES: readonly FunctionAuthPolicy[] = ['public', 'auth', 'admin', 'apiKey'] as const;
 import { AppError, NotFoundError, ForbiddenError, ValidationError, ConflictError } from '../core/errors/AppError';
 
 export interface FunctionServiceOptions {
   runner?: SandboxedRunner;
   maxConcurrent?: number;
+  maxRecursionDepth?: number;
 }
 
 export class FunctionService {
   private runner: SandboxedRunner;
   private maxConcurrent: number;
+  private maxRecursionDepth: number;
   private activeExecutions = 0;
+  private executionStorage = new AsyncLocalStorage<{ depth: number; activeFns: Set<string> }>();
 
   constructor(
     private db: DatabaseService,
@@ -40,7 +47,20 @@ export class FunctionService {
   ) {
     this.runner = options.runner || new SandboxedRunner();
     this.maxConcurrent = options.maxConcurrent || 15;
+    this.maxRecursionDepth = options.maxRecursionDepth || 5;
     this.initTables();
+  }
+
+  public getActiveExecutions(): number {
+    return this.activeExecutions;
+  }
+
+  public getMaxConcurrent(): number {
+    return this.maxConcurrent;
+  }
+
+  public getMaxRecursionDepth(): number {
+    return this.maxRecursionDepth;
   }
 
   public getRunner(): SandboxedRunner {
@@ -139,6 +159,14 @@ export class FunctionService {
       throw new ValidationError('Function name cannot be blank');
     }
 
+    if (dto.authPolicy !== undefined) {
+      if (!ALLOWED_AUTH_POLICIES.includes(dto.authPolicy as FunctionAuthPolicy)) {
+        throw new ValidationError(
+          `Invalid auth policy '${dto.authPolicy}'. Allowed policies are: ${ALLOWED_AUTH_POLICIES.join(', ')}`
+        );
+      }
+    }
+
     const cleanName = dto.name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
     const existing = this.getFunctionByName(cleanName);
     if (existing) {
@@ -183,6 +211,14 @@ export class FunctionService {
     const current = this.getFunctionById(id);
     if (!current) {
       throw new NotFoundError(`Function '${id}' not found`);
+    }
+
+    if (dto.authPolicy !== undefined) {
+      if (!ALLOWED_AUTH_POLICIES.includes(dto.authPolicy as FunctionAuthPolicy)) {
+        throw new ValidationError(
+          `Invalid auth policy '${dto.authPolicy}'. Allowed policies are: ${ALLOWED_AUTH_POLICIES.join(', ')}`
+        );
+      }
     }
 
     let name = current.name;
@@ -278,15 +314,31 @@ export class FunctionService {
       throw new AppError('Serverless function concurrency limit reached. Please retry shortly.', 429);
     }
 
+    const parentStore = this.executionStorage.getStore();
+    const currentDepth = (parentStore?.depth || 0) + 1;
+    const activeFns = parentStore?.activeFns ? new Set(parentStore.activeFns) : new Set<string>();
+
+    if (currentDepth > this.maxRecursionDepth || activeFns.has(fn.id)) {
+      const errorMsg = activeFns.has(fn.id)
+        ? `Circular recursion detected: function '${fn.name}' already active in call stack`
+        : `Maximum function recursion depth of ${this.maxRecursionDepth} exceeded`;
+      throw new AppError(errorMsg, 508);
+    }
+
     this.activeExecutions++;
-    const startTime = Date.now();
+    const nextActiveFns = new Set(activeFns);
+    nextActiveFns.add(fn.id);
 
     try {
       const context = this.buildFunctionContext(fn, requestCtx, undefined, actor);
-      const result = await this.runner.execute(fn.code, context, {
-        timeoutMs: fn.timeoutMs,
-        memoryLimitMb: fn.memoryLimitMb,
-      });
+      const result = await this.executionStorage.run(
+        { depth: currentDepth, activeFns: nextActiveFns },
+        () =>
+          this.runner.execute(fn.code, context, {
+            timeoutMs: fn.timeoutMs,
+            memoryLimitMb: fn.memoryLimitMb,
+          })
+      );
 
       // Record log entry asynchronously
       this.recordLog({
@@ -329,11 +381,21 @@ export class FunctionService {
       auth: mockRequest.auth !== undefined ? mockRequest.auth : (actor ? { id: actor.id, role: actor.isAdmin ? 'admin' : 'user', email: actor.email } : null),
     };
 
-    const context = this.buildFunctionContext(fn, requestCtx, undefined, actor);
-    const result = await this.runner.execute(fn.code, context, {
-      timeoutMs: fn.timeoutMs,
-      memoryLimitMb: fn.memoryLimitMb,
-    });
+    if (this.activeExecutions >= this.maxConcurrent) {
+      throw new AppError('Serverless function concurrency limit reached. Please retry shortly.', 429);
+    }
+
+    this.activeExecutions++;
+    let result: FunctionExecutionResult;
+    try {
+      const context = this.buildFunctionContext(fn, requestCtx, undefined, actor);
+      result = await this.runner.execute(fn.code, context, {
+        timeoutMs: fn.timeoutMs,
+        memoryLimitMb: fn.memoryLimitMb,
+      });
+    } finally {
+      this.activeExecutions = Math.max(0, this.activeExecutions - 1);
+    }
 
     this.recordLog({
       functionId: fn.id,
@@ -371,8 +433,56 @@ export class FunctionService {
 
     if (matchingFunctions.length === 0) return;
 
+    const parentStore = this.executionStorage.getStore();
+    const currentDepth = (parentStore?.depth || 0) + 1;
+    const activeFns = parentStore?.activeFns ? new Set(parentStore.activeFns) : new Set<string>();
+
     for (const row of matchingFunctions) {
       const fn = this.mapRowToConfig(row);
+
+      // Recursion protection: check depth and circular invocation of the same function
+      if (currentDepth > this.maxRecursionDepth || activeFns.has(fn.id)) {
+        const errorMsg = activeFns.has(fn.id)
+          ? `Circular recursion detected: function '${fn.name}' already active in call stack for trigger '${hookTrigger}'`
+          : `Maximum function recursion depth of ${this.maxRecursionDepth} exceeded for trigger '${hookTrigger}'`;
+
+        this.recordLog({
+          functionId: fn.id,
+          functionName: fn.name,
+          trigger: `hook:${hookTrigger}`,
+          status: 'error',
+          statusCode: 508,
+          durationMs: 0,
+          requestPayload: JSON.stringify(eventCtx.record),
+          responsePayload: undefined,
+          logs: `[RecursionGuard] ${errorMsg}`,
+          error: errorMsg,
+          actorId: eventCtx.auth?.id || undefined,
+        });
+
+        throw new AppError(errorMsg, 508);
+      }
+
+      // Concurrency admission control: enforce maxConcurrent limit
+      if (this.activeExecutions >= this.maxConcurrent) {
+        const errorMsg = 'Serverless function concurrency limit reached. Please retry shortly.';
+        this.recordLog({
+          functionId: fn.id,
+          functionName: fn.name,
+          trigger: `hook:${hookTrigger}`,
+          status: 'error',
+          statusCode: 429,
+          durationMs: 0,
+          requestPayload: JSON.stringify(eventCtx.record),
+          responsePayload: undefined,
+          logs: `[ConcurrencyGuard] ${errorMsg}`,
+          error: errorMsg,
+          actorId: eventCtx.auth?.id || undefined,
+        });
+
+        throw new AppError(errorMsg, 429);
+      }
+
       const fnEventCtx: FunctionEventContext = {
         collection: eventCtx.collection,
         action,
@@ -381,10 +491,24 @@ export class FunctionService {
       };
 
       const context = this.buildFunctionContext(fn, undefined, fnEventCtx, eventCtx.auth);
-      const result = await this.runner.execute(fn.code, context, {
-        timeoutMs: fn.timeoutMs,
-        memoryLimitMb: fn.memoryLimitMb,
-      });
+
+      this.activeExecutions++;
+      const nextActiveFns = new Set(activeFns);
+      nextActiveFns.add(fn.id);
+
+      let result: FunctionExecutionResult;
+      try {
+        result = await this.executionStorage.run(
+          { depth: currentDepth, activeFns: nextActiveFns },
+          () =>
+            this.runner.execute(fn.code, context, {
+              timeoutMs: fn.timeoutMs,
+              memoryLimitMb: fn.memoryLimitMb,
+            })
+        );
+      } finally {
+        this.activeExecutions = Math.max(0, this.activeExecutions - 1);
+      }
 
       this.recordLog({
         functionId: fn.id,
@@ -399,6 +523,11 @@ export class FunctionService {
         error: result.error,
         actorId: eventCtx.auth?.id || undefined,
       });
+
+      if (result.status === 'error' && eventCtx.isBefore) {
+        const isRecursion = result.error?.includes('recursion');
+        throw new AppError(result.error || `Function '${fn.name}' failed`, isRecursion ? 508 : 500);
+      }
 
       // If before hook returns an object or mutations, apply them
       if (eventCtx.isBefore && result.status === 'success' && result.body && typeof result.body === 'object') {

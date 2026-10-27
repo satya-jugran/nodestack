@@ -486,12 +486,172 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         })
       ).rejects.toThrow('Amount cannot be negative');
     });
+
+    it('should prevent infinite circular recursion when a hook triggers matching mutations', async () => {
+      app.functions.createFunction({
+        name: 'infinite-loop-hook',
+        code: `
+          export default async function(ctx) {
+            // Attempt to infinitely recurse by creating another order
+            await ctx.records.create('orders', { title: 'Recursive Order', amount: 10 });
+            return { status: 200 };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['*'],
+        eventTrigger: 'orders:beforeCreate',
+        timeoutMs: 1000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: true,
+        env: {},
+      });
+
+      await expect(
+        app.records.create('orders', {
+          title: 'Initial Order',
+          amount: 50,
+        })
+      ).rejects.toThrow(/Circular recursion detected|Maximum function recursion depth/);
+    });
+
+    it('should enforce maxConcurrent concurrency admission limit during lifecycle hooks', async () => {
+      app.functions.createFunction({
+        name: 'concurrency-hook-test',
+        code: `
+          export default async function(ctx) {
+            return { status: 200 };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['*'],
+        eventTrigger: 'orders:beforeCreate',
+        timeoutMs: 1000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      // Temporarily saturate active executions up to maxConcurrent
+      const max = (app.functions as any).maxConcurrent;
+      (app.functions as any).activeExecutions = max;
+
+      try {
+        await expect(
+          app.records.create('orders', {
+            title: 'Throttled Order',
+            amount: 100,
+          })
+        ).rejects.toThrow(/Serverless function concurrency limit reached/);
+      } finally {
+        (app.functions as any).activeExecutions = 0;
+      }
+    });
   });
 
   // ==========================================
   // 5. Auth Policy & Admin CRUD API
   // ==========================================
   describe('5. Auth Policy Enforcement & Admin API', () => {
+    it('should validate and reject invalid authPolicy during createFunction and updateFunction', async () => {
+      // 1. Direct service createFunction validation
+      expect(() => {
+        app.functions.createFunction({
+          name: 'invalid-auth-fn',
+          code: `export default async function() { return { status: 200 }; }`,
+          enabled: true,
+          authPolicy: 'admni' as any,
+          methods: ['GET'],
+          timeoutMs: 1000,
+          memoryLimitMb: 32,
+          allowedDomains: [],
+          elevated: false,
+          env: {},
+        });
+      }).toThrow(/Invalid auth policy 'admni'/);
+
+      // 2. HTTP POST /api/functions validation
+      const postRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/functions',
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: {
+          name: 'typo-auth-fn',
+          code: `export default async function() { return { status: 200 }; }`,
+          authPolicy: 'adminOrInitial',
+        },
+      });
+      expect(postRes.statusCode).toBe(422);
+      expect(postRes.json().message).toContain("Invalid auth policy 'adminOrInitial'");
+
+      // 3. Create valid function, then reject invalid updateFunction
+      const validFn = app.functions.createFunction({
+        name: 'valid-to-update-fn',
+        code: `export default async function() { return { status: 200 }; }`,
+        enabled: true,
+        authPolicy: 'admin',
+        methods: ['GET'],
+        timeoutMs: 1000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      expect(() => {
+        app.functions.updateFunction(validFn.id, { authPolicy: 'unknownPolicy' as any });
+      }).toThrow(/Invalid auth policy 'unknownPolicy'/);
+
+      const patchRes = await app.server.inject({
+        method: 'PATCH',
+        url: `/api/functions/${validFn.id}`,
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: { authPolicy: 'superadmin' },
+      });
+      expect(patchRes.statusCode).toBe(422);
+      expect(patchRes.json().message).toContain("Invalid auth policy 'superadmin'");
+    });
+
+    it('should reject invocation with 403 when database contains an unsupported authPolicy', async () => {
+      // Directly insert a function with corrupt/unsupported authPolicy into DB
+      const corruptId = 'fn_corrupt_auth';
+      app.db.prepare(`
+        INSERT INTO _functions (
+          id, name, description, code, enabled, authPolicy, methods,
+          routePath, eventTrigger, timeoutMs, memoryLimitMb, allowedDomains,
+          elevated, env, created, updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        corruptId,
+        'corrupt-auth-fn',
+        'Corrupt auth policy test',
+        'export default async function() { return { status: 200, body: "should not be public" }; }',
+        1,
+        'admni',
+        'GET',
+        null,
+        null,
+        1000,
+        32,
+        '[]',
+        0,
+        '{}',
+        new Date().toISOString(),
+        new Date().toISOString()
+      );
+
+      // Invoke should be rejected with 403 instead of falling into default public access
+      const res = await app.server.inject({
+        method: 'GET',
+        url: '/api/functions/corrupt-auth-fn/invoke',
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().message).toContain("Unsupported auth policy 'admni'");
+    });
+
     it('should reject unauthenticated call when authPolicy is "admin"', async () => {
       app.functions.createFunction({
         name: 'admin-only-fn',

@@ -192,9 +192,11 @@ export class FunctionController extends BaseController {
         }
         break;
       case 'public':
-      default:
         // No restriction
         break;
+      default:
+        this.error(reply, `Unsupported auth policy '${fn.authPolicy}'`, 403);
+        return;
     }
 
     const requestContext: FunctionRequestContext = {
