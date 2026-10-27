@@ -753,6 +753,95 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(win.location.pathname).toBe('/_/collections/products/schema');
       expect(win.location.search).toBe('?app=store');
     });
+
+    it('should resolve and synchronize state.activeApp from ?app= query parameter on deep link', async () => {
+      const { win } = createTestDOM();
+
+      const defaultApp = { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true };
+      const storeApp = { id: 'app_store', slug: 'store', name: 'Store App' };
+      win.state.apps = [defaultApp, storeApp];
+      win.state.activeApp = defaultApp;
+
+      // Deep link directly to /_/functions?app=store
+      win.history.pushState(null, '', '/_/functions?app=store');
+      await win.parseUrlAndNavigate(true);
+
+      // Verify active application is synchronized to store app
+      expect(win.state.activeApp.slug).toBe('store');
+      expect(win.state.activeApp.name).toBe('Store App');
+      expect(win.getActiveAppSlug()).toBe('store');
+      expect(win.state.activeNav).toBe('functions');
+    });
+
+    it('should fetch apps on deep link if state.apps is not yet populated and synchronize target app', async () => {
+      const { win } = createTestDOM();
+
+      const defaultApp = { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true };
+      const storeApp = { id: 'app_store', slug: 'store', name: 'Store App' };
+
+      win.state.token = 'test-admin-token';
+      win.state.apps = [];
+      win.state.activeApp = defaultApp;
+
+      // Mock api() to return apps list when /api/apps is fetched
+      const originalApi = win.api;
+      win.api = vi.fn().mockImplementation(async (path: string, options: any) => {
+        if (path === '/api/apps') {
+          return { items: [defaultApp, storeApp] };
+        }
+        return originalApi(path, options);
+      });
+
+      win.history.pushState(null, '', '/_/functions?app=store');
+      await win.parseUrlAndNavigate(true);
+
+      expect(win.state.apps.length).toBe(2);
+      expect(win.state.activeApp.slug).toBe('store');
+      expect(win.getActiveAppSlug()).toBe('store');
+      expect(win.state.activeNav).toBe('functions');
+    });
+
+    it('should synchronize state.activeApp on back/forward navigation between different apps', async () => {
+      const { win } = createTestDOM();
+
+      const defaultApp = { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true };
+      const storeApp = { id: 'app_store', slug: 'store', name: 'Store App' };
+      win.state.apps = [defaultApp, storeApp];
+      win.state.activeApp = defaultApp;
+
+      // Navigate to store app functions
+      win.history.pushState(null, '', '/_/functions?app=store');
+      await win.parseUrlAndNavigate(false);
+      expect(win.state.activeApp.slug).toBe('store');
+      expect(win.state.activeNav).toBe('functions');
+
+      // Navigate back to default app collections (no ?app= in URL)
+      win.history.pushState(null, '', '/_/collections');
+      await win.parseUrlAndNavigate(false);
+      expect(win.state.activeApp.slug).toBe('default');
+      expect(win.state.activeNav).toBe('collections');
+    });
+
+    it('should update URL with ?app= when switching apps via selectApp', async () => {
+      const { win } = createTestDOM();
+
+      const defaultApp = { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true };
+      const storeApp = { id: 'app_store', slug: 'store', name: 'Store App' };
+      win.state.apps = [defaultApp, storeApp];
+      win.state.activeApp = defaultApp;
+
+      win.history.replaceState(null, '', '/_/functions');
+
+      await win.selectApp('store');
+      expect(win.state.activeApp.slug).toBe('store');
+      expect(win.location.pathname).toBe('/_/functions');
+      expect(win.location.search).toBe('?app=store');
+
+      await win.selectApp('default');
+      expect(win.state.activeApp.slug).toBe('default');
+      expect(win.location.pathname).toBe('/_/functions');
+      expect(win.location.search).toBe('');
+    });
   });
 
 });

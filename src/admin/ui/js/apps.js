@@ -9,8 +9,18 @@ async function fetchApps() {
     const res = await api('/api/apps');
     state.apps = (res && res.items) ? res.items : [];
     
-    // Validate or default activeApp
-    if (!state.activeApp || !state.apps.some(a => a.slug === state.activeApp.slug || a.id === state.activeApp.id)) {
+    // Check if URL specified an app
+    const urlAppParam = (typeof window !== 'undefined' && window.location)
+      ? new URLSearchParams(window.location.search || '').get('app')
+      : null;
+
+    if (urlAppParam && state.apps.some(a => a.slug === urlAppParam || a.id === urlAppParam || (urlAppParam === 'default' && a.isDefault))) {
+      const matched = state.apps.find(a => a.slug === urlAppParam || a.id === urlAppParam || (urlAppParam === 'default' && a.isDefault));
+      state.activeApp = matched;
+      try {
+        localStorage.setItem('nodestack_active_app', JSON.stringify(matched));
+      } catch {}
+    } else if (!state.activeApp || !state.apps.some(a => a.slug === state.activeApp.slug || a.id === state.activeApp.id)) {
       const defaultApp = state.apps.find(a => a.isDefault) || state.apps[0] || { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true };
       state.activeApp = defaultApp;
       try {
@@ -200,6 +210,9 @@ async function selectApp(slugOrId) {
       }
     }
     updateDocsLinks(app.slug);
+    if (typeof window !== 'undefined' && window.location) {
+      updateUrl(window.location.pathname, true);
+    }
   } catch (err) {
     if (typeof toast === 'function') {
       toast(`Failed to switch application: ${err.message}`, 'error');

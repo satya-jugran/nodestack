@@ -5,10 +5,10 @@
 function getAppQueryParam() {
   if (typeof window === 'undefined' || !window.location) return '';
   const searchParams = new URLSearchParams(window.location.search);
-  const activeSlug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : '';
+  const activeSlug = getActiveAppSlug();
   if (activeSlug && activeSlug !== 'default') {
     searchParams.set('app', activeSlug);
-  } else if (searchParams.get('app') === 'default') {
+  } else {
     searchParams.delete('app');
   }
   const q = searchParams.toString();
@@ -30,6 +30,46 @@ function updateUrl(targetPath, replace = false) {
 
 async function parseUrlAndNavigate(initial = false) {
   if (typeof window === 'undefined' || !window.location) return;
+
+  // Resolve and synchronize active application from URL query parameter (?app=<slugOrId>)
+  const searchParams = new URLSearchParams(window.location.search || '');
+  const requestedAppSlug = searchParams.get('app');
+
+  if (requestedAppSlug) {
+    let targetApp = (state.apps || []).find(a => a.slug === requestedAppSlug || a.id === requestedAppSlug || (requestedAppSlug === 'default' && a.isDefault));
+    if (!targetApp) {
+      try {
+        await fetchApps();
+        targetApp = (state.apps || []).find(a => a.slug === requestedAppSlug || a.id === requestedAppSlug || (requestedAppSlug === 'default' && a.isDefault));
+      } catch (_) {}
+    }
+    const currentSlug = getActiveAppSlug();
+    if (targetApp && currentSlug !== targetApp.slug) {
+      state.activeApp = targetApp;
+      try {
+        localStorage.setItem('nodestack_active_app', JSON.stringify(targetApp));
+      } catch (_) {}
+      updateAppSwitcherUI();
+      updateDocsLinks(targetApp.slug);
+      try {
+        await loadCollections();
+      } catch (_) {}
+    }
+  } else if (!initial && state.activeApp && state.activeApp.slug !== 'default') {
+    // Navigating back/forward (popstate) to a route without ?app= query parameter; restore default app
+    const defaultApp = (state.apps || []).find(a => a.isDefault || a.slug === 'default') || { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true };
+    if (state.activeApp.slug !== defaultApp.slug) {
+      state.activeApp = defaultApp;
+      try {
+        localStorage.setItem('nodestack_active_app', JSON.stringify(defaultApp));
+      } catch (_) {}
+      updateAppSwitcherUI();
+      updateDocsLinks(defaultApp.slug);
+      try {
+        await loadCollections();
+      } catch (_) {}
+    }
+  }
 
   const pathname = window.location.pathname || '/';
 
