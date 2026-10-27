@@ -222,6 +222,89 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(duration).toBeLessThan(2000); // Interrupted promptly
     });
 
+    it('should abort and return 504 when function is suspended on an unresolved promise', async () => {
+      app.functions.createFunction({
+        name: 'suspended-promise',
+        code: `
+          export default async function(ctx) {
+            await new Promise(() => {});
+            return { status: 200, body: 'never reached' };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 300,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      const start = Date.now();
+      const res = await app.server.inject({
+        method: 'POST',
+        url: '/api/functions/suspended-promise/invoke',
+      });
+      const duration = Date.now() - start;
+
+      expect(res.statusCode).toBe(504);
+      expect(res.json().message).toContain('timed out');
+      expect(duration).toBeLessThan(2000);
+    });
+
+    it('should support anonymous async functions and arrow functions', async () => {
+      // 1. Anonymous async function
+      app.functions.createFunction({
+        name: 'anon-async-fn',
+        code: `
+          // leading comment
+          async function(ctx) {
+            return { status: 200, body: { msg: 'from anon async' } };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['GET'],
+        timeoutMs: 1000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      const res1 = await app.server.inject({
+        method: 'GET',
+        url: '/api/functions/anon-async-fn/invoke',
+      });
+      expect(res1.statusCode).toBe(200);
+      expect(res1.json().msg).toBe('from anon async');
+
+      // 2. Arrow function
+      app.functions.createFunction({
+        name: 'arrow-fn',
+        code: `
+          /* block comment */
+          async (ctx) => ({ status: 200, body: { msg: 'from arrow fn' } })
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['GET'],
+        timeoutMs: 1000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      const res2 = await app.server.inject({
+        method: 'GET',
+        url: '/api/functions/arrow-fn/invoke',
+      });
+      expect(res2.statusCode).toBe(200);
+      expect(res2.json().msg).toBe('from arrow fn');
+    });
+
     it('should capture console.log and ctx.log in execution logs', async () => {
       const fn = app.functions.createFunction({
         name: 'logging-fn',

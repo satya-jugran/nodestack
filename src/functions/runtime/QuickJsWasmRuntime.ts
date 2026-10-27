@@ -43,6 +43,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
     };
 
     const vm = this.qjs.newContext();
+    let isVmDisposed = false;
 
     try {
       // 1. Memory limit (in bytes)
@@ -120,6 +121,8 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
                 throw new Error(`Unknown host action: ${callType}`);
               }
 
+              if (isVmDisposed || !vm.alive) return;
+
               const resJson = JSON.stringify(result ?? null);
               const resolveCode = `__resolve_host_call(${callId}, null, ${resJson});`;
               const res = vm.evalCode(resolveCode);
@@ -128,13 +131,16 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
               } else {
                 res.value.dispose();
               }
+              if (isVmDisposed || !vm.alive) return;
               vm.runtime.executePendingJobs();
             } catch (err: any) {
+              if (isVmDisposed || !vm.alive) return;
               const errJson = JSON.stringify(err.message || String(err));
               const rejectCode = `__resolve_host_call(${callId}, ${errJson}, null);`;
               const res = vm.evalCode(rejectCode);
               if (res.error) res.error.dispose();
               else res.value.dispose();
+              if (isVmDisposed || !vm.alive) return;
               vm.runtime.executePendingJobs();
             }
           })();
@@ -264,7 +270,22 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
       evalRes.value.dispose();
       vm.runtime.executePendingJobs();
 
-      const finalOutcome = await promiseHandle;
+      let timeoutTimer: NodeJS.Timeout | null = null;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const remainingMs = Math.max(0, deadline - Date.now());
+        timeoutTimer = setTimeout(() => {
+          reject(new Error(`Function execution timed out after ${timeoutMs}ms (interrupted)`));
+        }, remainingMs);
+      });
+
+      let finalOutcome: any;
+      try {
+        finalOutcome = await Promise.race([promiseHandle, timeoutPromise]);
+      } finally {
+        if (timeoutTimer) {
+          clearTimeout(timeoutTimer);
+        }
+      }
       const durationMs = Date.now() - startTime;
 
       if (finalOutcome.error) {
@@ -347,8 +368,11 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
         error: errMsg,
       };
     } finally {
+      isVmDisposed = true;
       try {
-        vm.dispose();
+        if (vm.alive) {
+          vm.dispose();
+        }
       } catch {}
     }
   }
@@ -369,9 +393,23 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
   private prepareUserCode(rawCode: string): string {
     let code = rawCode.trim();
 
-    // If code defines an export default
+    // 1. If code defines an export default
     if (/^\s*export\s+default\s+/m.test(code)) {
       code = code.replace(/^\s*export\s+default\s+/m, '__fn = ');
+    } else {
+      // 2. Check for leading comments and identify the first statement / expression
+      const leadingCommentRegex = /^(\s*(\/\/[^\r\n]*\r?\n|\/\*[\s\S]*?\*\/))+/;
+      const match = leadingCommentRegex.exec(code);
+      const leadingComments = match ? match[0] : '';
+      const codeBody = code.slice(leadingComments.length).trim();
+
+      // Anonymous function: async function(...) or function(...)
+      if (/^(async\s+)?function\s*\(/.test(codeBody)) {
+        code = leadingComments + '__fn = ' + codeBody;
+      } else if (/^(async\s+)?(\([^)]*\)|[a-zA-Z_$][a-zA-Z0-9_$]*)\s*=>/.test(codeBody)) {
+        // Arrow function
+        code = leadingComments + '__fn = ' + codeBody;
+      }
     }
 
     return `
@@ -384,6 +422,8 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
 
         if (typeof __fn === 'function') {
           return await __fn(globalThis.ctx);
+        } else if (__fn !== null && typeof __fn !== 'undefined') {
+          return __fn;
         } else if (typeof module.exports === 'function') {
           return await module.exports(globalThis.ctx);
         } else if (module.exports && typeof module.exports.default === 'function') {
