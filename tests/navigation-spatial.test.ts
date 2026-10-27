@@ -307,6 +307,40 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(homeTrail.textContent).toContain('Overview');
     });
 
+    it('should render collection action items in the view\'s own header inside the detail pane, not in the tabs bar', async () => {
+      const { win, doc } = createTestDOM();
+
+      await win.selectCollection('products');
+      win.switchCollectionTab('records');
+
+      // Top collection-actions bar in tabs-bar must be empty
+      const topColActions = doc.getElementById('collection-actions');
+      expect(topColActions?.innerHTML.trim()).toBe('');
+
+      // Records view header inside detail pane must contain the record actions
+      const detailPane = doc.getElementById('collections-detail-pane');
+      const recordsHeader = detailPane?.querySelector('.collection-view-header');
+      expect(recordsHeader).not.toBeNull();
+      expect(recordsHeader?.textContent).toContain('products');
+      expect(recordsHeader?.textContent).toContain('+ New Record');
+      expect(recordsHeader?.textContent).toContain('Import CSV');
+      expect(recordsHeader?.textContent).toContain('Generate Mock Data');
+      expect(recordsHeader?.textContent).toContain('Export');
+
+      // Switch to schema tab
+      win.switchCollectionTab('schema');
+
+      // Top collection-actions bar in tabs-bar must remain empty
+      expect(topColActions?.innerHTML.trim()).toBe('');
+
+      // Schema view header inside detail pane must contain schema actions
+      const schemaHeader = detailPane?.querySelector('.collection-view-header');
+      expect(schemaHeader).not.toBeNull();
+      expect(schemaHeader?.textContent).toContain('products Schema & Rules');
+      expect(schemaHeader?.textContent).toContain('Save Schema');
+      expect(schemaHeader?.textContent).toContain('Delete Collection');
+    });
+
     it('should switch back to records tab when collection name link is clicked from schema tab', async () => {
       const { win, doc } = createTestDOM();
 
@@ -608,6 +642,22 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       const homeTools = doc.querySelector('.home-tools-grid');
       expect(homeTools).not.toBeNull();
       expect(homeTools?.textContent).toContain('New Collection');
+    });
+
+    it('should open Import JSON modal when clicking Import JSON button in collections hub', () => {
+      const { win, doc } = createTestDOM({ activeNav: 'collections' });
+      win.state.activeCollection = null;
+      win.renderCollectionsHubView();
+
+      win.openImportJsonModal = vi.fn();
+
+      const importBtn = Array.from(doc.querySelectorAll('button')).find(
+        (b: any) => b.textContent?.includes('Import JSON')
+      ) as HTMLButtonElement;
+      expect(importBtn).toBeDefined();
+
+      importBtn.click();
+      expect(win.openImportJsonModal).toHaveBeenCalled();
     });
   });
   describe('HTML5 History API Routing, Deep Linking & History Navigation', () => {

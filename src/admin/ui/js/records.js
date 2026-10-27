@@ -162,40 +162,8 @@
     function renderRecordsView() {
       const topActions = document.getElementById('view-actions');
       if (topActions) topActions.innerHTML = '';
-      const actions = document.getElementById('collection-actions') || topActions;
-      actions.innerHTML = `
-        <div style="display:flex; align-items:center; gap:0.5rem;">
-          <div class="dropdown-wrapper">
-            <button class="btn btn-secondary btn-sm" onclick="toggleExportMenu(event)" title="Export collection records">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              <span>Export</span>
-              <span style="font-size:10px; margin-left:1px; opacity:0.7;">▾</span>
-            </button>
-            <div id="export-dropdown-menu" style="display:none; position:absolute; right:0; top:calc(100% + 4px); background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:6px; box-shadow:var(--shadow-dropdown); min-width:150px; z-index:100; padding:4px 0;">
-              <button class="dropdown-menu-item" onclick="exportData('csv')">
-                <span style="color:#60a5fa; font-weight:bold;">CSV</span> Export as CSV
-              </button>
-              <button class="dropdown-menu-item" onclick="exportData('json')">
-                <span style="color:#34d399; font-weight:bold;">{ }</span> Export as JSON
-              </button>
-            </div>
-          </div>
-
-          <button class="btn btn-secondary btn-sm" onclick="openImportModal()" title="Drag & drop CSV import with visual column mapping">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <span>Import CSV</span>
-          </button>
-
-          <button class="btn btn-secondary btn-sm" onclick="openMockDataModal()" title="1-Click Generate Mock Data (Built-in Faker Engine)" style="border-color: rgba(96, 165, 250, 0.4); color: var(--accent-primary);">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-            <span>Generate Mock Data</span>
-          </button>
-
-          <button class="btn btn-primary btn-sm" onclick="openNewRecordModal()">
-            <span>+ New Record</span>
-          </button>
-        </div>
-      `;
+      const actions = document.getElementById('collection-actions');
+      if (actions) actions.innerHTML = '';
 
       if (typeof showPageView === 'function') {
         showPageView('collections');
@@ -205,6 +173,52 @@
 
       const main = document.getElementById('collections-detail-pane') || document.getElementById('main-body');
       main.innerHTML = `
+        <div class="collection-view-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-subtle);">
+          <div>
+            <h2 style="font-size: 16px; font-weight: 800; color: var(--text-heading); margin: 0; display: flex; align-items: center; gap: 8px;">
+              <span>${escapeHtml(col.name)}</span>
+              <span class="badge ${col.type === 'auth' ? 'badge-post' : 'badge-get'}" style="font-size: 10px; font-weight: 700;">${col.type.toUpperCase()}</span>
+              ${col.system ? `<span class="badge" style="font-size: 10px; background: rgba(148, 163, 184, 0.2); color: var(--text-muted);">SYSTEM</span>` : ''}
+            </h2>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 3px 0 0 0;">
+              Browse, filter, and manage records for the <code>${escapeHtml(col.name)}</code> table.
+            </p>
+          </div>
+          <div class="collection-view-actions" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <div class="dropdown-wrapper">
+              <button class="btn btn-secondary btn-sm" onclick="toggleExportMenu(event)" title="Export collection records">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>Export</span>
+                <span style="font-size: 10px; margin-left: 1px; opacity: 0.7;">▾</span>
+              </button>
+              <div id="export-dropdown-menu" style="display: none; position: absolute; left: 0; top: calc(100% + 4px); background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 6px; box-shadow: var(--shadow-dropdown); min-width: 160px; z-index: 100; padding: 4px 0;">
+                <button class="dropdown-menu-item" onclick="exportData('csv')">
+                  <span style="color: #60a5fa; font-weight: bold;">CSV</span> Export as CSV
+                </button>
+                <button class="dropdown-menu-item" onclick="exportData('json')">
+                  <span style="color: #34d399; font-weight: bold;">{ }</span> Export as JSON
+                </button>
+              </div>
+            </div>
+
+            <button class="btn btn-secondary btn-sm" onclick="openImportModal()" title="Drag & drop CSV import with visual column mapping">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span>Import CSV</span>
+            </button>
+
+            ${!col.system ? `
+            <button class="btn btn-secondary btn-sm" onclick="openMockDataModal()" title="1-Click Generate Mock Data (Built-in Faker Engine)" style="color: var(--accent-primary);">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              <span>Generate Mock Data</span>
+            </button>
+            ` : ''}
+
+            <button class="btn btn-primary btn-sm" onclick="openNewRecordModal()">
+              <span>+ New Record</span>
+            </button>
+          </div>
+        </div>
+
         <div class="controls-bar">
           <div style="display:flex; align-items:center; gap:0.75rem; flex:1; max-width:640px;">
             <div class="search-bar-composite" id="search-composite-box">
@@ -371,15 +385,36 @@
               </td>
             </tr>
           `;
+        } else if (col.system) {
+          tbContainer.innerHTML = `
+            <tr>
+              <td colspan="${displayFields.length + 3}" style="text-align:center;padding:3.5rem 1rem;">
+                <div style="display:flex; flex-direction:column; align-items:center; gap:0.75rem;">
+                  <div style="width:44px; height:44px; border-radius:50%; background:var(--bg-input); color:var(--text-muted); display:flex; align-items:center; justify-content:center;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+                  </div>
+                  <div style="font-weight:600; font-size:15px; color:var(--text-main);">No records in '${escapeHtml(col.name)}' yet</div>
+                  <div style="font-size:13px; color:var(--text-muted); max-width:400px; line-height:1.4;">
+                    System activity and audit events will appear here automatically as operations execute.
+                  </div>
+                  <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+                    <button class="btn btn-primary btn-sm" onclick="openNewRecordModal()">
+                      <span>+ New Record</span>
+                    </button>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          `;
         } else {
           tbContainer.innerHTML = `
             <tr>
               <td colspan="${displayFields.length + 3}" style="text-align:center;padding:3.5rem 1rem;">
                 <div style="display:flex; flex-direction:column; align-items:center; gap:0.75rem;">
                   <div style="width:44px; height:44px; border-radius:50%; background:rgba(59,130,246,0.12); color:#60a5fa; display:flex; align-items:center; justify-content:center; font-size:20px;">
-                    ✨
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
                   </div>
-                  <div style="font-weight:600; font-size:15px; color:var(--text-main);">No records in '${col.name}' yet</div>
+                  <div style="font-weight:600; font-size:15px; color:var(--text-main);">No records in '${escapeHtml(col.name)}' yet</div>
                   <div style="font-size:13px; color:var(--text-muted); max-width:380px; line-height:1.4;">
                     Populate your collection in seconds with realistic human names, emails, prices, avatars, and linked relations.
                   </div>

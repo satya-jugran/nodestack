@@ -1843,6 +1843,10 @@
     function openMockDataModal() {
       const col = state.activeCollection;
       if (!col) return;
+      if (col.system) {
+        toast('Mock data generation is disabled for system collections', 'warning');
+        return;
+      }
 
       selectedMockCount = 50;
       const modal = document.getElementById('modal-root');

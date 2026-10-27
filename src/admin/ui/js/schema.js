@@ -91,18 +91,32 @@
 
       const topActions = document.getElementById('view-actions');
       if (topActions) topActions.innerHTML = '';
-      const actions = document.getElementById('collection-actions') || topActions;
-      actions.innerHTML = `
-        ${!col.system ? `
-          <button class="btn btn-danger btn-sm" onclick="openDeleteCollectionModal('${col.name}')" title="Permanently delete this collection">
-            Delete Collection
-          </button>
-        ` : ''}
-        <button class="btn btn-primary btn-sm" onclick="saveSchemaChanges()">Save Schema</button>
-      `;
+      const actions = document.getElementById('collection-actions');
+      if (actions) actions.innerHTML = '';
 
       const main = document.getElementById('collections-detail-pane') || document.getElementById('main-body');
       main.innerHTML = `
+        <div class="collection-view-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-subtle);">
+          <div>
+            <h2 style="font-size: 16px; font-weight: 800; color: var(--text-heading); margin: 0; display: flex; align-items: center; gap: 8px;">
+              <span>${escapeHtml(col.name)} Schema & Rules</span>
+              <span class="badge ${col.type === 'auth' ? 'badge-post' : 'badge-get'}" style="font-size: 10px; font-weight: 700;">${col.type.toUpperCase()}</span>
+              ${col.system ? `<span class="badge" style="font-size: 10px; background: rgba(148, 163, 184, 0.2); color: var(--text-muted);">SYSTEM</span>` : ''}
+            </h2>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 3px 0 0 0;">
+              Define database columns, field types, validations, and API access rules.
+            </p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            ${!col.system ? `
+              <button class="btn btn-danger btn-sm" onclick="openDeleteCollectionModal('${escapeHtml(col.name)}')" title="Permanently delete this collection">
+                Delete Collection
+              </button>
+            ` : ''}
+            <button class="btn btn-primary btn-sm" onclick="saveSchemaChanges()">Save Schema</button>
+          </div>
+        </div>
+
         <div style="max-width: 860px; display:flex; flex-direction:column; gap: 1.5rem;">
           <div class="form-group">
             <label class="form-label">Collection Name</label>

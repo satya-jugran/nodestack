@@ -43,6 +43,9 @@ export class MockDataService {
     visitedCollections: Set<string> = new Set()
   ): Promise<MockGenerateResult> {
     const col = this.schemaService.getCollectionOrThrow(collectionName);
+    if (col.system || col.name.startsWith('_')) {
+      throw new Error(`Mock data generation is not allowed for system collection '${col.name}'`);
+    }
     const count = Math.max(1, Math.min(500, Number(options.count) || 25));
     const downloadFiles = options.downloadFiles !== false;
     const autoSeedRelations = options.autoSeedRelations !== false;

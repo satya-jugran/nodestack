@@ -360,6 +360,21 @@ describe('1-Click Mock Data Generator (Faker Engine) Tests', () => {
       expect(body.records.length).toBe(15);
     });
 
+    it('should reject mock data generation for system collections with 400', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/collections/_admins/generate-mock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({ count: 5 }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.message).toContain('not allowed for system collection');
+    });
+
     it('should reject unauthenticated or non-admin requests with 401/403', async () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/collections/articles/generate-mock`, {
         method: 'POST',
