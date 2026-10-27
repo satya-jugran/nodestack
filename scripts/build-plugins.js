@@ -155,6 +155,56 @@ export declare function resendPlugin(options?: ResendPluginOptions): INodeStackP
 `,
   },
   {
+    name: 'chat-notifications',
+    pkgDir: 'packages/plugins/chat-notifications',
+    sourceFile: 'src/plugins/chat-notifications.ts',
+    typesContent: `import type { INodeStackPlugin } from '@nodestackapp/server';
+
+export interface ChatNotificationsPluginOptions {
+  discordWebhookUrl?: string;
+  slackWebhookUrl?: string;
+  enableDiscord?: boolean;
+  enableSlack?: boolean;
+  collections?: string[];
+  events?: Array<'create' | 'update' | 'delete'>;
+  collectionName?: string;
+  authPolicy?: 'admin' | 'adminOrInitial' | 'user' | 'public';
+  fetch?: typeof fetch;
+  dryRun?: boolean;
+}
+
+export type WebhookPluginOptions = ChatNotificationsPluginOptions;
+
+export interface ChatNotificationResult {
+  id: string;
+  platform: 'discord' | 'slack';
+  payload: any;
+  status: 'dispatched' | 'failed';
+  statusCode?: number;
+  error?: string;
+  timestamp: string;
+}
+
+export type WebhookDispatchResult = ChatNotificationResult;
+
+export declare class ChatNotificationService {
+  readonly options: ChatNotificationsPluginOptions;
+  dispatched: Array<ChatNotificationResult>;
+  constructor(options?: ChatNotificationsPluginOptions);
+  getWebhookUrl(platform: 'discord' | 'slack'): string | undefined;
+  formatPayload(platform: 'discord' | 'slack', payload: any): Record<string, any>;
+  dispatch(platform: 'discord' | 'slack', payload: any, customUrl?: string): Promise<ChatNotificationResult>;
+}
+
+export declare const WebhookNotificationService: typeof ChatNotificationService;
+export type WebhookNotificationService = ChatNotificationService;
+
+export declare function chatNotificationsPlugin(options?: ChatNotificationsPluginOptions): INodeStackPlugin;
+export declare const chatPlugin: typeof chatNotificationsPlugin;
+export declare const webhookPlugin: typeof chatNotificationsPlugin;
+`,
+  },
+  {
     name: 'webhooks',
     pkgDir: 'packages/plugins/webhooks',
     sourceFile: 'src/plugins/webhooks.ts',

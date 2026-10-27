@@ -1,0 +1,47 @@
+{
+  "name": "@nodestackapp/plugin-chat-notifications",
+  "version": "2.0.0",
+  "description": "Official Discord & Slack realtime database mutation chat notifications plugin for NodeStack",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@nodestackapp/server": ">=2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@nodestackapp/server": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/satya-jugran/nodestack.git",
+    "directory": "packages/plugins/chat-notifications"
+  },
+  "keywords": [
+    "nodestack",
+    "plugin",
+    "chat-notifications",
+    "discord",
+    "slack",
+    "realtime",
+    "notifications",
+    "webhooks"
+  ],
+  "author": "",
+  "license": "MIT"
+}

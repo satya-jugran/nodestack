@@ -233,7 +233,7 @@ function renderCollectionsList() {
 }
 
 // Select Collection
-async function selectCollection(name) {
+async function selectCollection(name, pushState = true) {
   state.activeNav = 'collection';
   const allCols = Array.isArray(state.collections)
     ? state.collections
@@ -275,15 +275,29 @@ async function selectCollection(name) {
   } else {
     renderSchemaView();
   }
+
+  if (pushState) {
+    const sub = (state.collectionTab === 'schema') ? '/schema' : '';
+    if (typeof updateUrl === 'function') {
+      updateUrl('/_/collections/' + encodeURIComponent(name) + sub);
+    }
+  }
 }
 
 // Collection Tabs
-function switchCollectionTab(tab) {
+function switchCollectionTab(tab, pushState = true) {
   state.collectionTab = tab;
   document.getElementById('tab-records').className = tab === 'records' ? 'tab-btn active' : 'tab-btn';
   document.getElementById('tab-schema').className = tab === 'schema' ? 'tab-btn active' : 'tab-btn';
 
   updateBreadcrumbs();
+
+  if (pushState && state.activeCollection) {
+    const sub = (tab === 'schema') ? '/schema' : '';
+    if (typeof updateUrl === 'function') {
+      updateUrl('/_/collections/' + encodeURIComponent(state.activeCollection.name) + sub);
+    }
+  }
 
   if (tab === 'records') {
     renderRecordsView();
@@ -342,6 +356,13 @@ function updateBreadcrumbs() {
       crumbs.push({ label: 'Delivery Logs', active: true });
     } else {
       crumbs.push({ label: 'Webhooks', active: true });
+    }
+  } else if (state.activeNav === 'functions') {
+    if (typeof functionsState !== 'undefined' && functionsState.subTab === 'logs') {
+      crumbs.push({ label: 'Functions', clickable: true, action: () => { if (typeof switchFunctionsTab === 'function') switchFunctionsTab('functions'); } });
+      crumbs.push({ label: 'Execution Logs', active: true });
+    } else {
+      crumbs.push({ label: 'Functions', active: true });
     }
   } else if (state.activeNav === 'home') {
     crumbs.push({ label: 'Overview', active: true });

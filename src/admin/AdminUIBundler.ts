@@ -53,6 +53,7 @@ export class AdminUIBundler {
         'plugin-tester.js',
         'command-palette.js',
         'webhooks.js',
+        'functions.js',
         'app.js',
       ];
 

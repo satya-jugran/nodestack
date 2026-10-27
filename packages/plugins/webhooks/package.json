@@ -1,7 +1,8 @@
 {
   "name": "@nodestackapp/plugin-webhooks",
-  "version": "2.0.0",
-  "description": "Official Discord & Slack realtime mutation webhooks plugin for NodeStack",
+  "version": "2.0.1",
+  "deprecated": "This package has been renamed to @nodestackapp/plugin-chat-notifications to avoid route collision with NodeStack's core Webhook engine. Please migrate.",
+  "description": "[DEPRECATED - Use @nodestackapp/plugin-chat-notifications] Official Discord & Slack realtime mutation webhooks plugin for NodeStack",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -39,7 +40,8 @@
     "discord",
     "slack",
     "realtime",
-    "notifications"
+    "notifications",
+    "deprecated"
   ],
   "author": "",
   "license": "MIT"

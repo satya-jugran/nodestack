@@ -43,6 +43,8 @@ import { AuditLogService } from './audit/AuditLogService';
 import { AuditLogController } from './http/controllers/AuditLogController';
 import { WebhookService } from './webhooks/WebhookService';
 import { WebhookController } from './http/controllers/WebhookController';
+import { FunctionService } from './functions/FunctionService';
+import { FunctionController } from './http/controllers/FunctionController';
 import { AppRegistry } from './apps/AppRegistry';
 import { AppManager, DatabaseDriverFactory } from './apps/AppManager';
 import { AppScope } from './apps/AppScope';
@@ -99,6 +101,8 @@ export class NodeStack {
   public readonly auditLogs: AuditLogService;
   public readonly fts: FtsService;
   public readonly webhooks: WebhookService;
+  public readonly functions: FunctionService;
+  public readonly functionController: FunctionController;
   public readonly registry: AppRegistry;
   public readonly apps: AppManager;
   public readonly defaultApp: AppScope;
@@ -245,6 +249,13 @@ export class NodeStack {
     const webhookCtrl = new WebhookController(this.webhooks);
     this.container.bindInstance(TOKENS.WebhookController, webhookCtrl);
 
+    // 17.7 Serverless Functions ("NodeStack Functions")
+    this.functions = this.defaultApp.functions;
+    this.container.bindInstance(TOKENS.FunctionService, this.functions);
+
+    this.functionController = new FunctionController(this.functions);
+    this.container.bindInstance(TOKENS.FunctionController, this.functionController);
+
     // 17.8 Multi-App Management & Resolution
     this.appController = new AppController(this.apps);
     this.appResolution = new AppResolutionMiddleware(this.apps);
@@ -274,7 +285,8 @@ export class NodeStack {
       webhookCtrl,
       this.appController,
       this.appResolution,
-      this.apiKeyController
+      this.apiKeyController,
+      this.functionController
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
 

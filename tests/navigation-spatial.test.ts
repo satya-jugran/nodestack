@@ -198,7 +198,7 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(adminColItem?.textContent).toContain('_admins');
     });
 
-    it('should have primary sidebar navigation items in order: Overview, Analytics, Collections, Webhooks, Plugins, Snapshots, Audit Logs', () => {
+    it('should have primary sidebar navigation items in order: Overview, Analytics, Collections, Webhooks, Functions, Plugins, Snapshots, Audit Logs', () => {
       const { doc } = createTestDOM();
 
       const topNav = doc.querySelector('.sidebar > div[style*="flex-direction: column"]') as HTMLElement;
@@ -212,6 +212,7 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
         { id: 'nav-analytics', label: 'Analytics' },
         { id: 'nav-collections', label: 'Collections' },
         { id: 'nav-webhooks', label: 'Webhooks' },
+        { id: 'nav-functions', label: 'Functions' },
         { id: 'nav-plugins', label: 'Plugins' },
         { id: 'nav-snapshots', label: 'Snapshots' },
         { id: 'nav-logs', label: 'Audit Logs' },
@@ -586,17 +587,18 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
   });
 
   describe('Overview Page Hub & Vitals', () => {
-    it('should render 6 KPI vital cards including Webhooks and Plugins and exclude Quick Access Collections table', () => {
+    it('should render 7 KPI vital cards including Webhooks, Plugins, and Functions and exclude Quick Access Collections table', () => {
       const { win, doc } = createTestDOM({ activeNav: 'home' });
       win.renderHomeView();
 
-      // Verify 6 KPI vitals are present
+      // Verify 7 KPI vitals are present
       expect(doc.getElementById('home-stat-collections')).not.toBeNull();
       expect(doc.getElementById('home-stat-records')).not.toBeNull();
       expect(doc.getElementById('home-stat-size')).not.toBeNull();
       expect(doc.getElementById('home-stat-realtime')).not.toBeNull();
       expect(doc.getElementById('home-stat-webhooks')).not.toBeNull();
       expect(doc.getElementById('home-stat-plugins')).not.toBeNull();
+      expect(doc.getElementById('home-stat-functions')).not.toBeNull();
 
       // Verify arbitrary Quick Access Collections table is NOT present
       expect(doc.body.innerHTML).not.toContain('Quick Access Collections');
@@ -608,4 +610,149 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(homeTools?.textContent).toContain('New Collection');
     });
   });
+  describe('HTML5 History API Routing, Deep Linking & History Navigation', () => {
+    it('should update browser URL pathname when navigating via selectNav', async () => {
+      const { win } = createTestDOM();
+
+      await win.selectNav('collections');
+      expect(win.location.pathname).toBe('/_/collections');
+
+      await win.selectNav('functions');
+      expect(win.location.pathname).toBe('/_/functions');
+
+      await win.selectNav('webhooks');
+      expect(win.location.pathname).toBe('/_/webhooks');
+
+      await win.selectNav('analytics');
+      expect(win.location.pathname).toBe('/_/analytics');
+
+      await win.selectNav('snapshots');
+      expect(win.location.pathname).toBe('/_/snapshots');
+
+      await win.selectNav('logs');
+      expect(win.location.pathname).toBe('/_/logs');
+
+      await win.selectNav('home');
+      expect(win.location.pathname).toBe('/_/');
+    });
+
+    it('should update browser URL when selecting a collection and switching tabs', async () => {
+      const { win } = createTestDOM();
+
+      await win.selectCollection('products');
+      expect(win.location.pathname).toBe('/_/collections/products');
+
+      win.switchCollectionTab('schema');
+      expect(win.location.pathname).toBe('/_/collections/products/schema');
+
+      win.switchCollectionTab('records');
+      expect(win.location.pathname).toBe('/_/collections/products');
+    });
+
+    it('should update browser URL when switching functions and webhooks subtabs', async () => {
+      const { win } = createTestDOM();
+
+      await win.selectNav('functions');
+      expect(win.location.pathname).toBe('/_/functions');
+
+      win.switchFunctionsTab('logs');
+      expect(win.location.pathname).toBe('/_/functions/logs');
+
+      win.switchFunctionsTab('functions');
+      expect(win.location.pathname).toBe('/_/functions');
+
+      await win.selectNav('webhooks');
+      expect(win.location.pathname).toBe('/_/webhooks');
+
+      win.switchWebhooksTab('deliveries');
+      expect(win.location.pathname).toBe('/_/webhooks/deliveries');
+
+      win.switchWebhooksTab('webhooks');
+      expect(win.location.pathname).toBe('/_/webhooks');
+    });
+
+    it('should parse deep-link URLs on startup via parseUrlAndNavigate and restore matching view', async () => {
+      const { win } = createTestDOM();
+
+      // Deep link to functions execution logs
+      win.history.pushState(null, '', '/_/functions/logs');
+      await win.parseUrlAndNavigate(true);
+      expect(win.state.activeNav).toBe('functions');
+      expect(win.functionsState.subTab).toBe('logs');
+
+      // Deep link to collection schema tab
+      win.history.pushState(null, '', '/_/collections/orders/schema');
+      await win.parseUrlAndNavigate(true);
+      expect(win.state.activeNav).toBe('collection');
+      expect(win.state.activeCollection?.name).toBe('orders');
+      expect(win.state.collectionTab).toBe('schema');
+
+      // Deep link to webhooks deliveries
+      win.history.pushState(null, '', '/_/webhooks/deliveries');
+      await win.parseUrlAndNavigate(true);
+      expect(win.state.activeNav).toBe('webhooks');
+      expect(win.webhooksState.subTab).toBe('deliveries');
+
+      // Deep link to root /_/
+      win.history.pushState(null, '', '/_/');
+      await win.parseUrlAndNavigate(true);
+      expect(win.state.activeNav).toBe('home');
+      expect(win.state.activeCollection).toBeNull();
+    });
+
+    it('should handle browser popstate back/forward navigation and restore views', async () => {
+      const { win } = createTestDOM();
+
+      // Start at home
+      await win.selectNav('home');
+      expect(win.location.pathname).toBe('/_/');
+
+      // Navigate to analytics
+      await win.selectNav('analytics');
+      expect(win.location.pathname).toBe('/_/analytics');
+
+      // Navigate to snapshots
+      await win.selectNav('snapshots');
+      expect(win.location.pathname).toBe('/_/snapshots');
+
+      // Simulate browser Back button (async in JSDOM)
+      win.history.back();
+      await new Promise(r => setTimeout(r, 25));
+      expect(win.location.pathname).toBe('/_/analytics');
+      expect(win.state.activeNav).toBe('analytics');
+
+      // Simulate browser Back button again
+      win.history.back();
+      await new Promise(r => setTimeout(r, 25));
+      expect(win.location.pathname).toBe('/_/');
+      expect(win.state.activeNav).toBe('home');
+
+      // Simulate browser Forward button
+      win.history.forward();
+      await new Promise(r => setTimeout(r, 25));
+      expect(win.location.pathname).toBe('/_/analytics');
+      expect(win.state.activeNav).toBe('analytics');
+    });
+
+    it('should preserve multi-app query parameter ?app=:slug across URL changes', async () => {
+      const { win } = createTestDOM();
+
+      // Configure active non-default app
+      win.state.activeApp = { id: 'app_store', slug: 'store', name: 'Store App' };
+      win.history.replaceState(null, '', '/_/?app=store');
+
+      await win.selectNav('functions');
+      expect(win.location.pathname).toBe('/_/functions');
+      expect(win.location.search).toBe('?app=store');
+
+      await win.selectCollection('products');
+      expect(win.location.pathname).toBe('/_/collections/products');
+      expect(win.location.search).toBe('?app=store');
+
+      win.switchCollectionTab('schema');
+      expect(win.location.pathname).toBe('/_/collections/products/schema');
+      expect(win.location.search).toBe('?app=store');
+    });
+  });
+
 });

@@ -1,7 +1,144 @@
 // Application Navigation & Lifecycle
 
+// URL Routing, Deep Linking & History API
+
+function getAppQueryParam() {
+  if (typeof window === 'undefined' || !window.location) return '';
+  const searchParams = new URLSearchParams(window.location.search);
+  const activeSlug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : '';
+  if (activeSlug && activeSlug !== 'default') {
+    searchParams.set('app', activeSlug);
+  } else if (searchParams.get('app') === 'default') {
+    searchParams.delete('app');
+  }
+  const q = searchParams.toString();
+  return q ? `?${q}` : '';
+}
+
+function updateUrl(targetPath, replace = false) {
+  if (typeof window === 'undefined' || !window.history || !window.location) return;
+  const targetUrl = targetPath + getAppQueryParam();
+  const currentUrl = window.location.pathname + window.location.search;
+  if (currentUrl === targetUrl) return;
+
+  if (replace) {
+    window.history.replaceState({ path: targetPath }, '', targetUrl);
+  } else {
+    window.history.pushState({ path: targetPath }, '', targetUrl);
+  }
+}
+
+async function parseUrlAndNavigate(initial = false) {
+  if (typeof window === 'undefined' || !window.location) return;
+
+  const pathname = window.location.pathname || '/';
+
+  // Normalise route:
+  // e.g. '/_/' -> ''
+  // '/_/collections' -> 'collections'
+  // '/_/collections/users/schema' -> 'collections/users/schema'
+  let route = pathname;
+  if (route.startsWith('/_')) {
+    route = route.slice(2);
+  }
+  if (route.startsWith('/')) {
+    route = route.slice(1);
+  }
+  if (route.endsWith('/')) {
+    route = route.slice(0, -1);
+  }
+
+  const parts = route ? route.split('/').map(p => decodeURIComponent(p)) : [];
+
+  if (parts.length === 0 || parts[0] === 'home') {
+    await selectNav('home', false);
+    return;
+  }
+
+  const root = parts[0];
+
+  if (root === 'collections') {
+    if (parts.length === 1) {
+      await selectNav('collections', false);
+    } else {
+      const colName = parts[1];
+      const tab = (parts[2] === 'schema') ? 'schema' : 'records';
+      const allCols = Array.isArray(state.collections)
+        ? state.collections
+        : (state.collections && Array.isArray(state.collections.items) ? state.collections.items : []);
+      const colExists = allCols.some(c => c.name === colName);
+      if (colExists) {
+        state.collectionTab = tab;
+        await selectCollection(colName, false);
+        if (tab === 'schema') {
+          switchCollectionTab('schema', false);
+        } else {
+          switchCollectionTab('records', false);
+        }
+      } else {
+        await selectNav('collections', false);
+      }
+    }
+  } else if (root === 'functions') {
+    await selectNav('functions', false);
+    if (parts[1] === 'logs') {
+      if (typeof switchFunctionsTab === 'function') switchFunctionsTab('logs', false);
+    } else {
+      if (typeof switchFunctionsTab === 'function') switchFunctionsTab('functions', false);
+    }
+  } else if (root === 'webhooks') {
+    await selectNav('webhooks', false);
+    if (parts[1] === 'deliveries') {
+      if (typeof switchWebhooksTab === 'function') switchWebhooksTab('deliveries', false);
+    } else {
+      if (typeof switchWebhooksTab === 'function') switchWebhooksTab('webhooks', false);
+    }
+  } else if (root === 'plugins') {
+    if (parts.length >= 2 && state.pluginNavItems && state.pluginNavItems.some(p => p.id === parts[1])) {
+      await selectNav(parts[1], false);
+    } else {
+      await selectNav('plugins', false);
+    }
+  } else if (root === 'analytics') {
+    await selectNav('analytics', false);
+  } else if (root === 'snapshots') {
+    await selectNav('snapshots', false);
+  } else if (root === 'logs') {
+    await selectNav('logs', false);
+    if (parts[1] === 'audit') {
+      if (typeof switchLogsSubTab === 'function') switchLogsSubTab('audit', false);
+    } else {
+      if (typeof switchLogsSubTab === 'function') switchLogsSubTab('traffic', false);
+    }
+  } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === root)) {
+    await selectNav(root, false);
+  } else {
+    await selectNav('home', false);
+  }
+}
+
+let isRouterInitialized = false;
+
+function initRouter() {
+  if (typeof window === 'undefined' || isRouterInitialized) return;
+  isRouterInitialized = true;
+
+  window.addEventListener('popstate', async () => {
+    // Gracefully dismiss open modals, drawers, or command palette on Back/Forward navigation
+    if (typeof closeModal === 'function') closeModal();
+    if (typeof closeRecordDrawer === 'function') closeRecordDrawer();
+    if (typeof closeWebhookModal === 'function') closeWebhookModal();
+    if (typeof closeWebhookDrawer === 'function') closeWebhookDrawer();
+    if (typeof closeFunctionModal === 'function') closeFunctionModal();
+    if (typeof closeCommandPalette === 'function') closeCommandPalette();
+
+    await parseUrlAndNavigate(false);
+  });
+}
+
+
 function showPageView(viewName) {
-  const views = ['home', 'collections', 'plugins', 'webhooks', 'analytics', 'snapshots', 'logs'];
+  const views = ['home', 'collections', 'plugins', 'webhooks', 'functions', 'analytics', 'snapshots', 'logs'];
   for (const v of views) {
     const el = document.getElementById('page-view-' + v);
     if (el) {
@@ -15,7 +152,7 @@ function showPageView(viewName) {
 }
 
 function clearSidebarNavActive() {
-  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-analytics', 'nav-snapshots', 'nav-logs'];
+  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-functions', 'nav-analytics', 'nav-snapshots', 'nav-logs'];
   for (const id of navIds) {
     document.getElementById(id)?.classList.remove('active');
   }
@@ -27,7 +164,7 @@ function clearSidebarNavActive() {
   document.querySelectorAll('.sidebar-nav-item.active').forEach(el => el.classList.remove('active'));
 }
 
-async function selectNav(nav) {
+async function selectNav(nav, pushState = true) {
   state.activeNav = nav;
 
   if (typeof stopAnalyticsAutoRefresh === 'function') {
@@ -95,6 +232,17 @@ async function selectNav(nav) {
     document.getElementById('view-title').style.display = 'none';
     document.getElementById('view-actions').innerHTML = '';
     if (typeof renderWebhooksView === 'function') renderWebhooksView();
+  } else if (nav === 'functions') {
+    state.activeCollection = null;
+    if (typeof renderCollectionsList === 'function') renderCollectionsList();
+    showPageView('functions');
+    document.getElementById('collection-tabs').style.display = 'none';
+    document.getElementById('view-badge').style.display = 'none';
+    document.getElementById('nav-functions')?.classList.add('active');
+    document.getElementById('view-title').textContent = 'Functions';
+    document.getElementById('view-title').style.display = 'none';
+    document.getElementById('view-actions').innerHTML = '';
+    if (typeof renderFunctionsView === 'function') renderFunctionsView();
   } else if (nav === 'analytics') {
     state.activeCollection = null;
     if (typeof renderCollectionsList === 'function') renderCollectionsList();
@@ -148,8 +296,32 @@ async function selectNav(nav) {
     const pluginItem = state.pluginNavItems.find(p => p.id === nav || (nav === 'resend' && p.id === 'resend-email'));
     if (typeof renderPluginView === 'function') renderPluginView(pluginItem);
   }
-
   if (typeof updateBreadcrumbs === 'function') updateBreadcrumbs();
+
+  if (pushState) {
+    if (nav === 'home') {
+      updateUrl('/_/');
+    } else if (nav === 'collections') {
+      updateUrl('/_/collections');
+    } else if (nav === 'webhooks') {
+      const sub = (typeof webhooksState !== 'undefined' && webhooksState.subTab === 'deliveries') ? '/deliveries' : '';
+      updateUrl('/_/webhooks' + sub);
+    } else if (nav === 'functions') {
+      const sub = (typeof functionsState !== 'undefined' && functionsState.subTab === 'logs') ? '/logs' : '';
+      updateUrl('/_/functions' + sub);
+    } else if (nav === 'analytics') {
+      updateUrl('/_/analytics');
+    } else if (nav === 'snapshots') {
+      updateUrl('/_/snapshots');
+    } else if (nav === 'logs') {
+      const sub = (typeof auditState !== 'undefined' && auditState.subTab === 'audit') ? '/audit' : '';
+      updateUrl('/_/logs' + sub);
+    } else if (nav === 'plugins') {
+      updateUrl('/_/plugins');
+    } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === nav || (nav === 'resend' && p.id === 'resend-email'))) {
+      updateUrl('/_/plugins/' + encodeURIComponent(nav));
+    }
+  }
 }
 
 // Close dropdown menu when clicking outside
@@ -215,6 +387,10 @@ if (typeof window !== 'undefined') {
   window.showPageView = showPageView;
   window.clearSidebarNavActive = clearSidebarNavActive;
   window.selectNav = selectNav;
+  window.getAppQueryParam = getAppQueryParam;
+  window.updateUrl = updateUrl;
+  window.parseUrlAndNavigate = parseUrlAndNavigate;
+  window.initRouter = initRouter;
 
   // Mirror modular exports to window if present
   if (typeof selectCollection !== 'undefined') window.selectCollection = selectCollection;
@@ -248,6 +424,10 @@ if (typeof window !== 'undefined') {
   if (typeof runWebhookDispatchTest !== 'undefined') window.runWebhookDispatchTest = runWebhookDispatchTest;
   if (typeof runAlgoliaReindexTest !== 'undefined') window.runAlgoliaReindexTest = runAlgoliaReindexTest;
   if (typeof runAlgoliaProcessQueueTest !== 'undefined') window.runAlgoliaProcessQueueTest = runAlgoliaProcessQueueTest;
+}
+
+if (typeof window !== 'undefined') {
+  initRouter();
 }
 
 // Run on startup

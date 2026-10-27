@@ -140,9 +140,9 @@ function openPluginTesterDrawer(pluginId) {
         </button>
       </div>
     `;
-  } else if (cleanId === 'webhooks') {
+  } else if (cleanId === 'chat-notifications' || cleanId === 'webhooks') {
     formHtml = `
-      <div class="drawer-section-title">1. Dispatch Test Webhook</div>
+      <div class="drawer-section-title">1. Dispatch Test Chat Notification</div>
       <div class="drawer-card">
         <div>
           <label style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Target Platform</label>
@@ -155,8 +155,8 @@ function openPluginTesterDrawer(pluginId) {
           <label style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Notification Message</label>
           <input type="text" id="test-webhook-message" class="form-control" value="NodeStack database mutation event" style="margin-top: 3px; font-size: 12px; padding: 6px 8px;" />
         </div>
-        <button class="btn btn-primary btn-sm" onclick="runWebhookDispatchTest()" style="margin-top: 4px;">
-          Dispatch Outbound Webhook
+        <button class="btn btn-primary btn-sm" onclick="runChatNotificationTest()" style="margin-top: 4px;">
+          Dispatch Chat Notification
         </button>
       </div>
     `;
@@ -223,7 +223,7 @@ function openPluginTesterDrawer(pluginId) {
   }
 
   const activePluginNavItem = (state.pluginNavItems || []).find(
-    p => p.id === cleanId || (cleanId === 's3' && p.id === 's3-storage') || (cleanId === 'resend' && p.id === 'resend-email')
+    p => p.id === cleanId || (cleanId === 's3' && p.id === 's3-storage') || (cleanId === 'resend' && p.id === 'resend-email') || (cleanId === 'webhooks' && p.id === 'chat-notifications') || (cleanId === 'chat-notifications' && p.id === 'webhooks')
   );
   const isUnconfigured = activePluginNavItem && (activePluginNavItem.badge === 'UNCONFIGURED' || activePluginNavItem.badgeVariant === 'warning');
   const statusBadgeHtml = isUnconfigured
@@ -487,10 +487,11 @@ function runResendSendTest() {
   }));
 }
 
-function runWebhookDispatchTest() {
+function runChatNotificationTest() {
   const platform = document.getElementById('test-webhook-platform')?.value || 'discord';
-  const message = document.getElementById('test-webhook-message')?.value || 'Test webhook message';
-  return executePluginTest(() => api('/api/webhooks/test', {
+  const message = document.getElementById('test-webhook-message')?.value || 'Test chat notification from NodeStack';
+  const endpoint = '/api/chat-notifications/test';
+  return executePluginTest(() => api(endpoint, {
     method: 'POST',
     body: JSON.stringify({
       platform,
@@ -499,6 +500,7 @@ function runWebhookDispatchTest() {
     skipAuthRedirect: true,
   }));
 }
+const runWebhookDispatchTest = runChatNotificationTest;
 
 function runAlgoliaReindexTest() {
   const collection = document.getElementById('test-algolia-col')?.value;
@@ -552,6 +554,7 @@ if (typeof window !== 'undefined') {
   window.runS3StatusTest = runS3StatusTest;
   window.runResendSendTest = runResendSendTest;
   window.runWebhookDispatchTest = runWebhookDispatchTest;
+  window.runChatNotificationTest = runChatNotificationTest;
   window.runAlgoliaReindexTest = runAlgoliaReindexTest;
   window.runAlgoliaProcessQueueTest = runAlgoliaProcessQueueTest;
   window.copyPluginTesterOutput = copyPluginTesterOutput;

@@ -98,6 +98,15 @@ export {
   WebhookStatsResult,
 } from './webhooks/WebhookService';
 
+// Functions & Sandboxed Runtimes
+export { FunctionService, FunctionServiceOptions } from './functions/FunctionService';
+export { SandboxedRunner } from './functions/runtime/SandboxedRunner';
+export { IFunctionRuntime, RuntimeExecutionOptions } from './functions/runtime/IFunctionRuntime';
+export { QuickJsWasmRuntime } from './functions/runtime/QuickJsWasmRuntime';
+export { SsrfGuard, SsrfGuardError } from './functions/security/SsrfGuard';
+export { FunctionController } from './http/controllers/FunctionController';
+export * from './functions/types';
+
 // Analytics & Metrics
 export {
   AnalyticsService,

@@ -16,6 +16,13 @@
         ? state.pluginNavItems.length
         : '--';
 
+      // Functions initial count
+      const functionsInitial = (typeof functionsState !== 'undefined' && functionsState.stats?.totalFunctions !== undefined)
+        ? functionsState.stats.totalFunctions
+        : (typeof functionsState !== 'undefined' && Array.isArray(functionsState.functions))
+          ? functionsState.functions.length
+          : '--';
+
       main.innerHTML = `
         <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
           
@@ -49,9 +56,9 @@
             </div>
           </div>
 
-          <!-- Zone 1 (Vitals Strip): High-Density 6-KPI Row + Integrated Telemetry Bar -->
+          <!-- Zone 1 (Vitals Strip): High-Density 7-KPI Row + Integrated Telemetry Bar -->
           <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden;">
-            <!-- Top: 6 Horizontal KPI Metrics (Responsive auto-fitting row) -->
+            <!-- Top: 7 Horizontal KPI Metrics (Responsive auto-fitting row) -->
             <div class="home-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 0.75rem; padding: 0.85rem 1.15rem;">
               <!-- KPI 1: Collections -->
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('collections')" title="Click to view all collections directory">
@@ -120,6 +127,19 @@
                 </div>
                 <div style="font-size: 22px; font-weight: 800; color: var(--accent-primary);" id="home-stat-plugins">${pluginsInitial}</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-plugins-sub">Active extensions</div>
+              </div>
+
+              <!-- KPI 7: Functions -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('functions')" title="Click to view serverless functions and execution logs">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 13px;">⚡</span>
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Functions</span>
+                  </div>
+                  <span style="font-size: 11px; color: #38bdf8; font-weight: 600;">View ➔</span>
+                </div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--accent-primary);" id="home-stat-functions">${functionsInitial}</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-functions-sub">Serverless lambda logic</div>
               </div>
             </div>
 
@@ -308,6 +328,26 @@
           plugSubEl.textContent = `${navItems.length} active / ${catalog.length || 5} available`;
         }
       }).catch(() => {});
+
+      // Asynchronously load function vitals
+      const fnSlug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+      const fnEndpoint = fnSlug && fnSlug !== 'default' ? `/api/apps/${fnSlug}/functions/stats` : '/api/functions/stats';
+      api(fnEndpoint).then((stats) => {
+        if (!stats) return;
+        if (typeof functionsState !== 'undefined') {
+          functionsState.stats = stats;
+        }
+        const fnEl = document.getElementById('home-stat-functions');
+        const fnSubEl = document.getElementById('home-stat-functions-sub');
+        if (fnEl) {
+          fnEl.textContent = (stats.totalFunctions !== undefined ? stats.totalFunctions : (stats.activeFunctions || 0)).toString();
+        }
+        if (fnSubEl) {
+          const active = stats.activeFunctions || 0;
+          const execs = stats.totalExecutions || 0;
+          fnSubEl.textContent = `${active} active${execs > 0 ? ` • ${execs} runs` : ' • 0 runs'}`;
+        }
+      }).catch(() => {});
     }
 
     let auditState = {
@@ -333,9 +373,10 @@
     }
     if (typeof window !== 'undefined') {
       window.loadLogsSubTab = loadLogsSubTab;
+      window.switchLogsSubTab = switchLogsSubTab;
     }
 
-    function switchLogsSubTab(subTab) {
+    function switchLogsSubTab(subTab, pushState = true) {
       auditState.subTab = subTab;
       renderLogsView();
       loadLogsSubTab();

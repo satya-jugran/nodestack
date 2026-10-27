@@ -19,6 +19,7 @@ import { DemoController } from './controllers/DemoController';
 import { SnapshotController } from './controllers/SnapshotController';
 import { AuditLogController } from './controllers/AuditLogController';
 import { WebhookController } from './controllers/WebhookController';
+import { FunctionController } from './controllers/FunctionController';
 import { AppController } from './controllers/AppController';
 import { AppResolutionMiddleware } from './middleware/AppResolutionMiddleware';
 import { ApiKeyController } from './controllers/ApiKeyController';
@@ -33,11 +34,16 @@ export class HttpServer {
   public readonly chaosMiddleware: ChaosMiddleware;
   public readonly maintenanceGate?: MaintenanceGate;
   private apiKeyController?: ApiKeyController;
+  private functionController?: FunctionController;
   private dynamicRouteHandler?: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>;
   private dynamicRouteMatcher?: (method: string, path: string) => any;
 
   public setApiKeyController(controller: ApiKeyController): void {
     this.apiKeyController = controller;
+  }
+
+  public setFunctionController(controller: FunctionController): void {
+    this.functionController = controller;
   }
 
   public setDynamicRouteHandler(handler: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>): void {
@@ -72,11 +78,15 @@ export class HttpServer {
     private webhookController?: WebhookController,
     private appController?: AppController,
     private appResolutionMiddleware?: AppResolutionMiddleware,
-    apiKeyController?: ApiKeyController
+    apiKeyController?: ApiKeyController,
+    functionController?: FunctionController
   ) {
     this.maintenanceGate = maintenanceGate;
     if (apiKeyController) {
       this.apiKeyController = apiKeyController;
+    }
+    if (functionController) {
+      this.functionController = functionController;
     }
 
     let analyticsController: AnalyticsController | undefined;
@@ -505,6 +515,43 @@ export class HttpServer {
       );
     }
 
+    if (this.functionController) {
+      const requireAdmin = this.authMiddleware.requireAdmin();
+      app.get('/api/apps/:appId/functions', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.getFunctions(req, reply)
+      );
+      app.post('/api/apps/:appId/functions', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.createFunction(req, reply)
+      );
+      app.get('/api/apps/:appId/functions/stats', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.getStats(req, reply)
+      );
+      app.get('/api/apps/:appId/functions/logs', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.getLogs(req, reply)
+      );
+      app.delete('/api/apps/:appId/functions/logs', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.clearLogs(req, reply)
+      );
+      app.get('/api/apps/:appId/functions/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.getFunction(req, reply)
+      );
+      app.patch('/api/apps/:appId/functions/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.updateFunction(req, reply)
+      );
+      app.delete('/api/apps/:appId/functions/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.deleteFunction(req, reply)
+      );
+      app.post('/api/apps/:appId/functions/:id/test', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.testFunction(req, reply)
+      );
+      app.get('/api/apps/:appId/functions/:id/logs', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.getLogs(req, reply)
+      );
+      app.all('/api/apps/:appId/functions/:name/invoke', (req: any, reply) =>
+        this.functionController!.invoke(req, reply)
+      );
+    }
+
     app.get('/api/apps/:appId/realtime', (req, reply) => this.realtimeController.connect(req, reply));
     app.post('/api/apps/:appId/realtime', (req, reply) => this.realtimeController.setSubscriptions(req, reply));
 
@@ -783,6 +830,45 @@ export class HttpServer {
         this.webhookController!.testWebhook(req, reply)
       );
     }
+
+    // 7.7 Serverless Functions ("NodeStack Functions")
+    if (this.functionController) {
+      const requireAdmin = this.authMiddleware.requireAdmin();
+      app.get('/api/functions', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.getFunctions(req, reply)
+      );
+      app.post('/api/functions', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.createFunction(req, reply)
+      );
+      app.get('/api/functions/stats', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.getStats(req, reply)
+      );
+      app.get('/api/functions/logs', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.getLogs(req, reply)
+      );
+      app.delete('/api/functions/logs', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.clearLogs(req, reply)
+      );
+      app.get('/api/functions/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.getFunction(req, reply)
+      );
+      app.patch('/api/functions/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.updateFunction(req, reply)
+      );
+      app.delete('/api/functions/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.deleteFunction(req, reply)
+      );
+      app.post('/api/functions/:id/test', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.testFunction(req, reply)
+      );
+      app.get('/api/functions/:id/logs', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.functionController!.getLogs(req, reply)
+      );
+      app.all('/api/functions/:name/invoke', (req: any, reply) =>
+        this.functionController!.invoke(req, reply)
+      );
+    }
+
 
     // 8. Analytics & Metrics (Admin only)
     if (this.analyticsController) {

@@ -130,6 +130,9 @@
         if (typeof loadWebhookStats === 'function') {
           loadWebhookStats();
         }
+        if (typeof loadFunctionStats === 'function') {
+          loadFunctionStats();
+        }
         loadCollections().then(() => {
           if (state.activeCollection) {
             if (state.collectionTab === 'records') loadRecords();
@@ -206,19 +209,35 @@
       if (typeof loadWebhookStats === 'function') {
         loadWebhookStats();
       }
-      fetch('/api/plugins').then(r => r.ok ? r.json() : null).then(data => {
-        if (data) {
-          if (data.navItems) {
-            state.pluginNavItems = data.navItems;
-            if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
-          }
-          if (data.catalog) {
-            state.pluginCatalog = data.catalog;
+      if (typeof loadFunctionStats === 'function') {
+        loadFunctionStats();
+      }
+      try {
+        const pRes = await fetch('/api/plugins');
+        if (pRes.ok) {
+          const data = await pRes.json();
+          if (data) {
+            if (data.navItems) {
+              state.pluginNavItems = data.navItems;
+              if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
+            }
+            if (data.catalog) {
+              state.pluginCatalog = data.catalog;
+            }
           }
         }
-      }).catch(() => {});
+      } catch (_) {}
       initRealtime();
-      selectNav('home');
+      if (typeof initRouter === 'function') {
+        initRouter();
+      }
+      if (typeof parseUrlAndNavigate === 'function') {
+        await parseUrlAndNavigate(true);
+      } else if (typeof window !== 'undefined' && typeof window.parseUrlAndNavigate === 'function') {
+        await window.parseUrlAndNavigate(true);
+      } else {
+        selectNav('home');
+      }
     }
 
 
@@ -280,7 +299,13 @@
         if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
         if (typeof loadWebhookStats === 'function') loadWebhookStats();
         initRealtime();
-        selectNav('home');
+        if (typeof parseUrlAndNavigate === 'function') {
+          await parseUrlAndNavigate(false);
+        } else if (typeof window !== 'undefined' && typeof window.parseUrlAndNavigate === 'function') {
+          await window.parseUrlAndNavigate(false);
+        } else {
+          selectNav('home');
+        }
         toast('Logged in successfully', 'success');
       } catch (e) {
         toast(e.message, 'error');
@@ -345,6 +370,13 @@
         if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
         if (typeof loadWebhookStats === 'function') loadWebhookStats();
         initRealtime();
+        if (typeof parseUrlAndNavigate === 'function') {
+          await parseUrlAndNavigate(false);
+        } else if (typeof window !== 'undefined' && typeof window.parseUrlAndNavigate === 'function') {
+          await window.parseUrlAndNavigate(false);
+        } else {
+          selectNav('home');
+        }
         toast('Admin account created! Welcome to NodeStack.', 'success');
       } catch (e) {
         toast(e.message, 'error');

@@ -320,37 +320,183 @@ async function loadPluginConfig(pluginId) {
         </div>
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem;">
-          ${res.fields.map(field => {
-            const isLocked = field.isLocked;
-            const fieldId = `cfg-${pluginId}-${field.name}`;
-            return `
-              <div style="background: var(--bg-input); border: 1px solid ${isLocked ? 'rgba(255,255,255,0.06)' : 'var(--border-subtle)'}; border-radius: 8px; padding: 0.85rem 1rem; display: flex; flex-direction: column; gap: 0.45rem;">
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
-                  <label style="font-size: 12.5px; font-weight: 700; color: var(--text-heading);" for="${fieldId}">
-                    ${escapeHtml(field.label)} ${field.required ? '<span style="color:#ef4444;">*</span>' : ''}
-                  </label>
-                  ${isLocked ? `
-                    <span class="badge badge-secondary" style="font-size: 10px; padding: 2px 6px;" title="${escapeHtml(field.lockReason || 'Locked')}">
-                      🔒 ENV LOCKED
-                    </span>
-                  ` : (field.source === 'db' ? `
-                    <span class="badge badge-success" style="font-size: 10px; padding: 2px 6px;">
-                      ✏️ DATABASE OVERRIDE
-                    </span>
-                  ` : `
-                    <span class="badge badge-primary" style="font-size: 10px; padding: 2px 6px;">
-                      ✏️ ${field.source === 'code' ? 'CODE DEFAULT' : 'DEFAULT'}
-                    </span>
-                  `)}
-                </div>
+          ${(() => {
+            const consumed = new Set();
+            const cards = [];
 
-                ${isLocked ? `
-                  ${field.type === 'select' ? `
-                    <select class="form-input" disabled
-                      style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.35); font-size: 12.5px; border-color: rgba(255,255,255,0.06); color: var(--text-heading);">
-                      ${field.value !== undefined && !(field.options || []).some(opt => String(typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt) === String(field.value)) ? `
-                        <option value="${escapeHtml(String(field.value))}" selected>${escapeHtml(String(field.value))}</option>
-                      ` : ''}
+            for (const field of res.fields) {
+              if (consumed.has(field.name)) continue;
+
+              // Check if field is a Webhook URL that pairs with a boolean toggle
+              let urlField = null;
+              let toggleField = null;
+              let platformTitle = '';
+              let platformIcon = '';
+
+              if (field.name.endsWith('WebhookUrl') || field.name.endsWith('Url')) {
+                const prefix = field.name.replace(/WebhookUrl$|Url$/, '');
+                const tName1 = 'enable' + prefix.charAt(0).toUpperCase() + prefix.slice(1);
+                const tName2 = prefix + 'Enabled';
+                const match = res.fields.find(f => (f.name === tName1 || f.name === tName2) && f.type === 'boolean');
+                if (match) {
+                  urlField = field;
+                  toggleField = match;
+                }
+              } else if (field.type === 'boolean' && (field.name.startsWith('enable') || field.name.endsWith('Enabled'))) {
+                let prefix = '';
+                if (field.name.startsWith('enable')) {
+                  prefix = field.name.slice(6);
+                  prefix = prefix.charAt(0).toLowerCase() + prefix.slice(1);
+                } else {
+                  prefix = field.name.replace(/Enabled$/, '');
+                }
+                const match = res.fields.find(f => (f.name === prefix + 'WebhookUrl' || f.name === prefix + 'Url') && f.type === 'text');
+                if (match) {
+                  urlField = match;
+                  toggleField = field;
+                }
+              }
+
+              if (urlField && toggleField) {
+                consumed.add(urlField.name);
+                consumed.add(toggleField.name);
+
+                const lowerName = urlField.name.toLowerCase();
+                if (lowerName.includes('discord')) {
+                  platformTitle = 'Discord Channel';
+                  platformIcon = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+                } else if (lowerName.includes('slack')) {
+                  platformTitle = 'Slack Channel';
+                  platformIcon = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>';
+                } else {
+                  platformTitle = urlField.label || 'Channel Webhook';
+                  platformIcon = '🔔';
+                }
+
+                const urlId = `cfg-${pluginId}-${urlField.name}`;
+                const toggleId = `cfg-${pluginId}-${toggleField.name}`;
+                const isUrlLocked = urlField.isLocked;
+                const isToggleLocked = toggleField.isLocked;
+                const isToggleChecked = toggleField.value !== false;
+
+                const badgeHtml = isUrlLocked ? `
+                  <span class="badge badge-secondary" style="font-size: 10px; padding: 2px 6px;" title="${escapeHtml(urlField.lockReason || 'Locked')}">
+                    🔒 ENV LOCKED
+                  </span>
+                ` : (urlField.source === 'db' || toggleField.source === 'db' ? `
+                  <span class="badge badge-success" style="font-size: 10px; padding: 2px 6px;">
+                    ✏️ DATABASE OVERRIDE
+                  </span>
+                ` : `
+                  <span class="badge badge-primary" style="font-size: 10px; padding: 2px 6px;">
+                    ✏️ ${urlField.source === 'code' ? 'CODE DEFAULT' : 'DEFAULT'}
+                  </span>
+                `);
+
+                cards.push(`
+                  <div style="background: var(--bg-input); border: 1px solid ${isUrlLocked ? 'rgba(255,255,255,0.06)' : 'var(--border-subtle)'}; border-radius: 8px; padding: 0.95rem 1.1rem; display: flex; flex-direction: column; gap: 0.65rem;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="display: inline-flex; align-items: center; color: var(--accent-primary);">${platformIcon}</span>
+                        <label style="font-size: 13px; font-weight: 700; color: var(--text-heading); cursor: pointer; margin: 0;" for="${toggleId}">
+                          ${escapeHtml(platformTitle)}
+                        </label>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <label style="display: inline-flex; align-items: center; gap: 6px; cursor: ${isToggleLocked ? 'not-allowed' : 'pointer'}; margin: 0; user-select: none;">
+                          <input type="checkbox" id="${toggleId}" ${isToggleChecked ? 'checked' : ''} ${isToggleLocked ? 'disabled' : ''}
+                            onchange="const inp = document.getElementById('${urlId}'); if (inp) inp.style.opacity = this.checked ? '1' : '0.55';"
+                            style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--accent-primary);" />
+                          <span style="font-size: 12px; font-weight: 600; color: var(--text-main);">Enabled</span>
+                        </label>
+                        ${badgeHtml}
+                      </div>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                      <label style="font-size: 11.5px; font-weight: 600; color: var(--text-muted); display: block;" for="${urlId}">
+                        ${escapeHtml(urlField.label)} ${urlField.required ? '<span style="color:#ef4444;">*</span>' : ''}
+                      </label>
+                      ${isUrlLocked ? `
+                        <input type="text" class="form-input" disabled value="${escapeHtml(urlField.value !== undefined ? String(urlField.value) : '')}"
+                          style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.35); font-family: monospace; font-size: 12.5px; border-color: rgba(255,255,255,0.06);" />
+                        <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 4px;">
+                          <span>🔒</span> <span>${escapeHtml(urlField.lockReason || 'Managed by environment')}</span>
+                        </div>
+                      ` : `
+                        <input type="text" class="form-input" id="${urlId}"
+                          value="${escapeHtml(urlField.value !== undefined ? String(urlField.value) : '')}" placeholder="${escapeHtml(urlField.placeholder || '')}"
+                          style="font-family: monospace; font-size: 12.5px; opacity: ${isToggleChecked ? '1' : '0.55'}; transition: opacity 0.15s ease;" />
+                      `}
+                      <div style="font-size: 11px; color: var(--text-muted); line-height: 1.35;">
+                        ${escapeHtml(urlField.description || '')}
+                        ${urlField.envKey ? `<span style="display:inline-block; margin-left: 4px; font-family: monospace; opacity: 0.8;">(${escapeHtml(urlField.envKey)})</span>` : ''}
+                      </div>
+                    </div>
+                  </div>
+                `);
+                continue;
+              }
+
+              // Standard standalone field card
+              consumed.add(field.name);
+              const isLocked = field.isLocked;
+              const fieldId = `cfg-${pluginId}-${field.name}`;
+              cards.push(`
+                <div style="background: var(--bg-input); border: 1px solid ${isLocked ? 'rgba(255,255,255,0.06)' : 'var(--border-subtle)'}; border-radius: 8px; padding: 0.85rem 1rem; display: flex; flex-direction: column; gap: 0.45rem;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                    <label style="font-size: 12.5px; font-weight: 700; color: var(--text-heading);" for="${fieldId}">
+                      ${escapeHtml(field.label)} ${field.required ? '<span style="color:#ef4444;">*</span>' : ''}
+                    </label>
+                    ${isLocked ? `
+                      <span class="badge badge-secondary" style="font-size: 10px; padding: 2px 6px;" title="${escapeHtml(field.lockReason || 'Locked')}">
+                        🔒 ENV LOCKED
+                      </span>
+                    ` : (field.source === 'db' ? `
+                      <span class="badge badge-success" style="font-size: 10px; padding: 2px 6px;">
+                        ✏️ DATABASE OVERRIDE
+                      </span>
+                    ` : `
+                      <span class="badge badge-primary" style="font-size: 10px; padding: 2px 6px;">
+                        ✏️ ${field.source === 'code' ? 'CODE DEFAULT' : 'DEFAULT'}
+                      </span>
+                    `)}
+                  </div>
+
+                  ${isLocked ? `
+                    ${field.type === 'select' ? `
+                      <select class="form-input" disabled
+                        style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.35); font-size: 12.5px; border-color: rgba(255,255,255,0.06); color: var(--text-heading);">
+                        ${field.value !== undefined && !(field.options || []).some(opt => String(typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt) === String(field.value)) ? `
+                          <option value="${escapeHtml(String(field.value))}" selected>${escapeHtml(String(field.value))}</option>
+                        ` : ''}
+                        ${(field.options || []).map(opt => {
+                          const optVal = typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt;
+                          const optLabel = typeof opt === 'object' && opt !== null && 'label' in opt ? opt.label : opt;
+                          const isSelected = String(field.value) === String(optVal);
+                          return `<option value="${escapeHtml(String(optVal))}" ${isSelected ? 'selected' : ''}>${escapeHtml(String(optLabel))}</option>`;
+                        }).join('')}
+                      </select>
+                    ` : `
+                      <input type="text" class="form-input" disabled value="${escapeHtml(field.type === 'password' ? '••••••••' : (field.value !== undefined ? String(field.value) : ''))}"
+                        style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.35); font-family: monospace; font-size: 12.5px; border-color: rgba(255,255,255,0.06);" />
+                    `}
+                    <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 4px;">
+                      <span>🔒</span> <span>${escapeHtml(field.lockReason || 'Managed by environment')}</span>
+                    </div>
+                  ` : (field.type === 'boolean' ? `
+                    <div style="display: flex; align-items: center; gap: 0.5rem; height: 36px;">
+                      <input type="checkbox" id="${fieldId}" ${field.value ? 'checked' : ''} style="cursor: pointer; width: 18px; height: 18px;" />
+                      <label for="${fieldId}" style="font-size: 12.5px; color: var(--text-main); cursor: pointer;">Enabled</label>
+                    </div>
+                  ` : (field.type === 'select' ? `
+                    <select class="form-input" id="${fieldId}"
+                      style="cursor: pointer; font-size: 12.5px; background: var(--bg-card); color: var(--text-heading);">
+                      ${!field.required && !(field.options || []).some(opt => (typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt) === '') ? `
+                        <option value="" ${field.value === undefined || field.value === '' ? 'selected' : ''}>${escapeHtml(field.placeholder || '-- Select an option --')}</option>
+                      ` : (field.placeholder && (field.value === undefined || field.value === '') ? `
+                        <option value="" disabled selected>${escapeHtml(field.placeholder)}</option>
+                      ` : '')}
                       ${(field.options || []).map(opt => {
                         const optVal = typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt;
                         const optLabel = typeof opt === 'object' && opt !== null && 'label' in opt ? opt.label : opt;
@@ -358,56 +504,31 @@ async function loadPluginConfig(pluginId) {
                         return `<option value="${escapeHtml(String(optVal))}" ${isSelected ? 'selected' : ''}>${escapeHtml(String(optLabel))}</option>`;
                       }).join('')}
                     </select>
+                  ` : (field.type === 'password' ? `
+                    <input type="password" class="form-input" id="${fieldId}"
+                      value="" placeholder="${field.hasValue ? '•••••••• (Secret configured - leave blank to keep unchanged)' : escapeHtml(field.placeholder || 'Enter secret...')}"
+                      autocomplete="new-password"
+                      style="font-family: monospace; font-size: 12.5px;" />
+                    ${field.hasValue ? `
+                      <div style="font-size: 10.5px; color: var(--accent-success); display: flex; align-items: center; gap: 4px; margin-top: 2px;">
+                        <span>✓</span> <span>Secret is configured. Leave blank to keep existing secret.</span>
+                      </div>
+                    ` : ''}
                   ` : `
-                    <input type="text" class="form-input" disabled value="${escapeHtml(field.type === 'password' ? '••••••••' : (field.value !== undefined ? String(field.value) : ''))}"
-                      style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.35); font-family: monospace; font-size: 12.5px; border-color: rgba(255,255,255,0.06);" />
-                  `}
-                  <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 4px;">
-                    <span>🔒</span> <span>${escapeHtml(field.lockReason || 'Managed by environment')}</span>
-                  </div>
-                ` : (field.type === 'boolean' ? `
-                  <div style="display: flex; align-items: center; gap: 0.5rem; height: 36px;">
-                    <input type="checkbox" id="${fieldId}" ${field.value ? 'checked' : ''} style="cursor: pointer; width: 18px; height: 18px;" />
-                    <label for="${fieldId}" style="font-size: 12.5px; color: var(--text-main); cursor: pointer;">Enabled</label>
-                  </div>
-                ` : (field.type === 'select' ? `
-                  <select class="form-input" id="${fieldId}"
-                    style="cursor: pointer; font-size: 12.5px; background: var(--bg-card); color: var(--text-heading);">
-                    ${!field.required && !(field.options || []).some(opt => (typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt) === '') ? `
-                      <option value="" ${field.value === undefined || field.value === '' ? 'selected' : ''}>${escapeHtml(field.placeholder || '-- Select an option --')}</option>
-                    ` : (field.placeholder && (field.value === undefined || field.value === '') ? `
-                      <option value="" disabled selected>${escapeHtml(field.placeholder)}</option>
-                    ` : '')}
-                    ${(field.options || []).map(opt => {
-                      const optVal = typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt;
-                      const optLabel = typeof opt === 'object' && opt !== null && 'label' in opt ? opt.label : opt;
-                      const isSelected = String(field.value) === String(optVal);
-                      return `<option value="${escapeHtml(String(optVal))}" ${isSelected ? 'selected' : ''}>${escapeHtml(String(optLabel))}</option>`;
-                    }).join('')}
-                  </select>
-                ` : (field.type === 'password' ? `
-                  <input type="password" class="form-input" id="${fieldId}"
-                    value="" placeholder="${field.hasValue ? '•••••••• (Secret configured - leave blank to keep unchanged)' : escapeHtml(field.placeholder || 'Enter secret...')}"
-                    autocomplete="new-password"
-                    style="font-family: monospace; font-size: 12.5px;" />
-                  ${field.hasValue ? `
-                    <div style="font-size: 10.5px; color: var(--accent-success); display: flex; align-items: center; gap: 4px; margin-top: 2px;">
-                      <span>✓</span> <span>Secret is configured. Leave blank to keep existing secret.</span>
-                    </div>
-                  ` : ''}
-                ` : `
-                  <input type="text" class="form-input" id="${fieldId}"
-                    value="${escapeHtml(field.value !== undefined ? String(field.value) : '')}" placeholder="${escapeHtml(field.placeholder || '')}"
-                    style="font-family: monospace; font-size: 12.5px;" />
-                `)))}
+                    <input type="text" class="form-input" id="${fieldId}"
+                      value="${escapeHtml(field.value !== undefined ? String(field.value) : '')}" placeholder="${escapeHtml(field.placeholder || '')}"
+                      style="font-family: monospace; font-size: 12.5px;" />
+                  `)))}
 
-                <div style="font-size: 11px; color: var(--text-muted); line-height: 1.35;">
-                  ${escapeHtml(field.description || '')}
-                  ${field.envKey ? `<span style="display:inline-block; margin-left: 4px; font-family: monospace; opacity: 0.8;">(${escapeHtml(field.envKey)})</span>` : ''}
+                  <div style="font-size: 11px; color: var(--text-muted); line-height: 1.35;">
+                    ${escapeHtml(field.description || '')}
+                    ${field.envKey ? `<span style="display:inline-block; margin-left: 4px; font-family: monospace; opacity: 0.8;">(${escapeHtml(field.envKey)})</span>` : ''}
+                  </div>
                 </div>
-              </div>
-            `;
-          }).join('')}
+              `);
+            }
+            return cards.join('');
+          })()}
         </div>
 
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--border-subtle);">

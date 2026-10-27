@@ -23,6 +23,7 @@ import { stripePlugin } from '../../plugins/stripe';
 import { s3StoragePlugin } from '../../plugins/s3';
 import { resendPlugin } from '../../plugins/resend';
 import { webhookPlugin } from '../../plugins/webhooks';
+import { chatNotificationsPlugin } from '../../plugins/chat-notifications';
 import { algoliaPlugin } from '../../plugins/algolia';
 
 export interface OfficialPluginMetadata {
@@ -90,16 +91,16 @@ export const OFFICIAL_PLUGINS: OfficialPluginDef[] = [
     factory: () => resendPlugin(),
   },
   {
-    id: 'webhooks',
-    name: 'webhooks',
-    packageName: '@nodestackapp/plugin-webhooks',
-    title: 'Discord & Slack Webhooks',
+    id: 'chat-notifications',
+    name: 'chat-notifications',
+    packageName: '@nodestackapp/plugin-chat-notifications',
+    title: 'Chat Notifications (Discord & Slack)',
     category: 'Automation & Alerts',
     description: 'Real-time outbound notifications to Discord and Slack channels on database mutations with payload logs.',
-    icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
-    badge: 'WEBHOOKS',
-    collections: ['_webhook_logs'],
-    factory: () => webhookPlugin(),
+    icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
+    badge: 'CHAT',
+    collections: ['_chat_notification_logs'],
+    factory: () => chatNotificationsPlugin(),
   },
   {
     id: 'algolia',
@@ -507,16 +508,28 @@ export class PluginManager {
    */
   public hasPlugin(name: string, db?: DatabaseService): boolean {
     if (!db || db === this.app.db) {
-      return this.plugins.has(name);
+      if (this.plugins.has(name)) return true;
+      if (name === 'webhooks' && this.plugins.has('chat-notifications')) return true;
+      if (name === 'chat-notifications' && this.plugins.has('webhooks')) return true;
+      return false;
     }
-    return this.isPluginEnabledInDb(name, db);
+    const hasDb = this.isPluginEnabledInDb(name, db);
+    if (hasDb) return true;
+    if (name === 'webhooks') return this.isPluginEnabledInDb('chat-notifications', db);
+    if (name === 'chat-notifications') return this.isPluginEnabledInDb('webhooks', db);
+    return false;
   }
 
   /**
    * Get a registered plugin by name
    */
   public getPlugin<T extends INodeStackPlugin = INodeStackPlugin>(name: string): T | undefined {
-    return this.plugins.get(name)?.plugin as T | undefined;
+    let rec = this.plugins.get(name);
+    if (!rec && (name === 'webhooks' || name === 'chat-notifications')) {
+      const alias = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+      rec = this.plugins.get(alias);
+    }
+    return rec?.plugin as T | undefined;
   }
 
   /**
@@ -847,7 +860,8 @@ export class PluginManager {
       targetDb = this.app.db;
     }
 
-    const def = OFFICIAL_PLUGINS.find((p) => p.id === id || p.name === id);
+    const targetId = id === 'webhooks' ? 'chat-notifications' : id;
+    const def = OFFICIAL_PLUGINS.find((p) => p.id === targetId || p.name === targetId);
     if (!def) {
       throw new NotFoundError(`Official plugin "${id}" not found in catalog`);
     }
@@ -909,8 +923,9 @@ export class PluginManager {
       targetDb = this.app.db;
     }
 
-    const def = OFFICIAL_PLUGINS.find((p) => p.id === id || p.name === id);
-    const name = def ? def.name : id;
+    const targetId = id === 'webhooks' ? 'chat-notifications' : id;
+    const def = OFFICIAL_PLUGINS.find((p) => p.id === targetId || p.name === targetId);
+    const name = def ? def.name : targetId;
 
     this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
@@ -1473,6 +1488,16 @@ export class PluginManager {
         }
       }
     }
+    if (!record && (name === 'webhooks' || name === 'chat-notifications')) {
+      const aliasName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+      record = this.plugins.get(aliasName);
+      if (record) name = aliasName;
+    }
+    if (!record && (name === 'webhooks' || name === 'chat-notifications')) {
+      const aliasName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+      record = this.plugins.get(aliasName);
+      if (record) name = aliasName;
+    }
     if (!record) {
       throw new NotFoundError(`Plugin "${name}" is not registered`);
     }
@@ -1675,6 +1700,11 @@ export class PluginManager {
           break;
         }
       }
+    }
+    if (!record && (name === 'webhooks' || name === 'chat-notifications')) {
+      const aliasName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+      record = this.plugins.get(aliasName);
+      if (record) name = aliasName;
     }
     if (!record) {
       throw new NotFoundError(`Plugin "${name}" is not registered`);
