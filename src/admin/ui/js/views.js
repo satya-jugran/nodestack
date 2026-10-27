@@ -64,10 +64,10 @@
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('collections')" title="Click to view all collections directory">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
                   <div style="display: flex; align-items: center; gap: 6px;">
-                    <span style="font-size: 13px;">📦</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
                     <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Collections</span>
                   </div>
-                  <span style="font-size: 11px; color: #60a5fa; font-weight: 600;">View ➔</span>
+                  <span style="font-size: 11px; color: var(--accent-primary); font-weight: 600;">View ➔</span>
                 </div>
                 <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-collections">${collectionsCount}</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Registered tables</div>
@@ -76,30 +76,30 @@
               <!-- KPI 2: Active Records -->
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem;">
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.35rem;">
-                  <span style="font-size: 13px;">📝</span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
                   <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Total Records</span>
                 </div>
-                <div style="font-size: 22px; font-weight: 800; color: var(--accent-primary);" id="home-stat-records">--</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-records">--</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Active database rows</div>
               </div>
 
               <!-- KPI 3: Storage Size -->
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem;">
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.35rem;">
-                  <span style="font-size: 13px;">💾</span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><line x1="22" y1="12" x2="2" y2="12"></line><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path><line x1="6" y1="16" x2="6.01" y2="16"></line><line x1="10" y1="16" x2="10.01" y2="16"></line></svg>
                   <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Storage Size</span>
                 </div>
-                <div style="font-size: 22px; font-weight: 800; color: var(--accent-success);" id="home-stat-size">--</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-size">--</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">data.db + WAL journal</div>
               </div>
 
               <!-- KPI 4: Realtime Streams -->
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem;">
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.35rem;">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#c084fc;"><path d="M4.93 4.93a10 10 0 0 0 0 14.14M8.46 8.46a5 5 0 0 0 0 7.08M12 12h.01"/></svg>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><path d="M4.93 4.93a10 10 0 0 0 0 14.14M8.46 8.46a5 5 0 0 0 0 7.08M12 12h.01"/></svg>
                   <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Realtime Streams</span>
                 </div>
-                <div style="font-size: 22px; font-weight: 800; color: var(--accent-info);" id="home-stat-realtime">--</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-realtime">--</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Connected SSE clients</div>
               </div>
 
@@ -107,12 +107,12 @@
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('webhooks')" title="Click to view webhooks and delivery logs">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
                   <div style="display: flex; align-items: center; gap: 6px;">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#f59e0b;"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c0-2.21 1.79-4 4-4h5.99c1.1 0 1.95-.94 2.48-1.9A4 4 0 0 1 22 13c0 2.21-1.79 4-4 4z"/><circle cx="6" cy="17" r="1"/><circle cx="18" cy="13" r="1"/></svg>
                     <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Webhooks</span>
                   </div>
-                  <span style="font-size: 11px; color: #f59e0b; font-weight: 600;">View ➔</span>
+                  <span style="font-size: 11px; color: var(--accent-primary); font-weight: 600;">View ➔</span>
                 </div>
-                <div style="font-size: 22px; font-weight: 800; color: var(--accent-warning);" id="home-stat-webhooks">${webhooksInitial}</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-webhooks">${webhooksInitial}</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-webhooks-sub">Endpoints & deliveries</div>
               </div>
 
@@ -120,12 +120,12 @@
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('plugins')" title="Click to browse plugins and extensions">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
                   <div style="display: flex; align-items: center; gap: 6px;">
-                    <span style="font-size: 13px;">🧩</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                     <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Plugins</span>
                   </div>
-                  <span style="font-size: 11px; color: #38bdf8; font-weight: 600;">View ➔</span>
+                  <span style="font-size: 11px; color: var(--accent-primary); font-weight: 600;">View ➔</span>
                 </div>
-                <div style="font-size: 22px; font-weight: 800; color: var(--accent-primary);" id="home-stat-plugins">${pluginsInitial}</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-plugins">${pluginsInitial}</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-plugins-sub">Active extensions</div>
               </div>
 
@@ -133,12 +133,12 @@
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('functions')" title="Click to view serverless functions and execution logs">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
                   <div style="display: flex; align-items: center; gap: 6px;">
-                    <span style="font-size: 13px;">⚡</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
                     <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Functions</span>
                   </div>
-                  <span style="font-size: 11px; color: #38bdf8; font-weight: 600;">View ➔</span>
+                  <span style="font-size: 11px; color: var(--accent-primary); font-weight: 600;">View ➔</span>
                 </div>
-                <div style="font-size: 22px; font-weight: 800; color: var(--accent-primary);" id="home-stat-functions">${functionsInitial}</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-functions">${functionsInitial}</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-functions-sub">Serverless lambda logic</div>
               </div>
             </div>
@@ -147,15 +147,15 @@
             <div style="background: var(--bg-hover-subtle); border-top: 1px solid var(--border-subtle); padding: 0.65rem 1.15rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
               <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
                 <div style="display: flex; align-items: center; gap: 6px;">
-                  <span style="font-size: 13px;">📊</span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
                   <span style="font-size: 11px; font-weight: 700; color: var(--text-heading); text-transform: uppercase; letter-spacing: 0.04em;">24h Telemetry</span>
                   <span class="badge badge-status-200" style="font-size: 9.5px; padding: 1px 5px;">Live</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; font-size: 12px; color: var(--text-muted);">
                   <span>Requests: <strong id="home-snap-requests" style="color: var(--text-heading); font-family: var(--font-mono); font-weight: 700;">--</strong></span>
-                  <span>Latency: <strong id="home-snap-latency" style="color: var(--accent-primary); font-family: var(--font-mono); font-weight: 700;">--</strong></span>
-                  <span>Error Rate: <strong id="home-snap-errors" style="color: var(--accent-success); font-family: var(--font-mono); font-weight: 700;">--</strong></span>
-                  <span>Peak: <strong id="home-snap-peak" style="color: var(--accent-info); font-family: var(--font-mono); font-weight: 700;">--</strong></span>
+                  <span>Latency: <strong id="home-snap-latency" style="color: var(--text-heading); font-family: var(--font-mono); font-weight: 700;">--</strong></span>
+                  <span>Error Rate: <strong id="home-snap-errors" style="color: var(--text-heading); font-family: var(--font-mono); font-weight: 700;">--</strong></span>
+                  <span>Peak: <strong id="home-snap-peak" style="color: var(--text-heading); font-family: var(--font-mono); font-weight: 700;">--</strong></span>
                 </div>
               </div>
               <button class="btn btn-secondary btn-sm" onclick="selectNav('analytics')" style="padding: 2px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="Open in-depth analytics">
@@ -171,7 +171,7 @@
               <div>
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
                   <div style="display: flex; align-items: center; gap: 7px;">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#60a5fa;"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
                     <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Starter Accelerators</span>
                   </div>
                   <button class="btn btn-secondary btn-sm" onclick="openTemplatesModal()" style="font-size: 11px; padding: 2px 8px;" title="Browse all template recipes">
@@ -188,17 +188,17 @@
                 <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()" style="font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Create new blank collection">
                   <span>+</span><span>New Collection</span>
                 </button>
-                <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('ecommerce')" style="border-color: rgba(59, 130, 246, 0.35); font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Preview & install E-Commerce recipe">
-                  <span>🛒</span><span>E-Commerce</span>
+                <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('ecommerce')" style="font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Preview & install E-Commerce recipe">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg><span>E-Commerce</span>
                 </button>
-                <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('blog')" style="border-color: rgba(16, 185, 129, 0.35); font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Preview & install Blog recipe">
-                  <span>📝</span><span>Blog / CMS</span>
+                <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('blog')" style="font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Preview & install Blog recipe">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><span>Blog / CMS</span>
                 </button>
-                <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('crm')" style="border-color: rgba(139, 92, 246, 0.35); font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Preview & install CRM recipe">
-                  <span>👥</span><span>SaaS / CRM</span>
+                <button class="btn btn-secondary btn-sm" onclick="openApplyTemplateConfirmModal('crm')" style="font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Preview & install CRM recipe">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>SaaS / CRM</span>
                 </button>
-                <button class="btn btn-secondary btn-sm" onclick="openImportJsonModal()" style="border-color: rgba(245, 158, 11, 0.35); font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Paste JSON → Auto-infer schema">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Import JSON</span>
+                <button class="btn btn-secondary btn-sm" onclick="openImportJsonModal()" style="font-size: 12px; padding: 7px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Paste JSON → Auto-infer schema">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Import JSON</span>
                 </button>
               </div>
             </div>
@@ -208,7 +208,7 @@
               <div>
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
                   <div style="display: flex; align-items: center; gap: 7px;">
-                    <span style="font-size: 15px;">🛠️</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
                     <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Developer Quick Tools</span>
                   </div>
                   <span class="badge badge-get" style="font-size: 10px;">SDK & API</span>
@@ -290,7 +290,7 @@
         if (errEl && metrics.traffic24h?.overallErrorRate !== undefined) {
           const errRate = metrics.traffic24h.overallErrorRate;
           errEl.textContent = `${errRate.toFixed(1)} %`;
-          errEl.style.color = errRate > 5 ? '#f87171' : '#34d399';
+          errEl.style.color = errRate > 5 ? '#f87171' : 'var(--text-heading)';
         }
 
         const peakEl = document.getElementById('home-snap-peak');
@@ -413,11 +413,11 @@
         <div class="audit-subtabs-bar">
           <button class="audit-subtab-btn ${!isAudit ? 'active' : ''}" onclick="switchLogsSubTab('traffic')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-            <span>🌐 HTTP Traffic Logs</span>
+            <span>HTTP Traffic Logs</span>
           </button>
           <button class="audit-subtab-btn ${isAudit ? 'active' : ''}" onclick="switchLogsSubTab('audit')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            <span>🛡️ Data Audit Trail</span>
+            <span>Data Audit Trail</span>
           </button>
         </div>
 

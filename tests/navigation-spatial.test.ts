@@ -732,19 +732,19 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
 
       // Simulate browser Back button (async in JSDOM)
       win.history.back();
-      await new Promise(r => setTimeout(r, 25));
+      await new Promise(r => setTimeout(r, 50));
       expect(win.location.pathname).toBe('/_/analytics');
       expect(win.state.activeNav).toBe('analytics');
 
       // Simulate browser Back button again
       win.history.back();
-      await new Promise(r => setTimeout(r, 25));
+      await new Promise(r => setTimeout(r, 50));
       expect(win.location.pathname).toBe('/_/');
       expect(win.state.activeNav).toBe('home');
 
       // Simulate browser Forward button
       win.history.forward();
-      await new Promise(r => setTimeout(r, 25));
+      await new Promise(r => setTimeout(r, 50));
       expect(win.location.pathname).toBe('/_/analytics');
       expect(win.state.activeNav).toBe('analytics');
 
@@ -757,7 +757,7 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
 
       // Simulate browser Back button to return to logs traffic subtab
       win.history.back();
-      await new Promise(r => setTimeout(r, 25));
+      await new Promise(r => setTimeout(r, 50));
       expect(win.location.pathname).toBe('/_/logs');
       expect(win.auditState.subTab).toBe('traffic');
     });
