@@ -1,51 +1,23 @@
-# @nodestackapp/plugin-webhooks
+# @nodestackapp/plugin-webhooks (Deprecated)
 
-Official Discord & Slack realtime database mutation alerts and webhook audit logger for [NodeStack](https://github.com/satya-jugran/nodestack).
+> [!WARNING]
+> **This package is DEPRECATED.** It has been renamed to [`@nodestackapp/plugin-chat-notifications`](https://www.npmjs.com/package/@nodestackapp/plugin-chat-notifications) to avoid route collisions with NodeStack's core Webhooks Manager engine (`/_/webhooks`).
+> Please migrate to `@nodestackapp/plugin-chat-notifications`.
 
-## Features
+## Quick Migration
 
-- **Automated Webhook Audit Log**: Auto-creates `_webhook_logs` system collection in SQLite.
-- **Discord & Slack Support**: Instant dispatching of rich formatted embed cards on record changes.
-- **Mutation Filters**: Filter triggers by event (`create`, `update`, `delete`) and targeted collections.
-- **Embedded Admin UI Dashboard**: Dedicated webhooks view with active channels and dispatch counts.
-- **Zero Runtime Dependencies**: Ultra-lightweight and compiled for dual CommonJS + ESM.
-
-## Installation
-
+1. Uninstall old package:
 ```bash
-npm install @nodestackapp/plugin-webhooks
+npm uninstall @nodestackapp/plugin-webhooks
+npm install @nodestackapp/plugin-chat-notifications
 ```
 
-*(Ensure `@nodestackapp/server` is installed as a peer dependency: `npm install @nodestackapp/server`)*
-
-## Usage
-
+2. Update import:
 ```typescript
-import { NodeStack } from '@nodestackapp/server';
-import { webhookPlugin } from '@nodestackapp/plugin-webhooks';
+// Replace:
+// import { webhookPlugin } from '@nodestackapp/plugin-webhooks';
 
-const app = new NodeStack();
-
-app.use(webhookPlugin({
-  discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL,
-  slackWebhookUrl: process.env.SLACK_WEBHOOK_URL,
-  collections: ['orders', 'users', 'invoices'],
-  events: ['create', 'delete'],
-}));
-
-await app.start(3000);
+// With:
+import { chatNotificationsPlugin } from '@nodestackapp/plugin-chat-notifications';
 ```
-
-## Options
-
-| Option | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `discordWebhookUrl` | `string` | `undefined` | Discord incoming webhook URL |
-| `slackWebhookUrl` | `string` | `undefined` | Slack incoming webhook URL |
-| `collections` | `string[]` | `[]` | Collections to observe (empty = all) |
-| `events` | `Array<'create' \| 'update' \| 'delete'>` | `['create', 'update', 'delete']` | Mutation events to trigger on |
-| `collectionName` | `string` | `'_webhook_logs'` | Custom SQLite collection name for logs |
-
-## License
-
-MIT
+`webhookPlugin` is still supported as a backward-compatible alias in `@nodestackapp/plugin-chat-notifications`.

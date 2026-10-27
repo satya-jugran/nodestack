@@ -9,8 +9,18 @@ async function fetchApps() {
     const res = await api('/api/apps');
     state.apps = (res && res.items) ? res.items : [];
     
-    // Validate or default activeApp
-    if (!state.activeApp || !state.apps.some(a => a.slug === state.activeApp.slug || a.id === state.activeApp.id)) {
+    // Check if URL specified an app
+    const urlAppParam = (typeof window !== 'undefined' && window.location)
+      ? new URLSearchParams(window.location.search || '').get('app')
+      : null;
+
+    if (urlAppParam && state.apps.some(a => a.slug === urlAppParam || a.id === urlAppParam || (urlAppParam === 'default' && a.isDefault))) {
+      const matched = state.apps.find(a => a.slug === urlAppParam || a.id === urlAppParam || (urlAppParam === 'default' && a.isDefault));
+      state.activeApp = matched;
+      try {
+        localStorage.setItem('nodestack_active_app', JSON.stringify(matched));
+      } catch {}
+    } else if (!state.activeApp || !state.apps.some(a => a.slug === state.activeApp.slug || a.id === state.activeApp.id)) {
       const defaultApp = state.apps.find(a => a.isDefault) || state.apps[0] || { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true };
       state.activeApp = defaultApp;
       try {
@@ -67,27 +77,21 @@ function updateAppSwitcherUI() {
       <div 
         class="app-switcher-item ${isActive ? 'active' : ''}" 
         onclick="selectApp('${escapeHtml(app.slug)}')"
-        style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: background 0.15s ease; ${isActive ? 'background: var(--nav-active-bg); color: var(--nav-active-text); font-weight: 600;' : ''}"
-        onmouseover="this.style.background='var(--bg-surface-elevated, #242933)'"
-        onmouseout="this.style.background='${isActive ? 'var(--nav-active-bg)' : 'transparent'}'"
       >
-        <div style="display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+        <div class="app-switcher-item-left">
           <span>${isDefault ? '⚡' : '🚀'}</span>
-          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(app.name)}</span>
-          ${isDefault ? '<span class="badge" style="font-size: 10px; padding: 1px 4px; background: var(--bg-hover-subtle); color: var(--text-muted); border: 1px solid var(--border-subtle);">default</span>' : ''}
+          <span class="app-switcher-item-name">${escapeHtml(app.name)}</span>
+          ${isDefault ? '<span class="badge app-switcher-default-badge">default</span>' : ''}
         </div>
-        <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted, #94a3b8); flex-shrink: 0;">
-          ${countInfo ? `<span>${countInfo}</span>` : ''}
-          ${isActive ? '<span style="color: var(--accent-primary, #6366f1); font-weight: bold;">✓</span>' : ''}
+        <div class="app-switcher-item-right">
+          ${countInfo ? `<span class="app-switcher-item-count">${countInfo}</span>` : ''}
+          ${isActive ? '<span class="app-switcher-check">✓</span>' : ''}
           ${!isDefault ? `
             <button 
               type="button" 
               class="btn-delete-app" 
               title="Delete application '${escapeHtml(app.name)}'" 
               onclick="event.stopPropagation(); promptDeleteApp('${escapeHtml(app.slug)}', '${escapeHtml(app.name)}')"
-              style="background: transparent; border: none; padding: 2px 4px; border-radius: 4px; cursor: pointer; color: var(--text-muted, #94a3b8); display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s ease; line-height: 1;"
-              onmouseover="this.style.color='#ef4444'; this.style.background='rgba(239, 68, 68, 0.15)';"
-              onmouseout="this.style.color='var(--text-muted, #94a3b8)'; this.style.background='transparent';"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"></polyline>
@@ -165,6 +169,12 @@ async function selectApp(slugOrId) {
     if (typeof loadWebhooksList === 'function' && state.activeNav === 'webhooks') {
       await loadWebhooksList();
     }
+    if (typeof loadFunctionStats === 'function') {
+      await loadFunctionStats();
+    }
+    if (typeof loadFunctionsList === 'function' && state.activeNav === 'functions') {
+      await loadFunctionsList();
+    }
 
     // Refresh plugin catalog and nav items for the switched app
     try {
@@ -184,6 +194,8 @@ async function selectApp(slugOrId) {
       renderSnapshotsView();
     } else if (state.activeNav === 'webhooks' && typeof renderWebhooksView === 'function') {
       renderWebhooksView();
+    } else if (state.activeNav === 'functions' && typeof renderFunctionsView === 'function') {
+      renderFunctionsView();
     } else if (state.activeNav === 'collection' && typeof renderCollectionsHubView === 'function') {
       renderCollectionsHubView();
     } else if (state.activeNav === 'analytics' && typeof renderAnalyticsView === 'function') {
@@ -198,6 +210,9 @@ async function selectApp(slugOrId) {
       }
     }
     updateDocsLinks(app.slug);
+    if (typeof window !== 'undefined' && window.location) {
+      updateUrl(window.location.pathname, true);
+    }
   } catch (err) {
     if (typeof toast === 'function') {
       toast(`Failed to switch application: ${err.message}`, 'error');

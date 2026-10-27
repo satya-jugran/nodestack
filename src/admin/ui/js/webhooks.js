@@ -55,7 +55,7 @@ function renderWebhooksView() {
           </button>
           <button class="btn btn-primary btn-sm" onclick="openCreateWebhookModal()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            + New Webhook
+            New Webhook
           </button>
         </div>
       </div>
@@ -120,12 +120,19 @@ async function refreshWebhooksView() {
   if (typeof toast === 'function') toast('Webhooks updated', 'info');
 }
 
-function switchWebhooksTab(tab) {
+function switchWebhooksTab(tab, pushState = true) {
   webhooksState.subTab = tab;
   const btnList = document.getElementById('tab-btn-wh-list');
   const btnDel = document.getElementById('tab-btn-wh-deliveries');
   if (btnList) btnList.classList.toggle('active', tab === 'webhooks');
   if (btnDel) btnDel.classList.toggle('active', tab === 'deliveries');
+
+  if (pushState) {
+    const path = (tab === 'deliveries') ? '/_/webhooks/deliveries' : '/_/webhooks';
+    if (typeof updateUrl === 'function') {
+      updateUrl(path);
+    }
+  }
 
   if (tab === 'webhooks') {
     loadWebhooksList();
@@ -146,11 +153,11 @@ async function loadWebhookStats() {
       const elRate = document.getElementById('wh-stat-rate');
       const elFailed = document.getElementById('wh-stat-failed');
 
-      if (elActive) elActive.textContent = stats.activeWebhooks;
-      if (elTotal) elTotal.textContent = `/ ${stats.totalWebhooks} total`;
-      if (elDeliveries) elDeliveries.textContent = stats.totalDeliveries.toLocaleString();
-      if (elRate) elRate.textContent = stats.successRate;
-      if (elFailed) elFailed.textContent = stats.failedDeliveries.toLocaleString();
+      if (elActive) elActive.textContent = (stats.activeWebhooks !== undefined ? stats.activeWebhooks : 0);
+      if (elTotal) elTotal.textContent = `/ ${stats.totalWebhooks !== undefined ? stats.totalWebhooks : 0} total`;
+      if (elDeliveries) elDeliveries.textContent = (stats.totalDeliveries !== undefined ? stats.totalDeliveries : 0).toLocaleString();
+      if (elRate) elRate.textContent = stats.successRate || '100%';
+      if (elFailed) elFailed.textContent = (stats.failedDeliveries !== undefined ? stats.failedDeliveries : 0).toLocaleString();
 
       const sidebarBadge = document.getElementById('sidebar-webhooks-count');
       if (sidebarBadge) {
@@ -312,7 +319,7 @@ async function loadWebhookDeliveries() {
       <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px;">
         <select id="wh-filter-webhook" class="form-control" style="width: auto; padding: 4px 8px; font-size: 12px;" onchange="handleDeliveryFilterChange()">
           <option value="">All Webhooks</option>
-          ${webhooksState.webhooks.map(w => `<option value="${w.id}" ${f.webhookId === w.id ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('')}
+          ${(Array.isArray(webhooksState.webhooks) ? webhooksState.webhooks : []).map(w => `<option value="${w.id}" ${f.webhookId === w.id ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('')}
         </select>
 
         <select id="wh-filter-col" class="form-control" style="width: auto; padding: 4px 8px; font-size: 12px;" onchange="handleDeliveryFilterChange()">

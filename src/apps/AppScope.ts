@@ -23,6 +23,7 @@ import { SnapshotService } from '../snapshots/SnapshotService';
 import { AnalyticsService } from '../analytics/AnalyticsService';
 import { AuditLogService } from '../audit/AuditLogService';
 import { WebhookService } from '../webhooks/WebhookService';
+import { FunctionService } from '../functions/FunctionService';
 import { AppRegistry } from './AppRegistry';
 import { IDatabaseDriver } from '../database/drivers/IDatabaseDriver';
 
@@ -50,6 +51,7 @@ export class AppScope {
   public readonly analytics: AnalyticsService;
   public readonly auditLogs: AuditLogService;
   public readonly webhooks: WebhookService;
+  public readonly functions: FunctionService;
 
   constructor(
     app: AppModel,
@@ -152,6 +154,14 @@ export class AppScope {
     });
     this.auditLogs = new AuditLogService(this.db);
     this.webhooks = new WebhookService(this.db, this.eventBus);
+    this.functions = new FunctionService(
+      this.db,
+      this.schema,
+      this.records,
+      this.ruleEngine,
+      this.eventBus,
+      { id: app.id, slug: app.slug, name: app.name }
+    );
 
     // Wire up audit logs listeners for this app
     this.eventBus.onRecordAfterCreate(async (ctx) => {
@@ -173,6 +183,26 @@ export class AppScope {
     });
     this.eventBus.onRecordAfterDelete(async (ctx) => {
       await this.webhooks.handleRecordEvent('delete', ctx);
+    });
+
+    // Wire up functions lifecycle hooks for this app
+    this.eventBus.onRecordBeforeCreate(async (ctx) => {
+      await this.functions.handleRecordEvent('create', { ...ctx, isBefore: true });
+    });
+    this.eventBus.onRecordAfterCreate(async (ctx) => {
+      await this.functions.handleRecordEvent('create', { ...ctx, isBefore: false });
+    });
+    this.eventBus.onRecordBeforeUpdate(async (ctx) => {
+      await this.functions.handleRecordEvent('update', { ...ctx, isBefore: true });
+    });
+    this.eventBus.onRecordAfterUpdate(async (ctx) => {
+      await this.functions.handleRecordEvent('update', { ...ctx, isBefore: false });
+    });
+    this.eventBus.onRecordBeforeDelete(async (ctx) => {
+      await this.functions.handleRecordEvent('delete', { ...ctx, isBefore: true });
+    });
+    this.eventBus.onRecordAfterDelete(async (ctx) => {
+      await this.functions.handleRecordEvent('delete', { ...ctx, isBefore: false });
     });
   }
 

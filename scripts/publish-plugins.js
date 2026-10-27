@@ -9,6 +9,7 @@ const PLUGIN_DIRS = [
   'packages/plugins/stripe',
   'packages/plugins/s3',
   'packages/plugins/resend',
+  'packages/plugins/chat-notifications',
   'packages/plugins/webhooks',
   'packages/plugins/algolia',
 ];

@@ -1067,8 +1067,8 @@
       if (!items || items.length === 0) {
         container.innerHTML = `
           <div class="audit-card" style="text-align:center; padding:2rem; color:var(--text-muted);">
-            <div style="font-size:1.5rem; margin-bottom:0.5rem;">🕒</div>
-            <div style="font-weight:600; color:#fff; margin-bottom:0.25rem;">No History Logged</div>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text-muted); margin-bottom:0.5rem;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <div style="font-weight:600; color:var(--text-heading); margin-bottom:0.25rem;">No History Logged</div>
             <div style="font-size:12px;">No recorded field modifications found for this record.</div>
           </div>
         `;
@@ -1080,7 +1080,7 @@
 
       container.innerHTML = `
         <div style="margin-bottom:1rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
-          <h3 style="margin:0; font-size:13px; font-weight:700; color:#fff; text-transform:uppercase; letter-spacing:0.05em;">
+          <h3 style="margin:0; font-size:13px; font-weight:700; color:var(--text-heading); text-transform:uppercase; letter-spacing:0.05em;">
             Audit History (${countLabel})
           </h3>
           <span style="font-size:11px; color:var(--text-muted);">Immutable Append-Only Log</span>

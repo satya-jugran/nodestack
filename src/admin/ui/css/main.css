@@ -5,6 +5,7 @@
   --bg-card-hover: #1b1f2b;
   --bg-input: #1b1f2b;
   --bg-elevated: #1e222b;
+  --bg-surface-elevated: #1e222b;
   --border-subtle: #242938;
   --border-default: #2e3440;
   --border-accent: #3b82f6;
@@ -46,6 +47,7 @@ html.light {
   --bg-card-hover: #f1f5f9;
   --bg-input: #f8fafc;
   --bg-elevated: #ffffff;
+  --bg-surface-elevated: #f1f5f9;
   --border-subtle: #e2e8f0;
   --border-default: #cbd5e1;
   --border-accent: #2563eb;
@@ -950,10 +952,10 @@ html.light {
       position: absolute;
       right: 0;
       top: calc(100% + 6px);
-      background: #182234;
+      background: var(--bg-card);
       border: 1px solid var(--border-subtle);
       border-radius: 8px;
-      box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
+      box-shadow: var(--shadow-dropdown);
       width: 224px;
       z-index: 1000;
       padding: 6px;
@@ -981,6 +983,124 @@ html.light {
     .menu-popover-item:hover .popover-title {
       color: #60a5fa;
     }
+    /* Application Switcher Dropdown Styles */
+    .app-switcher-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--text-main);
+      transition: background 0.15s ease, color 0.15s ease;
+      background: transparent;
+      user-select: none;
+    }
+    .app-switcher-item:hover {
+      background: var(--bg-card-hover);
+      color: var(--text-heading);
+    }
+    .app-switcher-item.active {
+      background: var(--nav-active-bg);
+      color: var(--nav-active-text);
+      font-weight: 600;
+    }
+    .app-switcher-item.active:hover {
+      background: var(--nav-active-bg);
+      filter: brightness(0.96);
+    }
+    html.light .app-switcher-item {
+      color: #1e293b;
+    }
+    html.light .app-switcher-item:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+    html.light .app-switcher-item.active {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+    html.light .app-switcher-item.active:hover {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .app-switcher-item-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .app-switcher-item-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .app-switcher-default-badge {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: var(--bg-hover-subtle);
+      color: var(--text-muted);
+      border: 1px solid var(--border-subtle);
+    }
+    html.light .app-switcher-default-badge {
+      background: #f1f5f9;
+      color: #64748b;
+      border-color: #cbd5e1;
+    }
+    html.light .app-switcher-item.active .app-switcher-default-badge {
+      background: #dbeafe;
+      color: #1d4ed8;
+      border-color: #bfdbfe;
+    }
+    .app-switcher-item-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .app-switcher-item.active .app-switcher-item-right {
+      color: var(--nav-active-text);
+    }
+    html.light .app-switcher-item.active .app-switcher-item-right {
+      color: #2563eb;
+    }
+    .app-switcher-check {
+      color: var(--accent-primary);
+      font-weight: 700;
+      font-size: 12px;
+    }
+    html.light .app-switcher-check {
+      color: #1d4ed8;
+    }
+    .btn-delete-app {
+      background: transparent;
+      border: none;
+      padding: 2px 4px;
+      border-radius: 4px;
+      cursor: pointer;
+      color: var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      line-height: 1;
+    }
+    .btn-delete-app:hover {
+      color: #ef4444;
+      background: rgba(239, 68, 68, 0.15);
+    }
+    html.light .btn-delete-app:hover {
+      color: #dc2626;
+      background: rgba(220, 38, 38, 0.12);
+    }
+
     .popover-icon {
       font-size: 15px;
       display: flex;
@@ -1229,7 +1349,7 @@ html.light {
       line-height: 1;
     }
     .search-clear-badge-btn:hover {
-      color: #fff;
+      color: var(--text-heading);
     }
 
     /* Interactive Sortable Headers */
@@ -1642,8 +1762,8 @@ html.light {
       cursor: pointer;
     }
     .command-palette-esc-badge:hover {
-      color: #fff;
-      border-color: rgba(255, 255, 255, 0.25);
+      color: var(--text-heading);
+      border-color: var(--border-default);
     }
     .command-palette-results {
       max-height: 380px;

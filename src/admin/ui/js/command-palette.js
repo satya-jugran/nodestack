@@ -57,7 +57,7 @@ function getAllCommandPaletteItems() {
     category: 'Navigation',
     badge: 'PAGE',
     icon: '🧩',
-    keywords: ['plugins', 'extensions', 'addons', 'stripe', 's3', 'resend', 'webhooks', 'algolia'],
+    keywords: ['plugins', 'extensions', 'addons', 'stripe', 's3', 'resend', 'chat notifications', 'discord', 'slack', 'webhooks', 'algolia'],
     action: () => selectNav('plugins')
   });
 
@@ -70,6 +70,17 @@ function getAllCommandPaletteItems() {
     icon: '🔗',
     keywords: ['webhooks', 'webhook', 'outbound', 'events', 'deliveries', 'retry'],
     action: () => selectNav('webhooks')
+  });
+
+  items.push({
+    id: 'nav-functions',
+    title: 'Serverless Functions',
+    description: 'Sandboxed QuickJS serverless functions, API routes and event hooks',
+    category: 'Navigation',
+    badge: 'PAGE',
+    icon: '⚡',
+    keywords: ['functions', 'serverless', 'lambda', 'quickjs', 'wasm', 'sandbox', 'api', 'hooks', 'code'],
+    action: () => selectNav('functions')
   });
 
   items.push({

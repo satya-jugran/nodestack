@@ -12,12 +12,14 @@ import {
   s3StoragePlugin,
   S3StorageService,
   resendPlugin,
+  chatNotificationsPlugin,
   webhookPlugin,
   algoliaPlugin,
 } from '../src';
 import { stripePlugin as workspaceStripePlugin } from '../packages/plugins/stripe/src';
 import { s3StoragePlugin as workspaceS3Plugin } from '../packages/plugins/s3/src';
 import { resendPlugin as workspaceResendPlugin } from '../packages/plugins/resend/src';
+import { chatNotificationsPlugin as workspaceChatNotificationsPlugin } from '../packages/plugins/chat-notifications/src';
 import { webhookPlugin as workspaceWebhookPlugin } from '../packages/plugins/webhooks/src';
 import { algoliaPlugin as workspaceAlgoliaPlugin } from '../packages/plugins/algolia/src';
 
@@ -1769,6 +1771,70 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(capturedWebhookRequests[0].body.content).toBe('Hello from Admin');
     });
 
+    it('should prevent SSRF and block custom URL overrides for unauthenticated callers when authPolicy is public', async () => {
+      const capturedRequests: any[] = [];
+      const testApp = new NodeStack({ dataDir: `${testDataDir}_ssrf_test`, port: 8139 });
+      testApp.use(
+        chatNotificationsPlugin({
+          discordWebhookUrl: 'https://discord.mock/public-webhook',
+          authPolicy: 'public',
+          fetch: async (url, init) => {
+            capturedRequests.push({ url, init });
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          },
+        })
+      );
+      await testApp.start();
+
+      try {
+        // (a) Public caller without body.url succeeds and dispatches to configured webhook
+        const resConfigured = await testApp.server.inject({
+          method: 'POST',
+          url: '/api/chat-notifications/test',
+          payload: { platform: 'discord', message: 'Public test' },
+        });
+        expect(resConfigured.statusCode).toBe(200);
+        expect(capturedRequests.length).toBe(1);
+        expect(capturedRequests[0].url).toBe('https://discord.mock/public-webhook');
+
+        // (b) Public caller attempting to override body.url is rejected with 403
+        const resOverride = await testApp.server.inject({
+          method: 'POST',
+          url: '/api/chat-notifications/test',
+          payload: {
+            platform: 'discord',
+            url: 'http://169.254.169.254/latest/meta-data/',
+            message: 'SSRF exploit attempt',
+          },
+        });
+        expect(resOverride.statusCode).toBe(403);
+        expect(resOverride.json().error).toContain('Custom destination URL override requires admin authorization');
+
+        // (c) Admin caller attempting SSRF destination URL is rejected with 400
+        await testApp.auth.createAdmin('ssrf-admin@nodestack.io', 'Password123!');
+        const { token: adminToken } = await testApp.auth.authenticateAdmin(
+          'ssrf-admin@nodestack.io',
+          'Password123!'
+        );
+
+        const resAdminSsrf = await testApp.server.inject({
+          method: 'POST',
+          url: '/api/chat-notifications/test',
+          headers: { authorization: `Bearer ${adminToken}` },
+          payload: {
+            platform: 'discord',
+            url: 'http://127.0.0.1:8080/secret',
+            message: 'Internal loopback probe',
+          },
+        });
+        expect(resAdminSsrf.statusCode).toBe(400);
+        expect(resAdminSsrf.json().error).toMatch(/prohibited|private or metadata IP/i);
+      } finally {
+        await testApp.stop();
+        fs.rmSync(`${testDataDir}_ssrf_test`, { recursive: true, force: true });
+      }
+    });
+
     it('should dynamically update active dispatch platforms and status when webhook URLs are configured at runtime', async () => {
       const origDiscordEnv = process.env.DISCORD_WEBHOOK_URL;
       const origSlackEnv = process.env.SLACK_WEBHOOK_URL;
@@ -1822,7 +1888,7 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
         });
 
         let navRes = await app.server.inject({ method: 'GET', url: '/api/plugins' });
-        let webhooksNav = navRes.json().navItems.find((n: any) => n.id === 'webhooks');
+        let webhooksNav = navRes.json().navItems.find((n: any) => n.id === 'chat-notifications' || n.id === 'webhooks');
         expect(webhooksNav.badge).toBe('READY');
 
         // Mutation before configuration: 0 outbound requests sent
@@ -1842,7 +1908,7 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
         });
 
         navRes = await app.server.inject({ method: 'GET', url: '/api/plugins' });
-        webhooksNav = navRes.json().navItems.find((n: any) => n.id === 'webhooks');
+        webhooksNav = navRes.json().navItems.find((n: any) => n.id === 'chat-notifications' || n.id === 'webhooks');
         expect(webhooksNav.badge).toBe('CONFIGURED');
 
         // Mutation after config update: Discord webhook is dispatched!
@@ -2138,6 +2204,33 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       const resendStatus = await app.server.inject({ method: 'GET', url: '/api/resend/status' });
       expect(resendStatus.statusCode).toBe(200);
       expect(resendStatus.json().configured).toBe(true);
+    });
+
+    it('should export ChatNotificationService with updateOptions, isPlatformEnabled, and getActivePlatforms in packages/plugins/*', async () => {
+      const chatPkg = await import('../packages/plugins/chat-notifications/src');
+      const webhookPkg = await import('../packages/plugins/webhooks/src');
+
+      // Both packages export ChatNotificationService and WebhookNotificationService
+      expect(typeof chatPkg.ChatNotificationService).toBe('function');
+      expect(typeof chatPkg.WebhookNotificationService).toBe('function');
+      expect(typeof webhookPkg.ChatNotificationService).toBe('function');
+      expect(typeof webhookPkg.WebhookNotificationService).toBe('function');
+
+      const service = new chatPkg.ChatNotificationService({
+        discordWebhookUrl: 'https://discord.mock/test',
+        enableDiscord: true,
+      });
+
+      expect(typeof service.updateOptions).toBe('function');
+      expect(typeof service.isPlatformEnabled).toBe('function');
+      expect(typeof service.getActivePlatforms).toBe('function');
+
+      expect(service.isPlatformEnabled('discord')).toBe(true);
+      expect(service.getActivePlatforms()).toContain('discord');
+
+      service.updateOptions({ enableDiscord: false });
+      expect(service.isPlatformEnabled('discord')).toBe(false);
+      expect(service.getActivePlatforms().length).toBe(0);
     });
 
     it('should support invoking plugin factories with zero arguments (no-options / env-only)', () => {
@@ -2765,6 +2858,224 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       // While disabled, hook must NOT fire
       await app.records.create('tasks', { desc: 'Task 2' });
       expect(hookExecutionCount).toBe(1);
+    });
+  });
+
+  describe('17. @nodestackapp/plugin-chat-notifications Package & Aliases', () => {
+    it('should register chat-notifications plugin, handle status routes, and maintain webhooks compatibility aliases', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8250 });
+      await app.start();
+
+      // Register workspaceChatNotificationsPlugin
+      app.use(
+        workspaceChatNotificationsPlugin({
+          discordWebhookUrl: 'https://discord.com/api/webhooks/mock-channel',
+          collections: ['tasks'],
+        })
+      );
+
+      // Verify plugin registration and alias
+      expect(app.hasPlugin('chat-notifications')).toBe(true);
+      expect(app.hasPlugin('webhooks')).toBe(true);
+      expect(app.getPlugin('chat-notifications')?.name).toBe('chat-notifications');
+      expect(app.getPlugin('webhooks')?.name).toBe('chat-notifications');
+
+      // GET /api/chat-notifications/status
+      const statusRes = await app.server.inject({
+        method: 'GET',
+        url: '/api/chat-notifications/status',
+      });
+      expect(statusRes.statusCode).toBe(200);
+      const body = statusRes.json();
+      expect(body.hasDiscord).toBe(true);
+      expect(body.hasSlack).toBe(false);
+      expect(body.monitoredCollections).toContain('tasks');
+
+      // GET /api/webhooks/status (backward compatible route alias)
+      const legacyStatusRes = await app.server.inject({
+        method: 'GET',
+        url: '/api/webhooks/status',
+      });
+      expect(legacyStatusRes.statusCode).toBe(200);
+      expect(legacyStatusRes.json().hasDiscord).toBe(true);
+
+      // Verify Admin navigation item does not collide with webhooks
+      const navRes = await app.server.inject({ method: 'GET', url: '/api/plugins' });
+      const navItems = navRes.json().navItems;
+      const chatNavItem = navItems.find((n: any) => n.id === 'chat-notifications');
+      expect(chatNavItem).toBeDefined();
+      expect(chatNavItem.title).toBe('Chat Notifications');
+
+      // Official catalog contains chat-notifications
+      const catalogRes = await app.server.inject({ method: 'GET', url: '/api/plugins' });
+      const catalog = catalogRes.json().catalog;
+      const chatPluginMeta = catalog.find((c: any) => c.id === 'chat-notifications');
+      expect(chatPluginMeta).toBeDefined();
+      expect(chatPluginMeta.packageName).toBe('@nodestackapp/plugin-chat-notifications');
+      expect(chatPluginMeta.title).toBe('Chat Notifications (Discord & Slack)');
+    });
+
+    it('should support enableOfficialPlugin with both chat-notifications and legacy webhooks ID', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8251 });
+      await app.start();
+
+      // Enable via legacy ID 'webhooks'
+      const cfg = await app.pluginManager.enableOfficialPlugin('webhooks');
+      expect(cfg).toBeDefined();
+      expect(app.hasPlugin('chat-notifications')).toBe(true);
+      expect(app.hasPlugin('webhooks')).toBe(true);
+
+      // Disable via legacy ID
+      await app.pluginManager.disableOfficialPlugin('webhooks');
+      expect(app.hasPlugin('chat-notifications')).toBe(false);
+
+      // Enable via new ID 'chat-notifications'
+      const cfgNew = await app.pluginManager.enableOfficialPlugin('chat-notifications');
+      expect(cfgNew).toBeDefined();
+      expect(app.hasPlugin('chat-notifications')).toBe(true);
+    });
+    it('should support individually enabling and disabling Discord and Slack notifications without deleting URLs', async () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8252 });
+      await app.start();
+
+      await app.schema.createCollection({
+        name: 'items',
+        schema: [{ name: 'title', type: 'text' }],
+        createRule: '',
+        updateRule: '',
+      });
+
+      const capturedCalls: string[] = [];
+      const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+        capturedCalls.push(url);
+        return { ok: true, status: 200, text: async () => '' };
+      });
+
+      app.use(
+        chatNotificationsPlugin({
+          discordWebhookUrl: 'https://discord.mock/alerts',
+          slackWebhookUrl: 'https://slack.mock/alerts',
+          enableDiscord: true,
+          enableSlack: true,
+          collections: ['items'],
+          fetch: mockFetch as any,
+        })
+      );
+
+      // Verify both active
+      const status1 = await app.server.inject({ method: 'GET', url: '/api/chat-notifications/status' });
+      expect(status1.json().discordActive).toBe(true);
+      expect(status1.json().slackActive).toBe(true);
+
+      // Mutate: both receive notifications
+      await app.records.create('items', { title: 'First item' });
+      expect(capturedCalls.length).toBe(2);
+      expect(capturedCalls).toContain('https://discord.mock/alerts');
+      expect(capturedCalls).toContain('https://slack.mock/alerts');
+
+      // Now mute Discord via configuration update (enableDiscord: false)
+      await app.pluginManager.updatePluginConfig('chat-notifications', {
+        enableDiscord: false,
+      });
+
+      const status2 = await app.server.inject({ method: 'GET', url: '/api/chat-notifications/status' });
+      expect(status2.json().discordActive).toBe(false);
+      expect(status2.json().slackActive).toBe(true);
+      expect(status2.json().hasDiscord).toBe(true); // URL is still preserved!
+
+      // Mutate again: only Slack receives notification
+      capturedCalls.length = 0;
+      await app.records.create('items', { title: 'Second item' });
+      expect(capturedCalls.length).toBe(1);
+      expect(capturedCalls[0]).toBe('https://slack.mock/alerts');
+
+      // Re-enable Discord
+      await app.pluginManager.updatePluginConfig('chat-notifications', {
+        enableDiscord: true,
+      });
+
+      capturedCalls.length = 0;
+      await app.records.create('items', { title: 'Third item' });
+      expect(capturedCalls.length).toBe(2);
+    });
+    it('should render unified cards in Admin UI with paired toggle and URL input for Discord and Slack', async () => {
+      const { JSDOM } = await import('jsdom');
+      const { AdminUIBundler } = await import('../src/admin/AdminUIBundler');
+      const uiDir = path.resolve(__dirname, '../src/admin/ui');
+      const bundledHtml = AdminUIBundler.bundle(uiDir);
+
+      const dom = new JSDOM(bundledHtml, {
+        url: 'http://localhost:8090/_/',
+        runScripts: 'dangerously',
+        beforeParse(window: any) {
+          window.fetch = vi.fn().mockImplementation(async (url: string) => {
+            if (url.includes('/api/admins/has-admins')) {
+              return { ok: true, json: async () => ({ hasAdmins: true }) };
+            }
+            if (url.includes('/api/plugins/chat-notifications/config')) {
+              return {
+                ok: true,
+                json: async () => ({
+                  plugin: 'chat-notifications',
+                  hasConfig: true,
+                  fields: [
+                    { name: 'discordWebhookUrl', label: 'Discord Webhook URL', type: 'text', value: 'https://discord.com/hook' },
+                    { name: 'enableDiscord', label: 'Enable Discord Notifications', type: 'boolean', value: true },
+                    { name: 'slackWebhookUrl', label: 'Slack Webhook URL', type: 'text', value: 'https://slack.com/hook' },
+                    { name: 'enableSlack', label: 'Enable Slack Notifications', type: 'boolean', value: false },
+                    { name: 'dryRun', label: 'Dry Run Simulation', type: 'boolean', value: false },
+                  ],
+                }),
+              };
+            }
+            return { ok: true, json: async () => ({ items: [] }) };
+          });
+        },
+      });
+
+      const win = dom.window as any;
+      const doc = win.document;
+
+      // Set up plugin container
+      const container = doc.createElement('div');
+      container.id = 'plugin-config-container-chat-notifications';
+      doc.body.appendChild(container);
+
+      // Trigger loadPluginConfig
+      await win.loadPluginConfig('chat-notifications');
+
+      // 1. Both inputs exist
+      const discordInput = doc.getElementById('cfg-chat-notifications-discordWebhookUrl');
+      const discordToggle = doc.getElementById('cfg-chat-notifications-enableDiscord');
+      const slackInput = doc.getElementById('cfg-chat-notifications-slackWebhookUrl');
+      const slackToggle = doc.getElementById('cfg-chat-notifications-enableSlack');
+      const dryRunInput = doc.getElementById('cfg-chat-notifications-dryRun');
+
+      expect(discordInput).toBeTruthy();
+      expect(discordToggle).toBeTruthy();
+      expect(slackInput).toBeTruthy();
+      expect(slackToggle).toBeTruthy();
+      expect(dryRunInput).toBeTruthy();
+
+      // 2. Both discordInput and discordToggle share the SAME parent card container!
+      const discordCard = discordInput.parentElement?.parentElement;
+      expect(discordCard).toBeTruthy();
+      expect(discordCard.contains(discordToggle)).toBe(true);
+      expect(discordCard.textContent).toContain('Discord Channel');
+
+      // 3. Both slackInput and slackToggle share the SAME parent card container!
+      const slackCard = slackInput.parentElement?.parentElement;
+      expect(slackCard).toBeTruthy();
+      expect(slackCard.contains(slackToggle)).toBe(true);
+      expect(slackCard.textContent).toContain('Slack Channel');
+
+      // 4. Slack toggle is unchecked -> slackInput has opacity 0.55
+      expect(slackToggle.checked).toBe(false);
+      expect(slackInput.style.opacity).toBe('0.55');
+
+      // 5. Discord toggle is checked -> discordInput has opacity 1
+      expect(discordToggle.checked).toBe(true);
+      expect(discordInput.style.opacity).toBe('1');
     });
   });
 });

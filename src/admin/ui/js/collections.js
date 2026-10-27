@@ -13,30 +13,30 @@ function renderCollectionsHubView() {
     <div class="hub-hero-banner">
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
         <div>
-          <h2 style="font-size:18px; font-weight:800; color:#fff; letter-spacing:-0.02em;">Collections & Schema Directory</h2>
+          <h2 style="font-size:18px; font-weight:800; color:var(--text-heading); letter-spacing:-0.02em;">Collections & Schema Directory</h2>
           <p style="font-size:12px; color:var(--text-muted); margin-top:3px;">
             Embedded SQLite database tables with instant REST API, CRUD endpoints, and realtime subscriptions.
           </p>
         </div>
         <div style="display:flex; align-items:center; gap:0.5rem;">
           <button class="btn btn-primary btn-sm" onclick="openNewCollectionModal()">+ New Collection</button>
-          <button class="btn btn-secondary btn-sm" onclick="openTemplatesModal()">✨ Starter Recipes</button>
-          <button class="btn btn-secondary btn-sm" onclick="openImportModal()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:-1px; margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Import JSON</button>
+          <button class="btn btn-secondary btn-sm" onclick="openTemplatesModal()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:-1px; margin-right:4px; color:var(--accent-primary);"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>Starter Recipes</button>
+          <button class="btn btn-secondary btn-sm" onclick="openImportModal()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:-1px; margin-right:4px; color:var(--accent-primary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Import JSON</button>
         </div>
       </div>
 
       <div class="hub-stats-row" style="margin-top:0.5rem;">
         <div class="hub-stat-card">
           <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Total Collections</span>
-          <span style="font-size:20px; font-weight:800; color:#fff;">${allCols.length}</span>
+          <span style="font-size:20px; font-weight:800; color:var(--text-heading);">${allCols.length}</span>
         </div>
         <div class="hub-stat-card">
           <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">User Collections</span>
-          <span style="font-size:20px; font-weight:800; color:#60a5fa;">${userCols.length}</span>
+          <span style="font-size:20px; font-weight:800; color:var(--text-heading);">${userCols.length}</span>
         </div>
         <div class="hub-stat-card">
           <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">System Tables</span>
-          <span style="font-size:20px; font-weight:800; color:#34d399;">${systemCols.length}</span>
+          <span style="font-size:20px; font-weight:800; color:var(--text-heading);">${systemCols.length}</span>
         </div>
       </div>
     </div>
@@ -53,7 +53,9 @@ function renderCollectionsHubView() {
           <div class="hub-card" onclick="selectCollection('${escapeHtml(col.name)}')">
             <div class="hub-card-header">
               <div class="hub-card-title">
-                <span>${isSys ? '⚙️' : '📁'}</span>
+                ${isSys
+                  ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text-muted);"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'
+                  : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-primary);"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>'}
                 <span>${escapeHtml(col.name)}</span>
               </div>
               <div style="display:flex; align-items:center; gap:4px;">
@@ -233,7 +235,7 @@ function renderCollectionsList() {
 }
 
 // Select Collection
-async function selectCollection(name) {
+async function selectCollection(name, pushState = true) {
   state.activeNav = 'collection';
   const allCols = Array.isArray(state.collections)
     ? state.collections
@@ -275,15 +277,29 @@ async function selectCollection(name) {
   } else {
     renderSchemaView();
   }
+
+  if (pushState) {
+    const sub = (state.collectionTab === 'schema') ? '/schema' : '';
+    if (typeof updateUrl === 'function') {
+      updateUrl('/_/collections/' + encodeURIComponent(name) + sub);
+    }
+  }
 }
 
 // Collection Tabs
-function switchCollectionTab(tab) {
+function switchCollectionTab(tab, pushState = true) {
   state.collectionTab = tab;
   document.getElementById('tab-records').className = tab === 'records' ? 'tab-btn active' : 'tab-btn';
   document.getElementById('tab-schema').className = tab === 'schema' ? 'tab-btn active' : 'tab-btn';
 
   updateBreadcrumbs();
+
+  if (pushState && state.activeCollection) {
+    const sub = (tab === 'schema') ? '/schema' : '';
+    if (typeof updateUrl === 'function') {
+      updateUrl('/_/collections/' + encodeURIComponent(state.activeCollection.name) + sub);
+    }
+  }
 
   if (tab === 'records') {
     renderRecordsView();
@@ -342,6 +358,13 @@ function updateBreadcrumbs() {
       crumbs.push({ label: 'Delivery Logs', active: true });
     } else {
       crumbs.push({ label: 'Webhooks', active: true });
+    }
+  } else if (state.activeNav === 'functions') {
+    if (typeof functionsState !== 'undefined' && functionsState.subTab === 'logs') {
+      crumbs.push({ label: 'Functions', clickable: true, action: () => { if (typeof switchFunctionsTab === 'function') switchFunctionsTab('functions'); } });
+      crumbs.push({ label: 'Execution Logs', active: true });
+    } else {
+      crumbs.push({ label: 'Functions', active: true });
     }
   } else if (state.activeNav === 'home') {
     crumbs.push({ label: 'Overview', active: true });
