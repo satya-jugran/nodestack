@@ -400,6 +400,59 @@ TEST_PLUGIN_DISCORD_URL=https://discord.com/api/webhooks/test
       })
     ).rejects.toThrow(/Field "region" is required/);
   });
+
+  it('should support webhooks <-> chat-notifications alias normalization in getPluginConfig and HTTP endpoint', async () => {
+    app = new NodeStack({ dataDir: testDataDir, port: 8203 });
+
+    const chatPlugin: INodeStackPlugin = {
+      name: 'chat-notifications',
+      version: '1.0.0',
+      configSchema: {
+        fields: [
+          {
+            name: 'discordWebhookUrl',
+            label: 'Discord URL',
+            type: 'text',
+            defaultValue: 'https://discord.com/hook',
+          },
+        ],
+      },
+    };
+
+    app.use(chatPlugin);
+
+    // Create admin for HTTP endpoint authentication
+    await app.auth.createAdmin('admin@nodestack.io', 'Password123!');
+    const { token: adminToken } = await app.auth.authenticateAdmin('admin@nodestack.io', 'Password123!');
+
+    // 1. Direct getPluginConfig using legacy alias 'webhooks'
+    const legacyConfig = app.pluginManager.getPluginConfig('webhooks');
+    expect(legacyConfig.hasConfig).toBe(true);
+    expect(legacyConfig.plugin).toBe('chat-notifications');
+    expect(legacyConfig.fields[0].name).toBe('discordWebhookUrl');
+
+    // 2. HTTP GET /api/plugins/webhooks/config using legacy alias
+    const res = await app.server.inject({
+      method: 'GET',
+      url: '/api/plugins/webhooks/config',
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.hasConfig).toBe(true);
+    expect(body.plugin).toBe('chat-notifications');
+
+    // 3. Fallback database settings reading when saved under alias
+    app.db.prepare(`
+      INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
+      VALUES (?, ?, ?)
+    `).run('webhooks', JSON.stringify({ discordWebhookUrl: 'https://discord.com/from-alias-db' }), new Date().toISOString());
+
+    const readConfig = app.pluginManager.getPluginConfig('chat-notifications');
+    const field = readConfig.fields.find((f) => f.name === 'discordWebhookUrl');
+    expect(field?.value).toBe('https://discord.com/from-alias-db');
+    expect(field?.source).toBe('db');
+  });
 });
 
 

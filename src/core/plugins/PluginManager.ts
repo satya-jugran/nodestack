@@ -930,10 +930,17 @@ export class PluginManager {
     this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = targetDb.get<{ settings: string }>(
+      let row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [name]
       );
+      if (!row && (name === 'webhooks' || name === 'chat-notifications')) {
+        const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+        row = targetDb.get<{ settings: string }>(
+          'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+          [altName]
+        );
+      }
       if (row?.settings) {
         dbSettings = JSON.parse(row.settings);
       }
@@ -1493,11 +1500,6 @@ export class PluginManager {
       record = this.plugins.get(aliasName);
       if (record) name = aliasName;
     }
-    if (!record && (name === 'webhooks' || name === 'chat-notifications')) {
-      const aliasName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
-      record = this.plugins.get(aliasName);
-      if (record) name = aliasName;
-    }
     if (!record) {
       throw new NotFoundError(`Plugin "${name}" is not registered`);
     }
@@ -1510,10 +1512,17 @@ export class PluginManager {
     this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = targetDb.get<{ settings: string }>(
+      let row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [name]
       );
+      if (!row && (name === 'webhooks' || name === 'chat-notifications')) {
+        const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+        row = targetDb.get<{ settings: string }>(
+          'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+          [altName]
+        );
+      }
       if (row?.settings) {
         dbSettings = JSON.parse(row.settings);
       }
@@ -1581,6 +1590,11 @@ export class PluginManager {
         }
       }
     }
+    if (!record && (name === 'webhooks' || name === 'chat-notifications')) {
+      const aliasName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+      record = this.plugins.get(aliasName);
+      if (record) name = aliasName;
+    }
     if (!record) {
       throw new NotFoundError(`Plugin "${name}" is not registered`);
     }
@@ -1597,10 +1611,17 @@ export class PluginManager {
     this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = targetDb.get<{ settings: string }>(
+      let row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [name]
       );
+      if (!row && (name === 'webhooks' || name === 'chat-notifications')) {
+        const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+        row = targetDb.get<{ settings: string }>(
+          'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+          [altName]
+        );
+      }
       if (row?.settings) {
         dbSettings = JSON.parse(row.settings);
       }
@@ -1718,10 +1739,17 @@ export class PluginManager {
     this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = targetDb.get<{ settings: string }>(
+      let row = targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
         [name]
       );
+      if (!row && (name === 'webhooks' || name === 'chat-notifications')) {
+        const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+        row = targetDb.get<{ settings: string }>(
+          'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+          [altName]
+        );
+      }
       if (row?.settings) {
         dbSettings = JSON.parse(row.settings);
       }

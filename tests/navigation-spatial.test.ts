@@ -669,6 +669,15 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
 
       win.switchWebhooksTab('webhooks');
       expect(win.location.pathname).toBe('/_/webhooks');
+
+      await win.selectNav('logs');
+      expect(win.location.pathname).toBe('/_/logs');
+
+      win.switchLogsSubTab('audit');
+      expect(win.location.pathname).toBe('/_/logs/audit');
+
+      win.switchLogsSubTab('traffic');
+      expect(win.location.pathname).toBe('/_/logs');
     });
 
     it('should parse deep-link URLs on startup via parseUrlAndNavigate and restore matching view', async () => {
@@ -692,6 +701,12 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       await win.parseUrlAndNavigate(true);
       expect(win.state.activeNav).toBe('webhooks');
       expect(win.webhooksState.subTab).toBe('deliveries');
+
+      // Deep link to logs audit trail
+      win.history.pushState(null, '', '/_/logs/audit');
+      await win.parseUrlAndNavigate(true);
+      expect(win.state.activeNav).toBe('logs');
+      expect(win.auditState.subTab).toBe('audit');
 
       // Deep link to root /_/
       win.history.pushState(null, '', '/_/');
@@ -732,6 +747,19 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       await new Promise(r => setTimeout(r, 25));
       expect(win.location.pathname).toBe('/_/analytics');
       expect(win.state.activeNav).toBe('analytics');
+
+      // Navigate to logs and switch to audit subtab
+      await win.selectNav('logs');
+      expect(win.location.pathname).toBe('/_/logs');
+      win.switchLogsSubTab('audit');
+      expect(win.location.pathname).toBe('/_/logs/audit');
+      expect(win.auditState.subTab).toBe('audit');
+
+      // Simulate browser Back button to return to logs traffic subtab
+      win.history.back();
+      await new Promise(r => setTimeout(r, 25));
+      expect(win.location.pathname).toBe('/_/logs');
+      expect(win.auditState.subTab).toBe('traffic');
     });
 
     it('should preserve multi-app query parameter ?app=:slug across URL changes', async () => {

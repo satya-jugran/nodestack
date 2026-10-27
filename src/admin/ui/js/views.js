@@ -378,6 +378,13 @@
 
     function switchLogsSubTab(subTab, pushState = true) {
       auditState.subTab = subTab;
+      if (pushState && typeof updateUrl === 'function') {
+        const path = (subTab === 'audit') ? '/_/logs/audit' : '/_/logs';
+        updateUrl(path);
+      }
+      if (typeof updateBreadcrumbs === 'function') {
+        updateBreadcrumbs();
+      }
       renderLogsView();
       loadLogsSubTab();
     }
