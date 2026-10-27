@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { INodeStackPlugin, NodeStackPluginContext, AdminNavItem } from '../core/plugins/types';
+import { SsrfGuard } from '../functions/security/SsrfGuard';
 
 export interface ChatNotificationsPluginOptions {
   discordWebhookUrl?: string;
@@ -154,6 +155,39 @@ export class ChatNotificationService {
       };
       this.dispatched.push(failedEntry);
       return failedEntry;
+    }
+
+    if (customUrl) {
+      try {
+        if (!this.options.fetch && !this.options.dryRun) {
+          await SsrfGuard.validateUrl(customUrl);
+        } else {
+          const parsed = new URL(customUrl);
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            throw new Error(`Forbidden protocol '${parsed.protocol}'`);
+          }
+          const rawHost = parsed.hostname.toLowerCase();
+          const host = rawHost.startsWith('[') && rawHost.endsWith(']') ? rawHost.slice(1, -1) : rawHost;
+          if (
+            ['localhost', 'metadata.google.internal', 'instance-data'].includes(host) ||
+            SsrfGuard.isPrivateIp(host)
+          ) {
+            throw new Error(`Direct access to private or metadata IP '${host}' is prohibited`);
+          }
+        }
+      } catch (err: any) {
+        const failedEntry: ChatNotificationResult = {
+          id,
+          platform,
+          payload,
+          status: 'failed',
+          statusCode: 400,
+          error: `SSRF validation failed: ${err.message}`,
+          timestamp,
+        };
+        this.dispatched.push(failedEntry);
+        return failedEntry;
+      }
     }
 
     if (this.options.dryRun) {
@@ -482,10 +516,50 @@ export function chatNotificationsPlugin(options: ChatNotificationsPluginOptions 
         const { service: activeService, records } = getScopedService(req);
         const body = (req.body as any) || {};
         const platform = body.platform === 'slack' ? 'slack' : 'discord';
+
+        // An arbitrary outbound destination URL override requires admin authorization and SSRF validation
+        const isAdmin = Boolean(
+          (req as any).auth && ((req as any).auth.role === 'admin' || (req as any).auth.isAdmin)
+        );
+
+        if (body.url && !isAdmin) {
+          return reply.status(403).send({
+            error: 'Custom destination URL override requires admin authorization',
+          });
+        }
+
+        const customUrl =
+          isAdmin && typeof body.url === 'string' && body.url.trim() ? body.url.trim() : undefined;
+        if (customUrl) {
+          try {
+            if (!activeService.options.fetch && !activeService.options.dryRun) {
+              await SsrfGuard.validateUrl(customUrl);
+            } else {
+              const parsed = new URL(customUrl);
+              if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                throw new Error(`Forbidden protocol '${parsed.protocol}'`);
+              }
+              const rawHost = parsed.hostname.toLowerCase();
+              const host =
+                rawHost.startsWith('[') && rawHost.endsWith(']') ? rawHost.slice(1, -1) : rawHost;
+              if (
+                ['localhost', 'metadata.google.internal', 'instance-data'].includes(host) ||
+                SsrfGuard.isPrivateIp(host)
+              ) {
+                throw new Error(`Direct access to private or metadata IP '${host}' is prohibited`);
+              }
+            }
+          } catch (err: any) {
+            return reply.status(400).send({
+              error: err.message || 'Invalid or prohibited destination URL',
+            });
+          }
+        }
+
         const entry = await activeService.dispatch(
           platform,
           body.payload || { message: body.message || 'Test notification from NodeStack' },
-          body.url
+          customUrl
         );
 
         try {

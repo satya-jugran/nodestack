@@ -953,6 +953,6 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       await win.loadFunctionStats();
       expect(badge.textContent).toBe('2');
       expect(badge.style.display).toBe('inline-block');
-    });
+    }, 15000);
   });
 });

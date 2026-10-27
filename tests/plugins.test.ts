@@ -1771,6 +1771,70 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(capturedWebhookRequests[0].body.content).toBe('Hello from Admin');
     });
 
+    it('should prevent SSRF and block custom URL overrides for unauthenticated callers when authPolicy is public', async () => {
+      const capturedRequests: any[] = [];
+      const testApp = new NodeStack({ dataDir: `${testDataDir}_ssrf_test`, port: 8139 });
+      testApp.use(
+        chatNotificationsPlugin({
+          discordWebhookUrl: 'https://discord.mock/public-webhook',
+          authPolicy: 'public',
+          fetch: async (url, init) => {
+            capturedRequests.push({ url, init });
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          },
+        })
+      );
+      await testApp.start();
+
+      try {
+        // (a) Public caller without body.url succeeds and dispatches to configured webhook
+        const resConfigured = await testApp.server.inject({
+          method: 'POST',
+          url: '/api/chat-notifications/test',
+          payload: { platform: 'discord', message: 'Public test' },
+        });
+        expect(resConfigured.statusCode).toBe(200);
+        expect(capturedRequests.length).toBe(1);
+        expect(capturedRequests[0].url).toBe('https://discord.mock/public-webhook');
+
+        // (b) Public caller attempting to override body.url is rejected with 403
+        const resOverride = await testApp.server.inject({
+          method: 'POST',
+          url: '/api/chat-notifications/test',
+          payload: {
+            platform: 'discord',
+            url: 'http://169.254.169.254/latest/meta-data/',
+            message: 'SSRF exploit attempt',
+          },
+        });
+        expect(resOverride.statusCode).toBe(403);
+        expect(resOverride.json().error).toContain('Custom destination URL override requires admin authorization');
+
+        // (c) Admin caller attempting SSRF destination URL is rejected with 400
+        await testApp.auth.createAdmin('ssrf-admin@nodestack.io', 'Password123!');
+        const { token: adminToken } = await testApp.auth.authenticateAdmin(
+          'ssrf-admin@nodestack.io',
+          'Password123!'
+        );
+
+        const resAdminSsrf = await testApp.server.inject({
+          method: 'POST',
+          url: '/api/chat-notifications/test',
+          headers: { authorization: `Bearer ${adminToken}` },
+          payload: {
+            platform: 'discord',
+            url: 'http://127.0.0.1:8080/secret',
+            message: 'Internal loopback probe',
+          },
+        });
+        expect(resAdminSsrf.statusCode).toBe(400);
+        expect(resAdminSsrf.json().error).toMatch(/prohibited|private or metadata IP/i);
+      } finally {
+        await testApp.stop();
+        fs.rmSync(`${testDataDir}_ssrf_test`, { recursive: true, force: true });
+      }
+    });
+
     it('should dynamically update active dispatch platforms and status when webhook URLs are configured at runtime', async () => {
       const origDiscordEnv = process.env.DISCORD_WEBHOOK_URL;
       const origSlackEnv = process.env.SLACK_WEBHOOK_URL;
