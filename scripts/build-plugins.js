@@ -191,7 +191,10 @@ export declare class ChatNotificationService {
   readonly options: ChatNotificationsPluginOptions;
   dispatched: Array<ChatNotificationResult>;
   constructor(options?: ChatNotificationsPluginOptions);
+  updateOptions(newOpts: Partial<ChatNotificationsPluginOptions>): void;
   getWebhookUrl(platform: 'discord' | 'slack'): string | undefined;
+  isPlatformEnabled(platform: 'discord' | 'slack'): boolean;
+  getActivePlatforms(): Array<'discord' | 'slack'>;
   formatPayload(platform: 'discord' | 'slack', payload: any): Record<string, any>;
   dispatch(platform: 'discord' | 'slack', payload: any, customUrl?: string): Promise<ChatNotificationResult>;
 }
@@ -210,9 +213,11 @@ export declare const webhookPlugin: typeof chatNotificationsPlugin;
     sourceFile: 'src/plugins/webhooks.ts',
     typesContent: `import type { INodeStackPlugin } from '@nodestackapp/server';
 
-export interface WebhookPluginOptions {
+export interface ChatNotificationsPluginOptions {
   discordWebhookUrl?: string;
   slackWebhookUrl?: string;
+  enableDiscord?: boolean;
+  enableSlack?: boolean;
   collections?: string[];
   events?: Array<'create' | 'update' | 'delete'>;
   collectionName?: string;
@@ -221,7 +226,9 @@ export interface WebhookPluginOptions {
   dryRun?: boolean;
 }
 
-export interface WebhookDispatchResult {
+export type WebhookPluginOptions = ChatNotificationsPluginOptions;
+
+export interface ChatNotificationResult {
   id: string;
   platform: 'discord' | 'slack';
   payload: any;
@@ -231,15 +238,25 @@ export interface WebhookDispatchResult {
   timestamp: string;
 }
 
-export declare class WebhookNotificationService {
-  readonly options: WebhookPluginOptions;
-  dispatched: Array<WebhookDispatchResult>;
-  constructor(options?: WebhookPluginOptions);
+export type WebhookDispatchResult = ChatNotificationResult;
+
+export declare class ChatNotificationService {
+  readonly options: ChatNotificationsPluginOptions;
+  dispatched: Array<ChatNotificationResult>;
+  constructor(options?: ChatNotificationsPluginOptions);
+  updateOptions(newOpts: Partial<ChatNotificationsPluginOptions>): void;
   getWebhookUrl(platform: 'discord' | 'slack'): string | undefined;
+  isPlatformEnabled(platform: 'discord' | 'slack'): boolean;
+  getActivePlatforms(): Array<'discord' | 'slack'>;
   formatPayload(platform: 'discord' | 'slack', payload: any): Record<string, any>;
-  dispatch(platform: 'discord' | 'slack', payload: any, customUrl?: string): Promise<WebhookDispatchResult>;
+  dispatch(platform: 'discord' | 'slack', payload: any, customUrl?: string): Promise<ChatNotificationResult>;
 }
 
+export declare const WebhookNotificationService: typeof ChatNotificationService;
+export type WebhookNotificationService = ChatNotificationService;
+
+export declare function chatNotificationsPlugin(options?: ChatNotificationsPluginOptions): INodeStackPlugin;
+export declare const chatPlugin: typeof chatNotificationsPlugin;
 export declare function webhookPlugin(options?: WebhookPluginOptions): INodeStackPlugin;
 `,
   },

@@ -2206,6 +2206,33 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(resendStatus.json().configured).toBe(true);
     });
 
+    it('should export ChatNotificationService with updateOptions, isPlatformEnabled, and getActivePlatforms in packages/plugins/*', async () => {
+      const chatPkg = await import('../packages/plugins/chat-notifications/src');
+      const webhookPkg = await import('../packages/plugins/webhooks/src');
+
+      // Both packages export ChatNotificationService and WebhookNotificationService
+      expect(typeof chatPkg.ChatNotificationService).toBe('function');
+      expect(typeof chatPkg.WebhookNotificationService).toBe('function');
+      expect(typeof webhookPkg.ChatNotificationService).toBe('function');
+      expect(typeof webhookPkg.WebhookNotificationService).toBe('function');
+
+      const service = new chatPkg.ChatNotificationService({
+        discordWebhookUrl: 'https://discord.mock/test',
+        enableDiscord: true,
+      });
+
+      expect(typeof service.updateOptions).toBe('function');
+      expect(typeof service.isPlatformEnabled).toBe('function');
+      expect(typeof service.getActivePlatforms).toBe('function');
+
+      expect(service.isPlatformEnabled('discord')).toBe(true);
+      expect(service.getActivePlatforms()).toContain('discord');
+
+      service.updateOptions({ enableDiscord: false });
+      expect(service.isPlatformEnabled('discord')).toBe(false);
+      expect(service.getActivePlatforms().length).toBe(0);
+    });
+
     it('should support invoking plugin factories with zero arguments (no-options / env-only)', () => {
       app = new NodeStack({ dataDir: testDataDir, port: 8120 });
 
