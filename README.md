@@ -10,7 +10,7 @@
 [![Documentation](https://img.shields.io/badge/docs-online-blue.svg)](https://satya-jugran.github.io/nodestack/)
 
 <p align="center">
-  <img width="800" height="500" alt="NodeStack Admin Dashboard" src="https://github.com/user-attachments/assets/49c9d492-759b-4fed-9311-9d0afddc95b3" />
+  <img width="800" height="500" alt="NodeStack Admin Dashboard" src="https://github.com/user-attachments/assets/46aec2a7-b6ad-4cda-be3c-785a2f7f6e5d" />
 </p>
 
 <p align="center">
