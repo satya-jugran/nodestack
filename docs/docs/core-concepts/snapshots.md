@@ -7,7 +7,7 @@ description: Time-travel application state, atomic SQLite snapshots, non-destruc
 
 # Application Snapshots & Checkpoints
 
-NodeStack v2.0 introduces **Application Snapshots & Checkpoints** via `SnapshotService`. A snapshot captures a self-contained, point-in-time state of an application—combining its embedded SQLite database, uploaded media assets, schema definitions, and cryptographic content hashes.
+NodeStack features **Application Snapshots & Checkpoints** via `SnapshotService`. A snapshot captures a self-contained, point-in-time state of an application—combining its embedded SQLite database, uploaded media assets, schema definitions, and cryptographic content hashes.
 
 Snapshots provide time-travel recovery across development, demo presentations, integration testing, and production maintenance workflows.
 

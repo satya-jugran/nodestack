@@ -21,13 +21,13 @@ Building modern web and mobile apps often requires juggling separate database en
 NodeStack packages this entire backend architecture into a **single Node.js process**:
 
 - **Embedded SQLite with Zero Native Compilation**: Powered directly by Node.js (`node:sqlite`). No Python, C++ compilers, or external database daemon installations required.
-- **Multi-Application Platform (v2.0)**: Host multiple completely isolated application tenants within a single process—with separate SQLite databases, file storage directories, auth collections, and realtime SSE buses.
+- **Multi-Application Platform**: Host multiple completely isolated application tenants within a single process—with separate SQLite databases, file storage directories, auth collections, and realtime SSE buses.
 - **Instant REST CRUD & Server-Sent Events (SSE)**: Immediately exposes JSON endpoints and realtime change event streams for every collection.
 - **Embedded Web Admin Dashboard**: A responsive dashboard served directly from `http://localhost:8090/_/` without needing an external web server.
-- **Application Snapshots & Checkpoints (v2.0)**: Atomic transactional state checkpoints, non-destructive rollbacks, and live schema drift detection.
-- **Themed Admin Portal (v2.0)**: Instant runtime switching between System, Light, and Dark modes with zero-flicker loading.
+- **Application Snapshots & Checkpoints**: Atomic transactional state checkpoints, non-destructive rollbacks, and live schema drift detection.
+- **Themed Admin Portal**: Instant runtime switching between System, Light, and Dark modes with zero-flicker loading.
 - **Native SQLite FTS5 Full-Text Search**: High-performance BM25 relevance ranking, keyword prefix matching, and contextual snippet highlighting.
-- **Embedded Serverless Functions (QuickJS-Wasm)**: Run isolated JavaScript/TypeScript lambdas in WebAssembly with sub-millisecond cold starts, Anti-SSRF network firewalls, direct HTTP routes, database lifecycle hooks, and a dedicated CodeMirror IDE workbench.
+- **Embedded Serverless Functions (v2.1)**: Run isolated JavaScript/TypeScript lambdas in WebAssembly with sub-millisecond cold starts, Anti-SSRF network firewalls, direct HTTP routes, database lifecycle hooks, and a dedicated CodeMirror IDE workbench.
 - **Outbound Webhooks Subsystem**: Trigger-based HTTP dispatch with HMAC-SHA256 signature verification and automated retries.
 - **Immutable Audit Logging**: Field-level `{ old, new }` diff computation, actor attribution, sensitive field masking, and visual record timeline.
 - **Built-in Authentication & File Storage**: JWT tokens, bcrypt password hashing, auth collections (`users`), and multipart file uploads with MIME validation.

@@ -12,7 +12,6 @@ type FeatureItem = {
 const FeatureList: FeatureItem[] = [
   {
     title: 'Multi-Application Platform',
-    badge: 'v2.0',
     description: (
       <>
         Host multiple completely isolated application tenants in a single process—with dedicated SQLite databases, asset storage, auth pools, and realtime SSE streams.
@@ -20,19 +19,19 @@ const FeatureList: FeatureItem[] = [
     ),
   },
   {
-    title: 'Snapshots & Time-Travel',
-    badge: 'v2.0',
+    title: 'Embedded Serverless Functions',
+    badge: 'v2.1',
     description: (
       <>
-        Atomic SQLite state checkpoints with non-destructive rollbacks, file storage preservation, live schema drift tracking, and FIFO capacity limits.
+        Isolated QuickJS-Wasm execution runtime with Anti-SSRF network firewalls, database lifecycle hooks, Context API, and Admin CodeMirror IDE workbench.
       </>
     ),
   },
   {
-    title: 'Zero-Compilation SQLite',
+    title: 'Snapshots & Time-Travel',
     description: (
       <>
-        Powered natively by Node.js (<code>node:sqlite</code>). Boots instantly with zero C++ compilation, Python, or external database daemon dependencies.
+        Atomic SQLite state checkpoints with non-destructive rollbacks, file storage preservation, live schema drift tracking, and FIFO capacity limits.
       </>
     ),
   },
@@ -54,7 +53,6 @@ const FeatureList: FeatureItem[] = [
   },
   {
     title: 'Themed Web Admin Dashboard',
-    badge: 'v2.0',
     description: (
       <>
         Sleek, reactive dashboard served directly from <code>/_/</code> with System, Light, and Dark modes, data grid, and visual rule builder.

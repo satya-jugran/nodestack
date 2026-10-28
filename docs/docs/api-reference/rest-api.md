@@ -107,7 +107,7 @@ GET /_/openapi.json
 | `DELETE` | `/api/functions/logs` | Clear execution history logs (Superuser). |
 | `ANY` | `/api/apps/:appId/functions/:name/invoke` | Invoke a serverless function scoped to a specific tenant application. |
 
-### Applications & Multi-Tenancy (v2.0)
+### Applications & Multi-Tenancy
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/apps` | List all applications (Superuser). |
@@ -120,7 +120,7 @@ GET /_/openapi.json
 > [!TIP]
 > Clients can also route requests to any application without changing URLs by passing the `x-nodestack-app: <appId-or-slug>` HTTP header. See the [Multi-Application Platform Guide](../core-concepts/multi-application.md).
 
-### Application Snapshots (v2.0)
+### Application Snapshots
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/snapshots` | List all snapshots, capacity status, and schema drift (Superuser). |

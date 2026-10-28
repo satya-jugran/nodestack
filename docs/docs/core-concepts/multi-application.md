@@ -7,7 +7,7 @@ description: Complete multi-tenancy, isolated SQLite databases, asset storage, a
 
 # Multi-Application Platform
 
-NodeStack v2.0 introduces native **Multi-Application Support**. A single NodeStack server process can host, isolate, and manage multiple independent applications simultaneously.
+NodeStack provides native **Multi-Application Support**. A single NodeStack server process can host, isolate, and manage multiple independent applications simultaneously.
 
 Each application functions as a completely isolated tenant with its own embedded SQLite database, file storage directory, authentication user pools, realtime Server-Sent Events (SSE) bus, audit logs, and webhooks.
 
@@ -94,7 +94,7 @@ Host: localhost:8090
 ```
 
 > [!NOTE]
-> **Backward Compatibility**: If no application header or path prefix is provided, NodeStack automatically routes the request to the `default` application. Existing single-app deployments upgrade seamlessly to v2.0 with zero configuration changes.
+> **Backward Compatibility**: If no application header or path prefix is provided, NodeStack automatically routes the request to the `default` application. Existing single-app deployments upgrade seamlessly with zero configuration changes.
 
 ---
 
