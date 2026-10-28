@@ -17,7 +17,7 @@ export class AdminUIBundler {
     // 1. Inline CSS files if css directory exists
     const cssDir = path.join(uiDir, 'css');
     if (fs.existsSync(cssDir)) {
-      const cssFiles = ['main.css', 'rules.css', 'analytics.css', 'webhooks.css'];
+      const cssFiles = ['codemirror.css', 'main.css', 'rules.css', 'analytics.css', 'webhooks.css'];
       let combinedCss = '';
       for (const file of cssFiles) {
         const filePath = path.join(cssDir, file);
@@ -29,14 +29,15 @@ export class AdminUIBundler {
       // Remove external stylesheet link tags
       html = html.replace(/<link\s+rel=["']stylesheet["']\s+href=["'][^"']*css\/[^"']*["']\s*\/?>/gi, '');
 
-      // Inject combined style block before </head>
-      html = html.replace('</head>', `  <style>${combinedCss}  </style>\n</head>`);
+      // Inject combined style block before </head> (using replacer fn to avoid $& / $' interpolation)
+      html = html.replace('</head>', () => `  <style>${combinedCss}  </style>\n</head>`);
     }
 
     // 2. Inline JS modules if js directory exists
     const jsDir = path.join(uiDir, 'js');
     if (fs.existsSync(jsDir)) {
       const jsFiles = [
+        'codemirror.js',
         'state.js',
         'theme.js',
         'api.js',
@@ -54,6 +55,8 @@ export class AdminUIBundler {
         'command-palette.js',
         'webhooks.js',
         'functions.js',
+        'functions-tester.js',
+        'functions-workbench.js',
         'app.js',
       ];
 
@@ -68,8 +71,8 @@ export class AdminUIBundler {
       // Remove script tags with src="./js/..." or "/_/js/..."
       html = html.replace(/<script\s+src=["'][^"']*js\/[^"']*["']><\/script>/gi, '');
 
-      // Inject combined script block before </body>
-      html = html.replace('</body>', `  <script>${combinedJs}  </script>\n</body>`);
+      // Inject combined script block before </body> (using replacer fn to avoid $& / $' interpolation)
+      html = html.replace('</body>', () => `  <script>${combinedJs}  </script>\n</body>`);
     }
 
     return html;

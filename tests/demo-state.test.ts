@@ -375,7 +375,7 @@ describe('"Reset to Demo State" & Snapshot Demo Baseline Feature Tests', () => {
       });
       await setupApp.records.create('demos', { title: 'Baseline 1' });
       await setupApp.records.create('demos', { title: 'Baseline 2' });
-      setupApp.db.close();
+      setupApp.close();
     });
 
     afterAll(() => {
@@ -394,14 +394,14 @@ describe('"Reset to Demo State" & Snapshot Demo Baseline Feature Tests', () => {
       expect(checkApp.demo.hasSnapshot()).toBe(true);
       const status = checkApp.demo.getStatus();
       expect(status.snapshot?.name).toBe('CLI Demo Baseline');
-      checkApp.db.close();
+      checkApp.close();
     });
 
     it('should show demo status via CLI command', async () => {
       await runCli(['node', 'cli.ts', 'demo', 'status', '-d', cliTestDir]);
       const checkApp = new NodeStack({ dataDir: cliTestDir });
       expect(checkApp.demo.hasSnapshot()).toBe(true);
-      checkApp.db.close();
+      checkApp.close();
     });
 
     it('should restore clean demo state via CLI command', async () => {
@@ -410,7 +410,7 @@ describe('"Reset to Demo State" & Snapshot Demo Baseline Feature Tests', () => {
       await appAdd.records.create('demos', { title: 'Messy Evaluation Row' });
       const beforeCount = (await appAdd.records.getList('demos')).totalItems;
       expect(beforeCount).toBe(3);
-      appAdd.db.close();
+      appAdd.close();
 
       // Run CLI reset
       await runCli(['node', 'cli.ts', 'demo', 'reset', '-d', cliTestDir]);
@@ -420,14 +420,14 @@ describe('"Reset to Demo State" & Snapshot Demo Baseline Feature Tests', () => {
       const afterDemos = await appCheck.records.getList('demos');
       expect(afterDemos.totalItems).toBe(2);
       expect(afterDemos.items.some((r: any) => r.title === 'Messy Evaluation Row')).toBe(false);
-      appCheck.db.close();
+      appCheck.close();
     });
 
     it('should clear demo snapshot via CLI command', async () => {
       await runCli(['node', 'cli.ts', 'demo', 'clear', '-d', cliTestDir]);
       const checkApp = new NodeStack({ dataDir: cliTestDir });
       expect(checkApp.demo.hasSnapshot()).toBe(false);
-      checkApp.db.close();
+      checkApp.close();
     });
   });
 

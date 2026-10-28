@@ -586,7 +586,7 @@ describe('Latency & Chaos Simulation (For Testing Frontend States)', () => {
       expect(adminRes.statusCode).toBe(502);
       expect(adminRes.headers['x-simulated-chaos']).toBe('true');
 
-      prodApp.db.close();
+      prodApp.close();
       if (fs.existsSync(prodDir)) {
         try { fs.rmSync(prodDir, { recursive: true, force: true }); } catch {}
       }

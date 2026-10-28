@@ -461,6 +461,14 @@ export class NodeStack {
     await this.container.dispose();
   }
 
+  public close(): void {
+    try {
+      this.apps.closeAll();
+    } catch {
+      // ignore
+    }
+  }
+
   private printStartupBanner(address: string): void {
     const banner = `
 ${chalk.bold.cyan('  ╔═══════════════════════════════════════════════════════╗')}

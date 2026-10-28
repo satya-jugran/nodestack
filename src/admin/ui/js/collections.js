@@ -360,7 +360,13 @@ function updateBreadcrumbs() {
       crumbs.push({ label: 'Webhooks', active: true });
     }
   } else if (state.activeNav === 'functions') {
-    if (typeof functionsState !== 'undefined' && functionsState.subTab === 'logs') {
+    if (typeof functionsState !== 'undefined' && functionsState.currentView === 'editor' && functionsState.activeFunctionForEdit) {
+      crumbs.push({ label: 'Functions', clickable: true, action: () => { if (typeof closeFunctionEditor === 'function') closeFunctionEditor(); } });
+      const editLabel = functionsState.activeFunctionForEdit.isNew
+        ? (functionsState.activeFunctionForEdit.name || 'New Function')
+        : functionsState.activeFunctionForEdit.name;
+      crumbs.push({ label: editLabel, active: true });
+    } else if (typeof functionsState !== 'undefined' && functionsState.subTab === 'logs') {
       crumbs.push({ label: 'Functions', clickable: true, action: () => { if (typeof switchFunctionsTab === 'function') switchFunctionsTab('functions'); } });
       crumbs.push({ label: 'Execution Logs', active: true });
     } else {

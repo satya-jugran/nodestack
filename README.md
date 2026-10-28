@@ -34,6 +34,7 @@ NodeStack delivers an instant, complete backend stack in a **single Node.js proc
 * **Instant CRUD & Realtime SSE**: Automatically exposes REST endpoints and Server-Sent Events change streams for every collection.
 * **Embedded Web Admin Dashboard**: A sleek, reactive dashboard served directly from `http://localhost:8090/_/` without needing an external web server.
 * **Native SQLite FTS5 Full-Text Search (v1.3)**: High-performance BM25 relevance scoring, prefix queries, and highlighted snippet excerpts without external search services.
+* **Embedded Serverless Functions (v2.0)**: Sandboxed QuickJS-Wasm JavaScript/TypeScript lambda execution with sub-millisecond cold starts, Anti-SSRF network firewalls, direct HTTP routes, database lifecycle hooks, and dedicated CodeMirror IDE workbench.
 * **Outbound Webhooks Engine (v1.3)**: Event-driven HTTP callbacks with HMAC-SHA256 signature verification and automated retries.
 * **Immutable Audit Logs (v1.3)**: Field-level `{ old, new }` diff computation, actor attribution, sensitive field masking, and visual record timeline.
 * **Built-in Auth & File Storage**: JWT tokens, bcrypt password hashing, auth collections (`users`), and multipart file uploads with MIME validation.

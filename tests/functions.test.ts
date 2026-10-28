@@ -960,5 +960,250 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(badge.textContent).toBe('2');
       expect(badge.style.display).toBe('inline-block');
     }, 15000);
+
+    it('should render dedicated Function Create Page with full-width CodeMirror and Context Reference', async () => {
+      const fs = await import('fs');
+      const path = await import('path');
+      const { JSDOM } = await import('jsdom');
+
+      const bundledHtmlPath = path.resolve('dist/admin/ui/index.html');
+      const html = fs.readFileSync(bundledHtmlPath, 'utf8');
+
+      const dom = new JSDOM(html, {
+        runScripts: 'dangerously',
+        url: 'http://localhost:8090/_/functions',
+      });
+      const win = dom.window as any;
+      const doc = win.document;
+
+      // Open create function page (dedicated workbench view)
+      await win.openCreateFunctionModal();
+
+      expect(win.functionsState.currentView).toBe('editor');
+      expect(win.functionsState.activeFunctionForEdit.isNew).toBe(true);
+
+      const pageContainer = doc.getElementById('page-view-functions');
+      expect(pageContainer?.innerHTML).toContain('✨ New Function');
+      expect(pageContainer?.innerHTML).toContain('Create Function');
+
+      // Verify editable function name header
+      const nameInput = doc.getElementById('fn-editor-name-header') as HTMLInputElement;
+      expect(nameInput).not.toBeNull();
+      win.syncEditorFunctionName('calculate-vat');
+      expect(nameInput.value).toBe('calculate-vat');
+
+      const preview = doc.getElementById('fn-editor-endpoint-preview');
+      expect(preview?.textContent).toContain('/api/functions/calculate-vat/invoke');
+
+      // Verify Context Reference panel & category filtering
+      const eventFilterBtn = doc.querySelector('.ctx-cat-btn[data-cat="event"]') as HTMLButtonElement;
+      expect(eventFilterBtn).not.toBeNull();
+      eventFilterBtn.click();
+
+      const eventItems = doc.querySelectorAll('.ctx-item[data-cat="event"]');
+      const requestItems = doc.querySelectorAll('.ctx-item[data-cat="request"]');
+      expect(eventItems[0].style.display).toBe('flex');
+      expect(requestItems[0].style.display).toBe('none');
+
+      // Test snippet insertion into code editor
+      const codeEditor = doc.getElementById('fn-editor-code') as HTMLTextAreaElement;
+      expect(codeEditor).not.toBeNull();
+      win.insertFunctionSnippet('const testItem = await ctx.records.get("orders", "ord_123");\n');
+      expect(codeEditor.value).toContain('await ctx.records.get("orders", "ord_123")');
+
+      // Test toggle reference collapse/expand
+      expect(win.functionsState.isCtxRefExpanded).toBe(false);
+      const content = doc.getElementById('workbench-ctx-content');
+      expect(content?.style.display).toBe('none');
+
+      win.toggleWorkbenchCtxRef();
+      expect(win.functionsState.isCtxRefExpanded).toBe(true);
+      expect(content?.style.display).toBe('flex');
+
+      win.toggleWorkbenchCtxRef();
+      expect(win.functionsState.isCtxRefExpanded).toBe(false);
+      expect(content?.style.display).toBe('none');
+
+      // Test Runner tab in draft mode shows unlock prompt
+      win.switchFunctionEditorTab('test');
+      expect(doc.getElementById('fn-editor-pane-test')?.innerHTML).toContain('Function Not Yet Created');
+
+      // Logs tab in draft mode shows no logs prompt
+      win.switchFunctionEditorTab('logs');
+      expect(doc.getElementById('fn-editor-pane-logs')?.innerHTML).toContain('No Logs Available');
+    });
+
+    it('should render dedicated Function Editor Workbench page with tabs, editor, and live sandbox runner', async () => {
+      const fs = await import('fs');
+      const path = await import('path');
+      const { JSDOM } = await import('jsdom');
+
+      const bundledHtmlPath = path.resolve('dist/admin/ui/index.html');
+      const html = fs.readFileSync(bundledHtmlPath, 'utf8');
+
+      const dom = new JSDOM(html, {
+        runScripts: 'dangerously',
+        url: 'http://localhost:8090/_/functions',
+      });
+      const win = dom.window as any;
+      const doc = win.document;
+
+      // Seed a test function in state
+      const mockFn = {
+        id: 'fn_workbench_test',
+        name: 'calculate-shipping',
+        description: 'Calculate shipping cost by weight and zone',
+        code: 'export default async function(ctx) {\n  return { status: 200, body: { fee: 15 } };\n}',
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['GET', 'POST'],
+        eventTrigger: 'orders:beforeCreate',
+        timeoutMs: 2500,
+        memoryLimitMb: 64,
+        allowedDomains: ['shipping.carrier.com'],
+        elevated: false,
+        env: { SHIP_API_KEY: 'test_key_123' },
+      };
+      win.functionsState.functions = [mockFn];
+
+      // Open dedicated editor page
+      await win.openFunctionEditor('fn_workbench_test', false);
+
+      expect(win.functionsState.currentView).toBe('editor');
+      expect(win.functionsState.activeFunctionForEdit.id).toBe('fn_workbench_test');
+
+      const pageContainer = doc.getElementById('page-view-functions');
+      expect(pageContainer?.innerHTML).toContain('calculate-shipping');
+      expect(pageContainer?.innerHTML).toContain('ANY /api/functions/calculate-shipping/invoke');
+      expect(pageContainer?.innerHTML).toContain('orders:beforeCreate');
+
+      // Verify 4 Workbench Tabs exist
+      const tabCode = doc.getElementById('editor-tab-btn-code');
+      const tabTest = doc.getElementById('editor-tab-btn-test');
+      const tabConfig = doc.getElementById('editor-tab-btn-config');
+      const tabLogs = doc.getElementById('editor-tab-btn-logs');
+      expect(tabCode).not.toBeNull();
+      expect(tabTest).not.toBeNull();
+      expect(tabConfig).not.toBeNull();
+      expect(tabLogs).not.toBeNull();
+
+      // Verify Code Editor is full-width and Context Reference is collapsed by default
+      const codeEditor = doc.getElementById('fn-editor-code') as HTMLTextAreaElement;
+      expect(codeEditor).not.toBeNull();
+      expect(codeEditor.value).toContain('fee: 15');
+      expect((doc.getElementById('fn-editor-name') as HTMLInputElement).value).toBe('calculate-shipping');
+
+      // Verify CodeMirror is initialized with TypeScript/JavaScript mode and active theme
+      expect(typeof win.CodeMirror).toBe('function');
+      expect(win.functionsState.cmEditor).not.toBeNull();
+      expect(win.functionsState.cmEditor.getOption('mode')).toEqual({ name: 'javascript', typescript: true });
+      expect(win.functionsState.cmEditor.getOption('lineNumbers')).toBe(true);
+
+      // Verify syntax highlighting tokenization (e.g. export, default, async, function, ctx)
+      const lineTokens = win.functionsState.cmEditor.getLineTokens(0);
+      expect(lineTokens.some((t: any) => t.type === 'keyword' && t.string === 'export')).toBe(true);
+      expect(lineTokens.some((t: any) => t.type === 'keyword' && t.string === 'default')).toBe(true);
+      expect(lineTokens.some((t: any) => t.type === 'def' && t.string === 'ctx')).toBe(true);
+
+      // Verify CodeMirror Light & Dark Theme dynamic switching
+      win.setTheme('light');
+      expect(win.functionsState.cmEditor.getOption('theme')).toBe('eclipse');
+
+      win.setTheme('dark');
+      expect(win.functionsState.cmEditor.getOption('theme')).toBe('dracula');
+
+      // Verify vertically collapsible Context Reference is collapsed by default
+      expect(win.functionsState.isCtxRefExpanded).toBe(false);
+      const ctxContent = doc.getElementById('workbench-ctx-content');
+      expect(ctxContent).not.toBeNull();
+      expect(ctxContent?.style.display).toBe('none');
+
+      // Expand Context Reference vertically
+      win.toggleWorkbenchCtxRef();
+      expect(win.functionsState.isCtxRefExpanded).toBe(true);
+      expect(ctxContent?.style.display).toBe('flex');
+
+      // Test snippet insertion directly into dedicated editor textarea
+      win.insertFunctionSnippet('const weight = ctx.request.body.weight || 1;\n');
+      expect(codeEditor.value).toContain('ctx.request.body.weight');
+
+      // Test real-time context search
+      win.filterCtxSearch('body');
+      const bodyItem = doc.querySelector('.ctx-item[data-cat="request"]') as HTMLElement;
+      expect(bodyItem).not.toBeNull();
+      expect(bodyItem.style.display).not.toBe('none');
+
+      // Collapse Context Reference again
+      win.toggleWorkbenchCtxRef();
+      expect(win.functionsState.isCtxRefExpanded).toBe(false);
+      expect(ctxContent?.style.display).toBe('none');
+
+      // Switch to Test Runner Tab
+      win.switchFunctionEditorTab('test');
+      expect(win.functionsState.editorTab).toBe('test');
+      const testPane = doc.getElementById('fn-editor-pane-test');
+      const codePane = doc.getElementById('fn-editor-pane-code');
+      expect(testPane?.style.display).toBe('grid');
+      expect(codePane?.style.display).toBe('none');
+
+      const testBodyArea = doc.getElementById('editor-test-body') as HTMLTextAreaElement;
+      expect(testBodyArea).not.toBeNull();
+
+      // Switch to Configuration Tab
+      win.switchFunctionEditorTab('config');
+      expect(win.functionsState.editorTab).toBe('config');
+      const configPane = doc.getElementById('fn-editor-pane-config');
+      expect(configPane?.style.display).toBe('grid');
+      const timeoutInput = doc.getElementById('fn-editor-timeout') as HTMLInputElement;
+      expect(timeoutInput.value).toBe('2500');
+
+      // Switch to Logs Tab
+      win.switchFunctionEditorTab('logs');
+      expect(win.functionsState.editorTab).toBe('logs');
+      const logsPane = doc.getElementById('fn-editor-pane-logs');
+      expect(logsPane?.style.display).toBe('flex');
+
+      // Render logs in workbench logs tab and verify timestamp & Inspect payload modal
+      const mockLog = {
+        id: 'fnlog_test123',
+        functionId: 'fn_workbench_test',
+        functionName: 'calculate-shipping',
+        trigger: 'http',
+        status: 'success',
+        statusCode: 200,
+        durationMs: 28,
+        requestPayload: JSON.stringify({ weight: 5, zone: 'EU' }),
+        responsePayload: JSON.stringify({ fee: 15 }),
+        logs: 'Invoked calculate-shipping\nCalculated zone rate: 15',
+        actorId: 'adm_123',
+        timestamp: '2026-10-27T16:20:00.000Z',
+      };
+
+      win.renderFunctionEditorLogsTable([mockLog]);
+      win.functionsState.editorLogs = [mockLog];
+
+      const logsContainer = doc.getElementById('fn-editor-logs-container');
+      expect(logsContainer?.innerHTML).toContain('200 OK');
+      expect(logsContainer?.innerHTML).toContain('28ms');
+      expect(logsContainer?.innerHTML).not.toContain('<td>-</td>');
+
+      // Click Inspect button / viewLogPayload
+      await win.viewLogPayload('fnlog_test123');
+      const modalRoot = doc.getElementById('modal-root');
+      expect(modalRoot?.innerHTML).toContain('Execution Payload Inspector');
+      expect(modalRoot?.innerHTML).toContain('Invoked calculate-shipping');
+      expect(modalRoot?.innerHTML).toContain('"weight": 5');
+      expect(modalRoot?.innerHTML).toContain('"fee": 15');
+
+      // Close modal
+      const closeBtn = modalRoot?.querySelector('.modal-dialog button.btn-secondary') as HTMLButtonElement;
+      closeBtn?.click();
+      expect(modalRoot?.querySelector('.modal-backdrop')).toBeNull();
+
+      // Close editor and return to functions list view
+      win.closeFunctionEditor(false);
+      expect(win.functionsState.currentView).toBe('list');
+      expect(win.functionsState.activeFunctionForEdit).toBeNull();
+    });
   });
 });

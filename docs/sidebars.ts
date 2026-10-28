@@ -62,6 +62,17 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Serverless Functions',
+      collapsed: false,
+      items: [
+        'functions/overview',
+        'functions/context-api',
+        'functions/lifecycle-hooks',
+        'functions/security',
+      ],
+    },
+    {
+      type: 'category',
       label: 'TypeScript Server SDK',
       collapsed: true,
       items: [

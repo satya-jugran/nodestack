@@ -121,7 +121,11 @@ async function parseUrlAndNavigate(initial = false) {
     }
   } else if (root === 'functions') {
     await selectNav('functions', false);
-    if (parts[1] === 'logs') {
+    if (parts.length >= 2 && parts[1] && parts[1] !== 'logs') {
+      if (typeof openFunctionEditor === 'function') {
+        await openFunctionEditor(parts[1], false);
+      }
+    } else if (parts[1] === 'logs') {
       if (typeof switchFunctionsTab === 'function') switchFunctionsTab('logs', false);
     } else {
       if (typeof switchFunctionsTab === 'function') switchFunctionsTab('functions', false);
@@ -347,7 +351,9 @@ async function selectNav(nav, pushState = true) {
       const sub = (typeof webhooksState !== 'undefined' && webhooksState.subTab === 'deliveries') ? '/deliveries' : '';
       updateUrl('/_/webhooks' + sub);
     } else if (nav === 'functions') {
-      const sub = (typeof functionsState !== 'undefined' && functionsState.subTab === 'logs') ? '/logs' : '';
+      const sub = (typeof functionsState !== 'undefined' && functionsState.currentView === 'editor' && functionsState.activeFunctionForEdit)
+        ? '/' + (functionsState.activeFunctionForEdit.isNew ? 'new' : encodeURIComponent(functionsState.activeFunctionForEdit.name || functionsState.activeFunctionForEdit.id))
+        : (typeof functionsState !== 'undefined' && functionsState.subTab === 'logs') ? '/logs' : '';
       updateUrl('/_/functions' + sub);
     } else if (nav === 'analytics') {
       updateUrl('/_/analytics');

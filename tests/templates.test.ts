@@ -370,7 +370,7 @@ describe('Starter Templates / Recipes Tests', () => {
         const appCheck = new NodeStack({ dataDir: cliTestDir });
         const prods = appCheck.db.all<any>('SELECT * FROM "products"');
         expect(prods.length).toBe(20);
-        appCheck.db.close();
+        appCheck.close();
       } finally {
         console.log = origLog;
       }
@@ -392,7 +392,7 @@ describe('Starter Templates / Recipes Tests', () => {
 
         const prods = appInstance.db.all<any>('SELECT * FROM "products"');
         expect(prods.length).toBe(20);
-        appInstance.db.close();
+        appInstance.close();
       } finally {
         console.log = origLog;
         if (fs.existsSync(cliStartDir)) { try { fs.rmSync(cliStartDir, { recursive: true, force: true }); } catch {} }
@@ -412,7 +412,7 @@ describe('Starter Templates / Recipes Tests', () => {
         // Verify reviews collection is gone
         const appCheck = new NodeStack({ dataDir: cliTestDir });
         expect(appCheck.schema.getCollection('reviews')).toBeUndefined();
-        appCheck.db.close();
+        appCheck.close();
       } finally {
         console.log = origLog;
       }

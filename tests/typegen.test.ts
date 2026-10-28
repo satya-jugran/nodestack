@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
@@ -7,6 +7,33 @@ import { CollectionModel } from '../src/schema/models/Collection';
 
 describe('TypeScript Definitions Generator (nodestack typegen)', () => {
   const testDir = path.join(__dirname, `../tmp_typegen_test_${Date.now()}`);
+
+  const cleanupStaleTestDirs = () => {
+    try {
+      const rootDir = path.resolve(__dirname, '..');
+      const items = fs.readdirSync(rootDir);
+      for (const item of items) {
+        if (item.startsWith('tmp_typegen_test_')) {
+          try {
+            fs.rmSync(path.join(rootDir, item), { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+          } catch {}
+        }
+      }
+    } catch {}
+  };
+
+  beforeAll(() => {
+    cleanupStaleTestDirs();
+  });
+
+  afterAll(() => {
+    if (fs.existsSync(testDir)) {
+      try {
+        fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+      } catch {}
+    }
+    cleanupStaleTestDirs();
+  });
 
   beforeEach(() => {
     if (fs.existsSync(testDir)) {
@@ -215,8 +242,7 @@ describe('TypeScript Definitions Generator (nodestack typegen)', () => {
     });
 
     afterEach(async () => {
-      await app.server.close();
-      app.db.close();
+      await app.stop();
     });
 
     it('should generate types via app.generateTypes()', () => {
@@ -270,7 +296,7 @@ describe('TypeScript Definitions Generator (nodestack typegen)', () => {
         name: 'notes',
         schema: [{ id: 'f_text', name: 'text', type: 'text', required: true }],
       });
-      app.db.close();
+      app.close();
 
       const outFile = path.join(cliTestDir, 'generated-types.ts');
 
@@ -293,7 +319,7 @@ describe('TypeScript Definitions Generator (nodestack typegen)', () => {
         name: 'snippets',
         schema: [{ id: 'f_code', name: 'code', type: 'text', required: true }],
       });
-      app.db.close();
+      app.close();
 
       let stdoutOutput = '';
       const originalWrite = process.stdout.write;

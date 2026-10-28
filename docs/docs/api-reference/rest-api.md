@@ -91,6 +91,22 @@ GET /_/openapi.json
 | `GET` | `/api/webhooks/:id/deliveries` | Retrieve delivery logs. |
 | `POST` | `/api/webhooks/deliveries/:deliveryId/retry` | Retry failed delivery. |
 
+### Serverless Functions
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/functions` | List all registered serverless functions (Superuser). |
+| `GET` | `/api/functions/stats` | Retrieve aggregate metrics: total functions, active count, executions, success rate. |
+| `POST` | `/api/functions` | Create a new serverless function (`name`, `code`, `authPolicy`, `timeoutMs`, etc.) (Superuser). |
+| `GET` | `/api/functions/:idOrName` | Retrieve details, configuration, and source code for a function. |
+| `PATCH` | `/api/functions/:id` | Update code, metadata, lifecycle hook triggers, limits, or env secrets (Superuser). |
+| `DELETE` | `/api/functions/:id` | Delete a serverless function and its execution history (Superuser). |
+| `ANY` | `/api/functions/:name/invoke` | Invoke a serverless function via HTTP (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`). |
+| `POST` | `/api/functions/:id/test` | Live test runner: execute function isolated in sandbox and inspect output (Superuser). |
+| `GET` | `/api/functions/logs` | Query paginated execution logs across all functions with status filter. |
+| `GET` | `/api/functions/:id/logs` | Query execution logs for a specific function. |
+| `DELETE` | `/api/functions/logs` | Clear execution history logs (Superuser). |
+| `ANY` | `/api/apps/:appId/functions/:name/invoke` | Invoke a serverless function scoped to a specific tenant application. |
+
 ### Applications & Multi-Tenancy (v2.0)
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |

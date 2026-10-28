@@ -35,7 +35,7 @@ export class FunctionController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getFunctionsService(req);
-    const fn = service.getFunctionById(req.params.id);
+    const fn = service.getFunctionById(req.params.id) || service.getFunctionByName(req.params.id);
     if (!fn) {
       this.error(reply, 'Function not found', 404);
       return;
