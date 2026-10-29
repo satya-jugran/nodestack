@@ -10,6 +10,16 @@
 [![Documentation](https://img.shields.io/badge/docs-online-blue.svg)](https://satya-jugran.github.io/nodestack/)
 
 <p align="center">
+  <a href="https://codespaces.new/satya-jugran/nodestack?quickstart=1">
+    <img src="https://github.com/codespaces/badge.svg" alt="Open in GitHub Codespaces" height="28" />
+  </a>
+  &nbsp;
+  <a href="https://railway.com/new/template?template=https%3A%2F%2Fgithub.com%2Fsatya-jugran%2Fnodestack">
+    <img src="https://railway.com/button.svg" alt="Deploy on Railway" height="28" />
+  </a>
+</p>
+
+<p align="center">
   <img width="800" height="500" alt="NodeStack Admin Dashboard" src="https://github.com/user-attachments/assets/46aec2a7-b6ad-4cda-be3c-785a2f7f6e5d" />
 </p>
 
@@ -79,6 +89,15 @@ NodeStack delivers an instant, complete backend stack in a **single Node.js proc
 ---
 
 ## Quick Start
+
+### 0. 1-Click "Try in Browser" (Zero Local Setup)
+
+Devs hate cloning repos just to try them. Launch NodeStack immediately without touching your terminal:
+
+* **[Open in GitHub Codespaces](https://codespaces.new/satya-jugran/nodestack?quickstart=1)**: Boots a dedicated Node.js 24 cloud VM with VS Code in your browser, compiles the server, and automatically pops open the Admin UI (`http://localhost:8090/_/`) in an embedded preview.
+* **[Deploy on Railway](https://railway.com/new/template?template=https%3A%2F%2Fgithub.com%2Fsatya-jugran%2Fnodestack)**: 1-click cloud deploy with persistent volume storage for your embedded SQLite database (`nodestack_data`).
+
+---
 
 ### 1. Launch with NPX (Instant Backend)
 
