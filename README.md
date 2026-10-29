@@ -52,9 +52,15 @@ NodeStack delivers an instant, complete backend stack in a **single Node.js proc
 
 ---
 
----
-
 ## Comparison: NodeStack vs. PocketBase vs. Supabase
+
+<p align="center">
+  <img width="850" alt="NodeStack vs. PocketBase vs. Supabase Architectural Comparison" src="./assets/comparison-matrix.png" />
+</p>
+
+<details>
+  <summary><strong>Click to expand accessible data table (17 Dimensions)</strong></summary>
+
 
 > **Legend**: Exactly **one bold cell per row** indicates the standout category leader for that specific dimension.
 
@@ -77,6 +83,8 @@ NodeStack delivers an instant, complete backend stack in a **single Node.js proc
 | **Live HTTP Type Safety** | **Live dynamic `GET /_/types.d.ts` endpoint** | Community CLI tools (`pocketbase-typegen`) | CLI typegen (`supabase gen types`) |
 | **Interactive API Documentation** | **Built-in Scalar & Swagger UI (`/_/docs`)** | Static external documentation | Supabase Studio / PostgREST spec |
 | **Starter Templates & Mock Data** | **1-Click templates (E-comm, CRM) + Faker engine** | Empty database | Empty database (or Cloud samples) |
+
+</details>
 
 ### When to Choose What
 

@@ -23,6 +23,11 @@ This guide provides an objective architectural comparison to help you evaluate w
 
 ## The Master Comparison Matrix
 
+<p align="center">
+  <img width="850" alt="NodeStack vs. PocketBase vs. Supabase Architectural Comparison" src="/img/comparison-matrix.png" />
+</p>
+
+
 > **Legend**: Exactly **one bold cell per row** indicates the standout category leader for that specific dimension.
 
 | Feature / Dimension | 🚀 **NodeStack** | 📦 **PocketBase** | ⚡ **Supabase** |
