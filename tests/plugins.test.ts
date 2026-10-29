@@ -2502,13 +2502,22 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       }
     }, 15000);
 
-    it('should include Third-Party Services Disclaimer in LICENSE file', () => {
+    it('should include Third-Party Services Disclaimer in NOTICE.md / DISCLAIMER.md and maintain clean MIT LICENSE', () => {
       const licensePath = path.resolve(__dirname, '../LICENSE');
       expect(fs.existsSync(licensePath)).toBe(true);
       const licenseContent = fs.readFileSync(licensePath, 'utf8');
-      expect(licenseContent).toContain('THIRD-PARTY SERVICES & INTEGRATIONS DISCLAIMER:');
-      expect(licenseContent).toContain('IN NO EVENT SHALL');
-      expect(licenseContent).toContain('STRIPE, AWS S3');
+      expect(licenseContent).toContain('MIT License');
+      expect(licenseContent).toContain('Permission is hereby granted, free of charge');
+
+      const noticePath = path.resolve(__dirname, '../NOTICE.md');
+      const disclaimerPath = path.resolve(__dirname, '../DISCLAIMER.md');
+      expect(fs.existsSync(noticePath) || fs.existsSync(disclaimerPath)).toBe(true);
+      const disclaimerContent = fs.existsSync(noticePath)
+        ? fs.readFileSync(noticePath, 'utf8')
+        : fs.readFileSync(disclaimerPath, 'utf8');
+      expect(disclaimerContent).toContain('Third-Party Services');
+      expect(disclaimerContent).toContain('IN NO EVENT SHALL');
+      expect(disclaimerContent).toContain('STRIPE, AWS S3');
     });
 
     it('should configure Stripe LIVE danger badge when live key is used and safeguard checkout test with confirmation', async () => {

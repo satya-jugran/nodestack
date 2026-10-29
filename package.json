@@ -53,13 +53,16 @@
   },
   "keywords": [
     "nodestack",
-    "backend-stack",
+    "pocketbase",
     "baas",
+    "backend-as-a-service",
     "sqlite",
     "typescript",
+    "fastify",
+    "self-hosted",
+    "developer-tools",
     "realtime",
     "embedded",
-    "fastify",
     "crud"
   ],
   "author": "",
@@ -85,5 +88,13 @@
     "tsx": "^4.19.3",
     "typescript": "^7.0.2",
     "vitest": "^3.0.8"
+  },
+  "homepage": "https://satya-jugran.github.io/nodestack/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/satya-jugran/nodestack.git"
+  },
+  "bugs": {
+    "url": "https://github.com/satya-jugran/nodestack/issues"
   }
 }
