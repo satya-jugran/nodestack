@@ -1,0 +1,16 @@
+node_modules
+dist
+nodestack_data
+nb_data
+demo_data
+tmp_typegen_test_*
+.test_*
+*.log
+*.blob
+*.bak
+.git
+.github
+docs/.docusaurus
+docs/build
+docs/node_modules
+.DS_Store

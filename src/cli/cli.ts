@@ -29,19 +29,26 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
     .option('-t, --template <name>', 'Pre-seed database with a starter template (ecommerce, blog, crm)')
     .option('--overwrite', 'Overwrite existing collections if they exist when applying template', false)
     .action(async (options) => {
-      let host = '0.0.0.0';
-      let port = 8090;
+      let host = process.env.NODESTACK_HOST || process.env.HOST || '0.0.0.0';
+      const envPort = process.env.NODESTACK_PORT || process.env.PORT;
+      let port = envPort ? parseInt(envPort, 10) : 8090;
 
-      if (options.http.includes(':')) {
-        const parts = options.http.split(':');
-        host = parts[0] || '0.0.0.0';
-        port = parseInt(parts[1], 10) || 8090;
-      } else if (!isNaN(Number(options.http))) {
-        port = Number(options.http);
+      if (options.http && options.http !== '0.0.0.0:8090') {
+        if (options.http.includes(':')) {
+          const parts = options.http.split(':');
+          host = parts[0] || host;
+          port = parseInt(parts[1], 10) || port;
+        } else if (!isNaN(Number(options.http))) {
+          port = Number(options.http);
+        }
       }
 
+      const effectiveDataDir = (options.dir === './nodestack_data' && process.env.NODESTACK_DATA_DIR)
+        ? process.env.NODESTACK_DATA_DIR
+        : options.dir;
+
       const app = new NodeStack({
-        dataDir: options.dir,
+        dataDir: effectiveDataDir,
         host,
         port,
         dev: options.dev,

@@ -1,0 +1,22 @@
+{
+  "name": "NodeStack (Node.js 24 Sandbox)",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:24",
+  "forwardPorts": [8090],
+  "portsAttributes": {
+    "8090": {
+      "label": "NodeStack Admin UI & API",
+      "onAutoForward": "openPreview"
+    }
+  },
+  "postCreateCommand": "npm install && npm run build:server",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}
