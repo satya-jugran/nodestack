@@ -44,6 +44,40 @@ NodeStack delivers an instant, complete backend stack in a **single Node.js proc
 
 ---
 
+---
+
+## Comparison: NodeStack vs. PocketBase vs. Supabase
+
+> **Legend**: Exactly **one bold cell per row** indicates the standout category leader for that specific dimension.
+
+| Feature / Dimension | 🚀 **NodeStack** | 📦 **PocketBase** | ⚡ **Supabase** |
+| :--- | :--- | :--- | :--- |
+| **Primary Ecosystem** | **TypeScript & Node.js (npm native)** | Go | Polyglot (Elixir / Go / SQL) |
+| **Relational Database Scale** | Embedded SQLite (WAL) | Embedded SQLite (WAL) | **PostgreSQL (ACID, pgvector, PostGIS)** |
+| **Lowest Resource Footprint** | Low (~40–80 MB RAM) | **Ultra-Low (~20–40 MB RAM)** | Heavy (2–4 GB+ RAM) |
+| **Zero-Install CLI Velocity** | **Instant via `npx` (Zero downloads needed)** | Manual binary download | Requires Docker or Cloud account |
+| **Binary Self-Containment** | Standalone Binary (Win, macOS, Linux) | **Ultra-Compact Binary (<20MB Go)** | Multi-container Docker suite |
+| **Dual-Mode Usage** | **Standalone CLI + Importable npm Library** | Standalone Binary (Go-only library) | Standalone Service (Cannot embed) |
+| **Single-Process Multi-Tenancy** | **Native Multi-App (Isolated DBs in 1 process)** | Single tenant per process | Cloud platform (or multi-cluster) |
+| **Deployment Simplicity** | **Single binary or `npx` on a $5 VPS** | Single binary on a $5 VPS | Complex self-hosting (10+ Docker containers) |
+| **Embedded Full-Text Search** | **Native SQLite FTS5 (BM25 + Snippets)** | Basic SQL `LIKE` queries | Postgres `tsvector` (Manual schema setup) |
+| **Realtime Scale & Presence** | Lightweight SSE Streams | Lightweight SSE Streams | **WebSockets + Presence (Phoenix Engine)** |
+| **Database-Level RLS Security** | Visual Rules + SQL expressions | Filter expressions | **PostgreSQL Native RLS (In-kernel)** |
+| **Embedded Serverless IDE** | **QuickJS-Wasm (Sub-ms cold starts & Web IDE)** | Basic JS (via Goja VM) | External Deno Edge Functions |
+| **Application Snapshots & Rollback** | **Atomic checkpoints, drift detection & 1-click restore** | Manual ZIP file backups | Sequential SQL migrations only |
+| **Immutable Audit Trail** | **Field-level `{ old, new }` diffs & actor attribution** | HTTP access request logs only | Requires custom triggers or pgAudit |
+| **Live HTTP Type Safety** | **Live dynamic `GET /_/types.d.ts` endpoint** | Community CLI tools (`pocketbase-typegen`) | CLI typegen (`supabase gen types`) |
+| **Interactive API Documentation** | **Built-in Scalar & Swagger UI (`/_/docs`)** | Static external documentation | Supabase Studio / PostgREST spec |
+| **Starter Templates & Mock Data** | **1-Click templates (E-comm, CRM) + Faker engine** | Empty database | Empty database (or Cloud samples) |
+
+### When to Choose What
+
+* **Choose NodeStack if:** You want the simplicity of a single-process embedded backend, but your team builds in **TypeScript & Node.js**. You get instant access to the **npm ecosystem**, **zero-install `npx` startup**, **isolated multi-app tenancy in one process**, **atomic state snapshots**, and **embedded FTS5 search & Wasm serverless lambdas**.
+* **Choose PocketBase if:** Your priority is absolute raw binary minimalism (<20MB single Go binary) and the lowest possible idle memory footprint (~20MB RAM).
+* **Choose Supabase if:** You need multi-terabyte enterprise PostgreSQL with complex relational models, pgvector, in-kernel RLS, and bidirectional WebSockets presence.
+
+---
+
 ## Quick Start
 
 ### 1. Launch with NPX (Instant Backend)
@@ -161,6 +195,7 @@ Full documentation, guides, and tutorials are available on the [Official Documen
 
 | Guide | Description |
 | :--- | :--- |
+| [**Comparison Matrix**](https://satya-jugran.github.io/nodestack/getting-started/comparison) | Objective architectural comparison with PocketBase and Supabase. |
 | [**Overview & Architecture**](https://satya-jugran.github.io/nodestack/getting-started/overview) | Single-process architecture, storage engine, and design principles. |
 | [**Quick Start**](https://satya-jugran.github.io/nodestack/getting-started/quick-start) | Step-by-step setup in under 60 seconds. |
 | [**Collections & Schema**](https://satya-jugran.github.io/nodestack/core-concepts/collections) | Field types, validation, and automated schema inference. |

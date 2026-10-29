@@ -16,6 +16,10 @@ NodeStack provides an instant, production-grade backend engine with embedded SQL
 
 Why NodeStack?
 
+:::tip Architectural Comparison
+Looking for an objective comparison of **NodeStack vs. PocketBase vs. Supabase**? Check out our comprehensive [**NodeStack vs. Alternatives**](./comparison.md) guide.
+:::
+
 Building modern web and mobile apps often requires juggling separate database engines, Redis caches, authentication servers, cloud storage buckets, and boilerplate CRUD route handlers.
 
 NodeStack packages this entire backend architecture into a **single Node.js process**:
