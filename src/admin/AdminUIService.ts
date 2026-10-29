@@ -5,34 +5,61 @@ import { AdminUIBundler } from './AdminUIBundler';
 import { AdminNavItem, PluginMetadata } from '../core/plugins/types';
 
 export class AdminUIService {
-  private adminHtml: string;
-  private iconSvg: string;
+  private adminHtml: string = '';
+  private iconSvg: string = '';
   private uiDir: string;
   private navItems: AdminNavItem[] = [];
   private plugins: PluginMetadata[] = [];
 
   constructor() {
     this.uiDir = path.join(__dirname, 'ui');
-    const bundled = AdminUIBundler.bundle(this.uiDir);
-    if (bundled) {
-      this.adminHtml = bundled;
-    } else {
-      const htmlPath = path.join(this.uiDir, 'index.html');
-      if (fs.existsSync(htmlPath)) {
-        this.adminHtml = fs.readFileSync(htmlPath, 'utf-8');
+
+    // 1. Try to load bundled assets from Single Executable Application (SEA)
+    let sea: any;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      sea = require('node:sea');
+    } catch {}
+
+    if (sea && typeof sea.isSea === 'function' && sea.isSea()) {
+      try {
+        const seaAdminHtml = sea.getAsset('admin.html', 'utf8');
+        if (seaAdminHtml) {
+          this.adminHtml = seaAdminHtml;
+        }
+      } catch {}
+      try {
+        const seaIconSvg = sea.getAsset('icon.svg', 'utf8');
+        if (seaIconSvg) {
+          this.iconSvg = seaIconSvg;
+        }
+      } catch {}
+    }
+
+    if (!this.adminHtml) {
+      const bundled = AdminUIBundler.bundle(this.uiDir);
+      if (bundled) {
+        this.adminHtml = bundled;
       } else {
-        this.adminHtml = this.getFallbackHtml();
+        const htmlPath = path.join(this.uiDir, 'index.html');
+        if (fs.existsSync(htmlPath)) {
+          this.adminHtml = fs.readFileSync(htmlPath, 'utf-8');
+        } else {
+          this.adminHtml = this.getFallbackHtml();
+        }
       }
     }
 
-    const iconPath = path.join(__dirname, 'ui', 'icon.svg');
-    const faviconPath = path.join(__dirname, 'ui', 'favicon.svg');
-    if (fs.existsSync(iconPath)) {
-      this.iconSvg = fs.readFileSync(iconPath, 'utf-8');
-    } else if (fs.existsSync(faviconPath)) {
-      this.iconSvg = fs.readFileSync(faviconPath, 'utf-8');
-    } else {
-      this.iconSvg = this.getFallbackSvg();
+    if (!this.iconSvg) {
+      const iconPath = path.join(__dirname, 'ui', 'icon.svg');
+      const faviconPath = path.join(__dirname, 'ui', 'favicon.svg');
+      if (fs.existsSync(iconPath)) {
+        this.iconSvg = fs.readFileSync(iconPath, 'utf-8');
+      } else if (fs.existsSync(faviconPath)) {
+        this.iconSvg = fs.readFileSync(faviconPath, 'utf-8');
+      } else {
+        this.iconSvg = this.getFallbackSvg();
+      }
     }
   }
 

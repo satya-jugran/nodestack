@@ -1,0 +1,9 @@
+{
+  "main": "dist/sea-bundle.cjs",
+  "output": "dist/sea-prep.blob",
+  "disableExperimentalSEAWarning": true,
+  "assets": {
+    "admin.html": "dist/admin/ui/index.html",
+    "icon.svg": "src/admin/ui/icon.svg"
+  }
+}

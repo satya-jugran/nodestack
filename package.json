@@ -40,6 +40,7 @@
     "build:server": "tsc && node -e \"const fs = require('fs'); fs.mkdirSync('dist/admin/ui', { recursive: true }); fs.cpSync('src/admin/ui', 'dist/admin/ui', { recursive: true }); const { AdminUIBundler } = require('./dist/admin/AdminUIBundler'); fs.writeFileSync('dist/admin/ui/index.html', AdminUIBundler.bundle('dist/admin/ui'));\"",
     "build:client": "npm --workspace=packages/client run build",
     "build:plugins": "node scripts/build-plugins.js",
+    "build:sea": "node scripts/build-sea.js",
     "publish:plugins": "node scripts/publish-plugins.js",
     "dev": "tsx src/cli/cli.ts start",
     "start": "node bin/nodestack.js start",
@@ -84,7 +85,10 @@
     "@types/jsdom": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/node": "^22.13.9",
+    "esbuild": "^0.25.0",
     "jsdom": "^30.1.2",
+    "postject": "^1.0.0-alpha.6",
+    "rcedit": "^5.0.2",
     "tsx": "^4.19.3",
     "typescript": "^7.0.2",
     "vitest": "^3.0.8"

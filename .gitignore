@@ -6,4 +6,6 @@ nodestack_data/
 tmp_typegen_test_*/
 .test_*/
 *.log
+*.blob
+*.bak
 .DS_Store

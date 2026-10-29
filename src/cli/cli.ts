@@ -3,7 +3,10 @@ import chalk from 'chalk';
 import * as readline from 'readline';
 import { NodeStack } from '../NodeStack';
 
-export async function runCli(argv = process.argv): Promise<Command> {
+let cliRan = false;
+export async function runCli(argv = process.argv): Promise<Command | undefined> {
+  if (cliRan) return;
+  cliRan = true;
   const program = new Command();
 
   program
@@ -548,6 +551,6 @@ export async function runCli(argv = process.argv): Promise<Command> {
 }
 
 
-if (require.main === module) {
+if (require.main === module && !cliRan) {
   runCli();
 }
