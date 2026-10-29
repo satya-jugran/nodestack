@@ -19,9 +19,7 @@
   </a>
 </p>
 
-<p align="center">
-  <img width="800" height="500" alt="NodeStack Admin Dashboard" src="https://github.com/user-attachments/assets/46aec2a7-b6ad-4cda-be3c-785a2f7f6e5d" />
-</p>
+https://github.com/user-attachments/assets/70eb11fa-9b68-4eb6-930d-ac367ebc4565
 
 <p align="center">
   <a href="https://satya-jugran.github.io/nodestack/"><strong>Documentation</strong></a> ·
