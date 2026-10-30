@@ -46,6 +46,9 @@ export class AuthService {
   private ruleEngine: RuleEngine;
   private eventBus?: EventBus;
   private realtimeService?: RealtimeService;
+  private tokenKeyCache = new Map<string, { tokenKey: string; expiresAt: number }>();
+  private readonly tokenKeyCacheTtlMs = 30000; // 30 seconds TTL
+  private readonly maxTokenKeyCacheSize = 5000;
 
   constructor(
     private db: DatabaseService,
@@ -61,10 +64,72 @@ export class AuthService {
     this.ruleEngine = ruleEngine || new RuleEngine();
     this.eventBus = eventBus;
     this.realtimeService = realtimeService;
+    if (this.eventBus) {
+      this.initEventBusSubscriptions();
+    }
   }
 
   public setEventBus(eventBus: EventBus): void {
     this.eventBus = eventBus;
+    this.initEventBusSubscriptions();
+  }
+
+  private initEventBusSubscriptions(): void {
+    if (!this.eventBus) return;
+    this.eventBus.onRecordAfterUpdate((ctx) => {
+      const colName = typeof ctx.collection === 'string' ? ctx.collection : (ctx.collection as any)?.name;
+      const col = colName ? this.schemaService.getCollection(colName) : undefined;
+      if (col && col.type === 'auth') {
+        this.invalidateTokenCache(col.name, ctx.record.id);
+      }
+    });
+    this.eventBus.onRecordAfterDelete((ctx) => {
+      const colName = typeof ctx.collection === 'string' ? ctx.collection : (ctx.collection as any)?.name;
+      const col = colName ? this.schemaService.getCollection(colName) : undefined;
+      if (col && col.type === 'auth') {
+        this.invalidateTokenCache(col.name, ctx.record.id);
+      }
+    });
+  }
+
+  public getCachedTokenKey(cacheKey: string): string | null {
+    const entry = this.tokenKeyCache.get(cacheKey);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.tokenKeyCache.delete(cacheKey);
+      return null;
+    }
+    return entry.tokenKey;
+  }
+
+  public setCachedTokenKey(cacheKey: string, tokenKey: string): void {
+    if (this.tokenKeyCache.size >= this.maxTokenKeyCacheSize) {
+      const firstKey = this.tokenKeyCache.keys().next().value;
+      if (firstKey) this.tokenKeyCache.delete(firstKey);
+    }
+    this.tokenKeyCache.set(cacheKey, {
+      tokenKey,
+      expiresAt: Date.now() + this.tokenKeyCacheTtlMs,
+    });
+  }
+
+  public invalidateTokenCache(collection?: string, idOrEmail?: string): void {
+    if (!collection && !idOrEmail) {
+      this.tokenKeyCache.clear();
+      return;
+    }
+    if (collection && idOrEmail) {
+      this.tokenKeyCache.delete(`${collection}:${idOrEmail}`);
+      return;
+    }
+    if (collection) {
+      const prefix = `${collection}:`;
+      for (const k of this.tokenKeyCache.keys()) {
+        if (k.startsWith(prefix)) {
+          this.tokenKeyCache.delete(k);
+        }
+      }
+    }
   }
 
   public setRealtimeService(realtimeService: RealtimeService): void {
@@ -102,32 +167,50 @@ export class AuthService {
 
     // Verify tokenKey against stored tokenKey to ensure revoked / rotated sessions are rejected
     if (decoded.isAdmin || decoded.collection === '_admins') {
-      let admin = this.registry
-        ? this.registry.getAdminById(decoded.id)
-        : undefined;
-      if (!admin) {
-        admin = this.db.get<any>('SELECT * FROM _admins WHERE id = ?', [decoded.id]);
-        if (admin && this.registry) {
-          try {
-            this.registry.getDriver().prepare(`
-              INSERT OR REPLACE INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-            `).run(admin.id, admin.email, admin.passwordHash, admin.tokenKey, admin.avatar || null, admin.created, admin.updated);
-          } catch {}
+      const cacheKey = `_admins:${decoded.id}`;
+      const cached = this.getCachedTokenKey(cacheKey);
+      if (cached !== null) {
+        if (cached !== decoded.tokenKey) {
+          throw new UnauthorizedError('Authentication token has been revoked or expired');
         }
-      }
-      if (!admin || !admin.tokenKey || admin.tokenKey !== decoded.tokenKey) {
-        throw new UnauthorizedError('Authentication token has been revoked or expired');
+      } else {
+        let admin = this.registry
+          ? this.registry.getAdminById(decoded.id)
+          : undefined;
+        if (!admin) {
+          admin = this.db.get<any>('SELECT * FROM _admins WHERE id = ?', [decoded.id]);
+          if (admin && this.registry) {
+            try {
+              this.registry.getDriver().prepare(`
+                INSERT OR REPLACE INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+              `).run(admin.id, admin.email, admin.passwordHash, admin.tokenKey, admin.avatar || null, admin.created, admin.updated);
+            } catch {}
+          }
+        }
+        if (!admin || !admin.tokenKey || admin.tokenKey !== decoded.tokenKey) {
+          throw new UnauthorizedError('Authentication token has been revoked or expired');
+        }
+        this.setCachedTokenKey(cacheKey, admin.tokenKey);
       }
     } else {
       const col = this.schemaService.getCollection(decoded.collection);
       if (col && col.type === 'auth') {
-        const record = this.db.get<any>(
-          `SELECT tokenKey FROM "${col.name}" WHERE id = ?`,
-          [decoded.id]
-        );
-        if (!record || !record.tokenKey || record.tokenKey !== decoded.tokenKey) {
-          throw new UnauthorizedError('Authentication token has been revoked or expired');
+        const cacheKey = `${col.name}:${decoded.id}`;
+        const cached = this.getCachedTokenKey(cacheKey);
+        if (cached !== null) {
+          if (cached !== decoded.tokenKey) {
+            throw new UnauthorizedError('Authentication token has been revoked or expired');
+          }
+        } else {
+          const record = this.db.get<any>(
+            `SELECT tokenKey FROM "${col.name}" WHERE id = ?`,
+            [decoded.id]
+          );
+          if (!record || !record.tokenKey || record.tokenKey !== decoded.tokenKey) {
+            throw new UnauthorizedError('Authentication token has been revoked or expired');
+          }
+          this.setCachedTokenKey(cacheKey, record.tokenKey);
         }
       } else {
         throw new UnauthorizedError('Authentication token collection not found');
@@ -276,6 +359,8 @@ export class AuthService {
     } catch {
       // non-fatal if table doesn't exist in app database
     }
+
+    this.invalidateTokenCache('_admins', admin.id);
   }
 
   public revokeAdminSessions(idOrEmail: string): void {
@@ -284,11 +369,13 @@ export class AuthService {
     const now = new Date().toISOString();
 
     let registryFound = false;
+    let targetId = idOrEmail;
     if (this.registry) {
       const regAdmin = this.registry.getAdminById(idOrEmail) || this.registry.getAdminByEmail(clean);
       if (regAdmin) {
         this.registry.revokeAdminSessions(idOrEmail, tokenKey);
         registryFound = true;
+        targetId = regAdmin.id;
       }
     }
 
@@ -305,6 +392,9 @@ export class AuthService {
     if (dbChanges === 0 && !registryFound) {
       throw new NotFoundError(`Admin '${idOrEmail}' not found`);
     }
+
+    this.invalidateTokenCache('_admins', targetId);
+    this.invalidateTokenCache('_admins', clean);
   }
 
   public revokeRecordSessions(collectionName: string, idOrEmail: string): void {
@@ -321,6 +411,9 @@ export class AuthService {
     if (result.changes === 0) {
       throw new NotFoundError(`Record '${idOrEmail}' not found in '${collectionName}'`);
     }
+
+    this.invalidateTokenCache(col.name, idOrEmail);
+    this.invalidateTokenCache(col.name, clean);
   }
 
   // --- Collection Auth (Users / Customers etc.) ---

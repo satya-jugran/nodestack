@@ -143,9 +143,22 @@ export class LogService {
     };
   }
 
-  public clearLogs(): void {
+  public pruneLogs(olderThanDays: number): number {
+    this.flush();
+    const days = Math.max(0, Number(olderThanDays) || 0);
+    const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+    const result = this.db.prepare('DELETE FROM _logs WHERE created < ?').run(cutoff);
+    return Number(result.changes);
+  }
+
+  public clearLogs(olderThanDays?: number): number {
+    this.flush();
+    if (olderThanDays !== undefined && olderThanDays !== null) {
+      return this.pruneLogs(olderThanDays);
+    }
     this.buffer = [];
-    this.db.exec('DELETE FROM _logs;');
+    const result = this.db.prepare('DELETE FROM _logs').run();
+    return Number(result.changes);
   }
 
   public dispose(): void {

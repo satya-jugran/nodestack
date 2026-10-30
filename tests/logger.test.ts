@@ -121,6 +121,33 @@ describe('LogService In-Memory Buffering & Write Batching Tests', () => {
     logService.dispose();
   });
 
+  it('should prune logs older than specified days and keep recent logs', () => {
+    const logService = new LogService(db);
+
+    // Insert old log (35 days old)
+    const oldDate = new Date(Date.now() - 35 * 86400000).toISOString();
+    db.prepare(`
+      INSERT INTO _logs (id, method, url, status, duration, ip, authId, authCollection, userAgent, data, created)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('old_1', 'GET', '/old', 200, 1.0, null, null, null, null, null, oldDate);
+
+    // Insert recent log (1 day old)
+    const recentDate = new Date(Date.now() - 1 * 86400000).toISOString();
+    db.prepare(`
+      INSERT INTO _logs (id, method, url, status, duration, ip, authId, authCollection, userAgent, data, created)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('recent_1', 'GET', '/recent', 200, 1.0, null, null, null, null, null, recentDate);
+
+    const deletedCount = logService.pruneLogs(30);
+    expect(deletedCount).toBe(1);
+
+    const remaining = logService.getLogs(1, 10);
+    expect(remaining.totalItems).toBe(1);
+    expect(remaining.items[0].id).toBe('recent_1');
+
+    logService.dispose();
+  });
+
   it('should defensively handle circular references in entry.data without throwing', () => {
     const logService = new LogService(db);
 
