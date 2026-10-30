@@ -121,6 +121,67 @@ describe('Sprint 3 Performance & Architecture Tests', () => {
       // EventBus listener should have cleared the cached tokenKey
       expect(authService.getCachedTokenKey(`users:${user.id}`)).toBeNull();
     });
+
+    it('should resolve canonical record id and invalidate tokenKey cache when revoked by email', async () => {
+      const user = await recordService.create(
+        'users',
+        {
+          email: 'charlie@example.com',
+          password: 'Password123!',
+          name: 'Charlie',
+          emailVisibility: true,
+        },
+        undefined
+      );
+
+      const authResult = await authService.authenticateRecord('users', 'charlie@example.com', 'Password123!');
+      const token = authResult.token;
+
+      // Verify and populate cache under users:${user.id}
+      authService.verifyToken(token);
+      expect(authService.getCachedTokenKey(`users:${user.id}`)).toBeDefined();
+
+      // Revoke using email rather than ID
+      authService.revokeRecordSessions('users', 'charlie@example.com');
+
+      // The canonical ID entry must be invalidated
+      expect(authService.getCachedTokenKey(`users:${user.id}`)).toBeNull();
+      expect(() => authService.verifyToken(token)).toThrow(/revoked or expired/);
+    });
+
+    it('should resolve canonical admin id and invalidate cache when revokeAdminSessions is called with email', async () => {
+      const admin = await authService.createAdmin('admin_revocation@example.com', 'AdminPass123!');
+      const adminAuth = await authService.authenticateAdmin('admin_revocation@example.com', 'AdminPass123!');
+      const token = adminAuth.token;
+
+      // Verify and populate cache under _admins:${admin.id}
+      authService.verifyToken(token);
+      expect(authService.getCachedTokenKey(`_admins:${admin.id}`)).toBeDefined();
+
+      // Revoke admin session using email
+      authService.revokeAdminSessions('admin_revocation@example.com');
+
+      // The canonical admin ID entry must be invalidated
+      expect(authService.getCachedTokenKey(`_admins:${admin.id}`)).toBeNull();
+      expect(() => authService.verifyToken(token)).toThrow(/revoked or expired/);
+    });
+
+    it('should promote entry to most recently used on cache hit for true LRU ordering', () => {
+      authService.setCachedTokenKey('test:key1', 'val1');
+      authService.setCachedTokenKey('test:key2', 'val2');
+      authService.setCachedTokenKey('test:key3', 'val3');
+
+      // Initial insertion order: key1, key2, key3
+      let keys = Array.from((authService as any).tokenKeyCache.keys());
+      expect(keys).toEqual(['test:key1', 'test:key2', 'test:key3']);
+
+      // Read key1 - should promote key1 to the end (most recently used)
+      const hit = authService.getCachedTokenKey('test:key1');
+      expect(hit).toBe('val1');
+
+      keys = Array.from((authService as any).tokenKeyCache.keys());
+      expect(keys).toEqual(['test:key2', 'test:key3', 'test:key1']);
+    });
   });
 
   describe('2. Non-blocking Asynchronous Password Hashing in importRecords', () => {

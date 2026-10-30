@@ -99,10 +99,14 @@ export class AuthService {
       this.tokenKeyCache.delete(cacheKey);
       return null;
     }
+    // Re-insert entry to move to the most-recently-used end in Map iteration order
+    this.tokenKeyCache.delete(cacheKey);
+    this.tokenKeyCache.set(cacheKey, entry);
     return entry.tokenKey;
   }
 
   public setCachedTokenKey(cacheKey: string, tokenKey: string): void {
+    this.tokenKeyCache.delete(cacheKey);
     if (this.tokenKeyCache.size >= this.maxTokenKeyCacheSize) {
       const firstKey = this.tokenKeyCache.keys().next().value;
       if (firstKey) this.tokenKeyCache.delete(firstKey);
@@ -369,13 +373,24 @@ export class AuthService {
     const now = new Date().toISOString();
 
     let registryFound = false;
-    let targetId = idOrEmail;
+    let targetId: string | undefined = undefined;
     if (this.registry) {
       const regAdmin = this.registry.getAdminById(idOrEmail) || this.registry.getAdminByEmail(clean);
       if (regAdmin) {
         this.registry.revokeAdminSessions(idOrEmail, tokenKey);
         registryFound = true;
         targetId = regAdmin.id;
+      }
+    }
+
+    // Resolve canonical admin id from _admins table if not already resolved
+    if (!targetId) {
+      const dbAdmin = this.db.get<{ id: string }>(
+        'SELECT id FROM _admins WHERE id = ? OR email = ?',
+        [idOrEmail, clean]
+      );
+      if (dbAdmin) {
+        targetId = dbAdmin.id;
       }
     }
 
@@ -393,8 +408,11 @@ export class AuthService {
       throw new NotFoundError(`Admin '${idOrEmail}' not found`);
     }
 
-    this.invalidateTokenCache('_admins', targetId);
-    this.invalidateTokenCache('_admins', clean);
+    if (targetId) {
+      this.invalidateTokenCache('_admins', targetId);
+    } else {
+      this.invalidateTokenCache('_admins');
+    }
   }
 
   public revokeRecordSessions(collectionName: string, idOrEmail: string): void {
@@ -403,6 +421,13 @@ export class AuthService {
       throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
     }
     const clean = idOrEmail.trim().toLowerCase();
+
+    // Resolve canonical record id from table so we invalidate exact cache key (${col.name}:${id})
+    const existing = this.db.get<{ id: string }>(
+      `SELECT id FROM "${col.name}" WHERE id = ? OR email = ?`,
+      [idOrEmail, clean]
+    );
+
     const tokenKey = crypto.randomBytes(16).toString('hex');
     const now = new Date().toISOString();
     const result = this.db.prepare(
@@ -412,8 +437,11 @@ export class AuthService {
       throw new NotFoundError(`Record '${idOrEmail}' not found in '${collectionName}'`);
     }
 
-    this.invalidateTokenCache(col.name, idOrEmail);
-    this.invalidateTokenCache(col.name, clean);
+    if (existing?.id) {
+      this.invalidateTokenCache(col.name, existing.id);
+    } else {
+      this.invalidateTokenCache(col.name);
+    }
   }
 
   // --- Collection Auth (Users / Customers etc.) ---
