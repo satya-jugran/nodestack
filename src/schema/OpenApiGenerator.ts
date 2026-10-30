@@ -1356,11 +1356,46 @@ export class OpenApiGenerator {
       delete: {
         tags: ['System'],
         summary: 'Clear request logs',
-        description: 'Truncates the request audit log history table (Admin only).',
+        description: 'Truncates the request audit log history table (Admin only). Can optionally clear only logs older than a specified number of days.',
         security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'olderThanDays',
+            in: 'query',
+            required: false,
+            schema: { type: 'number', minimum: 0 },
+            description: 'Optionally clear only request logs older than this number of days. If omitted, all request logs are cleared.',
+          },
+        ],
         responses: {
-          '204': { description: 'Logs cleared successfully' },
-          '401': { description: 'Unauthorized' },
+          '200': {
+            description: 'Request logs pruned by age',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean' },
+                    deletedCount: { type: 'integer' },
+                    olderThanDays: { type: 'number' },
+                  },
+                },
+              },
+            },
+          },
+          '204': { description: 'All request logs cleared successfully' },
+          '400': {
+            description: 'Bad Request (invalid olderThanDays parameter)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '401': {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          '403': {
+            description: 'Forbidden (Admin only)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
         },
       },
     };

@@ -66,17 +66,25 @@ export interface ImportResult {
 }
 
 export class RecordService {
+  private ruleEngine: RuleEngine;
+  private eventBus: EventBus;
+  private realtimeService?: RealtimeService;
+  private fileStorageService?: FileStorageService;
   private ftsService: FtsService;
 
   constructor(
     private db: DatabaseService,
     private schemaService: SchemaService,
-    private ruleEngine: RuleEngine,
-    private eventBus: EventBus,
-    private realtimeService: RealtimeService,
-    private fileStorageService: FileStorageService,
+    ruleEngine?: RuleEngine,
+    eventBus?: EventBus,
+    realtimeService?: RealtimeService,
+    fileStorageService?: FileStorageService,
     ftsService?: FtsService
   ) {
+    this.ruleEngine = ruleEngine || new RuleEngine();
+    this.eventBus = eventBus || new EventBus();
+    this.realtimeService = realtimeService;
+    this.fileStorageService = fileStorageService;
     this.ftsService = ftsService || new FtsService(this.db);
   }
 
@@ -250,15 +258,21 @@ export class RecordService {
     const rawItems = this.db.all<any>(querySql, queryParams);
 
     // Sanitize and expand
-    const items = await Promise.all(
-      rawItems.map(async (item) => {
-        const clean = this.sanitizeRecord(item, col, auth);
-        if (options.expand) {
-          await this.expandRecord(clean, col, options.expand, auth);
-        }
-        return clean;
-      })
-    );
+    const CHUNK_SIZE = 500;
+    const items: any[] = [];
+    for (let i = 0; i < rawItems.length; i += CHUNK_SIZE) {
+      const chunk = rawItems.slice(i, i + CHUNK_SIZE);
+      const processedChunk = await Promise.all(
+        chunk.map(async (item) => {
+          const clean = this.sanitizeRecord(item, col, auth);
+          if (options.expand) {
+            await this.expandRecord(clean, col, options.expand, auth);
+          }
+          return clean;
+        })
+      );
+      items.push(...processedChunk);
+    }
 
     return {
       page,
@@ -388,7 +402,7 @@ export class RecordService {
     await this.eventBus.triggerRecordAfterCreate(col.name, hookRecord, auth, httpContext);
 
     // Broadcast realtime event
-    this.realtimeService.broadcast('create', col.name, insertedRecord);
+    this.realtimeService?.broadcast('create', col.name, insertedRecord);
 
     return insertedRecord;
   }
@@ -494,7 +508,7 @@ export class RecordService {
     await this.eventBus.triggerRecordAfterUpdate(col.name, hookRecord, auth, httpContext, hookOriginalRecord);
 
     // Broadcast realtime event
-    this.realtimeService.broadcast('update', col.name, updatedRecord);
+    this.realtimeService?.broadcast('update', col.name, updatedRecord);
 
     return updatedRecord;
   }
@@ -527,7 +541,7 @@ export class RecordService {
     await this.eventBus.triggerRecordBeforeDelete(col.name, current, auth, httpContext);
 
     // Remove record files
-    await this.fileStorageService.deleteRecordFiles(col.id, id);
+    await this.fileStorageService?.deleteRecordFiles(col.id, id);
 
     this.db.run(`DELETE FROM "${col.name}" WHERE id = ?`, [id]);
 
@@ -540,7 +554,7 @@ export class RecordService {
     await this.eventBus.triggerRecordAfterDelete(col.name, hookRecord, auth, httpContext);
 
     // Broadcast realtime event
-    this.realtimeService.broadcast('delete', col.name, deletedRecord);
+    this.realtimeService?.broadcast('delete', col.name, deletedRecord);
   }
 
   public async exportRecords(
@@ -659,15 +673,21 @@ export class RecordService {
       }
     }
 
-    const items = await Promise.all(
-      rawItems.map(async (item) => {
-        const clean = this.sanitizeRecord(item, col, auth);
-        if (options.expand) {
-          await this.expandRecord(clean, col, options.expand, auth);
-        }
-        return clean;
-      })
-    );
+    const CHUNK_SIZE = 500;
+    const items: any[] = [];
+    for (let i = 0; i < rawItems.length; i += CHUNK_SIZE) {
+      const chunk = rawItems.slice(i, i + CHUNK_SIZE);
+      const processedChunk = await Promise.all(
+        chunk.map(async (item) => {
+          const clean = this.sanitizeRecord(item, col, auth);
+          if (options.expand) {
+            await this.expandRecord(clean, col, options.expand, auth);
+          }
+          return clean;
+        })
+      );
+      items.push(...processedChunk);
+    }
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
@@ -785,7 +805,7 @@ export class RecordService {
           recordToInsert.verified =
             data.verified === true || data.verified === 'true' || data.verified === 1 ? 1 : 0;
           const password = data.password ? String(data.password) : crypto.randomBytes(8).toString('hex');
-          recordToInsert.passwordHash = bcrypt.hashSync(password, 10);
+          recordToInsert.passwordHash = await bcrypt.hash(password, 10);
           recordToInsert.tokenKey = crypto.randomBytes(16).toString('hex');
         }
 
@@ -835,7 +855,7 @@ export class RecordService {
     // Trigger lifecycle hooks & broadcast realtime
     for (const rec of insertedRecords) {
       this.eventBus.triggerRecordAfterCreate(col.name, rec, auth, httpContext).catch(() => {});
-      this.realtimeService.broadcast('create', col.name, rec);
+      this.realtimeService?.broadcast('create', col.name, rec);
     }
 
     return {

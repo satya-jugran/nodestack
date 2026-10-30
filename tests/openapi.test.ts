@@ -213,6 +213,13 @@ describe('OpenAPI 3.0 Specification & Interactive Viewer Tests', () => {
       expect(paths['/api/realtime']?.get).toBeDefined();
       expect(paths['/api/realtime']?.post).toBeDefined();
       expect(paths['/api/logs']?.get).toBeDefined();
+      expect(paths['/api/logs']?.delete).toBeDefined();
+      expect(paths['/api/logs']?.delete?.parameters).toContainEqual(
+        expect.objectContaining({ name: 'olderThanDays', in: 'query' })
+      );
+      expect(paths['/api/logs']?.delete?.responses['200']).toBeDefined();
+      expect(paths['/api/logs']?.delete?.responses['204']).toBeDefined();
+      expect(paths['/api/logs']?.delete?.responses['400']).toBeDefined();
       expect(paths['/api/types']?.get).toBeDefined();
       expect(paths['/api/openapi.json']?.get).toBeDefined();
     });

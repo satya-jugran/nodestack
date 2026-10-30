@@ -18,9 +18,32 @@ export class LogController extends BaseController {
     this.ok(reply, result);
   }
 
-  public async clearLogs(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  public async clearLogs(
+    req: FastifyRequest<any>,
+    reply: FastifyReply
+  ): Promise<void> {
     const logs = (req as any).appScope?.logs || this.logService;
-    logs.clearLogs();
-    this.noContent(reply);
+    const rawOlderThan = (req.query as any)?.olderThanDays;
+    let olderThanDays: number | undefined = undefined;
+
+    if (rawOlderThan !== undefined && rawOlderThan !== null && String(rawOlderThan).trim() !== '') {
+      const parsed = Number(rawOlderThan);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        this.error(reply, 'Invalid olderThanDays parameter. Must be a non-negative number.', 400);
+        return;
+      }
+      olderThanDays = parsed;
+    }
+
+    try {
+      const deletedCount = logs.clearLogs(olderThanDays);
+      if (olderThanDays !== undefined) {
+        this.ok(reply, { success: true, deletedCount, olderThanDays });
+      } else {
+        this.noContent(reply);
+      }
+    } catch (err: any) {
+      this.error(reply, err.message || 'Failed to clear logs', 400);
+    }
   }
 }
