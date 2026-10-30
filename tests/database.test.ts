@@ -92,13 +92,35 @@ describe('DatabaseService & NodeSqliteDriver Transaction Tests', () => {
     expect(all).toHaveLength(0);
   });
 
-  it('should reject async functions passed to transaction to prevent premature commit', () => {
+  it('should reject async functions passed to transaction before invocation', () => {
+    db.exec('CREATE TABLE test_items (id TEXT PRIMARY KEY, val TEXT);');
+
+    let invoked = false;
+    expect(() => {
+      db.transaction((async () => {
+        invoked = true;
+        db.run('INSERT INTO test_items VALUES (?, ?)', '1', 'async');
+        await Promise.resolve();
+        db.run('INSERT INTO test_items VALUES (?, ?)', '2', 'after_await');
+      }) as any);
+    }).toThrow(/asynchronous functions cannot be used/i);
+
+    expect(invoked).toBe(false);
+    const all = db.all<{ id: string; val: string }>('SELECT * FROM test_items');
+    expect(all).toHaveLength(0);
+  });
+
+  it('should reject functions returning a Promise to prevent unmanaged async execution', () => {
     db.exec('CREATE TABLE test_items (id TEXT PRIMARY KEY, val TEXT);');
 
     expect(() => {
-      db.transaction((async () => {
-        db.run('INSERT INTO test_items VALUES (?, ?)', '1', 'async');
+      db.transaction((() => {
+        db.run('INSERT INTO test_items VALUES (?, ?)', '1', 'promise');
+        return Promise.resolve('delayed');
       }) as any);
-    }).toThrow(/asynchronous functions cannot be used/i);
+    }).toThrow(/asynchronous functions|promise-returning/i);
+
+    const all = db.all<{ id: string; val: string }>('SELECT * FROM test_items');
+    expect(all).toHaveLength(0);
   });
 });

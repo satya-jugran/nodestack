@@ -86,6 +86,17 @@ export class NodeSqliteDriver implements IDatabaseDriver {
 
   public transaction<T>(fn: () => T): T {
     this.checkOpen();
+
+    if (
+      typeof fn === 'function' &&
+      (fn.constructor?.name === 'AsyncFunction' ||
+       fn.constructor?.name === 'AsyncGeneratorFunction' ||
+       (fn as any)[Symbol.toStringTag] === 'AsyncFunction' ||
+       (fn as any)[Symbol.toStringTag] === 'AsyncGeneratorFunction')
+    ) {
+      throw new Error('Asynchronous functions cannot be used with synchronous transaction(). Use synchronous operations inside transaction().');
+    }
+
     const isTopLevel = this.transactionDepth === 0;
     const savepointName = `sp_${this.transactionDepth}`;
 
