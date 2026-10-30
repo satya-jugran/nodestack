@@ -3,6 +3,7 @@ import { DatabaseService } from '../database/DatabaseService';
 import { EventBus } from '../core/events/EventBus';
 import { RecordAfterEventContext } from '../core/events/types';
 import { AppError } from '../core/errors/AppError';
+import { SsrfGuard } from '../functions/security/SsrfGuard';
 
 export const ALLOWED_WEBHOOK_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE', 'GET', 'HEAD'] as const;
 export type WebhookMethod = (typeof ALLOWED_WEBHOOK_METHODS)[number];
@@ -170,14 +171,7 @@ export class WebhookService {
       throw new AppError('Target HTTP endpoint URL is required', 400);
     }
 
-    try {
-      const parsed = new URL(data.url.trim());
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        throw new Error('URL must start with http:// or https://');
-      }
-    } catch {
-      throw new AppError('A valid HTTP or HTTPS endpoint URL is required', 400);
-    }
+    this.validateWebhookUrl(data.url);
 
     let collection = (data.collection || '*').trim();
     let event = (data.event || '*').trim();
@@ -303,15 +297,8 @@ export class WebhookService {
 
     let url = existing.url;
     if (updates.url !== undefined) {
-      try {
-        const parsed = new URL(updates.url.trim());
-        if (!['http:', 'https:'].includes(parsed.protocol)) {
-          throw new Error('URL must start with http:// or https://');
-        }
-        url = updates.url.trim();
-      } catch {
-        throw new AppError('A valid HTTP or HTTPS endpoint URL is required', 400);
-      }
+      this.validateWebhookUrl(updates.url);
+      url = updates.url.trim();
     }
 
     const name = updates.name !== undefined ? updates.name.trim() : existing.name;
@@ -599,7 +586,15 @@ export class WebhookService {
 
     const fetchFn = this.fetchFn || globalThis.fetch;
 
-    if (!fetchFn) {
+    try {
+      this.validateWebhookUrl(targetUrl);
+    } catch (ssrfErr: any) {
+      errorMessage = `[SsrfGuard] ${ssrfErr.message}`;
+    }
+
+    if (errorMessage) {
+      status = 'failed';
+    } else if (!fetchFn) {
       errorMessage = 'Global fetch is not available';
     } else {
       let timeoutId: any = null;
@@ -974,4 +969,42 @@ export class WebhookService {
       return fallback;
     }
   }
+
+  public validateWebhookUrl(rawUrl: string): void {
+    if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) {
+      throw new AppError('A valid HTTP or HTTPS endpoint URL is required', 400);
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl.trim());
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('URL must start with http:// or https://');
+      }
+    } catch {
+      throw new AppError('A valid HTTP or HTTPS endpoint URL is required', 400);
+    }
+
+    const rawHostname = parsed.hostname.toLowerCase();
+    const hostname = rawHostname.startsWith('[') && rawHostname.endsWith(']')
+      ? rawHostname.slice(1, -1)
+      : rawHostname;
+
+    if (process.env.ALLOW_LOCAL_WEBHOOKS === 'true') {
+      const cloudMetadataHosts = ['169.254.169.254', 'metadata.google.internal', 'instance-data'];
+      if (cloudMetadataHosts.includes(hostname)) {
+        throw new AppError(`Target URL host '${hostname}' is prohibited (cloud metadata)`, 400);
+      }
+      return;
+    }
+
+    if (SsrfGuard.isPrivateIp(hostname)) {
+      throw new AppError(`Target URL host '${hostname}' points to a private or loopback IP address`, 400);
+    }
+
+    const blockedHosts = ['localhost', 'metadata.google.internal', 'instance-data'];
+    if (blockedHosts.includes(hostname)) {
+      throw new AppError(`Target URL host '${hostname}' is prohibited (loopback or cloud metadata)`, 400);
+    }
+  }
+
 }

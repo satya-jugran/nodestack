@@ -126,7 +126,7 @@ export class AppleProvider extends BaseOAuthProvider {
 
     // Fetch JWKS
     try {
-      const res = await fetch(this.jwksUrl);
+      const res = await fetch(this.jwksUrl, { signal: AbortSignal.timeout(10000) });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }

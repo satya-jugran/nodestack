@@ -570,7 +570,7 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
 
       // Searching path with backslash: path ~ 'C:\\docs'
       const parsedBackslash = QueryFilterParser.parseFilter("path ~ 'C:\\\\docs'");
-      expect(parsedBackslash.params).toEqual(["%C:\\docs%"]);
+      expect(parsedBackslash.params).toEqual(["%C:\\\\docs%"]);
     });
 
     it('should match records containing apostrophes and backslashes in database queries', async () => {

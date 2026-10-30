@@ -344,6 +344,70 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       expect(resMissingName.statusCode).toBe(400);
     });
 
+    it('should reject webhook creation with SSRF targets (localhost, private IP, metadata)', async () => {
+      const targets = [
+        'http://127.0.0.1:8080/callback',
+        'http://localhost:3000/webhook',
+        'http://169.254.169.254/latest/meta-data',
+        'http://10.0.0.1/webhook',
+        'http://192.168.1.1/webhook',
+        'http://172.16.0.1/webhook',
+        'http://metadata.google.internal/computeMetadata/v1',
+      ];
+
+      for (const url of targets) {
+        const res = await app.server.inject({
+          method: 'POST',
+          url: '/api/webhooks',
+          headers: {
+            authorization: `Bearer ${adminToken}`,
+            'content-type': 'application/json',
+          },
+          payload: {
+            name: `SSRF Test ${url}`,
+            url,
+          },
+        });
+        expect(res.statusCode).toBe(400);
+        const body = JSON.parse(res.payload);
+        expect(body.message).toMatch(/private or loopback|prohibited/i);
+      }
+    });
+
+    it('should reject webhook update with SSRF target URL', async () => {
+      // First create a valid webhook
+      const createRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/webhooks',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          name: 'Valid For Update',
+          url: 'https://webhook.site/test',
+        },
+      });
+      expect(createRes.statusCode).toBe(201);
+      const whk = JSON.parse(createRes.payload);
+
+      // Attempt to update with SSRF target
+      const updateRes = await app.server.inject({
+        method: 'PATCH',
+        url: `/api/webhooks/${whk.id}`,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          url: 'http://169.254.169.254/latest/meta-data',
+        },
+      });
+      expect(updateRes.statusCode).toBe(400);
+      const body = JSON.parse(updateRes.payload);
+      expect(body.message).toMatch(/private or loopback|prohibited/i);
+    });
+
     it('should reject webhook creation and update with invalid HTTP method', async () => {
       const resInvalidMethod = await app.server.inject({
         method: 'POST',

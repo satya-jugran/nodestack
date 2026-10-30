@@ -1,0 +1,123 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import { ConfigService } from '../src/core/config/ConfigService';
+import { DatabaseService } from '../src/database/DatabaseService';
+import { LogService } from '../src/logger/LogService';
+
+describe('LogService In-Memory Buffering & Write Batching Tests', () => {
+  const testDir = path.resolve(__dirname, '../.test_logger_data');
+  let config: ConfigService;
+  let db: DatabaseService;
+
+  beforeEach(() => {
+    if (fs.existsSync(testDir)) {
+      try {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      } catch {}
+    }
+    fs.mkdirSync(testDir, { recursive: true });
+    config = new ConfigService({ dataDir: testDir });
+    db = new DatabaseService(config);
+    db.init();
+  });
+
+  afterEach(() => {
+    if (db && db.isOpen()) {
+      db.close();
+    }
+    if (fs.existsSync(testDir)) {
+      try {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      } catch {}
+    }
+  });
+
+  it('should buffer log writes and flush them in a single batch', () => {
+    const logService = new LogService(db);
+
+    // Log 5 requests
+    for (let i = 1; i <= 5; i++) {
+      logService.logRequest({
+        method: 'GET',
+        url: `/api/items/${i}`,
+        status: 200,
+        duration: 1.5,
+        ip: '127.0.0.1',
+      });
+    }
+
+    // Check raw database table directly before flush or getLogs
+    const rawCountBefore = db.get<{ count: number }>('SELECT COUNT(*) as count FROM _logs');
+    expect(rawCountBefore?.count).toBe(0);
+
+    // getLogs() automatically flushes the buffer
+    const logs = logService.getLogs(1, 10);
+    expect(logs.totalItems).toBe(5);
+    expect(logs.items).toHaveLength(5);
+
+    const rawCountAfter = db.get<{ count: number }>('SELECT COUNT(*) as count FROM _logs');
+    expect(rawCountAfter?.count).toBe(5);
+
+    logService.dispose();
+  });
+
+  it('should automatically flush when buffer reaches maxBufferSize', () => {
+    const logService = new LogService(db);
+
+    // Log 50 requests (maxBufferSize)
+    for (let i = 1; i <= 50; i++) {
+      logService.logRequest({
+        method: 'POST',
+        url: `/api/batch/${i}`,
+        status: 201,
+        duration: 2.0,
+        ip: '127.0.0.1',
+      });
+    }
+
+    // Should have automatically flushed into SQLite table
+    const rawCount = db.get<{ count: number }>('SELECT COUNT(*) as count FROM _logs');
+    expect(rawCount?.count).toBe(50);
+
+    logService.dispose();
+  });
+
+  it('should clean up timers and pending buffer on dispose()', () => {
+    const logService = new LogService(db);
+
+    logService.logRequest({
+      method: 'DELETE',
+      url: '/api/cleanup',
+      status: 204,
+      duration: 0.8,
+      ip: '127.0.0.1',
+    });
+
+    // Calling dispose() flushes remaining items and clears timer
+    logService.dispose();
+
+    const rawCount = db.get<{ count: number }>('SELECT COUNT(*) as count FROM _logs');
+    expect(rawCount?.count).toBe(1);
+  });
+
+  it('should clear buffer and database records on clearLogs()', () => {
+    const logService = new LogService(db);
+
+    logService.logRequest({
+      method: 'GET',
+      url: '/api/to-clear',
+      status: 200,
+      duration: 1.0,
+      ip: '127.0.0.1',
+    });
+
+    logService.clearLogs();
+
+    const logs = logService.getLogs(1, 10);
+    expect(logs.totalItems).toBe(0);
+    expect(logs.items).toHaveLength(0);
+
+    logService.dispose();
+  });
+});

@@ -82,20 +82,47 @@ export class NodeSqliteDriver implements IDatabaseDriver {
     return stmt[method](...params);
   }
 
+  private transactionDepth = 0;
+
   public transaction<T>(fn: () => T): T {
     this.checkOpen();
-    this.db.exec('BEGIN TRANSACTION;');
+    const isTopLevel = this.transactionDepth === 0;
+    const savepointName = `sp_${this.transactionDepth}`;
+
+    if (isTopLevel) {
+      this.db.exec('BEGIN IMMEDIATE;');
+    } else {
+      this.db.exec(`SAVEPOINT ${savepointName};`);
+    }
+
+    this.transactionDepth++;
+
     try {
       const result = fn();
-      this.db.exec('COMMIT;');
+      if (result !== null && typeof result === 'object' && typeof (result as any).then === 'function') {
+        throw new Error('Asynchronous functions cannot be used with synchronous transaction(). Use synchronous operations inside transaction().');
+      }
+
+      if (isTopLevel) {
+        this.db.exec('COMMIT;');
+      } else {
+        this.db.exec(`RELEASE SAVEPOINT ${savepointName};`);
+      }
       return result;
     } catch (error) {
       try {
-        this.db.exec('ROLLBACK;');
+        if (isTopLevel) {
+          this.db.exec('ROLLBACK;');
+        } else {
+          this.db.exec(`ROLLBACK TO SAVEPOINT ${savepointName};`);
+          this.db.exec(`RELEASE SAVEPOINT ${savepointName};`);
+        }
       } catch {
         // ignore rollback errors
       }
       throw error;
+    } finally {
+      this.transactionDepth--;
     }
   }
 

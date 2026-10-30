@@ -63,6 +63,7 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
         Accept: 'application/json',
       },
       body: bodyParams.toString(),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!tokenRes.ok) {

@@ -21,6 +21,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
   const webhookPort = 9185;
 
   beforeAll(async () => {
+    process.env.ALLOW_LOCAL_WEBHOOKS = 'true';
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
@@ -62,6 +63,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
   });
 
   afterAll(async () => {
+    delete process.env.ALLOW_LOCAL_WEBHOOKS;
     await server.stop();
     if (webhookServer) {
       await new Promise<void>((resolve) => webhookServer.close(() => resolve()));

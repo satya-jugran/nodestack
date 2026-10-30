@@ -25,6 +25,7 @@ export class DiscordProvider extends BaseOAuthProvider {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!res.ok) {

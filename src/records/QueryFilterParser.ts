@@ -172,12 +172,22 @@ export class QueryFilterParser {
           case '<=':
             params.push(value);
             return `${prefix}"${fieldName}" <= ?`;
-          case '~':
-            params.push(`%${value}%`);
-            return `${prefix}"${fieldName}" LIKE ?`;
-          case '!~':
-            params.push(`%${value}%`);
-            return `${prefix}"${fieldName}" NOT LIKE ?`;
+          case '~': {
+            const escaped = String(value)
+              .replace(/\\/g, '\\\\')
+              .replace(/%/g, '\\%')
+              .replace(/_/g, '\\_');
+            params.push(`%${escaped}%`);
+            return `${prefix}"${fieldName}" LIKE ? ESCAPE '\\'`;
+          }
+          case '!~': {
+            const escaped = String(value)
+              .replace(/\\/g, '\\\\')
+              .replace(/%/g, '\\%')
+              .replace(/_/g, '\\_');
+            params.push(`%${escaped}%`);
+            return `${prefix}"${fieldName}" NOT LIKE ? ESCAPE '\\'`;
+          }
         }
       }
     }

@@ -31,6 +31,7 @@ export class GitHubProvider extends BaseOAuthProvider {
         'User-Agent': 'NodeStack-OAuth',
         Accept: 'application/json',
       },
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!userRes.ok) {
