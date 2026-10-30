@@ -25,6 +25,7 @@ export class MicrosoftProvider extends BaseOAuthProvider {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
+      signal: this.getTimeoutSignal(),
     });
 
     if (!res.ok) {

@@ -3,6 +3,7 @@ import { DatabaseService } from '../database/DatabaseService';
 import { ConfigService } from '../core/config/ConfigService';
 import { SchemaService } from '../schema/SchemaService';
 import { RealtimeService } from '../realtime/RealtimeService';
+import { LogService } from '../logger/LogService';
 
 export interface HourlyDataPoint {
   timestamp: string;
@@ -62,15 +63,17 @@ export function formatBytes(bytes: number): string {
 
 export class AnalyticsService {
   private dbPath: string;
+  private logService?: LogService;
 
   constructor(
     private db: DatabaseService,
     private config: ConfigService,
     private schemaService: SchemaService,
     private realtimeService: RealtimeService,
-    options?: { dbPath?: string }
+    options?: { dbPath?: string; logService?: LogService }
   ) {
     this.dbPath = options?.dbPath || this.config.dbPath;
+    this.logService = options?.logService;
   }
 
   public getDatabaseMetrics(): DatabaseMetrics {
@@ -134,6 +137,7 @@ export class AnalyticsService {
   }
 
   public getTraffic24hMetrics(): Traffic24hMetrics {
+    this.logService?.flush();
     const now = new Date();
     const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 

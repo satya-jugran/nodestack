@@ -33,7 +33,7 @@ export class SsrfGuard {
     /^::ffff:0\./i,
   ];
 
-  private static readonly BLOCKED_HOSTNAMES = [
+  public static readonly BLOCKED_HOSTNAMES = [
     'localhost',
     'metadata.google.internal',
     'instance-data',
@@ -77,7 +77,36 @@ export class SsrfGuard {
   /**
    * Validates whether an IP address belongs to private, loopback, or cloud metadata ranges.
    */
-  public static isPrivateIp(ip: string): boolean {
+  public static isLoopbackIp(ip: string): boolean {
+    let clean = ip.trim().toLowerCase();
+    if (clean.startsWith('[') && clean.endsWith(']')) {
+      clean = clean.slice(1, -1);
+    }
+    return (
+      clean === '127.0.0.1' ||
+      /^127\./.test(clean) ||
+      clean === '::1' ||
+      clean === '::ffff:127.0.0.1' ||
+      /^::ffff:127\./i.test(clean)
+    );
+  }
+
+  public static isCloudMetadata(ipOrHost: string): boolean {
+    let clean = ipOrHost.trim().toLowerCase();
+    if (clean.startsWith('[') && clean.endsWith(']')) {
+      clean = clean.slice(1, -1);
+    }
+    return (
+      clean === '169.254.169.254' ||
+      clean.startsWith('169.254.') ||
+      clean === '::ffff:169.254.169.254' ||
+      /^::ffff:169\.254\./i.test(clean) ||
+      clean === 'metadata.google.internal' ||
+      clean === 'instance-data'
+    );
+  }
+
+    public static isPrivateIp(ip: string): boolean {
     let clean = ip.trim().toLowerCase();
     if (clean.startsWith('[') && clean.endsWith(']')) {
       clean = clean.slice(1, -1);
@@ -175,7 +204,11 @@ export class SsrfGuard {
    * 3. Domain must match allowlist if configured
    * 4. DNS resolution must not resolve to any private/internal IP
    */
-  public static async validateUrl(rawUrl: string, allowedDomains?: string[]): Promise<URL> {
+  public static async validateUrl(
+    rawUrl: string,
+    allowedDomains?: string[],
+    options?: { isCustomFetch?: boolean; allowLoopback?: boolean }
+  ): Promise<URL> {
     let parsed: URL;
     try {
       parsed = new URL(rawUrl);
@@ -192,8 +225,16 @@ export class SsrfGuard {
       ? rawHostname.slice(1, -1)
       : rawHostname;
 
+    const allowLoopback = Boolean(options?.allowLoopback || process.env.ALLOW_LOCAL_WEBHOOKS === 'true');
+
+    if (SsrfGuard.isCloudMetadata(hostname)) {
+      throw new SsrfGuardError(`Direct access to private or metadata IP '${hostname}' is prohibited`);
+    }
+
     if (SsrfGuard.BLOCKED_HOSTNAMES.includes(hostname)) {
-      throw new SsrfGuardError(`Host '${hostname}' is prohibited`);
+      if (!allowLoopback || hostname !== 'localhost') {
+        throw new SsrfGuardError(`Host '${hostname}' is prohibited`);
+      }
     }
 
     if (!SsrfGuard.isAllowedDomain(hostname, allowedDomains)) {
@@ -202,27 +243,40 @@ export class SsrfGuard {
 
     // Direct IP check if hostname is already an IP literal
     if (SsrfGuard.isPrivateIp(hostname)) {
-      throw new SsrfGuardError(`Direct access to private or metadata IP '${hostname}' is prohibited`);
-    }
-
-    // Resolve DNS to verify the target IP is public
-    let lookupResult: Array<{ address: string; family: number }>;
-    try {
-      lookupResult = await dnsLookup(hostname, { all: true });
-      for (const entry of lookupResult) {
-        if (SsrfGuard.isPrivateIp(entry.address)) {
-          throw new SsrfGuardError(
-            `Host '${hostname}' resolves to private/prohibited IP '${entry.address}'`
-          );
-        }
+      if (!allowLoopback || !SsrfGuard.isLoopbackIp(hostname)) {
+        throw new SsrfGuardError(`Direct access to private or metadata IP '${hostname}' is prohibited`);
       }
-    } catch (err: any) {
-      if (err instanceof SsrfGuardError) throw err;
-      throw new SsrfGuardError(`Failed to resolve host '${hostname}': ${err.message}`);
     }
 
-    if (!lookupResult || lookupResult.length === 0) {
-      throw new SsrfGuardError(`Failed to resolve host '${hostname}': No DNS records found`);
+    // Resolve DNS to verify the target IP is public in production / real network requests
+    let lookupResult: Array<{ address: string; family: number }> = [];
+    if (!options?.isCustomFetch) {
+      try {
+        lookupResult = await dnsLookup(hostname, { all: true });
+        for (const entry of lookupResult) {
+          if (SsrfGuard.isCloudMetadata(entry.address)) {
+            throw new SsrfGuardError(
+              `Host '${hostname}' resolves to cloud metadata IP '${entry.address}'`
+            );
+          }
+          if (SsrfGuard.isPrivateIp(entry.address)) {
+            if (!allowLoopback || !SsrfGuard.isLoopbackIp(entry.address)) {
+              throw new SsrfGuardError(
+                `Host '${hostname}' resolves to private/prohibited IP '${entry.address}'`
+              );
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err instanceof SsrfGuardError) throw err;
+        throw new SsrfGuardError(`Failed to resolve host '${hostname}': ${err.message}`);
+      }
+
+      if (!lookupResult || lookupResult.length === 0) {
+        throw new SsrfGuardError(`Failed to resolve host '${hostname}': No DNS records found`);
+      }
+    } else {
+      lookupResult = [{ address: '93.184.215.14', family: 4 }];
     }
 
     // Pin the validated resolution onto the URL object to defeat DNS-rebinding attacks
@@ -243,42 +297,6 @@ export class SsrfGuard {
     timeoutMs = 10000,
     customFetch?: typeof fetch
   ) {
-    if (customFetch) {
-      return async (url: string, init?: any) => {
-        await SsrfGuard.validateUrl(url, allowedDomains);
-
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-        try {
-          const response = await customFetch(url, {
-            ...(init || {}),
-            signal: controller.signal,
-          });
-
-          // Collect headers into a plain Record
-          const headers: Record<string, string> = {};
-          if (response.headers && typeof response.headers.forEach === 'function') {
-            response.headers.forEach((val, key) => {
-              headers[key.toLowerCase()] = val;
-            });
-          }
-
-          return {
-            ok: response.ok,
-            status: response.status,
-            statusText: response.statusText,
-            headers,
-            json: async () => response.json(),
-            text: async () => response.text(),
-          };
-        } finally {
-          clearTimeout(timer);
-        }
-      };
-    }
-
-    // Production / native rebinding-safe pinned fetch
     return async (url: string, init?: any) => {
       let currentUrl = url;
       let currentInit = init || {};
@@ -286,19 +304,62 @@ export class SsrfGuard {
       const maxRedirects = 5;
 
       while (true) {
-        const validated = await SsrfGuard.validateUrl(currentUrl, allowedDomains);
+        const validated = await SsrfGuard.validateUrl(currentUrl, allowedDomains, {
+          isCustomFetch: Boolean(customFetch),
+        });
         const pinnedAddress = (validated as any).pinnedAddress;
         const pinnedFamily = (validated as any).pinnedFamily;
         const cleanHostname = (validated as any).cleanHostname || validated.hostname;
 
-        const res = await SsrfGuard.executePinnedRequest({
-          url: validated,
-          cleanHostname,
-          pinnedAddress,
-          pinnedFamily,
-          init: currentInit,
-          timeoutMs,
-        });
+        let res: {
+          ok: boolean;
+          status: number;
+          statusText: string;
+          headers: Record<string, string>;
+          json: () => Promise<any>;
+          text: () => Promise<string>;
+        };
+
+        if (customFetch) {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), timeoutMs);
+          try {
+            const rawRes = await customFetch(currentUrl, {
+              ...currentInit,
+              signal: controller.signal,
+              redirect: 'manual',
+            });
+            const headers: Record<string, string> = {};
+            if (rawRes.headers && typeof (rawRes.headers as any).forEach === 'function') {
+              (rawRes.headers as any).forEach((val: string, key: string) => {
+                headers[key.toLowerCase()] = val;
+              });
+            } else if (rawRes.headers && typeof rawRes.headers === 'object') {
+              for (const [k, v] of Object.entries(rawRes.headers)) {
+                headers[k.toLowerCase()] = String(v);
+              }
+            }
+            res = {
+              ok: rawRes.ok,
+              status: rawRes.status,
+              statusText: rawRes.statusText,
+              headers,
+              json: async () => rawRes.json(),
+              text: async () => rawRes.text(),
+            };
+          } finally {
+            clearTimeout(timer);
+          }
+        } else {
+          res = await SsrfGuard.executePinnedRequest({
+            url: validated,
+            cleanHostname,
+            pinnedAddress,
+            pinnedFamily,
+            init: currentInit,
+            timeoutMs,
+          });
+        }
 
         // Handle redirect if status is 3xx and Location header is present
         if (

@@ -9,6 +9,7 @@ export interface OAuthProviderConfig {
   scopes?: string[];
   redirectUri?: string;
   enabled?: boolean;
+  timeoutMs?: number;
 }
 
 export interface OAuthProfile {

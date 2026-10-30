@@ -5,6 +5,7 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
   public readonly name: string;
   public readonly displayName: string;
   public readonly enabled: boolean;
+  public readonly timeoutMs: number;
   protected clientId: string;
   protected clientSecret: string;
   protected authUrl: string;
@@ -24,6 +25,11 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
     this.userinfoUrl = config.userinfoUrl || '';
     this.scopes = config.scopes || [];
     this.defaultRedirectUri = config.redirectUri;
+    this.timeoutMs = config.timeoutMs ?? 10000;
+  }
+
+  protected getTimeoutSignal(): AbortSignal {
+    return AbortSignal.timeout(this.timeoutMs);
   }
 
   public buildAuthUrl(state: string, codeChallenge: string, redirectUri?: string): string {
@@ -63,6 +69,7 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
         Accept: 'application/json',
       },
       body: bodyParams.toString(),
+      signal: this.getTimeoutSignal(),
     });
 
     if (!tokenRes.ok) {

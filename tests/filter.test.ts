@@ -34,7 +34,17 @@ describe('QueryFilterParser', () => {
 
   it('should parse like/contains filters (~)', () => {
     const { clause, params } = QueryFilterParser.parseFilter("title ~ 'NodeStack'", allowed);
-    expect(clause).toBe('WHERE "title" LIKE ?');
+    expect(clause).toBe("WHERE \"title\" LIKE ? ESCAPE '\\'");
     expect(params).toEqual(['%NodeStack%']);
+  });
+
+  it('should escape wildcards in like/contains filters (~ and !~)', () => {
+    const { clause: c1, params: p1 } = QueryFilterParser.parseFilter("title ~ '50% off_now\\\\deal'", allowed);
+    expect(c1).toBe("WHERE \"title\" LIKE ? ESCAPE '\\'");
+    expect(p1).toEqual(['%50\\% off\\_now\\\\deal%']);
+
+    const { clause: c2, params: p2 } = QueryFilterParser.parseFilter("title !~ '100%_pure'", allowed);
+    expect(c2).toBe("WHERE \"title\" NOT LIKE ? ESCAPE '\\'");
+    expect(p2).toEqual(['%100\\%\\_pure%']);
   });
 });

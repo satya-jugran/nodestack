@@ -16,41 +16,111 @@ export interface LogEntry {
   created?: string;
 }
 
+interface BufferedLogItem {
+  id: string;
+  method: string;
+  url: string;
+  status: number;
+  duration: number;
+  ip: string | null;
+  authId: string | null;
+  authCollection: string | null;
+  userAgent: string | null;
+  data: string | null;
+  created: string;
+}
+
 export class LogService {
-  constructor(private db: DatabaseService) {}
+  private buffer: BufferedLogItem[] = [];
+  private flushTimer?: NodeJS.Timeout;
+  private readonly maxBufferSize = 50;
+
+  constructor(private db: DatabaseService) {
+    this.flushTimer = setInterval(() => {
+      this.flush();
+    }, 250);
+    if (this.flushTimer.unref) {
+      this.flushTimer.unref();
+    }
+  }
 
   public logRequest(entry: LogEntry, options: { skipConsole?: boolean } = {}): void {
-    const id = `log_${crypto.randomBytes(6).toString('hex')}`;
-    const now = new Date().toISOString();
-
     try {
-      this.db.prepare(`
-        INSERT INTO _logs (id, method, url, status, duration, ip, authId, authCollection, userAgent, data, created)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      const id = `log_${crypto.randomBytes(6).toString('hex')}`;
+      const now = new Date().toISOString();
+
+      let serializedData: string | null = null;
+      if (entry.data !== undefined && entry.data !== null) {
+        try {
+          serializedData = JSON.stringify(entry.data, (_key, value) =>
+            typeof value === 'bigint' ? value.toString() : value
+          );
+        } catch {
+          serializedData = null;
+        }
+      }
+
+      this.buffer.push({
         id,
-        entry.method,
-        entry.url,
-        entry.status,
-        entry.duration,
-        entry.ip || null,
-        entry.authId || null,
-        entry.authCollection || null,
-        entry.userAgent || null,
-        entry.data ? JSON.stringify(entry.data) : null,
-        now
-      );
+        method: entry.method,
+        url: entry.url,
+        status: entry.status,
+        duration: entry.duration,
+        ip: entry.ip || null,
+        authId: entry.authId || null,
+        authCollection: entry.authCollection || null,
+        userAgent: entry.userAgent || null,
+        data: serializedData,
+        created: now,
+      });
+
+      if (this.buffer.length >= this.maxBufferSize) {
+        this.flush();
+      }
+
+      // Console output with color formatting
+      if (!options.skipConsole) {
+        this.printToConsole(entry);
+      }
     } catch {
       // Don't let log write errors break request flow
     }
+  }
 
-    // Console output with color formatting
-    if (!options.skipConsole) {
-      this.printToConsole(entry);
+  public flush(): void {
+    if (this.buffer.length === 0) return;
+    const items = [...this.buffer];
+    this.buffer = [];
+
+    try {
+      this.db.transaction(() => {
+        const stmt = this.db.prepare(`
+          INSERT INTO _logs (id, method, url, status, duration, ip, authId, authCollection, userAgent, data, created)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const item of items) {
+          stmt.run(
+            item.id,
+            item.method,
+            item.url,
+            item.status,
+            item.duration,
+            item.ip,
+            item.authId,
+            item.authCollection,
+            item.userAgent,
+            item.data,
+            item.created
+          );
+        }
+      });
+    } catch {
+      // Don't let log write errors break request flow
     }
   }
 
   public getLogs(page = 1, perPage = 50): { items: any[]; totalItems: number; totalPages: number; page: number; perPage: number } {
+    this.flush();
     const offset = (page - 1) * perPage;
     const totalRow = this.db.get<any>('SELECT COUNT(*) as count FROM _logs');
     const totalItems = totalRow?.count || 0;
@@ -74,7 +144,16 @@ export class LogService {
   }
 
   public clearLogs(): void {
+    this.buffer = [];
     this.db.exec('DELETE FROM _logs;');
+  }
+
+  public dispose(): void {
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = undefined;
+    }
+    this.flush();
   }
 
   private printToConsole(entry: LogEntry): void {

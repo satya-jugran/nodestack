@@ -151,6 +151,7 @@ export class AppScope {
     this.demo = this.snapshots as unknown as DemoService;
     this.analytics = new AnalyticsService(this.db, this.config, this.schema, this.realtime, {
       dbPath: appDbPath,
+      logService: this.logs,
     });
     this.auditLogs = new AuditLogService(this.db);
     this.webhooks = new WebhookService(this.db, this.eventBus);
@@ -341,6 +342,12 @@ export class AppScope {
     // 1. Dispose RealtimeService (clears heartbeat interval and disconnects all SSE clients)
     try {
       this.realtime.dispose();
+    } catch {
+      // ignore
+    }
+
+    try {
+      this.logs.dispose();
     } catch {
       // ignore
     }

@@ -3,6 +3,7 @@ import { DatabaseService } from '../database/DatabaseService';
 import { EventBus } from '../core/events/EventBus';
 import { RecordAfterEventContext } from '../core/events/types';
 import { AppError } from '../core/errors/AppError';
+import { SsrfGuard, SsrfGuardError } from '../functions/security/SsrfGuard';
 
 export const ALLOWED_WEBHOOK_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE', 'GET', 'HEAD'] as const;
 export type WebhookMethod = (typeof ALLOWED_WEBHOOK_METHODS)[number];
@@ -170,14 +171,7 @@ export class WebhookService {
       throw new AppError('Target HTTP endpoint URL is required', 400);
     }
 
-    try {
-      const parsed = new URL(data.url.trim());
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        throw new Error('URL must start with http:// or https://');
-      }
-    } catch {
-      throw new AppError('A valid HTTP or HTTPS endpoint URL is required', 400);
-    }
+    this.validateWebhookUrl(data.url);
 
     let collection = (data.collection || '*').trim();
     let event = (data.event || '*').trim();
@@ -303,15 +297,8 @@ export class WebhookService {
 
     let url = existing.url;
     if (updates.url !== undefined) {
-      try {
-        const parsed = new URL(updates.url.trim());
-        if (!['http:', 'https:'].includes(parsed.protocol)) {
-          throw new Error('URL must start with http:// or https://');
-        }
-        url = updates.url.trim();
-      } catch {
-        throw new AppError('A valid HTTP or HTTPS endpoint URL is required', 400);
-      }
+      this.validateWebhookUrl(updates.url);
+      url = updates.url.trim();
     }
 
     const name = updates.name !== undefined ? updates.name.trim() : existing.name;
@@ -597,50 +584,53 @@ export class WebhookService {
     let status: 'success' | 'failed' = 'failed';
     let errorMessage: string | null = null;
 
-    const fetchFn = this.fetchFn || globalThis.fetch;
+    try {
+      const guardedFetch = SsrfGuard.createGuardedFetch(
+        undefined,
+        this.requestTimeoutMs,
+        this.fetchFn
+      );
 
-    if (!fetchFn) {
-      errorMessage = 'Global fetch is not available';
-    } else {
-      let timeoutId: any = null;
-      try {
-        const controller = new AbortController();
-        timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+      const fetchOptions: any = {
+        method,
+        headers: requestHeaders,
+      };
+      if (isBodyAllowed) {
+        fetchOptions.body = payloadString;
+      }
 
-        const fetchOptions: any = {
-          method,
-          headers: requestHeaders,
-          signal: controller.signal,
-        };
-        if (isBodyAllowed) {
-          fetchOptions.body = payloadString;
-        }
+      const res = await guardedFetch(targetUrl, fetchOptions);
 
-        const res = await fetchFn(targetUrl, fetchOptions);
-
-        responseStatus = res.status;
-        res.headers.forEach((val, key) => {
+      responseStatus = res.status;
+      if (res.headers && typeof (res.headers as any).forEach === 'function') {
+        (res.headers as any).forEach((val: string, key: string) => {
           responseHeaders[key] = val;
         });
-
-        responseBody = await res.text().catch(() => '');
-        // Keep body reasonable for SQLite storage (first 10,000 characters)
-        if (responseBody.length > 10000) {
-          responseBody = responseBody.substring(0, 10000) + '... [truncated]';
+      } else if (res.headers && typeof res.headers === 'object') {
+        for (const [key, val] of Object.entries(res.headers)) {
+          responseHeaders[key] = String(val);
         }
-
-        if (res.ok) {
-          status = 'success';
-        } else {
-          status = 'failed';
-          errorMessage = `HTTP ${res.status}: ${res.statusText || 'Response not OK'}`;
-        }
-      } catch (err: any) {
-        status = 'failed';
-        errorMessage = err.name === 'AbortError' ? `Request timed out after ${this.requestTimeoutMs}ms` : (err.message || String(err));
-      } finally {
-        if (timeoutId) clearTimeout(timeoutId);
       }
+
+      responseBody = await res.text().catch(() => '');
+      // Keep body reasonable for SQLite storage (first 10,000 characters)
+      if (responseBody.length > 10000) {
+        responseBody = responseBody.substring(0, 10000) + '... [truncated]';
+      }
+
+      if (res.ok) {
+        status = 'success';
+      } else {
+        status = 'failed';
+        errorMessage = `HTTP ${res.status}: ${res.statusText || 'Response not OK'}`;
+      }
+    } catch (err: any) {
+      status = 'failed';
+      errorMessage = err instanceof SsrfGuardError
+        ? `[SsrfGuard] ${err.message}`
+        : err.name === 'AbortError'
+        ? `Request timed out after ${this.requestTimeoutMs}ms`
+        : (err.message || String(err));
     }
 
     const durationMs = Date.now() - startTime;
@@ -974,4 +964,41 @@ export class WebhookService {
       return fallback;
     }
   }
+
+  public validateWebhookUrl(rawUrl: string): void {
+    if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) {
+      throw new AppError('A valid HTTP or HTTPS endpoint URL is required', 400);
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl.trim());
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('URL must start with http:// or https://');
+      }
+    } catch {
+      throw new AppError('A valid HTTP or HTTPS endpoint URL is required', 400);
+    }
+
+    const rawHostname = parsed.hostname.toLowerCase();
+    const hostname = rawHostname.startsWith('[') && rawHostname.endsWith(']')
+      ? rawHostname.slice(1, -1)
+      : rawHostname;
+
+    if (SsrfGuard.isCloudMetadata(hostname)) {
+      throw new AppError(`Target URL host '${hostname}' is prohibited (cloud metadata)`, 400);
+    }
+
+    const allowLocal = process.env.ALLOW_LOCAL_WEBHOOKS === 'true';
+
+    if (!allowLocal) {
+      if (SsrfGuard.isPrivateIp(hostname)) {
+        throw new AppError(`Target URL host '${hostname}' points to a private or loopback IP address`, 400);
+      }
+
+      if (SsrfGuard.BLOCKED_HOSTNAMES.includes(hostname)) {
+        throw new AppError(`Target URL host '${hostname}' is prohibited (loopback or cloud metadata)`, 400);
+      }
+    }
+  }
+
 }
