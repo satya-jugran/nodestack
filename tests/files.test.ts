@@ -101,5 +101,91 @@ describe('File Storage and Upload Integration Test', () => {
       })
     ).rejects.toThrow(/Record ID must only contain alphanumeric/i);
   });
-});
 
+  it('should safely write record files via writeRecordFile and reject traversal', async () => {
+    const col = app.schema.getCollectionOrThrow('documents');
+    const content = Buffer.from('<svg>avatar</svg>');
+
+    // Valid write
+    const writtenPath = await app.files.writeRecordFile(col.id, 'rec_123', 'avatar_custom.svg', content);
+    expect(fs.existsSync(writtenPath)).toBe(true);
+    expect(fs.readFileSync(writtenPath, 'utf-8')).toBe('<svg>avatar</svg>');
+
+    // Reject traversal in collectionId
+    await expect(
+      app.files.writeRecordFile('../../../etc', 'rec_123', 'avatar.svg', content)
+    ).rejects.toThrow(/prohibited path traversal characters/i);
+
+    // Reject traversal in recordId
+    await expect(
+      app.files.writeRecordFile(col.id, '../../etc', 'avatar.svg', content)
+    ).rejects.toThrow(/prohibited path traversal characters/i);
+
+    // Reject invalid filename
+    await expect(
+      app.files.writeRecordFile(col.id, 'rec_123', '..', content)
+    ).rejects.toThrow(/invalid filename/i);
+  });
+
+  it('should reject invalid collection ID in schema createCollection', async () => {
+    expect(() => {
+      app.schema.createCollection({
+        id: '../../evil_col',
+        name: 'evil_col',
+        type: 'base',
+        schema: [],
+      });
+    }).toThrow(/Collection ID must only contain alphanumeric characters/i);
+  });
+
+  it('should reject invalid record ID in importRecords', async () => {
+    // With continueOnError: false, it throws ValidationError
+    await expect(
+      app.records.importRecords(
+        'documents',
+        [{ id: '../../evil_import', title: 'Malicious Row' }],
+        undefined,
+        { continueOnError: false }
+      )
+    ).rejects.toThrow(/prohibited characters/i);
+
+    // With continueOnError: true (default), it reports row failure without inserting
+    const res = await app.records.importRecords('documents', [
+      { id: '../../evil_import_soft', title: 'Malicious Row' },
+    ]);
+    expect(res.success).toBe(false);
+    expect(res.failed).toBe(1);
+    expect(res.imported).toBe(0);
+    expect(res.errors[0].error).toMatch(/prohibited characters/i);
+  });
+
+  it('should dynamically heal declared avatar safely and reject unvalidated record paths', async () => {
+    // Create record with declared missing avatar
+    const userRec = await app.records.create('documents', {
+      id: 'rec_user_avatar',
+      title: 'Alice',
+      file: 'avatar_alice.png',
+    });
+    expect(userRec.id).toBe('rec_user_avatar');
+
+    // Fetch through HTTP file endpoint: should trigger dynamic healing safely
+    const res = await app.server.app.inject({
+      method: 'GET',
+      url: `/api/files/documents/rec_user_avatar/avatar_alice.png`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('image/png');
+
+    // Confirm file was written inside storage directory
+    const col = app.schema.getCollectionOrThrow('documents');
+    const diskPath = app.files.getFilePath(col.id, 'rec_user_avatar', 'avatar_alice.png');
+    expect(fs.existsSync(diskPath)).toBe(true);
+
+    // Endpoint should reject path traversal in recordId with 404
+    const maliciousRes = await app.server.app.inject({
+      method: 'GET',
+      url: `/api/files/documents/..%2F..%2Fetc/avatar_alice.png`,
+    });
+    expect(maliciousRes.statusCode).toBe(404);
+  });
+});

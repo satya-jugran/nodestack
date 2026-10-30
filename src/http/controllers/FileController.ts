@@ -48,6 +48,16 @@ export class FileController extends BaseController {
     const ruleEngine = this.getRuleEngine(req);
     const files = this.getFiles(req);
 
+    // Validate parameters at boundary
+    if (!recordId || !/^[a-zA-Z0-9_-]+$/.test(recordId.trim())) {
+      throw new NotFoundError(`Record '${recordId}' not found`);
+    }
+
+    const safeFilename = path.basename(filename);
+    if (!safeFilename || safeFilename === '.' || safeFilename === '..') {
+      throw new NotFoundError(`File '${filename}' not found`);
+    }
+
     const col = schema.getCollectionOrThrow(collection);
 
     // Rule check: verify view access to the record owning this file
@@ -99,7 +109,6 @@ export class FileController extends BaseController {
       declaredFilenames.add(path.basename(record.avatar.trim()));
     }
 
-    const safeFilename = path.basename(filename);
     const isDeclared = declaredFilenames.has(safeFilename);
 
     let filePath: string;
@@ -114,13 +123,7 @@ export class FileController extends BaseController {
           ? FakerEngine.generateLocalPngAvatar(safeName, safeFilename)
           : FakerEngine.generateLocalSvgAvatar(safeName, safeFilename);
 
-        const dir = path.join(files.storageDir, col.id, recordId);
-        if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true });
-        }
-        const targetPath = path.join(dir, safeFilename);
-        fs.writeFileSync(targetPath, buf);
-        filePath = targetPath;
+        filePath = await files.writeRecordFile(col.id, recordId, safeFilename, buf);
       } else {
         throw err;
       }

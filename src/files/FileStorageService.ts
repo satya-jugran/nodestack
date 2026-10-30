@@ -19,15 +19,27 @@ export class FileStorageService {
     return this.customStorageDir || this.config.storageDir;
   }
 
-    private sanitizeId(id: string, name = 'ID'): string {
+  private sanitizeId(id: string, name = 'ID'): string {
     if (!id || typeof id !== 'string') {
       throw new AppError(`Invalid ${name}`, 400);
     }
-    const safe = path.basename(id).trim();
-    if (!/^[a-zA-Z0-9_-]+$/.test(safe) || safe !== id.trim()) {
+    const safe = id.trim();
+    if (!/^[a-zA-Z0-9_-]+$/.test(safe)) {
       throw new AppError(`Invalid ${name} format: '${id}' contains prohibited path traversal characters`, 400);
     }
     return safe;
+  }
+
+  private isContained(targetPath: string): boolean {
+    const resolvedBase = path.resolve(this.storageDir);
+    const resolvedTarget = path.resolve(targetPath);
+    const resolvedBaseWithSep = resolvedBase.endsWith(path.sep) ? resolvedBase : resolvedBase + path.sep;
+    const rel = path.relative(resolvedBase, resolvedTarget);
+    return (
+      (resolvedTarget === resolvedBase || resolvedTarget.startsWith(resolvedBaseWithSep)) &&
+      !rel.startsWith('..') &&
+      !path.isAbsolute(rel)
+    );
   }
 
   /**
@@ -56,6 +68,9 @@ export class FileStorageService {
     const safeCol = this.sanitizeId(collectionId, 'collectionId');
     const safeRec = this.sanitizeId(recordId, 'recordId');
     const dir = path.join(this.storageDir, safeCol, safeRec);
+    if (!this.isContained(dir)) {
+      throw new AppError('Path traversal detected in record storage directory', 400);
+    }
     await fs.promises.mkdir(dir, { recursive: true });
 
     const ext = path.extname(originalName) || '';
@@ -67,6 +82,9 @@ export class FileStorageService {
     const filename = `${safeBaseName}_${randomSuffix}${ext}`;
 
     const filePath = path.join(dir, filename);
+    if (!this.isContained(filePath)) {
+      throw new AppError('Path traversal detected in target file path', 400);
+    }
     await fs.promises.writeFile(filePath, buffer);
 
     return {
@@ -78,6 +96,34 @@ export class FileStorageService {
   }
 
   /**
+   * Directly write a file to a record's storage directory (e.g., dynamically generated avatars or assets)
+   * with strict ID validation and containment checking.
+   */
+  public async writeRecordFile(
+    collectionId: string,
+    recordId: string,
+    filename: string,
+    buffer: Buffer
+  ): Promise<string> {
+    const safeCol = this.sanitizeId(collectionId, 'collectionId');
+    const safeRec = this.sanitizeId(recordId, 'recordId');
+    const safeFilename = path.basename(filename);
+    if (!safeFilename || safeFilename === '.' || safeFilename === '..') {
+      throw new AppError('Invalid filename', 400);
+    }
+
+    const dir = path.join(this.storageDir, safeCol, safeRec);
+    const filePath = path.join(dir, safeFilename);
+    if (!this.isContained(filePath)) {
+      throw new AppError('Path traversal detected in record file path', 400);
+    }
+
+    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.writeFile(filePath, buffer);
+    return filePath;
+  }
+
+  /**
    * Get the absolute path to a stored file
    */
   public getFilePath(collectionId: string, recordId: string, filename: string): string {
@@ -85,9 +131,7 @@ export class FileStorageService {
     const safeRec = this.sanitizeId(recordId, 'recordId');
     const safeFilename = path.basename(filename);
     const filePath = path.join(this.storageDir, safeCol, safeRec, safeFilename);
-    const resolvedPath = path.resolve(filePath);
-    const resolvedBase = path.resolve(this.storageDir);
-    if (!resolvedPath.startsWith(resolvedBase) || !fs.existsSync(filePath)) {
+    if (!this.isContained(filePath) || !fs.existsSync(filePath)) {
       throw new NotFoundError(`File '${filename}' not found`);
     }
     return filePath;
@@ -101,9 +145,7 @@ export class FileStorageService {
     const safeRec = this.sanitizeId(recordId, 'recordId');
     const safeFilename = path.basename(filename);
     const filePath = path.join(this.storageDir, safeCol, safeRec, safeFilename);
-    const resolvedPath = path.resolve(filePath);
-    const resolvedBase = path.resolve(this.storageDir);
-    if (resolvedPath.startsWith(resolvedBase) && fs.existsSync(filePath)) {
+    if (this.isContained(filePath) && fs.existsSync(filePath)) {
       await fs.promises.unlink(filePath);
     }
   }
@@ -115,9 +157,7 @@ export class FileStorageService {
     const safeCol = this.sanitizeId(collectionId, 'collectionId');
     const safeRec = this.sanitizeId(recordId, 'recordId');
     const dir = path.join(this.storageDir, safeCol, safeRec);
-    const resolvedDir = path.resolve(dir);
-    const resolvedBase = path.resolve(this.storageDir);
-    if (resolvedDir.startsWith(resolvedBase) && fs.existsSync(dir)) {
+    if (this.isContained(dir) && fs.existsSync(dir)) {
       await fs.promises.rm(dir, { recursive: true, force: true });
     }
   }
@@ -128,11 +168,8 @@ export class FileStorageService {
   public async deleteCollectionFiles(collectionId: string): Promise<void> {
     const safeCol = this.sanitizeId(collectionId, 'collectionId');
     const dir = path.join(this.storageDir, safeCol);
-    const resolvedDir = path.resolve(dir);
-    const resolvedBase = path.resolve(this.storageDir);
-    if (resolvedDir.startsWith(resolvedBase) && fs.existsSync(dir)) {
+    if (this.isContained(dir) && fs.existsSync(dir)) {
       await fs.promises.rm(dir, { recursive: true, force: true });
     }
   }
 }
-
