@@ -120,4 +120,49 @@ describe('LogService In-Memory Buffering & Write Batching Tests', () => {
 
     logService.dispose();
   });
+
+  it('should defensively handle circular references in entry.data without throwing', () => {
+    const logService = new LogService(db);
+
+    const circularObj: any = { message: 'hello' };
+    circularObj.self = circularObj;
+
+    expect(() => {
+      logService.logRequest({
+        method: 'POST',
+        url: '/api/circular',
+        status: 500,
+        duration: 12.3,
+        data: circularObj,
+      });
+    }).not.toThrow();
+
+    const logs = logService.getLogs(1, 10);
+    expect(logs.totalItems).toBe(1);
+    expect(logs.items[0].url).toBe('/api/circular');
+    expect(logs.items[0].data).toBeNull();
+
+    logService.dispose();
+  });
+
+  it('should safely serialize objects containing BigInt in entry.data without throwing', () => {
+    const logService = new LogService(db);
+
+    expect(() => {
+      logService.logRequest({
+        method: 'GET',
+        url: '/api/bigint',
+        status: 200,
+        duration: 4.5,
+        data: { amount: 1000000000000000000n, label: 'wei' },
+      });
+    }).not.toThrow();
+
+    const logs = logService.getLogs(1, 10);
+    expect(logs.totalItems).toBe(1);
+    expect(logs.items[0].url).toBe('/api/bigint');
+    expect(logs.items[0].data).toEqual({ amount: '1000000000000000000', label: 'wei' });
+
+    logService.dispose();
+  });
 });

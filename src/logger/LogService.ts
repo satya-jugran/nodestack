@@ -45,30 +45,45 @@ export class LogService {
   }
 
   public logRequest(entry: LogEntry, options: { skipConsole?: boolean } = {}): void {
-    const id = `log_${crypto.randomBytes(6).toString('hex')}`;
-    const now = new Date().toISOString();
+    try {
+      const id = `log_${crypto.randomBytes(6).toString('hex')}`;
+      const now = new Date().toISOString();
 
-    this.buffer.push({
-      id,
-      method: entry.method,
-      url: entry.url,
-      status: entry.status,
-      duration: entry.duration,
-      ip: entry.ip || null,
-      authId: entry.authId || null,
-      authCollection: entry.authCollection || null,
-      userAgent: entry.userAgent || null,
-      data: entry.data ? JSON.stringify(entry.data) : null,
-      created: now,
-    });
+      let serializedData: string | null = null;
+      if (entry.data !== undefined && entry.data !== null) {
+        try {
+          serializedData = JSON.stringify(entry.data, (_key, value) =>
+            typeof value === 'bigint' ? value.toString() : value
+          );
+        } catch {
+          serializedData = null;
+        }
+      }
 
-    if (this.buffer.length >= this.maxBufferSize) {
-      this.flush();
-    }
+      this.buffer.push({
+        id,
+        method: entry.method,
+        url: entry.url,
+        status: entry.status,
+        duration: entry.duration,
+        ip: entry.ip || null,
+        authId: entry.authId || null,
+        authCollection: entry.authCollection || null,
+        userAgent: entry.userAgent || null,
+        data: serializedData,
+        created: now,
+      });
 
-    // Console output with color formatting
-    if (!options.skipConsole) {
-      this.printToConsole(entry);
+      if (this.buffer.length >= this.maxBufferSize) {
+        this.flush();
+      }
+
+      // Console output with color formatting
+      if (!options.skipConsole) {
+        this.printToConsole(entry);
+      }
+    } catch {
+      // Don't let log write errors break request flow
     }
   }
 
