@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.1] - 2026-10-30
+
+Release v2.1.1 is a maintenance and stability release focused on bug fixes, concurrency hardening, anti-SSRF protections, and performance optimizations across the core backend stack.
+
+### Fixed
+
+#### 1. Security & Anti-SSRF Guardrails
+* **Redirect-Aware SSRF Protection**: Hardened `WebhookService` delivery with pinned DNS resolution and redirect-aware `SsrfGuard` validation, preventing DNS rebinding or redirect bypasses to loopback, private IPv4/IPv6 networks, and cloud instance metadata endpoints (`169.254.169.254`).
+* **File Storage Directory Traversal & ID Sanitization**: Hardened storage path containment checks to strictly prevent path traversal escapes; validated and preserved record IDs during multipart uploads and ingestion flows.
+* **Centralized OAuth Request Timeouts**: Added abort timeout signals across secondary email retrieval requests in `GitHubProvider` and unified timeout protections across OAuth identity providers to avoid hanging authentication requests.
+
+#### 2. Database Concurrency & Transactions
+* **SQLite Write Concurrency (`BEGIN IMMEDIATE`)**: Upgraded SQLite write transactions in `NodeSqliteDriver` to `BEGIN IMMEDIATE` to prevent deadlock and write-lock contention under concurrent load.
+* **Nested Savepoints**: Added nested transaction support utilizing SQLite savepoints (`SAVEPOINT nodestack_tx_*`).
+* **Synchronous Transaction Contract Enforcement**: Guarded SQLite transaction execution by rejecting async Promise-returning callbacks before invocation, preserving synchronous transaction semantics and preventing out-of-transaction query leaks.
+* **SQL LIKE Wildcard Escaping**: Properly escaped `%` and `_` wildcards in rule engine and search filter queries to prevent unintended table scans.
+
+#### 3. Authentication & Caching
+* **LRU Token Key Cache Eviction**: Corrected in-memory token cache access to promote entries on read hits, ensuring true LRU ordering under high concurrent identity counts.
+* **Canonical Session Invalidation**: Resolved canonical record IDs during email-based session revocation (`revokeAdminSessions` and auth collection revocations), ensuring revoked tokens are evicted immediately rather than accepted until TTL expiry.
+
+#### 4. Performance & Scalability
+* **Chunked Batch Export**: Refactored `RecordService.exportRecords` to stream database records in 500-record chunks for JSON and CSV exports, eliminating memory spikes and event loop blockage on large datasets.
+* **Non-Blocking Password Ingestion**: Switched batch record import password hashing to non-blocking async bcrypt routines.
+* **Defensive Log Serialization**: Protected `LogService` request logging against circular references and `BigInt` values, guaranteeing logging errors never crash or interrupt request execution.
+
+#### 5. HTTP & API Specifications
+* **Finite Number Validation for Log Pruning**: Guarded `olderThanDays` parameter in `LogController.clearLogs` and `LogService.pruneLogs` with `Number.isFinite()`, returning `400 Bad Request` on `Infinity`, `-Infinity`, `1e309`, or `NaN` rather than triggering unhandled date parsing `RangeError`s.
+* **OpenAPI 3.0 Contract Alignment**: Updated OpenAPI definition for `DELETE /api/logs` to document the `olderThanDays` query parameter and corresponding HTTP 200, 204, 400, 401, and 403 response schemas.
+
+---
+
 ## [2.1.0] - 2026-10-28
 
 Release v2.1.0 introduces **Embedded Serverless Functions ("NodeStack Functions")** with QuickJS-Wasm isolation, Anti-SSRF guardrails, database lifecycle hooks, and a dedicated 4-tab Admin UI Workbench; adds **OAuth 2.0 & Social Sign-In** with PKCE across 5 major identity providers; delivers **Machine-to-Machine (M2M) API Key Authentication**; and resolves platform stability issues with Windows SQLite connection teardown locks and test resource cleanup leaks.

@@ -1,6 +1,6 @@
 {
   "name": "@nodestackapp/server",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "The TypeScript-Native Backend Stack. Single-process backend with embedded SQLite, instant CRUD, Auth, Realtime, Files & Admin UI.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -1,6 +1,6 @@
 {
   "name": "nodestack-client",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "First-party lightweight, type-safe client SDK for NodeStack",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",

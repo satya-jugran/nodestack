@@ -5,7 +5,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-7.x-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D24.0-green.svg)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/satya-jugran/nodestack/releases)
+[![Version](https://img.shields.io/badge/version-2.1.1-blue.svg)](https://github.com/satya-jugran/nodestack/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://img.shields.io/badge/docs-online-blue.svg)](https://satya-jugran.github.io/nodestack/)
 
