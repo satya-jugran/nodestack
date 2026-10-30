@@ -7,6 +7,7 @@ import { CollectionModel, CollectionType } from './models/Collection';
 import { SchemaField, FieldType } from './models/Field';
 import { AppError, ConflictError, ValidationError } from '../core/errors/AppError';
 import { isReservedFtsFieldName } from '../records/FtsService';
+import { RecordValidator } from '../records/RecordValidator';
 
 /**
  * Checks whether a given string is a valid ISO 8601 or standard date string.
@@ -495,18 +496,21 @@ export class SchemaInferenceService {
     const preparedRows: Array<Record<string, any>> = [];
     const seenEmails = new Set<string>();
 
-    for (const raw of inference.records) {
+    for (let i = 0; i < inference.records.length; i++) {
+      const raw = inference.records[i];
       if (!isRecordObject(raw)) {
         throw new ValidationError('Import records must be non-null, non-array objects');
       }
       const row: Record<string, any> = {};
 
       // System ID handling
-      if (raw.id && String(raw.id).trim()) {
-        row.id = String(raw.id).trim();
-      } else {
-        row.id = `r_${crypto.randomBytes(6).toString('hex')}`;
+      let safeId: string | undefined;
+      try {
+        safeId = RecordValidator.validateRecordId(raw.id);
+      } catch (idErr: any) {
+        throw new ValidationError(`Record ${i + 1}: ${idErr.message}`);
       }
+      row.id = safeId || `r_${crypto.randomBytes(6).toString('hex')}`;
 
       // Auth system columns
       if (isAuth) {

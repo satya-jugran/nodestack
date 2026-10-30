@@ -1,9 +1,11 @@
+import * as crypto from 'crypto';
 import { DatabaseService } from '../database/DatabaseService';
 import { SchemaService } from '../schema/SchemaService';
 import { FileStorageService } from '../files/FileStorageService';
 import { EventBus } from '../core/events/EventBus';
 import { RealtimeService } from '../realtime/RealtimeService';
 import { NotFoundError } from '../core/errors/AppError';
+import { RecordValidator } from '../records/RecordValidator';
 import { STARTER_TEMPLATES } from './definitions';
 import {
   TemplateDefinition,
@@ -186,6 +188,9 @@ export class TemplateService {
         } else {
           record = { ...(item as Record<string, any>) };
         }
+
+        const safeId = RecordValidator.validateRecordId(record.id);
+        record.id = safeId || `r_${crypto.randomBytes(6).toString('hex')}`;
 
         const now = new Date(Date.now() - (seedData.length - i) * 60000).toISOString();
         if (!record.created) record.created = now;

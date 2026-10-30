@@ -102,4 +102,25 @@ export class RecordValidator {
         return String(value);
     }
   }
+
+  /**
+   * Validate a record ID for any record-ingest path (create, import, inference, seed).
+   * Throws ValidationError if the ID contains prohibited characters (must only contain alphanumeric characters, underscores, and hyphens).
+   * Returns trimmed string, or undefined if not provided.
+   */
+  public static validateRecordId(id?: any): string | undefined {
+    if (id === undefined || id === null) {
+      return undefined;
+    }
+    const clean = String(id).trim();
+    if (!clean) {
+      return undefined;
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(clean)) {
+      throw new ValidationError(
+        `Record ID must only contain alphanumeric characters, underscores, and hyphens (contains prohibited characters: '${id}')`
+      );
+    }
+    return clean;
+  }
 }

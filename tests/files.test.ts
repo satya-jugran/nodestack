@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
+import { RecordValidator } from '../src/records/RecordValidator';
 
 describe('File Storage and Upload Integration Test', () => {
   const testDir = path.resolve(__dirname, '../.test_file_storage');
@@ -187,5 +188,24 @@ describe('File Storage and Upload Integration Test', () => {
       url: `/api/files/documents/..%2F..%2Fetc/avatar_alice.png`,
     });
     expect(maliciousRes.statusCode).toBe(404);
+  });
+
+  it('should validate and extract record IDs via RecordValidator.validateRecordId', () => {
+    expect(RecordValidator.validateRecordId(undefined)).toBeUndefined();
+    expect(RecordValidator.validateRecordId(null)).toBeUndefined();
+    expect(RecordValidator.validateRecordId('')).toBeUndefined();
+    expect(RecordValidator.validateRecordId('   ')).toBeUndefined();
+    expect(RecordValidator.validateRecordId('valid_rec-123')).toBe('valid_rec-123');
+
+    expect(() => RecordValidator.validateRecordId('../../etc')).toThrow(/prohibited characters/i);
+    expect(() => RecordValidator.validateRecordId('rec/hack')).toThrow(/prohibited characters/i);
+    expect(() => RecordValidator.validateRecordId('rec\\hack')).toThrow(/prohibited characters/i);
+    expect(() => RecordValidator.validateRecordId('rec.hack')).toThrow(/prohibited characters/i);
+  });
+
+  it('should tolerate invalid recordId gracefully in deleteRecordFiles without crashing deletion', async () => {
+    const col = app.schema.getCollectionOrThrow('documents');
+    await expect(app.files.deleteRecordFiles(col.id, '../../nonexistent')).resolves.not.toThrow();
+    await expect(app.files.deleteFile(col.id, '../../nonexistent', 'avatar.png')).resolves.not.toThrow();
   });
 });

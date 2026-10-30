@@ -141,12 +141,19 @@ export class FileStorageService {
    * Delete a stored file
    */
   public async deleteFile(collectionId: string, recordId: string, filename: string): Promise<void> {
-    const safeCol = this.sanitizeId(collectionId, 'collectionId');
-    const safeRec = this.sanitizeId(recordId, 'recordId');
-    const safeFilename = path.basename(filename);
-    const filePath = path.join(this.storageDir, safeCol, safeRec, safeFilename);
-    if (this.isContained(filePath) && fs.existsSync(filePath)) {
-      await fs.promises.unlink(filePath);
+    try {
+      const safeCol = this.sanitizeId(collectionId, 'collectionId');
+      const safeRec = this.sanitizeId(recordId, 'recordId');
+      const safeFilename = path.basename(filename);
+      const filePath = path.join(this.storageDir, safeCol, safeRec, safeFilename);
+      if (this.isContained(filePath) && fs.existsSync(filePath)) {
+        await fs.promises.unlink(filePath);
+      }
+    } catch (err: any) {
+      if (err instanceof AppError && err.statusCode === 400) {
+        return;
+      }
+      throw err;
     }
   }
 
@@ -154,11 +161,18 @@ export class FileStorageService {
    * Delete all files for a record
    */
   public async deleteRecordFiles(collectionId: string, recordId: string): Promise<void> {
-    const safeCol = this.sanitizeId(collectionId, 'collectionId');
-    const safeRec = this.sanitizeId(recordId, 'recordId');
-    const dir = path.join(this.storageDir, safeCol, safeRec);
-    if (this.isContained(dir) && fs.existsSync(dir)) {
-      await fs.promises.rm(dir, { recursive: true, force: true });
+    try {
+      const safeCol = this.sanitizeId(collectionId, 'collectionId');
+      const safeRec = this.sanitizeId(recordId, 'recordId');
+      const dir = path.join(this.storageDir, safeCol, safeRec);
+      if (this.isContained(dir) && fs.existsSync(dir)) {
+        await fs.promises.rm(dir, { recursive: true, force: true });
+      }
+    } catch (err: any) {
+      if (err instanceof AppError && err.statusCode === 400) {
+        return;
+      }
+      throw err;
     }
   }
 
