@@ -7,35 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [2.1.1] - 2026-10-30
+## [2.2.0] - 2026-10-30
 
-Release v2.1.1 is a maintenance and stability release focused on bug fixes, concurrency hardening, anti-SSRF protections, and performance optimizations across the core backend stack.
+Release v2.2.0 delivers **Cross-Platform Standalone Binary Builds** using Node.js Single Executable Applications (SEA); introduces **1-Click Cloud & In-Browser Deployments** (Docker, Railway, and Dev Containers); publishes an in-depth **Feature & Architecture Comparison Matrix**; and hardens security, concurrency, session caching, and record processing across the core backend stack.
+
+### Added
+
+#### 1. Cross-Platform Standalone Binary Builds (Node.js SEA)
+* **Zero-Dependency Executables**:
+  * Added Single Executable Application (SEA) bundling (`scripts/build-sea.js`, `sea-config.json`, `src/cli/sea-entry.ts`) compiling NodeStack into standalone binary executables for Linux (x64), macOS (ARM64/x64), and Windows (x64).
+  * Direct Admin UI bundling within the executable binary (`AdminUIService.ts`) with runtime asset extraction and fallback resolution from embedded code.
+  * Added automated GitHub Actions release workflow (`.github/workflows/build-binaries.yml`) for multi-platform compilation.
+  * Added native Windows binary icon asset (`src/admin/ui/icon.ico`).
+
+#### 2. 1-Click Cloud & In-Browser Deployments
+* **Production Containerization & Blueprints**:
+  * Multi-stage production `Dockerfile` and `.dockerignore` for minimal, lightweight container images.
+  * Native Railway deployment blueprint configuration (`railway.json`).
+  * VS Code Remote Containers & GitHub Codespaces devcontainer configuration (`.devcontainer/devcontainer.json`).
+  * 1-Click deployment badges for Railway and Render in project documentation.
+  * Automatic `PORT` and `HOST` environment variable resolution in the CLI (`src/cli/cli.ts`) for seamless cloud hosting.
+  * Comprehensive Docker deployment guide (`docs/docs/deployment/docker.md`).
+
+#### 3. Architecture & Ecosystem Comparison Matrix
+* **Platform Comparison Guide**:
+  * In-depth comparison matrix (`docs/docs/getting-started/comparison.md`, `assets/comparison-matrix.png`, `assets/comparison-card.html`) evaluating NodeStack against PocketBase, Supabase, Strapi, and Firebase across runtime models, language support, RLS rule engines, reactivity, plugin extensibility, and binary footprint.
+  * Added comparison link to the official documentation sidebar navigation.
+
+### Changed
+* **License & Attribution Structure**: Restored a clean, standard MIT license header in `LICENSE` and relocated project attribution and disclaimers to [`NOTICE.md`](NOTICE.md).
 
 ### Fixed
-
-#### 1. Security & Anti-SSRF Guardrails
-* **Redirect-Aware SSRF Protection**: Hardened `WebhookService` delivery with pinned DNS resolution and redirect-aware `SsrfGuard` validation, preventing DNS rebinding or redirect bypasses to loopback, private IPv4/IPv6 networks, and cloud instance metadata endpoints (`169.254.169.254`).
-* **File Storage Directory Traversal & ID Sanitization**: Hardened storage path containment checks to strictly prevent path traversal escapes; validated and preserved record IDs during multipart uploads and ingestion flows.
-* **Centralized OAuth Request Timeouts**: Added abort timeout signals across secondary email retrieval requests in `GitHubProvider` and unified timeout protections across OAuth identity providers to avoid hanging authentication requests.
-
-#### 2. Database Concurrency & Transactions
-* **SQLite Write Concurrency (`BEGIN IMMEDIATE`)**: Upgraded SQLite write transactions in `NodeSqliteDriver` to `BEGIN IMMEDIATE` to prevent deadlock and write-lock contention under concurrent load.
-* **Nested Savepoints**: Added nested transaction support utilizing SQLite savepoints (`SAVEPOINT nodestack_tx_*`).
-* **Synchronous Transaction Contract Enforcement**: Guarded SQLite transaction execution by rejecting async Promise-returning callbacks before invocation, preserving synchronous transaction semantics and preventing out-of-transaction query leaks.
-* **SQL LIKE Wildcard Escaping**: Properly escaped `%` and `_` wildcards in rule engine and search filter queries to prevent unintended table scans.
-
-#### 3. Authentication & Caching
-* **LRU Token Key Cache Eviction**: Corrected in-memory token cache access to promote entries on read hits, ensuring true LRU ordering under high concurrent identity counts.
-* **Canonical Session Invalidation**: Resolved canonical record IDs during email-based session revocation (`revokeAdminSessions` and auth collection revocations), ensuring revoked tokens are evicted immediately rather than accepted until TTL expiry.
-
-#### 4. Performance & Scalability
-* **Chunked Batch Export**: Refactored `RecordService.exportRecords` to stream database records in 500-record chunks for JSON and CSV exports, eliminating memory spikes and event loop blockage on large datasets.
-* **Non-Blocking Password Ingestion**: Switched batch record import password hashing to non-blocking async bcrypt routines.
-* **Defensive Log Serialization**: Protected `LogService` request logging against circular references and `BigInt` values, guaranteeing logging errors never crash or interrupt request execution.
-
-#### 5. HTTP & API Specifications
-* **Finite Number Validation for Log Pruning**: Guarded `olderThanDays` parameter in `LogController.clearLogs` and `LogService.pruneLogs` with `Number.isFinite()`, returning `400 Bad Request` on `Infinity`, `-Infinity`, `1e309`, or `NaN` rather than triggering unhandled date parsing `RangeError`s.
-* **OpenAPI 3.0 Contract Alignment**: Updated OpenAPI definition for `DELETE /api/logs` to document the `olderThanDays` query parameter and corresponding HTTP 200, 204, 400, 401, and 403 response schemas.
+* **Security & Anti-SSRF Guardrails**: Hardened `WebhookService` with redirect-aware, DNS-rebinding-safe `SsrfGuard` validation, prevented storage path traversal in file uploads, and centralized OAuth abort timeouts.
+* **Database Concurrency & Transactions**: Enforced `BEGIN IMMEDIATE` write transactions in SQLite to eliminate busy contention, added nested savepoints (`SAVEPOINT nodestack_tx_*`), and rejected async transaction callbacks before invocation.
+* **Authentication & Token Caching**: Promoted token cache entries on read hits for true LRU eviction, and immediately invalidated cached tokens upon email-based session revocation.
+* **Performance & Record Processing**: Streamed JSON/CSV exports in 500-record chunks to prevent memory spikes, switched batch password hashing to non-blocking async bcrypt, and serialized request logs defensively against circular references and BigInt values.
+* **HTTP Validation & OpenAPI Contract**: Guarded log pruning (`olderThanDays`) with finite-number validation to prevent date RangeErrors, and documented query parameters and response schemas for `DELETE /api/logs`.
 
 ---
 
