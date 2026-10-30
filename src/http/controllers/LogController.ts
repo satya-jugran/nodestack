@@ -25,19 +25,25 @@ export class LogController extends BaseController {
     const logs = (req as any).appScope?.logs || this.logService;
     const rawOlderThan = (req.query as any)?.olderThanDays;
     let olderThanDays: number | undefined = undefined;
-    if (rawOlderThan !== undefined && rawOlderThan !== null && rawOlderThan !== '') {
+
+    if (rawOlderThan !== undefined && rawOlderThan !== null && String(rawOlderThan).trim() !== '') {
       const parsed = Number(rawOlderThan);
-      if (isNaN(parsed) || parsed < 0) {
-        return this.error(reply, 'Invalid olderThanDays parameter. Must be a non-negative number.', 400);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        this.error(reply, 'Invalid olderThanDays parameter. Must be a non-negative number.', 400);
+        return;
       }
       olderThanDays = parsed;
     }
 
-    const deletedCount = logs.clearLogs(olderThanDays);
-    if (olderThanDays !== undefined) {
-      this.ok(reply, { success: true, deletedCount, olderThanDays });
-    } else {
-      this.noContent(reply);
+    try {
+      const deletedCount = logs.clearLogs(olderThanDays);
+      if (olderThanDays !== undefined) {
+        this.ok(reply, { success: true, deletedCount, olderThanDays });
+      } else {
+        this.noContent(reply);
+      }
+    } catch (err: any) {
+      this.error(reply, err.message || 'Failed to clear logs', 400);
     }
   }
 }

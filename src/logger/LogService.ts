@@ -145,7 +145,10 @@ export class LogService {
 
   public pruneLogs(olderThanDays: number): number {
     this.flush();
-    const days = Math.max(0, Number(olderThanDays) || 0);
+    const days = Number(olderThanDays);
+    if (!Number.isFinite(days) || days < 0) {
+      throw new Error('Invalid olderThanDays parameter: must be a non-negative finite number');
+    }
     const cutoff = new Date(Date.now() - days * 86400000).toISOString();
     const result = this.db.prepare('DELETE FROM _logs WHERE created < ?').run(cutoff);
     return Number(result.changes);

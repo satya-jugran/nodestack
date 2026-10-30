@@ -4,6 +4,7 @@ import * as path from 'path';
 import { ConfigService } from '../src/core/config/ConfigService';
 import { DatabaseService } from '../src/database/DatabaseService';
 import { LogService } from '../src/logger/LogService';
+import { LogController } from '../src/http/controllers/LogController';
 
 describe('LogService In-Memory Buffering & Write Batching Tests', () => {
   const testDir = path.resolve(__dirname, '../.test_logger_data');
@@ -191,5 +192,73 @@ describe('LogService In-Memory Buffering & Write Batching Tests', () => {
     expect(logs.items[0].data).toEqual({ amount: '1000000000000000000', label: 'wei' });
 
     logService.dispose();
+  });
+
+  it('should reject non-finite or negative olderThanDays in pruneLogs', () => {
+    const logService = new LogService(db);
+    expect(() => logService.pruneLogs(Infinity)).toThrow(/Invalid olderThanDays parameter/);
+    expect(() => logService.pruneLogs(Number('1e309'))).toThrow(/Invalid olderThanDays parameter/);
+    expect(() => logService.pruneLogs(NaN)).toThrow(/Invalid olderThanDays parameter/);
+    expect(() => logService.pruneLogs(-5)).toThrow(/Invalid olderThanDays parameter/);
+    logService.dispose();
+  });
+
+  describe('LogController Validation and Handling', () => {
+    it('should reject non-finite olderThanDays with 400 Bad Request', async () => {
+      const logService = new LogService(db);
+      const controller = new LogController(logService);
+
+      const invalidValues = ['Infinity', '1e309', '-Infinity', 'NaN', '-1', 'abc'];
+      for (const val of invalidValues) {
+        let code = 0;
+        let response: any = null;
+        const mockReply: any = {
+          status: (c: number) => { code = c; return mockReply; },
+          send: (b: any) => { response = b; return mockReply; },
+        };
+
+        await controller.clearLogs({ query: { olderThanDays: val } } as any, mockReply);
+        expect(code).toBe(400);
+        expect(response.message).toContain('Invalid olderThanDays parameter');
+      }
+
+      logService.dispose();
+    });
+
+    it('should clear logs and return 200 with olderThanDays parameter', async () => {
+      const logService = new LogService(db);
+      const controller = new LogController(logService);
+
+      let code = 0;
+      let response: any = null;
+      const mockReply: any = {
+        status: (c: number) => { code = c; return mockReply; },
+        send: (b: any) => { response = b; return mockReply; },
+      };
+
+      await controller.clearLogs({ query: { olderThanDays: '7' } } as any, mockReply);
+      expect(code).toBe(200);
+      expect(response).toEqual({ success: true, deletedCount: 0, olderThanDays: 7 });
+
+      logService.dispose();
+    });
+
+    it('should truncate all logs and return 204 when olderThanDays is omitted', async () => {
+      const logService = new LogService(db);
+      const controller = new LogController(logService);
+
+      let code = 0;
+      let response: any = null;
+      const mockReply: any = {
+        status: (c: number) => { code = c; return mockReply; },
+        send: (b: any) => { response = b; return mockReply; },
+      };
+
+      await controller.clearLogs({ query: {} } as any, mockReply);
+      expect(code).toBe(204);
+      expect(response).toBeUndefined();
+
+      logService.dispose();
+    });
   });
 });
