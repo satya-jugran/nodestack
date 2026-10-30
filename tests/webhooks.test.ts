@@ -408,6 +408,48 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       expect(body.message).toMatch(/private or loopback|prohibited/i);
     });
 
+    it('should intercept and block redirect-based SSRF to metadata or loopback during delivery', async () => {
+      // Mock fetch returning a 302 Found redirect to AWS cloud metadata
+      const redirectFetch = vi.fn(async (url: string) => {
+        if (url.includes('redirect-to-metadata')) {
+          return {
+            ok: false,
+            status: 302,
+            statusText: 'Found',
+            headers: { location: 'http://169.254.169.254/latest/meta-data' },
+            text: async () => '',
+            json: async () => ({}),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          text: async () => 'OK',
+          json: async () => ({}),
+        };
+      });
+
+      app.webhooks.setFetch(redirectFetch as any);
+
+      try {
+        const wh = app.webhooks.createWebhook({
+          name: 'Redirect Test',
+          url: 'https://example.com/redirect-to-metadata',
+          event: 'posts.created',
+        });
+
+        const delivery = await app.webhooks.dispatch(wh, { event: 'posts.created', timestamp: new Date().toISOString() });
+
+        expect(delivery.status).toBe('failed');
+        expect(delivery.error).toMatch(/\[SsrfGuard\].*(private or metadata|cloud metadata)/i);
+      } finally {
+        // Restore default mock fetch
+        app.webhooks.setFetch(mockFetch as any);
+      }
+    });
+
     it('should reject webhook creation and update with invalid HTTP method', async () => {
       const resInvalidMethod = await app.server.inject({
         method: 'POST',
