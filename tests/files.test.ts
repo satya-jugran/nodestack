@@ -208,4 +208,56 @@ describe('File Storage and Upload Integration Test', () => {
     await expect(app.files.deleteRecordFiles(col.id, '../../nonexistent')).resolves.not.toThrow();
     await expect(app.files.deleteFile(col.id, '../../nonexistent', 'avatar.png')).resolves.not.toThrow();
   });
+
+  it('should reject multipart creation when invalid id is supplied and preserve valid supplied id', async () => {
+    // 1. Multipart with invalid id=../../evil should be rejected with 422
+    const boundary = '----TestBoundary12345';
+    const invalidMultipart = [
+      `--${boundary}\r\nContent-Disposition: form-data; name="id"\r\n\r\n../../evil\r\n`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="title"\r\n\r\nHack Attempt\r\n`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="hack.txt"\r\nContent-Type: text/plain\r\n\r\nPayload\r\n`,
+      `--${boundary}--\r\n`,
+    ].join('');
+
+    const resInvalid = await app.server.app.inject({
+      method: 'POST',
+      url: '/api/collections/documents/records',
+      headers: {
+        'content-type': `multipart/form-data; boundary=${boundary}`,
+      },
+      payload: invalidMultipart,
+    });
+
+    expect(resInvalid.statusCode).toBe(422);
+    expect(resInvalid.json().message).toMatch(/prohibited characters/i);
+
+    // 2. Multipart with valid custom id should preserve the identifier
+    const validBoundary = '----TestBoundaryValid';
+    const validMultipart = [
+      `--${validBoundary}\r\nContent-Disposition: form-data; name="id"\r\n\r\ncustom_multipart_123\r\n`,
+      `--${validBoundary}\r\nContent-Disposition: form-data; name="title"\r\n\r\nPreserved Document\r\n`,
+      `--${validBoundary}\r\nContent-Disposition: form-data; name="file"; filename="doc.txt"\r\nContent-Type: text/plain\r\n\r\nHello World\r\n`,
+      `--${validBoundary}--\r\n`,
+    ].join('');
+
+    const resValid = await app.server.app.inject({
+      method: 'POST',
+      url: '/api/collections/documents/records',
+      headers: {
+        'content-type': `multipart/form-data; boundary=${validBoundary}`,
+      },
+      payload: validMultipart,
+    });
+
+    expect(resValid.statusCode).toBe(201);
+    const body = resValid.json();
+    expect(body.id).toBe('custom_multipart_123');
+    expect(body.title).toBe('Preserved Document');
+    expect(body.file).toBeDefined();
+
+    // Verify file path on disk used the preserved custom ID
+    const col = app.schema.getCollectionOrThrow('documents');
+    const diskPath = app.files.getFilePath(col.id, 'custom_multipart_123', body.file);
+    expect(fs.existsSync(diskPath)).toBe(true);
+  });
 });

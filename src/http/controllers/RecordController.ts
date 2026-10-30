@@ -6,6 +6,7 @@ import { CsvHelper } from '../../records/CsvHelper';
 import { FileStorageService } from '../../files/FileStorageService';
 import { SchemaService } from '../../schema/SchemaService';
 import { MockDataService, MockGenerateOptions } from '../../records/MockDataService';
+import { RecordValidator } from '../../records/RecordValidator';
 
 export class RecordController extends BaseController {
   constructor(
@@ -85,18 +86,17 @@ export class RecordController extends BaseController {
         }
       }
 
-      // Generate temp id or let recordService generate it
-      const tempId = data.id && /^[a-zA-Z0-9_-]+$/.test(String(data.id))
-        ? String(data.id)
-        : `r_${crypto.randomBytes(4).toString('hex')}`;
-      data.id = tempId;
+      // Validate supplied ID if provided (or generate safe random ID if omitted)
+      const suppliedId = RecordValidator.validateRecordId(data.id);
+      const recordId = suppliedId || `r_${crypto.randomBytes(6).toString('hex')}`;
+      data.id = recordId;
 
       // Process uploaded files
       for (const file of filesToProcess) {
         const schemaField = col.schema.find((f) => f.name === file.fieldName);
         const savedMeta = await files.saveFile(
           col.id,
-          tempId,
+          recordId,
           file.filename,
           file.buffer,
           file.mimetype,
