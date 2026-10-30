@@ -25,7 +25,7 @@ export class GoogleProvider extends BaseOAuthProvider {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
-      signal: AbortSignal.timeout(10000),
+      signal: this.getTimeoutSignal(),
     });
 
     if (!res.ok) {

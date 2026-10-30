@@ -31,7 +31,7 @@ export class GitHubProvider extends BaseOAuthProvider {
         'User-Agent': 'NodeStack-OAuth',
         Accept: 'application/json',
       },
-      signal: AbortSignal.timeout(10000),
+      signal: this.getTimeoutSignal(),
     });
 
     if (!userRes.ok) {
@@ -50,6 +50,7 @@ export class GitHubProvider extends BaseOAuthProvider {
           'User-Agent': 'NodeStack-OAuth',
           Accept: 'application/json',
         },
+        signal: this.getTimeoutSignal(),
       });
 
       if (emailsRes.ok) {

@@ -1312,6 +1312,42 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       // Must fail closed: cannot verify without /user/emails confirmation
       expect(profile.isEmailVerified).toBe(false);
     });
+
+    it('should pass abort signal with centralized timeout to both /user and /user/emails requests', async () => {
+      const provider = new GitHubProvider({
+        clientId: 'mock_gh_client',
+        clientSecret: 'mock_gh_secret',
+        timeoutMs: 5000,
+      });
+
+      const signals: any[] = [];
+      globalThis.fetch = (async (url: any, options: any) => {
+        signals.push({ url: String(url), signal: options?.signal });
+        if (String(url) === 'https://api.github.com/user') {
+          return {
+            ok: true,
+            json: async () => ({
+              id: 88888,
+              login: 'signal-user',
+              email: 'signal@example.com',
+            }),
+          };
+        }
+        if (String(url) === 'https://api.github.com/user/emails') {
+          return {
+            ok: true,
+            json: async () => [{ email: 'signal@example.com', primary: true, verified: true }],
+          };
+        }
+        return originalFetch(url, options);
+      }) as any;
+
+      const profile = await (provider as any).fetchUserProfile('mock_token');
+      expect(profile.id).toBe('88888');
+      expect(signals.length).toBe(2);
+      expect(signals[0].signal).toBeDefined();
+      expect(signals[1].signal).toBeDefined();
+    });
   });
 
   describe('8. Microsoft Provider Email Verification Assertion Resolution', () => {
