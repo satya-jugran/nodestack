@@ -328,7 +328,8 @@ export class RecordService {
       httpContext
     );
 
-    const id = processedData.id || `r_${crypto.randomBytes(6).toString('hex')}`;
+    const safeId = RecordValidator.validateRecordId(processedData.id);
+    const id = safeId || `r_${crypto.randomBytes(6).toString('hex')}`;
     const now = new Date().toISOString();
 
     // Prepare fields
@@ -744,7 +745,13 @@ export class RecordService {
       }
 
       try {
-        const id = data.id && String(data.id).trim() ? String(data.id).trim() : `r_${crypto.randomBytes(6).toString('hex')}`;
+        let safeId: string | undefined;
+        try {
+          safeId = RecordValidator.validateRecordId(data.id);
+        } catch (idErr: any) {
+          throw new ValidationError(`Row ${rowNumber}: ${idErr.message}`);
+        }
+        const id = safeId || `r_${crypto.randomBytes(6).toString('hex')}`;
         const now = new Date().toISOString();
         const created = data.created && !isNaN(Date.parse(data.created)) ? new Date(data.created).toISOString() : now;
         const updated = data.updated && !isNaN(Date.parse(data.updated)) ? new Date(data.updated).toISOString() : now;

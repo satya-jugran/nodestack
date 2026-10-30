@@ -50,7 +50,14 @@ export class SchemaService {
       throw new ConflictError(`Collection with name '${cleanName}' already exists`);
     }
 
-    const id = dto.id || `c_${crypto.randomBytes(6).toString('hex')}`;
+    if (dto.id !== undefined && dto.id !== null && String(dto.id).trim() !== '') {
+      const cleanId = String(dto.id).trim();
+      if (!/^[a-zA-Z0-9_-]+$/.test(cleanId)) {
+        throw new AppError('Collection ID must only contain alphanumeric characters, underscores, and hyphens', 400);
+      }
+    }
+
+    const id = (dto.id && String(dto.id).trim()) || `c_${crypto.randomBytes(6).toString('hex')}`;
     const now = new Date().toISOString();
     const type = dto.type || 'base';
 
@@ -258,6 +265,12 @@ export class SchemaService {
     for (const field of schema) {
       if (!field || typeof field.name !== 'string' || !field.name.trim()) {
         throw new AppError('Field name must be a non-empty string', 400);
+      }
+      if (field.id !== undefined && field.id !== null && String(field.id).trim() !== '') {
+        const cleanFieldId = String(field.id).trim();
+        if (!/^[a-zA-Z0-9_-]+$/.test(cleanFieldId)) {
+          throw new AppError(`Field ID '${field.id}' must only contain alphanumeric characters, underscores, and hyphens`, 400);
+        }
       }
       const rawName = field.name.trim();
       if (!/^[a-zA-Z0-9_]+$/.test(rawName)) {

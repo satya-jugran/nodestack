@@ -88,6 +88,29 @@ describe('RuleEngine', () => {
       expect(engine.evaluate('@request.auth.id != "" && user = @request.auth.id', ctxUnauth)).toBe(false);
     });
 
+    it('should correctly evaluate SQLite integer booleans (0 and 1) against true and false literals', () => {
+      expect(engine.evaluate('verified = true', { record: { verified: 1 } })).toBe(true);
+      expect(engine.evaluate('verified = false', { record: { verified: 0 } })).toBe(true);
+      expect(engine.evaluate('verified = true', { record: { verified: 0 } })).toBe(false);
+      expect(engine.evaluate('verified = false', { record: { verified: 1 } })).toBe(false);
+      expect(engine.evaluate('verified != false', { record: { verified: 1 } })).toBe(true);
+      expect(engine.evaluate('verified != true', { record: { verified: 0 } })).toBe(true);
+    });
+
+    it('should correctly evaluate null checks against auth context', () => {
+      expect(engine.evaluate('@request.auth.id != null', { auth: { id: 'usr_1' } })).toBe(true);
+      expect(engine.evaluate('@request.auth.id != null', {})).toBe(false);
+      expect(engine.evaluate('@request.auth.id = null', {})).toBe(true);
+      expect(engine.evaluate('@request.auth.id = null', { auth: { id: 'usr_1' } })).toBe(false);
+    });
+
+    it('should handle escaped backslashes in quotes without corrupting operator parsing', () => {
+      expect(engine.evaluate("folder = 'C:\\\\test\\\\' && status = 'active'", {
+        record: { folder: 'C:\\test\\', status: 'active' }
+      })).toBe(true);
+    });
+
+
   describe('buildListFilter() - Row-Level Rule Scoping', () => {
     const fields = new Set(['id', 'user', 'customerEmail', 'status', 'created', 'updated']);
 
