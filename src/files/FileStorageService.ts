@@ -19,6 +19,17 @@ export class FileStorageService {
     return this.customStorageDir || this.config.storageDir;
   }
 
+    private sanitizeId(id: string, name = 'ID'): string {
+    if (!id || typeof id !== 'string') {
+      throw new AppError(`Invalid ${name}`, 400);
+    }
+    const safe = path.basename(id).trim();
+    if (!/^[a-zA-Z0-9_-]+$/.test(safe) || safe !== id.trim()) {
+      throw new AppError(`Invalid ${name} format: '${id}' contains prohibited path traversal characters`, 400);
+    }
+    return safe;
+  }
+
   /**
    * Save a buffer or stream to the storage directory
    */
@@ -42,10 +53,10 @@ export class FileStorageService {
       }
     }
 
-    const dir = path.join(this.storageDir, collectionId, recordId);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
+    const safeCol = this.sanitizeId(collectionId, 'collectionId');
+    const safeRec = this.sanitizeId(recordId, 'recordId');
+    const dir = path.join(this.storageDir, safeCol, safeRec);
+    await fs.promises.mkdir(dir, { recursive: true });
 
     const ext = path.extname(originalName) || '';
     const randomSuffix = crypto.randomBytes(4).toString('hex');
@@ -70,9 +81,13 @@ export class FileStorageService {
    * Get the absolute path to a stored file
    */
   public getFilePath(collectionId: string, recordId: string, filename: string): string {
+    const safeCol = this.sanitizeId(collectionId, 'collectionId');
+    const safeRec = this.sanitizeId(recordId, 'recordId');
     const safeFilename = path.basename(filename);
-    const filePath = path.join(this.storageDir, collectionId, recordId, safeFilename);
-    if (!fs.existsSync(filePath)) {
+    const filePath = path.join(this.storageDir, safeCol, safeRec, safeFilename);
+    const resolvedPath = path.resolve(filePath);
+    const resolvedBase = path.resolve(this.storageDir);
+    if (!resolvedPath.startsWith(resolvedBase) || !fs.existsSync(filePath)) {
       throw new NotFoundError(`File '${filename}' not found`);
     }
     return filePath;
@@ -82,9 +97,13 @@ export class FileStorageService {
    * Delete a stored file
    */
   public async deleteFile(collectionId: string, recordId: string, filename: string): Promise<void> {
+    const safeCol = this.sanitizeId(collectionId, 'collectionId');
+    const safeRec = this.sanitizeId(recordId, 'recordId');
     const safeFilename = path.basename(filename);
-    const filePath = path.join(this.storageDir, collectionId, recordId, safeFilename);
-    if (fs.existsSync(filePath)) {
+    const filePath = path.join(this.storageDir, safeCol, safeRec, safeFilename);
+    const resolvedPath = path.resolve(filePath);
+    const resolvedBase = path.resolve(this.storageDir);
+    if (resolvedPath.startsWith(resolvedBase) && fs.existsSync(filePath)) {
       await fs.promises.unlink(filePath);
     }
   }
@@ -93,8 +112,12 @@ export class FileStorageService {
    * Delete all files for a record
    */
   public async deleteRecordFiles(collectionId: string, recordId: string): Promise<void> {
-    const dir = path.join(this.storageDir, collectionId, recordId);
-    if (fs.existsSync(dir)) {
+    const safeCol = this.sanitizeId(collectionId, 'collectionId');
+    const safeRec = this.sanitizeId(recordId, 'recordId');
+    const dir = path.join(this.storageDir, safeCol, safeRec);
+    const resolvedDir = path.resolve(dir);
+    const resolvedBase = path.resolve(this.storageDir);
+    if (resolvedDir.startsWith(resolvedBase) && fs.existsSync(dir)) {
       await fs.promises.rm(dir, { recursive: true, force: true });
     }
   }
@@ -103,8 +126,11 @@ export class FileStorageService {
    * Delete all files for an entire collection
    */
   public async deleteCollectionFiles(collectionId: string): Promise<void> {
-    const dir = path.join(this.storageDir, collectionId);
-    if (fs.existsSync(dir)) {
+    const safeCol = this.sanitizeId(collectionId, 'collectionId');
+    const dir = path.join(this.storageDir, safeCol);
+    const resolvedDir = path.resolve(dir);
+    const resolvedBase = path.resolve(this.storageDir);
+    if (resolvedDir.startsWith(resolvedBase) && fs.existsSync(dir)) {
       await fs.promises.rm(dir, { recursive: true, force: true });
     }
   }

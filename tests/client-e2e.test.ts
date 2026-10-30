@@ -13,7 +13,7 @@ import {
 
 describe('NodeStackClient End-to-End Integration Tests', () => {
   const testDir = path.resolve(__dirname, '../.test_client_e2e_data');
-  const port = 8199;
+  const port = 8198;
   let server: NodeStack;
   let client: NodeStackClient;
 

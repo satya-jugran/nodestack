@@ -235,6 +235,25 @@ export class RuleEngine {
         const leftVal = this.resolveValue(leftExpr, context);
         const rightVal = this.resolveValue(rightExpr, context);
 
+        const isBoolLike = (v: any) => typeof v === 'boolean' || v === 1 || v === 0 || v === 'true' || v === 'false' || v === '1' || v === '0';
+        const toBool = (v: any): boolean => v === true || v === 1 || v === '1' || v === 'true';
+
+        if ((typeof leftVal === 'boolean' || typeof rightVal === 'boolean') && leftVal !== undefined && leftVal !== null && rightVal !== undefined && rightVal !== null) {
+          if (isBoolLike(leftVal) && isBoolLike(rightVal)) {
+            const lBool = toBool(leftVal);
+            const rBool = toBool(rightVal);
+            if (op === '=' || op === '==') return lBool === rBool;
+            if (op === '!=') return lBool !== rBool;
+          }
+        }
+
+        if (leftVal === null || rightVal === null) {
+          const lNull = leftVal === null || leftVal === undefined;
+          const rNull = rightVal === null || rightVal === undefined;
+          if (op === '=' || op === '==') return lNull && rNull;
+          if (op === '!=') return lNull !== rNull;
+        }
+
         switch (op) {
           case '=':
           case '==':
@@ -270,7 +289,7 @@ export class RuleEngine {
       (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
       (trimmed.startsWith("'") && trimmed.endsWith("'"))
     ) {
-      return trimmed.slice(1, -1);
+      return FilterCodec.decode(trimmed);
     }
 
     // Numbers
@@ -308,6 +327,13 @@ export class RuleEngine {
     return undefined;
   }
 
+  private static isCharEscaped(str: string, index: number): boolean {
+    let backslashCount = 0;
+    for (let i = index - 1; i >= 0 && str[i] === '\\'; i--) {
+      backslashCount++;
+    }
+    return backslashCount % 2 === 1;
+  }
   private splitTopLevel(str: string, delimiter: string): string[] {
     const parts: string[] = [];
     let current = '';
@@ -318,7 +344,7 @@ export class RuleEngine {
     for (let i = 0; i < str.length; i++) {
       const char = str[i];
 
-      if ((char === '"' || char === "'") && (i === 0 || str[i - 1] !== '\\')) {
+      if ((char === '"' || char === "'") && !RuleEngine.isCharEscaped(str, i)) {
         if (!inQuote) {
           inQuote = true;
           quoteChar = char;
@@ -353,7 +379,7 @@ export class RuleEngine {
     for (let i = 0; i < str.length; i++) {
       const char = str[i];
 
-      if ((char === '"' || char === "'") && (i === 0 || str[i - 1] !== '\\')) {
+      if ((char === '"' || char === "'") && !RuleEngine.isCharEscaped(str, i)) {
         if (!inQuote) {
           inQuote = true;
           quoteChar = char;

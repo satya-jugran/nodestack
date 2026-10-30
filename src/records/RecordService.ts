@@ -328,6 +328,9 @@ export class RecordService {
       httpContext
     );
 
+    if (processedData.id && !/^[a-zA-Z0-9_-]+$/.test(String(processedData.id))) {
+      throw new ValidationError('Record ID must only contain alphanumeric characters, underscores, and hyphens');
+    }
     const id = processedData.id || `r_${crypto.randomBytes(6).toString('hex')}`;
     const now = new Date().toISOString();
 

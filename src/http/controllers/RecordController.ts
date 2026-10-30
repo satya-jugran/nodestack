@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { RecordService, QueryOptions } from '../../records/RecordService';
@@ -85,7 +86,9 @@ export class RecordController extends BaseController {
       }
 
       // Generate temp id or let recordService generate it
-      const tempId = data.id || `r_${Math.random().toString(36).substring(2, 10)}`;
+      const tempId = data.id && /^[a-zA-Z0-9_-]+$/.test(String(data.id))
+        ? String(data.id)
+        : `r_${crypto.randomBytes(4).toString('hex')}`;
       data.id = tempId;
 
       // Process uploaded files

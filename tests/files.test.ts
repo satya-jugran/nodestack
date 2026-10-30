@@ -11,7 +11,7 @@ describe('File Storage and Upload Integration Test', () => {
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
-    app = new NodeStack({ dataDir: testDir, port: 8098 });
+    app = new NodeStack({ dataDir: testDir, port: 8096 });
 
     // Create collection with file field
     app.schema.createCollection({
@@ -75,4 +75,31 @@ describe('File Storage and Upload Integration Test', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toBe('Hello, NodeStack File Storage!');
   });
+
+  it('should reject path traversal attempts in recordId and collectionId', async () => {
+    const col = app.schema.getCollectionOrThrow('documents');
+    const fileBuffer = Buffer.from('malicious payload');
+
+    await expect(
+      app.files.saveFile(col.id, '../../etc', 'hack.txt', fileBuffer, 'text/plain')
+    ).rejects.toThrow(/prohibited path traversal characters/i);
+
+    await expect(
+      app.files.saveFile('../../evil', 'rec_123', 'hack.txt', fileBuffer, 'text/plain')
+    ).rejects.toThrow(/prohibited path traversal characters/i);
+
+    expect(() => {
+      app.files.getFilePath(col.id, '../../etc', 'passwd');
+    }).toThrow();
+  });
+
+  it('should reject path traversal in record creation ID', async () => {
+    await expect(
+      app.records.create('documents', {
+        id: '../../evil_record',
+        title: 'Exploit',
+      })
+    ).rejects.toThrow(/Record ID must only contain alphanumeric/i);
+  });
 });
+
