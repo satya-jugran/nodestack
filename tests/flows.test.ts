@@ -1539,5 +1539,16 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(deletedId).toBe('flow_quote_123');
       expect(deletedName).toBe(`User's "Tricky" <Flow> & 'Test'`);
     });
+
+    it('should preserve numeric 0 and boolean false when escaping values via escapeHtml', () => {
+      expect(win.escapeHtml(0)).toBe('0');
+      expect(win.escapeHtml(false)).toBe('false');
+      expect(win.escapeHtml(true)).toBe('true');
+      expect(win.escapeHtml(42)).toBe('42');
+      expect(win.escapeHtml('')).toBe('');
+      expect(win.escapeHtml(null)).toBe('');
+      expect(win.escapeHtml(undefined)).toBe('');
+      expect(win.escapeHtml('<script>"test"&\'</script>')).toBe('&lt;script&gt;&quot;test&quot;&amp;&#39;&lt;/script&gt;');
+    });
   });
 });
