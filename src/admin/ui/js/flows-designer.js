@@ -953,12 +953,6 @@ if (typeof window !== 'undefined') {
   window.updateChoiceBranch = updateChoiceBranch;
   window.updateChoiceBranchOp = updateChoiceBranchOp;
   window.updateChoiceBranchVal = updateChoiceBranchVal;
-  window.openAddStepModal = openAddStepModal;
-  window.selectAddStepType = selectAddStepType;
-  window.closeAddStepModal = closeAddStepModal;
-  window.handleAddStepSubmit = handleAddStepSubmit;
-  window.moveStepUp = moveStepUp;
-  window.moveStepDown = moveStepDown;
   window.deleteStep = deleteStep;
   window.renameStep = renameStep;
   window.selectStepCard = selectStepCard;
