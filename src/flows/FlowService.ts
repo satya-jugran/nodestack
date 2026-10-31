@@ -174,7 +174,7 @@ export class FlowService {
   }
 
   public createFlow(dto: CreateFlowDto, actor?: any): FlowConfig {
-    if (!dto.name || !dto.name.trim()) {
+    if (!dto.name || typeof dto.name !== 'string' || !dto.name.trim()) {
       throw new AppError('Flow name is required', 400);
     }
 
@@ -187,9 +187,10 @@ export class FlowService {
     const eventTrigger = triggerType === 'event' ? (dto.eventTrigger ? dto.eventTrigger.trim() : null) : null;
     FlowValidator.validateTrigger(triggerType, eventTrigger);
 
-    const existing = this.getFlowByName(dto.name.trim());
+    const trimmedName = dto.name.trim();
+    const existing = this.getFlowByName(trimmedName);
     if (existing) {
-      throw new ConflictError(`Flow with name '${dto.name}' already exists`);
+      throw new ConflictError(`Flow with name '${trimmedName}' already exists`);
     }
 
     const id = dto.id || `flow_${crypto.randomBytes(8).toString('hex')}`;
@@ -201,7 +202,7 @@ export class FlowService {
     this.db.prepare(`
       INSERT INTO _flows (id, name, description, enabled, triggerType, eventTrigger, definition, created, updated)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, dto.name.trim(), description, enabled, triggerType, eventTrigger, definition, now, now);
+    `).run(id, trimmedName, description, enabled, triggerType, eventTrigger, definition, now, now);
 
     return this.getFlowById(id)!;
   }
@@ -212,11 +213,19 @@ export class FlowService {
       throw new NotFoundError(`Flow '${id}' not found`);
     }
 
-    if (dto.name && dto.name !== current.name) {
-      const existing = this.getFlowByName(dto.name);
-      if (existing && existing.id !== id) {
-        throw new ConflictError(`Flow with name '${dto.name}' already exists`);
+    let name = current.name;
+    if (dto.name !== undefined) {
+      if (typeof dto.name !== 'string' || !dto.name.trim()) {
+        throw new AppError('Flow name cannot be blank', 400);
       }
+      const trimmedName = dto.name.trim();
+      if (trimmedName !== current.name) {
+        const existing = this.getFlowByName(trimmedName);
+        if (existing && existing.id !== id) {
+          throw new ConflictError(`Flow with name '${trimmedName}' already exists`);
+        }
+      }
+      name = trimmedName;
     }
 
     if (dto.definition !== undefined) {
@@ -232,7 +241,6 @@ export class FlowService {
     }
     FlowValidator.validateTrigger(triggerType, eventTrigger);
 
-    const name = dto.name !== undefined ? dto.name.trim() : current.name;
     const description = dto.description !== undefined ? dto.description : current.description;
     const enabled = dto.enabled !== undefined ? (dto.enabled ? 1 : 0) : (current.enabled ? 1 : 0);
     const definition = dto.definition !== undefined ? JSON.stringify(dto.definition) : JSON.stringify(current.definition);

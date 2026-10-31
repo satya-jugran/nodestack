@@ -1023,6 +1023,47 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(apiCreateRes.status).toBe(400);
       const apiCreateData = await apiCreateRes.json();
       expect(apiCreateData.message).toContain("Invalid triggerType 'webhook'");
+
+      // 10. Reject blank names on create
+      expect(() => {
+        app.flows.createFlow({
+          name: '   ',
+          definition: dummyDef,
+        });
+      }).toThrow(/Flow name is required/);
+
+      expect(() => {
+        app.flows.createFlow({
+          name: '',
+          definition: dummyDef,
+        });
+      }).toThrow(/Flow name is required/);
+
+      // 11. Reject blank names on update
+      expect(() => {
+        app.flows.updateFlow(validFlow.id, { name: '   ' });
+      }).toThrow(/Flow name cannot be blank/);
+
+      expect(() => {
+        app.flows.updateFlow(validFlow.id, { name: '' });
+      }).toThrow(/Flow name cannot be blank/);
+
+      // 12. Verify REST API rejects blank name on PATCH
+      const apiPatchRes = await fetch(`http://localhost:8197/api/flows/${validFlow.id}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: '   ' }),
+      });
+      expect(apiPatchRes.status).toBe(400);
+      const apiPatchData = await apiPatchRes.json();
+      expect(apiPatchData.message).toContain('Flow name cannot be blank');
+
+      // 13. Verify valid trimmed update succeeds
+      const trimmedUpdate = app.flows.updateFlow(validFlow.id, { name: '  CleanRenamedFlow  ' });
+      expect(trimmedUpdate.name).toBe('CleanRenamedFlow');
     });
   });
 
