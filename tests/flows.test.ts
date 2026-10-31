@@ -637,6 +637,75 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(result.output.parallelOutputs).toEqual(['ResultA', 'ResultB']);
     });
 
+    it('should propagate sub-flow timeout as timeout in parent Map and Parallel states', async () => {
+      // 1. Parallel sub-flow timing out
+      const parallelDef: FlowDefinition = {
+        startAt: 'Fork',
+        states: {
+          Fork: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'SlowBranch',
+                states: {
+                  SlowBranch: {
+                    type: 'Wait',
+                    seconds: 2,
+                    end: true,
+                  },
+                },
+              },
+            ],
+            end: true,
+          },
+        },
+      };
+
+      // Execute with a short 50ms timeout
+      const parallelResult = await engine.execute(
+        'TimeoutParallelFlow',
+        parallelDef,
+        {},
+        { executionOptions: { timeoutMs: 50 } }
+      );
+
+      // Must be 'timeout', NOT 'succeeded' or 'failed'
+      expect(parallelResult.status).toBe('timeout');
+      expect(parallelResult.error).toContain('timed out');
+
+      // 2. Map sub-flow timing out
+      const mapDef: FlowDefinition = {
+        startAt: 'BatchProcess',
+        states: {
+          BatchProcess: {
+            type: 'Map',
+            itemsPath: '$.items',
+            iterator: {
+              startAt: 'SlowItem',
+              states: {
+                SlowItem: {
+                  type: 'Wait',
+                  seconds: 2,
+                  end: true,
+                },
+              },
+            },
+            end: true,
+          },
+        },
+      };
+
+      const mapResult = await engine.execute(
+        'TimeoutMapFlow',
+        mapDef,
+        { items: [1, 2] },
+        { executionOptions: { timeoutMs: 50 } }
+      );
+
+      expect(mapResult.status).toBe('timeout');
+      expect(mapResult.error).toContain('timed out');
+    });
+
     it('should support Catch policies on Task failure', async () => {
       const def: FlowDefinition = {
         startAt: 'CallFailingTask',

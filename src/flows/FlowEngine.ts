@@ -77,10 +77,30 @@ export class FlowEngine {
     let currentPayload = input !== undefined ? JSON.parse(JSON.stringify(input)) : {};
 
     const subFlowExecutor = async (states: Record<string, FlowState>, startAt: string, subInput: any): Promise<any> => {
+      const remainingMs = Math.max(1, deadline - Date.now());
+      const subOptions = {
+        ...options,
+        executionOptions: {
+          ...options.executionOptions,
+          timeoutMs: options.executionOptions?.timeoutMs
+            ? Math.min(options.executionOptions.timeoutMs, remainingMs)
+            : remainingMs,
+        },
+      };
       const subDef: FlowDefinition = { startAt, states, timeoutSeconds: definition.timeoutSeconds };
-      const subExec = await this.execute(flowName, subDef, subInput, options);
-      if (subExec.status === 'failed') {
-        throw new Error(subExec.error || 'Sub-flow execution failed');
+      const subExec = await this.execute(flowName, subDef, subInput, subOptions);
+      if (subExec.status !== 'succeeded') {
+        if (subExec.status === 'timeout') {
+          const timeoutErr = new AppError(subExec.error || `Sub-flow in '${flowName}' timed out`, 408);
+          (timeoutErr as any).status = 'timeout';
+          throw timeoutErr;
+        }
+        if (subExec.status === 'cancelled') {
+          const cancelErr = new AppError(subExec.error || `Sub-flow in '${flowName}' was cancelled`, 499);
+          (cancelErr as any).status = 'cancelled';
+          throw cancelErr;
+        }
+        throw new Error(subExec.error || `Sub-flow execution ${subExec.status}`);
       }
       return subExec.output;
     };
@@ -119,8 +139,25 @@ export class FlowEngine {
         const stepInputSnapshot = JSON.parse(JSON.stringify(currentPayload));
         let stepResult: StateExecutionResult;
 
+        const remainingMs = Math.max(1, deadline - Date.now());
+        let stepTimer: any;
+        const stepTimeoutPromise = new Promise<never>((_, reject) => {
+          stepTimer = setTimeout(() => {
+            const timeoutErr = new AppError(`Flow '${flowName}' execution timed out after ${timeoutMs}ms`, 408);
+            (timeoutErr as any).status = 'timeout';
+            reject(timeoutErr);
+          }, remainingMs);
+        });
+
         try {
-          stepResult = await this.executeWithRetry(handler, state, stateContext);
+          try {
+            stepResult = await Promise.race([
+              this.executeWithRetry(handler, state, stateContext),
+              stepTimeoutPromise,
+            ]);
+          } finally {
+            clearTimeout(stepTimer);
+          }
         } catch (err: any) {
           const caught = this.tryCatchTransition(state, err, currentPayload);
           if (caught) {
@@ -192,13 +229,19 @@ export class FlowEngine {
         finishedAt: new Date().toISOString(),
       };
     } catch (err: any) {
-      const isTimeout = err instanceof AppError && err.statusCode === 408;
+      const isTimeout =
+        (err instanceof AppError && err.statusCode === 408) ||
+        (err as any)?.statusCode === 408 ||
+        (err as any)?.status === 'timeout';
+      const isCancelled =
+        (err as any)?.status === 'cancelled' ||
+        (err as any)?.statusCode === 499;
       const totalDuration = Date.now() - startTime;
       return {
         id: executionId,
         flowId: options.flowId || 'inline',
         flowName,
-        status: isTimeout ? 'timeout' : 'failed',
+        status: isTimeout ? 'timeout' : (isCancelled ? 'cancelled' : 'failed'),
         input,
         output: currentPayload,
         error: err.message || String(err),
