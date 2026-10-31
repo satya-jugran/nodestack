@@ -1295,5 +1295,42 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       // Clean up search
       win.flowsState.filter.search = '';
     });
+
+    it('should safely render flow cards and action buttons for flows with quotes and special characters in name and id', async () => {
+      win.flowsState.currentView = 'list';
+      win.flowsState.subTab = 'flows';
+      const trickyFlow = {
+        id: 'flow_quote_123',
+        name: `User's "Tricky" <Flow> & 'Test'`,
+        description: 'Special character flow',
+        enabled: true,
+        triggerType: 'http',
+        definition: {
+          startAt: 'First',
+          states: { First: { type: 'Pass', end: true } },
+        },
+      };
+      win.flowsState.flows = [trickyFlow];
+      await win.renderFlowsView();
+
+      const container = doc.getElementById('page-view-flows')!;
+      const deleteBtn = container.querySelector('button.btn-danger') as HTMLButtonElement;
+      expect(deleteBtn).not.toBeNull();
+      expect(deleteBtn.getAttribute('data-flow-id')).toBe('flow_quote_123');
+      expect(deleteBtn.getAttribute('data-flow-name')).toBe(`User's "Tricky" <Flow> & 'Test'`);
+      expect(deleteBtn.getAttribute('onclick')).toBe("deleteFlowPrompt(this.getAttribute('data-flow-id'), this.getAttribute('data-flow-name'))");
+
+      // Verify that calling onclick does not throw syntax error and passes raw name
+      let deletedId = '';
+      let deletedName = '';
+      win.deleteFlowPrompt = (id: string, name: string) => {
+        deletedId = id;
+        deletedName = name;
+      };
+
+      deleteBtn.click();
+      expect(deletedId).toBe('flow_quote_123');
+      expect(deletedName).toBe(`User's "Tricky" <Flow> & 'Test'`);
+    });
   });
 });
