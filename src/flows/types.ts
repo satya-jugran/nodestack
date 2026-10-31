@@ -16,7 +16,7 @@ export interface FlowCatchPolicy {
 }
 
 export interface ChoiceRule {
-  variable: string;
+  variable?: string;
   stringEquals?: string;
   numericEquals?: number;
   numericGreaterThan?: number;
@@ -28,7 +28,7 @@ export interface ChoiceRule {
   and?: ChoiceRule[];
   or?: ChoiceRule[];
   not?: ChoiceRule;
-  next: string;
+  next?: string;
 }
 
 export interface BaseState {

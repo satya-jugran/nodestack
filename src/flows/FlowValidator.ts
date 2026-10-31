@@ -148,23 +148,55 @@ export class FlowValidator {
     idx: number,
     rule: ChoiceRule,
     allKeys: string[],
-    isLoopCondition = false
+    isLoopCondition = false,
+    pathPrefix = `rule #${idx + 1}`,
+    isNested = false
   ): void {
-    if (!rule || typeof rule !== 'object') {
-      throw new AppError(`State '${stateName}': rule #${idx + 1} is invalid`, 400);
+    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
+      throw new AppError(`State '${stateName}': ${pathPrefix} is invalid (must be an object)`, 400);
     }
 
-    if (!rule.variable || typeof rule.variable !== 'string' || !rule.variable.startsWith('$')) {
+    if (!isLoopCondition && !isNested) {
+      if (!rule.next || typeof rule.next !== 'string' || !allKeys.includes(rule.next)) {
+        throw new AppError(
+          `State '${stateName}': ${pathPrefix} 'next' target '${rule.next || ''}' does not exist in flow states`,
+          400
+        );
+      }
+    }
+
+    const comparisonOps = [
+      'stringEquals',
+      'numericEquals',
+      'numericGreaterThan',
+      'numericLessThan',
+      'numericGreaterThanEquals',
+      'numericLessThanEquals',
+      'booleanEquals',
+      'isPresent',
+    ];
+
+    const hasComparisonOp = comparisonOps.some((op) => (rule as any)[op] !== undefined);
+    const hasLogicalOp = rule.and !== undefined || rule.or !== undefined || rule.not !== undefined;
+
+    if (!hasComparisonOp && !hasLogicalOp) {
       throw new AppError(
-        `State '${stateName}': rule #${idx + 1} variable must be a valid JSONPath starting with '$' (e.g. $.status)`,
+        `State '${stateName}': ${pathPrefix} must specify at least one comparison operator or logical operator (and/or/not)`,
         400
       );
     }
 
-    if (!isLoopCondition) {
-      if (!rule.next || typeof rule.next !== 'string' || !allKeys.includes(rule.next)) {
+    if (hasComparisonOp) {
+      if (!rule.variable || typeof rule.variable !== 'string' || !rule.variable.startsWith('$')) {
         throw new AppError(
-          `State '${stateName}': rule #${idx + 1} 'next' target '${rule.next || ''}' does not exist in flow states`,
+          `State '${stateName}': ${pathPrefix} variable must be a valid JSONPath starting with '$' (e.g. $.status)`,
+          400
+        );
+      }
+    } else if (rule.variable !== undefined) {
+      if (typeof rule.variable !== 'string' || !rule.variable.startsWith('$')) {
+        throw new AppError(
+          `State '${stateName}': ${pathPrefix} variable must be a valid JSONPath starting with '$' (e.g. $.status)`,
           400
         );
       }
@@ -174,7 +206,7 @@ export class FlowValidator {
     if (rule.numericGreaterThan !== undefined) {
       if (typeof rule.numericGreaterThan !== 'number' || !Number.isFinite(rule.numericGreaterThan)) {
         throw new AppError(
-          `State '${stateName}': rule #${idx + 1} numericGreaterThan must be a finite number, received: ${JSON.stringify(rule.numericGreaterThan)}`,
+          `State '${stateName}': ${pathPrefix} numericGreaterThan must be a finite number, received: ${JSON.stringify(rule.numericGreaterThan)}`,
           400
         );
       }
@@ -182,7 +214,7 @@ export class FlowValidator {
     if (rule.numericLessThan !== undefined) {
       if (typeof rule.numericLessThan !== 'number' || !Number.isFinite(rule.numericLessThan)) {
         throw new AppError(
-          `State '${stateName}': rule #${idx + 1} numericLessThan must be a finite number, received: ${JSON.stringify(rule.numericLessThan)}`,
+          `State '${stateName}': ${pathPrefix} numericLessThan must be a finite number, received: ${JSON.stringify(rule.numericLessThan)}`,
           400
         );
       }
@@ -190,7 +222,7 @@ export class FlowValidator {
     if (rule.numericEquals !== undefined) {
       if (typeof rule.numericEquals !== 'number' || !Number.isFinite(rule.numericEquals)) {
         throw new AppError(
-          `State '${stateName}': rule #${idx + 1} numericEquals must be a finite number, received: ${JSON.stringify(rule.numericEquals)}`,
+          `State '${stateName}': ${pathPrefix} numericEquals must be a finite number, received: ${JSON.stringify(rule.numericEquals)}`,
           400
         );
       }
@@ -198,7 +230,7 @@ export class FlowValidator {
     if (rule.numericGreaterThanEquals !== undefined) {
       if (typeof rule.numericGreaterThanEquals !== 'number' || !Number.isFinite(rule.numericGreaterThanEquals)) {
         throw new AppError(
-          `State '${stateName}': rule #${idx + 1} numericGreaterThanEquals must be a finite number, received: ${JSON.stringify(rule.numericGreaterThanEquals)}`,
+          `State '${stateName}': ${pathPrefix} numericGreaterThanEquals must be a finite number, received: ${JSON.stringify(rule.numericGreaterThanEquals)}`,
           400
         );
       }
@@ -206,7 +238,7 @@ export class FlowValidator {
     if (rule.numericLessThanEquals !== undefined) {
       if (typeof rule.numericLessThanEquals !== 'number' || !Number.isFinite(rule.numericLessThanEquals)) {
         throw new AppError(
-          `State '${stateName}': rule #${idx + 1} numericLessThanEquals must be a finite number, received: ${JSON.stringify(rule.numericLessThanEquals)}`,
+          `State '${stateName}': ${pathPrefix} numericLessThanEquals must be a finite number, received: ${JSON.stringify(rule.numericLessThanEquals)}`,
           400
         );
       }
@@ -214,7 +246,7 @@ export class FlowValidator {
     if (rule.booleanEquals !== undefined) {
       if (typeof rule.booleanEquals !== 'boolean') {
         throw new AppError(
-          `State '${stateName}': rule #${idx + 1} booleanEquals must be a boolean (true or false), received: ${JSON.stringify(rule.booleanEquals)}`,
+          `State '${stateName}': ${pathPrefix} booleanEquals must be a boolean (true or false), received: ${JSON.stringify(rule.booleanEquals)}`,
           400
         );
       }
@@ -222,7 +254,7 @@ export class FlowValidator {
     if (rule.isPresent !== undefined) {
       if (typeof rule.isPresent !== 'boolean') {
         throw new AppError(
-          `State '${stateName}': rule #${idx + 1} isPresent must be a boolean (true or false), received: ${JSON.stringify(rule.isPresent)}`,
+          `State '${stateName}': ${pathPrefix} isPresent must be a boolean (true or false), received: ${JSON.stringify(rule.isPresent)}`,
           400
         );
       }
@@ -230,10 +262,45 @@ export class FlowValidator {
     if (rule.stringEquals !== undefined) {
       if (typeof rule.stringEquals !== 'string') {
         throw new AppError(
-          `State '${stateName}': rule #${idx + 1} stringEquals must be a string, received: ${JSON.stringify(rule.stringEquals)}`,
+          `State '${stateName}': ${pathPrefix} stringEquals must be a string, received: ${JSON.stringify(rule.stringEquals)}`,
           400
         );
       }
+    }
+
+    // Validate nested logical rules
+    if (rule.and !== undefined) {
+      if (!Array.isArray(rule.and) || rule.and.length === 0) {
+        throw new AppError(
+          `State '${stateName}': ${pathPrefix} 'and' must be a non-empty array of choice rules`,
+          400
+        );
+      }
+      rule.and.forEach((subRule, subIdx) => {
+        this.validateChoiceRule(stateName, subIdx, subRule, allKeys, isLoopCondition, `${pathPrefix}.and[${subIdx}]`, true);
+      });
+    }
+
+    if (rule.or !== undefined) {
+      if (!Array.isArray(rule.or) || rule.or.length === 0) {
+        throw new AppError(
+          `State '${stateName}': ${pathPrefix} 'or' must be a non-empty array of choice rules`,
+          400
+        );
+      }
+      rule.or.forEach((subRule, subIdx) => {
+        this.validateChoiceRule(stateName, subIdx, subRule, allKeys, isLoopCondition, `${pathPrefix}.or[${subIdx}]`, true);
+      });
+    }
+
+    if (rule.not !== undefined) {
+      if (!rule.not || typeof rule.not !== 'object' || Array.isArray(rule.not)) {
+        throw new AppError(
+          `State '${stateName}': ${pathPrefix} 'not' must be a valid choice rule object`,
+          400
+        );
+      }
+      this.validateChoiceRule(stateName, 0, rule.not, allKeys, isLoopCondition, `${pathPrefix}.not`, true);
     }
   }
 }

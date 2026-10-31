@@ -220,6 +220,36 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
           payload
         )
       ).toBe(true);
+
+      // Logical OR and NOT
+      expect(
+        ChoiceEvaluator.evaluate(
+          {
+            or: [
+              { variable: '$.count', numericLessThan: 5 },
+              { variable: '$.status', stringEquals: 'approved' },
+            ],
+            next: 'A',
+          },
+          payload
+        )
+      ).toBe(true);
+
+      expect(
+        ChoiceEvaluator.evaluate(
+          {
+            not: { variable: '$.status', stringEquals: 'rejected' },
+            next: 'A',
+          },
+          payload
+        )
+      ).toBe(true);
+
+      // Should return false when no comparison or logical operator is present (preventing unconditional bypass)
+      expect(ChoiceEvaluator.evaluate({ variable: '$.count', next: 'A' }, payload)).toBe(false);
+      expect(ChoiceEvaluator.evaluate({ next: 'A' } as any, payload)).toBe(false);
+      expect(ChoiceEvaluator.evaluate({ and: [] } as any, payload)).toBe(false);
+      expect(ChoiceEvaluator.evaluate({ or: [] } as any, payload)).toBe(false);
     });
   });
 
@@ -295,6 +325,115 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(() => FlowValidator.validate(invalidDef)).toThrowError(
         /target 'GhostStep' does not exist in states/
       );
+    });
+
+    it('should reject choice rules missing comparison or logical operator', () => {
+      const invalidDef: any = {
+        startAt: 'ChoiceStep',
+        states: {
+          ChoiceStep: {
+            type: 'Choice',
+            choices: [
+              { variable: '$.status', next: 'NextStep' },
+            ],
+          },
+          NextStep: { type: 'Pass', end: true },
+        },
+      };
+
+      expect(() => FlowValidator.validate(invalidDef)).toThrowError(
+        /must specify at least one comparison operator or logical operator/
+      );
+    });
+
+    it('should validate nested logical rules (and, or, not) and reject malformed nested rules', () => {
+      // 1. Empty 'and' array rejected
+      const emptyAndDef: any = {
+        startAt: 'ChoiceStep',
+        states: {
+          ChoiceStep: {
+            type: 'Choice',
+            choices: [
+              { and: [], next: 'NextStep' },
+            ],
+          },
+          NextStep: { type: 'Pass', end: true },
+        },
+      };
+      expect(() => FlowValidator.validate(emptyAndDef)).toThrowError(
+        /'and' must be a non-empty array of choice rules/
+      );
+
+      // 2. Nested rule inside 'and' missing operator rejected
+      const nestedMissingOpDef: any = {
+        startAt: 'ChoiceStep',
+        states: {
+          ChoiceStep: {
+            type: 'Choice',
+            choices: [
+              {
+                and: [
+                  { variable: '$.count', numericGreaterThan: 5 },
+                  { variable: '$.status' }, // missing operator!
+                ],
+                next: 'NextStep',
+              },
+            ],
+          },
+          NextStep: { type: 'Pass', end: true },
+        },
+      };
+      expect(() => FlowValidator.validate(nestedMissingOpDef)).toThrowError(
+        /rule #1\.and\[1\] must specify at least one comparison operator or logical operator/
+      );
+
+      // 3. Nested rule with invalid type rejected
+      const nestedInvalidTypeDef: any = {
+        startAt: 'ChoiceStep',
+        states: {
+          ChoiceStep: {
+            type: 'Choice',
+            choices: [
+              {
+                or: [
+                  { variable: '$.count', numericGreaterThan: 'invalid-string' },
+                ],
+                next: 'NextStep',
+              },
+            ],
+          },
+          NextStep: { type: 'Pass', end: true },
+        },
+      };
+      expect(() => FlowValidator.validate(nestedInvalidTypeDef)).toThrowError(
+        /rule #1\.or\[0\] numericGreaterThan must be a finite number/
+      );
+
+      // 4. Valid nested rule with and/or/not passes validation
+      const validNestedDef: any = {
+        startAt: 'ChoiceStep',
+        states: {
+          ChoiceStep: {
+            type: 'Choice',
+            choices: [
+              {
+                and: [
+                  { variable: '$.count', numericGreaterThan: 10 },
+                  {
+                    or: [
+                      { variable: '$.tier', stringEquals: 'gold' },
+                      { not: { variable: '$.isSuspended', booleanEquals: true } },
+                    ],
+                  },
+                ],
+                next: 'NextStep',
+              },
+            ],
+          },
+          NextStep: { type: 'Pass', end: true },
+        },
+      };
+      expect(() => FlowValidator.validate(validNestedDef)).not.toThrow();
     });
   });
 
