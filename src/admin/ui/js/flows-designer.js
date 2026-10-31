@@ -846,9 +846,33 @@ function validateFlowDefinitionClient(def) {
       if (!state.next && !state.end) {
         return `Wait step "${name}" must configure "Then Go To" or mark as "End State".`;
       }
+    } else if (state.type === 'Map') {
+      if (!state.itemsPath || !state.itemsPath.startsWith('$')) {
+        return `Map step "${name}" itemsPath must be a valid JSONPath starting with '$'.`;
+      }
+      if (!state.iterator || typeof state.iterator !== 'object') {
+        return `Map step "${name}" must specify an iterator with startAt and states.`;
+      }
+      const subErr = validateFlowDefinitionClient(state.iterator);
+      if (subErr) {
+        return `Map step "${name}" iterator: ${subErr}`;
+      }
+      if (!state.next && !state.end) {
+        return `Map step "${name}" must configure "Then Go To" or mark as "End State".`;
+      }
     } else if (state.type === 'Parallel') {
       if (!Array.isArray(state.branches) || state.branches.length === 0) {
         return `Parallel step "${name}" must have at least one branch in "branches".`;
+      }
+      for (let bIdx = 0; bIdx < state.branches.length; bIdx++) {
+        const branch = state.branches[bIdx];
+        if (!branch || typeof branch !== 'object') {
+          return `Parallel step "${name}" branch #${bIdx + 1} is invalid.`;
+        }
+        const subErr = validateFlowDefinitionClient(branch);
+        if (subErr) {
+          return `Parallel step "${name}" branch #${bIdx + 1}: ${subErr}`;
+        }
       }
       if (!state.next && !state.end) {
         return `Parallel step "${name}" must configure "Then Go To" or mark as "End State".`;

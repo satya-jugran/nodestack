@@ -435,6 +435,207 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       };
       expect(() => FlowValidator.validate(validNestedDef)).not.toThrow();
     });
+
+    it('should recursively validate Map state iterator definitions and reject invalid nested states', () => {
+      // 1. Missing startAt in iterator
+      const missingStartAtDef: any = {
+        startAt: 'BatchMap',
+        states: {
+          BatchMap: {
+            type: 'Map',
+            itemsPath: '$.items',
+            iterator: {
+              startAt: 'MissingStep',
+              states: {
+                ValidStep: { type: 'Pass', end: true },
+              },
+            },
+            end: true,
+          },
+        },
+      };
+      expect(() => FlowValidator.validate(missingStartAtDef)).toThrowError(
+        /Map state 'BatchMap' iterator: startAt state 'MissingStep' does not exist in flow states/
+      );
+
+      // 2. Task missing function inside iterator
+      const invalidTaskDef: any = {
+        startAt: 'BatchMap',
+        states: {
+          BatchMap: {
+            type: 'Map',
+            itemsPath: '$.items',
+            iterator: {
+              startAt: 'ProcessItem',
+              states: {
+                ProcessItem: {
+                  type: 'Task',
+                  function: '',
+                  end: true,
+                },
+              },
+            },
+            end: true,
+          },
+        },
+      };
+      expect(() => FlowValidator.validate(invalidTaskDef)).toThrowError(
+        /Map state 'BatchMap' iterator: Task state 'ProcessItem' must specify a serverless function name/
+      );
+
+      // 3. Broken transition inside iterator
+      const brokenTransitionDef: any = {
+        startAt: 'BatchMap',
+        states: {
+          BatchMap: {
+            type: 'Map',
+            itemsPath: '$.items',
+            iterator: {
+              startAt: 'StepA',
+              states: {
+                StepA: { type: 'Pass', next: 'GhostNext' },
+              },
+            },
+            end: true,
+          },
+        },
+      };
+      expect(() => FlowValidator.validate(brokenTransitionDef)).toThrowError(
+        /Map state 'BatchMap' iterator: State 'StepA': 'next' target 'GhostNext' does not exist in states/
+      );
+
+      // 4. Valid nested Map passes validation
+      const validMapDef: any = {
+        startAt: 'BatchMap',
+        states: {
+          BatchMap: {
+            type: 'Map',
+            itemsPath: '$.items',
+            iterator: {
+              startAt: 'ProcessItem',
+              states: {
+                ProcessItem: {
+                  type: 'Task',
+                  function: 'process-order',
+                  end: true,
+                },
+              },
+            },
+            end: true,
+          },
+        },
+      };
+      expect(() => FlowValidator.validate(validMapDef)).not.toThrow();
+    });
+
+    it('should recursively validate Parallel state branch definitions and reject invalid nested states', () => {
+      // 1. Missing startAt in branch #1
+      const missingStartAtDef: any = {
+        startAt: 'Fork',
+        states: {
+          Fork: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'MissingBranchStart',
+                states: {
+                  ValidBranchTask: { type: 'Pass', end: true },
+                },
+              },
+            ],
+            end: true,
+          },
+        },
+      };
+      expect(() => FlowValidator.validate(missingStartAtDef)).toThrowError(
+        /Parallel state 'Fork' branch #1: startAt state 'MissingBranchStart' does not exist in flow states/
+      );
+
+      // 2. Task missing function inside branch #2
+      const invalidBranchTaskDef: any = {
+        startAt: 'Fork',
+        states: {
+          Fork: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'ValidStep',
+                states: { ValidStep: { type: 'Pass', end: true } },
+              },
+              {
+                startAt: 'BadStep',
+                states: {
+                  BadStep: {
+                    type: 'Task',
+                    function: '   ',
+                    end: true,
+                  },
+                },
+              },
+            ],
+            end: true,
+          },
+        },
+      };
+      expect(() => FlowValidator.validate(invalidBranchTaskDef)).toThrowError(
+        /Parallel state 'Fork' branch #2: Task state 'BadStep' must specify a serverless function name/
+      );
+
+      // 3. Broken transition inside branch #1
+      const brokenBranchTransitionDef: any = {
+        startAt: 'Fork',
+        states: {
+          Fork: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'Step1',
+                states: {
+                  Step1: { type: 'Pass', next: 'NonExistent' },
+                },
+              },
+            ],
+            end: true,
+          },
+        },
+      };
+      expect(() => FlowValidator.validate(brokenBranchTransitionDef)).toThrowError(
+        /Parallel state 'Fork' branch #1: State 'Step1': 'next' target 'NonExistent' does not exist in states/
+      );
+
+      // 4. Valid nested Parallel passes validation
+      const validParallelDef: any = {
+        startAt: 'Fork',
+        states: {
+          Fork: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'Branch1_Task',
+                states: {
+                  Branch1_Task: {
+                    type: 'Task',
+                    function: 'fetch-user',
+                    end: true,
+                  },
+                },
+              },
+              {
+                startAt: 'Branch2_Pass',
+                states: {
+                  Branch2_Pass: {
+                    type: 'Pass',
+                    end: true,
+                  },
+                },
+              },
+            ],
+            end: true,
+          },
+        },
+      };
+      expect(() => FlowValidator.validate(validParallelDef)).not.toThrow();
+    });
   });
 
   // ==========================================
