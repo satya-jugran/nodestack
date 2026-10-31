@@ -142,6 +142,16 @@ function renderStateFormFields(name, state, allKeys) {
             />
           </div>
         </div>
+        <div class="flow-field-row" style="margin-top: 0.5rem;">
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); cursor: pointer;">
+            <input
+              type="checkbox"
+              ${state.elevated ? 'checked' : ''}
+              onchange="updateStepProp(getStepName(this), 'elevated', this.checked)"
+            />
+            Elevated privileges (service-role invocation for non-admin flow actors)
+          </label>
+        </div>
       `;
 
     case 'Choice':

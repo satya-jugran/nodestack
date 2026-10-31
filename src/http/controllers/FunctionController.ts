@@ -172,31 +172,15 @@ export class FunctionController extends BaseController {
 
     // Auth Policy Enforcement
     const auth = (req as any).auth;
-    switch (fn.authPolicy) {
-      case 'admin':
-        if (!auth?.isAdmin) {
-          this.error(reply, 'Superuser authorization required to invoke this function', 403);
-          return;
-        }
-        break;
-      case 'auth':
-        if (!auth) {
-          this.error(reply, 'Authentication token required to invoke this function', 401);
-          return;
-        }
-        break;
-      case 'apiKey':
-        if (!auth?.isApiKey) {
-          this.error(reply, 'Valid API Key required to invoke this function', 401);
-          return;
-        }
-        break;
-      case 'public':
-        // No restriction
-        break;
-      default:
-        this.error(reply, `Unsupported auth policy '${fn.authPolicy}'`, 403);
+    try {
+      service.verifyAuthPolicy(fn, auth);
+    } catch (err: any) {
+      if (err instanceof AppError) {
+        this.error(reply, err.message, err.statusCode);
         return;
+      }
+      this.error(reply, err.message || 'Authorization failed', 403);
+      return;
     }
 
     const requestContext: FunctionRequestContext = {

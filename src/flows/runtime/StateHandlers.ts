@@ -13,12 +13,29 @@ import { IStateHandler, FlowStateContext, StateExecutionResult } from './IStateH
 import { FlowPathMapper } from '../utils/FlowPathMapper';
 import { ConcurrencyPool } from '../utils/ConcurrencyPool';
 import { ChoiceEvaluator } from './ChoiceEvaluator';
-import { AppError } from '../../core/errors/AppError';
+import { AppError, NotFoundError, ForbiddenError, UnauthorizedError } from '../../core/errors/AppError';
 
 export class TaskStateHandler implements IStateHandler<TaskState> {
   public async execute(state: TaskState, context: FlowStateContext): Promise<StateExecutionResult> {
     if (!context.functionService) {
       throw new AppError(`FunctionService is unavailable for task execution`);
+    }
+
+    const fn = context.functionService.getFunctionByName(state.function) || context.functionService.getFunctionById(state.function);
+    if (!fn) {
+      throw new NotFoundError(`Function '${state.function}' not found`);
+    }
+
+    // Auth Policy Enforcement:
+    // Flow actors must satisfy the function's authPolicy (admin, auth, apiKey)
+    // unless the Task step explicitly configures intentional elevated/service-role execution.
+    let effectiveActor = context.actor;
+    if (state.elevated || state.serviceRole) {
+      effectiveActor = context.actor?.isAdmin
+        ? context.actor
+        : { id: 'system:flow', isAdmin: true, role: 'service-role' };
+    } else {
+      context.functionService.verifyAuthPolicy(fn, context.actor);
     }
 
     const taskInput = FlowPathMapper.resolveInput(context.payload, state.inputPath);
@@ -30,9 +47,9 @@ export class TaskStateHandler implements IStateHandler<TaskState> {
         query: {},
         headers: { 'x-flow-name': context.flowName, 'x-flow-step': context.stateName },
         body: taskInput,
-        auth: context.actor,
+        auth: effectiveActor,
       },
-      context.actor
+      effectiveActor
     );
 
     if (execution.status !== 'success') {

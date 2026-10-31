@@ -755,6 +755,74 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(executions.totalItems).toBeGreaterThanOrEqual(1);
       expect(executions.items[0].status).toBe('succeeded');
     });
+
+    it('should enforce function authPolicy for non-admin actors in task execution unless elevated is explicitly set', async () => {
+      // 1. Create a function with authPolicy: 'admin'
+      app.functions.createFunction({
+        name: 'privileged-admin-task',
+        code: `export default async function() { return { status: 200, body: { secure: true } }; }`,
+        enabled: true,
+        authPolicy: 'admin',
+        methods: ['POST'],
+        timeoutMs: 1000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      // 2. Create a flow invoking privileged-admin-task WITHOUT elevated flag
+      const defaultFlow = app.flows.createFlow({
+        name: 'StrictAuthFlow',
+        triggerType: 'manual',
+        enabled: true,
+        definition: {
+          startAt: 'RunPrivileged',
+          states: {
+            RunPrivileged: {
+              type: 'Task',
+              function: 'privileged-admin-task',
+              end: true,
+            },
+          },
+        },
+      });
+
+      // 3. Execution by non-admin actor must fail with 403 ForbiddenError
+      const nonAdminActor = { id: 'regular_user_1', isAdmin: false };
+      const failedExec = await app.flows.executeFlow(defaultFlow.id, {}, nonAdminActor);
+      expect(failedExec.status).toBe('failed');
+      expect(failedExec.error).toContain('Superuser authorization required to invoke function');
+
+      // 4. Execution by admin actor succeeds
+      const adminActor = { id: 'admin_user_1', isAdmin: true };
+      const successAdminExec = await app.flows.executeFlow(defaultFlow.id, {}, adminActor);
+      expect(successAdminExec.status).toBe('succeeded');
+      expect(successAdminExec.output).toEqual({ secure: true });
+
+      // 5. Create a flow with intentional elevated / service-role configuration
+      const elevatedFlow = app.flows.createFlow({
+        name: 'ElevatedServiceFlow',
+        triggerType: 'manual',
+        enabled: true,
+        definition: {
+          startAt: 'RunElevated',
+          states: {
+            RunElevated: {
+              type: 'Task',
+              function: 'privileged-admin-task',
+              elevated: true,
+              end: true,
+            },
+          },
+        },
+      });
+
+      // 6. Non-admin actor invoking elevated flow succeeds under service-role execution
+      const successElevatedExec = await app.flows.executeFlow(elevatedFlow.id, {}, nonAdminActor);
+      expect(successElevatedExec.status).toBe('succeeded');
+      expect(successElevatedExec.output).toEqual({ secure: true });
+    });
   });
 
   // ==========================================

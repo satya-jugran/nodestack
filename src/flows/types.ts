@@ -44,6 +44,8 @@ export interface BaseState {
 export interface TaskState extends BaseState {
   type: 'Task';
   function: string;
+  elevated?: boolean;
+  serviceRole?: boolean;
   retry?: FlowRetryPolicy[];
   catch?: FlowCatchPolicy[];
 }

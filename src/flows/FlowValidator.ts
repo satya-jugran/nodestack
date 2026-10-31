@@ -51,6 +51,12 @@ export class FlowValidator {
         if (!state.function || typeof state.function !== 'string' || !state.function.trim()) {
           throw new AppError(`Task state '${name}' must specify a serverless function name`, 400);
         }
+        if (state.elevated !== undefined && typeof state.elevated !== 'boolean') {
+          throw new AppError(`Task state '${name}': elevated must be a boolean (true or false)`, 400);
+        }
+        if (state.serviceRole !== undefined && typeof state.serviceRole !== 'boolean') {
+          throw new AppError(`Task state '${name}': serviceRole must be a boolean (true or false)`, 400);
+        }
         if (!state.next && !state.end) {
           throw new AppError(`Task state '${name}' must specify either 'next' or 'end: true'`, 400);
         }
