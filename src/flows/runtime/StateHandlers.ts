@@ -173,8 +173,10 @@ export class PassStateHandler implements IStateHandler<PassState> {
 
 export class WaitStateHandler implements IStateHandler<WaitState> {
   public async execute(state: WaitState, context: FlowStateContext): Promise<StateExecutionResult> {
-    const seconds = Math.max(0, Math.min(state.seconds || 1, 60));
-    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    const seconds = Math.max(0, Math.min(state.seconds ?? 1, 60));
+    if (seconds > 0) {
+      await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    }
 
     return {
       nextState: state.next,

@@ -400,9 +400,9 @@ function renderStateFormFields(name, state, allKeys) {
           <input
             type="number"
             class="flow-field-input"
-            min="1"
+            min="0"
             max="60"
-            value="${state.seconds || 1}"
+            value="${state.seconds !== undefined ? state.seconds : 1}"
             onchange="updateStepProp(getStepName(this), 'seconds', parseInt(this.value, 10))"
           />
         </div>

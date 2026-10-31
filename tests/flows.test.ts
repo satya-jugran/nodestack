@@ -929,6 +929,27 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(waitResult.error).toContain('timed out');
     });
 
+    it('should allow Wait state with seconds: 0 to execute without delay', async () => {
+      const zeroWaitDef: FlowDefinition = {
+        startAt: 'ZeroDelay',
+        states: {
+          ZeroDelay: {
+            type: 'Wait',
+            seconds: 0,
+            end: true,
+          },
+        },
+      };
+
+      const start = Date.now();
+      const result = await engine.execute('ZeroWaitFlow', zeroWaitDef, { hello: 'world' });
+      const duration = Date.now() - start;
+
+      expect(result.status).toBe('succeeded');
+      expect(result.output).toEqual({ hello: 'world' });
+      expect(duration).toBeLessThan(500);
+    });
+
     it('should support Catch policies on Task failure', async () => {
       const def: FlowDefinition = {
         startAt: 'CallFailingTask',
