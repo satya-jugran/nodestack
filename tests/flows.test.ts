@@ -704,6 +704,28 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       expect(mapResult.status).toBe('timeout');
       expect(mapResult.error).toContain('timed out');
+
+      // 3. Single terminal state (e.g. Wait) running past deadline
+      const singleWaitDef: FlowDefinition = {
+        startAt: 'LongWait',
+        states: {
+          LongWait: {
+            type: 'Wait',
+            seconds: 2,
+            end: true,
+          },
+        },
+      };
+
+      const waitResult = await engine.execute(
+        'TimeoutWaitFlow',
+        singleWaitDef,
+        {},
+        { executionOptions: { timeoutMs: 50 } }
+      );
+
+      expect(waitResult.status).toBe('timeout');
+      expect(waitResult.error).toContain('timed out');
     });
 
     it('should support Catch policies on Task failure', async () => {

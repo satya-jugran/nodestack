@@ -159,22 +159,33 @@ export class FlowEngine {
             clearTimeout(stepTimer);
           }
         } catch (err: any) {
-          const caught = this.tryCatchTransition(state, err, currentPayload);
-          if (caught) {
-            stepLogs.push({
-              step: currentStateName,
-              type: state.type,
-              input: stepInputSnapshot,
-              output: caught.payload,
-              status: 'failed',
-              durationMs: Date.now() - stepStartTime,
-              error: err.message || String(err),
-              timestamp: new Date().toISOString(),
-            });
+          const isTimeout =
+            (err instanceof AppError && err.statusCode === 408) ||
+            (err as any)?.statusCode === 408 ||
+            (err as any)?.status === 'timeout' ||
+            Date.now() > deadline;
+          const isCancelled =
+            (err as any)?.status === 'cancelled' ||
+            (err as any)?.statusCode === 499;
 
-            currentPayload = caught.payload;
-            currentStateName = caught.nextState;
-            continue;
+          if (!isTimeout && !isCancelled) {
+            const caught = this.tryCatchTransition(state, err, currentPayload);
+            if (caught) {
+              stepLogs.push({
+                step: currentStateName,
+                type: state.type,
+                input: stepInputSnapshot,
+                output: caught.payload,
+                status: 'failed',
+                durationMs: Date.now() - stepStartTime,
+                error: err.message || String(err),
+                timestamp: new Date().toISOString(),
+              });
+
+              currentPayload = caught.payload;
+              currentStateName = caught.nextState;
+              continue;
+            }
           }
 
           stepLogs.push({
@@ -205,6 +216,10 @@ export class FlowEngine {
           throw new Error(stepResult.error || `Step '${currentStateName}' failed`);
         }
 
+        if (Date.now() > deadline) {
+          throw new AppError(`Flow '${flowName}' execution timed out after ${timeoutMs}ms`, 408);
+        }
+
         currentPayload = stepResult.payload;
 
         if (stepResult.isEnd || !stepResult.nextState) {
@@ -212,6 +227,10 @@ export class FlowEngine {
         }
 
         currentStateName = stepResult.nextState;
+      }
+
+      if (Date.now() > deadline) {
+        throw new AppError(`Flow '${flowName}' execution timed out after ${timeoutMs}ms`, 408);
       }
 
       const totalDuration = Date.now() - startTime;
