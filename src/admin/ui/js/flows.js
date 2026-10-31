@@ -146,7 +146,7 @@ async function renderFlowsView() {
             class="flow-field-input"
             placeholder="Search flows by name..."
             style="width: 220px;"
-            value="${flowsState.filter.search}"
+            value="${escapeHtml(flowsState.filter.search || '')}"
             oninput="handleFlowsSearch(this.value)"
           />
         </div>

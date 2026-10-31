@@ -1274,5 +1274,26 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(stepCard?.getAttribute('data-step-name')).toBe(specialStepName);
       expect(win.getStepName(stepCard)).toBe(specialStepName);
     });
+
+    it('should properly escape search filter input attribute against attribute breakout and XSS', async () => {
+      win.flowsState.currentView = 'list';
+      win.flowsState.subTab = 'flows';
+      const maliciousSearch = '"><script>alert(1)</script><input autofocus="';
+      win.flowsState.filter.search = maliciousSearch;
+
+      await win.renderFlowsView();
+
+      const container = doc.getElementById('page-view-flows')!;
+      const searchInput = doc.getElementById('flows-search-input') as HTMLInputElement;
+      expect(searchInput).not.toBeNull();
+      // The DOM value property should equal the exact string
+      expect(searchInput.value).toBe(maliciousSearch);
+      // It did not break out of value attribute, so no injected script or extra input tags exist
+      expect(container.querySelectorAll('script').length).toBe(0);
+      expect(container.querySelectorAll('input').length).toBe(1);
+
+      // Clean up search
+      win.flowsState.filter.search = '';
+    });
   });
 });
