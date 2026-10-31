@@ -1234,5 +1234,45 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       await new Promise((r) => setTimeout(r, 250));
       expect(drawerRoot?.querySelector('#flow-exec-drawer-panel')).toBeNull();
     });
+
+    it('should safely handle step names with apostrophes and special characters in SVG diagram and forms without script injection', () => {
+      const specialStepName = "User's \"Custom\" <Step>";
+      const flowWithApostrophe = {
+        id: 'flow_apostrophe_test',
+        name: "User's Flow",
+        description: 'Test flow with apostrophes',
+        enabled: true,
+        triggerType: 'http',
+        definition: {
+          startAt: specialStepName,
+          states: {
+            [specialStepName]: {
+              type: 'Pass',
+              end: true,
+            },
+          },
+        },
+      };
+
+      win.designerState.activeFlow = flowWithApostrophe;
+      win.renderFlowDesignerWorkbench(flowWithApostrophe);
+
+      // Verify SVG node does NOT contain unescaped single quotes inside inline JS string
+      const diagramContainer = doc.getElementById('flow-diagram-container');
+      const svgNode = diagramContainer?.querySelector('.flow-svg-node[data-step]');
+      expect(svgNode).not.toBeNull();
+      expect(svgNode?.getAttribute('data-step')).toBe(specialStepName);
+      expect(svgNode?.getAttribute('onclick')).toBe("selectStepFromDiagram(this.getAttribute('data-step'))");
+
+      // Verify clicking the SVG node triggers selectStepFromDiagram safely
+      win.selectStepFromDiagram(svgNode?.getAttribute('data-step'));
+      expect(win.designerState.selectedStepName).toBe(specialStepName);
+
+      // Verify Step Card has data-step-name
+      const stepCard = doc.querySelector('.flow-step-card[data-step-name]');
+      expect(stepCard).not.toBeNull();
+      expect(stepCard?.getAttribute('data-step-name')).toBe(specialStepName);
+      expect(win.getStepName(stepCard)).toBe(specialStepName);
+    });
   });
 });

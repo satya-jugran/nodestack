@@ -1,6 +1,10 @@
 // Functions Flow Designer - Step Cards & Form Fields
 // Generates step cards and form controls for Task, Choice, Map, Loop, Parallel, Pass, Wait, Fail, Succeed
 
+function getStepName(el) {
+  return el ? (el.getAttribute('data-step-name') || el.closest('[data-step-name]')?.getAttribute('data-step-name') || '') : '';
+}
+
 function renderStepCardHtml(name, state, index, allKeys) {
   const type = state.type || 'Pass';
   const pillClass = `pill-${type.toLowerCase()}`;
@@ -12,7 +16,8 @@ function renderStepCardHtml(name, state, index, allKeys) {
     <div
       class="flow-step-card ${isSelected ? 'active-step' : ''} ${statusClass}"
       id="step-card-${escapeHtml(name)}"
-      onclick="selectStepCard('${escapeHtml(name)}')"
+      data-step-name="${escapeHtml(name)}"
+      onclick="selectStepCard(getStepName(this))"
     >
       <!-- Header -->
       <div class="flow-step-card-header">
@@ -23,7 +28,7 @@ function renderStepCardHtml(name, state, index, allKeys) {
             class="flow-field-input"
             value="${escapeHtml(name)}"
             style="font-weight: 700; font-size: 0.9rem; padding: 3px 8px; width: 160px;"
-            onchange="renameStep('${escapeHtml(name)}', this.value)"
+            onchange="renameStep(getStepName(this), this.value)"
           />
           <span class="flow-step-type-pill ${pillClass}">${type}</span>
         </div>
@@ -33,7 +38,7 @@ function renderStepCardHtml(name, state, index, allKeys) {
           <button
             class="flow-step-reorder-btn"
             title="Move Step Up"
-            onclick="moveStepUp('${escapeHtml(name)}', event)"
+            onclick="moveStepUp(getStepName(this), event)"
             ${index === 0 ? 'disabled' : ''}
           >
             ▲
@@ -41,7 +46,7 @@ function renderStepCardHtml(name, state, index, allKeys) {
           <button
             class="flow-step-reorder-btn"
             title="Move Step Down"
-            onclick="moveStepDown('${escapeHtml(name)}', event)"
+            onclick="moveStepDown(getStepName(this), event)"
             ${index === allKeys.length - 1 ? 'disabled' : ''}
           >
             ▼
@@ -56,7 +61,7 @@ function renderStepCardHtml(name, state, index, allKeys) {
           <button
             class="btn btn-secondary btn-sm"
             style="padding: 2px 7px; font-size: 0.75rem; color: var(--text-muted);"
-            onclick="deleteStep('${escapeHtml(name)}', event)"
+            onclick="deleteStep(getStepName(this), event)"
             title="Delete Step"
           >
             ✕
@@ -77,7 +82,7 @@ function renderStepCardHtml(name, state, index, allKeys) {
               class="flow-field-select flow-next-select"
               style="flex: 1;"
               ${state.end ? 'disabled' : ''}
-              onchange="handleStepNextChange('${escapeHtml(name)}', this.value)"
+              onchange="handleStepNextChange(getStepName(this), this.value)"
             >
               <option value="">-- Choose Next Step --</option>
               ${allKeys.filter(k => k !== name).map(k => `<option value="${escapeHtml(k)}" ${state.next === k ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}
@@ -88,7 +93,7 @@ function renderStepCardHtml(name, state, index, allKeys) {
               id="step-end-check-${escapeHtml(name)}"
               type="checkbox"
               ${state.end ? 'checked' : ''}
-              onchange="handleStepEndToggle('${escapeHtml(name)}', this.checked)"
+              onchange="handleStepEndToggle(getStepName(this), this.checked)"
             />
             End State
           </label>
@@ -109,7 +114,7 @@ function renderStateFormFields(name, state, allKeys) {
           <label class="flow-field-label">Invoke Serverless Function:</label>
           <select
             class="flow-field-select"
-            onchange="updateStepProp('${escapeHtml(name)}', 'function', this.value)"
+            onchange="updateStepProp(getStepName(this), 'function', this.value)"
           >
             <option value="">-- Select Registered Function --</option>
             ${fns.map(f => `<option value="${escapeHtml(f.name)}" ${state.function === f.name ? 'selected' : ''}>${escapeHtml(f.name)}</option>`).join('')}
@@ -123,7 +128,7 @@ function renderStateFormFields(name, state, allKeys) {
               class="flow-field-input"
               placeholder="$ (entire payload)"
               value="${escapeHtml(state.inputPath || '$')}"
-              onchange="updateStepProp('${escapeHtml(name)}', 'inputPath', this.value)"
+              onchange="updateStepProp(getStepName(this), 'inputPath', this.value)"
             />
           </div>
           <div class="flow-field-row">
@@ -133,7 +138,7 @@ function renderStateFormFields(name, state, allKeys) {
               class="flow-field-input"
               placeholder="$.result"
               value="${escapeHtml(state.resultPath || '$')}"
-              onchange="updateStepProp('${escapeHtml(name)}', 'resultPath', this.value)"
+              onchange="updateStepProp(getStepName(this), 'resultPath', this.value)"
             />
           </div>
         </div>
@@ -153,12 +158,12 @@ function renderStateFormFields(name, state, allKeys) {
                   style="flex: 2; padding: 0.35rem 0.5rem;"
                   placeholder="$.variable"
                   value="${escapeHtml(c.variable || '')}"
-                  onchange="updateChoiceBranch('${escapeHtml(name)}', ${i}, 'variable', this.value)"
+                  onchange="updateChoiceBranch(getStepName(this), ${i}, 'variable', this.value)"
                 />
                 <select
                   class="flow-field-select"
                   style="flex: 1.6; padding: 0.35rem 0.5rem;"
-                  onchange="updateChoiceBranchOp('${escapeHtml(name)}', ${i}, this.value)"
+                  onchange="updateChoiceBranchOp(getStepName(this), ${i}, this.value)"
                 >
                   <option value="stringEquals" ${c.stringEquals !== undefined ? 'selected' : ''}>== string</option>
                   <option value="numericEquals" ${c.numericEquals !== undefined ? 'selected' : ''}>== number</option>
@@ -174,15 +179,15 @@ function renderStateFormFields(name, state, allKeys) {
                 <select
                   class="flow-field-select"
                   style="flex: 2; padding: 0.35rem 0.5rem;"
-                  onchange="updateChoiceBranch('${escapeHtml(name)}', ${i}, 'next', this.value)"
+                  onchange="updateChoiceBranch(getStepName(this), ${i}, 'next', this.value)"
                 >
                   <option value="">Next...</option>
                   ${allKeys.filter(k => k !== name).map(k => `<option value="${escapeHtml(k)}" ${c.next === k ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}
                 </select>
-                <button class="btn btn-secondary btn-sm" style="padding: 2px 6px;" onclick="removeChoiceBranch('${escapeHtml(name)}', ${i})">✕</button>
+                <button class="btn btn-secondary btn-sm" style="padding: 2px 6px;" onclick="removeChoiceBranch(getStepName(this), ${i})">✕</button>
               </div>
             `).join('')}
-            <button class="btn btn-secondary btn-sm" style="font-size: 0.75rem; align-self: flex-start; font-weight: 600;" onclick="addChoiceBranch('${escapeHtml(name)}')">
+            <button class="btn btn-secondary btn-sm" style="font-size: 0.75rem; align-self: flex-start; font-weight: 600;" onclick="addChoiceBranch(getStepName(this))">
               + Add Condition
             </button>
           </div>
@@ -191,7 +196,7 @@ function renderStateFormFields(name, state, allKeys) {
           <label class="flow-field-label">Default Fallback Step:</label>
           <select
             class="flow-field-select"
-            onchange="updateStepProp('${escapeHtml(name)}', 'default', this.value)"
+            onchange="updateStepProp(getStepName(this), 'default', this.value)"
           >
             <option value="">-- No Default (Fail if no match) --</option>
             ${allKeys.filter(k => k !== name).map(k => `<option value="${escapeHtml(k)}" ${state.default === k ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}
@@ -212,7 +217,7 @@ function renderStateFormFields(name, state, allKeys) {
               class="flow-field-input"
               placeholder="$.items"
               value="${escapeHtml(state.itemsPath || '$.items')}"
-              onchange="updateStepProp('${escapeHtml(name)}', 'itemsPath', this.value)"
+              onchange="updateStepProp(getStepName(this), 'itemsPath', this.value)"
             />
           </div>
           <div class="flow-field-row">
@@ -223,7 +228,7 @@ function renderStateFormFields(name, state, allKeys) {
               value="${state.maxConcurrency || 5}"
               min="1"
               max="20"
-              onchange="updateStepProp('${escapeHtml(name)}', 'maxConcurrency', parseInt(this.value, 10))"
+              onchange="updateStepProp(getStepName(this), 'maxConcurrency', parseInt(this.value, 10))"
             />
           </div>
         </div>
@@ -231,7 +236,7 @@ function renderStateFormFields(name, state, allKeys) {
           <label class="flow-field-label">Item Processing Function:</label>
           <select
             class="flow-field-select"
-            onchange="updateMapIteratorFunction('${escapeHtml(name)}', this.value)"
+            onchange="updateMapIteratorFunction(getStepName(this), this.value)"
           >
             <option value="">-- Select Function --</option>
             ${mapFns.map(f => `<option value="${escapeHtml(f.name)}" ${iteratorState.function === f.name ? 'selected' : ''}>${escapeHtml(f.name)}</option>`).join('')}
@@ -244,7 +249,7 @@ function renderStateFormFields(name, state, allKeys) {
             class="flow-field-input"
             placeholder="$.mappedResults"
             value="${escapeHtml(state.resultPath || '$')}"
-            onchange="updateStepProp('${escapeHtml(name)}', 'resultPath', this.value)"
+            onchange="updateStepProp(getStepName(this), 'resultPath', this.value)"
           />
         </div>
       `;
@@ -256,7 +261,7 @@ function renderStateFormFields(name, state, allKeys) {
             <label class="flow-field-label">Loop Target Step:</label>
             <select
               class="flow-field-select"
-              onchange="updateStepProp('${escapeHtml(name)}', 'target', this.value)"
+              onchange="updateStepProp(getStepName(this), 'target', this.value)"
             >
               <option value="">-- Jump To --</option>
               ${allKeys.filter(k => k !== name).map(k => `<option value="${escapeHtml(k)}" ${state.target === k ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}
@@ -268,7 +273,7 @@ function renderStateFormFields(name, state, allKeys) {
               type="number"
               class="flow-field-input"
               value="${state.maxIterations || 100}"
-              onchange="updateStepProp('${escapeHtml(name)}', 'maxIterations', parseInt(this.value, 10))"
+              onchange="updateStepProp(getStepName(this), 'maxIterations', parseInt(this.value, 10))"
             />
           </div>
         </div>
@@ -280,7 +285,7 @@ function renderStateFormFields(name, state, allKeys) {
               class="flow-field-input"
               placeholder="$.counter"
               value="${escapeHtml(state.condition?.variable || '')}"
-              onchange="updateLoopCondition('${escapeHtml(name)}', 'variable', this.value)"
+              onchange="updateLoopCondition(getStepName(this), 'variable', this.value)"
             />
             <input
               type="number"
@@ -288,7 +293,7 @@ function renderStateFormFields(name, state, allKeys) {
               style="width: 100px;"
               placeholder="< 10"
               value="${state.condition?.numericLessThan ?? ''}"
-              onchange="updateLoopCondition('${escapeHtml(name)}', 'numericLessThan', parseFloat(this.value))"
+              onchange="updateLoopCondition(getStepName(this), 'numericLessThan', parseFloat(this.value))"
             />
           </div>
         </div>
@@ -305,7 +310,7 @@ function renderStateFormFields(name, state, allKeys) {
             class="flow-field-input"
             placeholder="$.parallelResults"
             value="${escapeHtml(state.resultPath || '$.parallelResults')}"
-            onchange="updateStepProp('${escapeHtml(name)}', 'resultPath', this.value)"
+            onchange="updateStepProp(getStepName(this), 'resultPath', this.value)"
           />
         </div>
 
@@ -324,7 +329,7 @@ function renderStateFormFields(name, state, allKeys) {
                   <select
                     class="flow-field-select"
                     style="flex: 1; padding: 0.35rem 0.5rem;"
-                    onchange="updateParallelBranchFunction('${escapeHtml(name)}', ${bIdx}, this.value)"
+                    onchange="updateParallelBranchFunction(getStepName(this), ${bIdx}, this.value)"
                   >
                     <option value="">-- Choose Function --</option>
                     ${parallelFns.map(f => `<option value="${escapeHtml(f.name)}" ${branchFn === f.name ? 'selected' : ''}>${escapeHtml(f.name)}</option>`).join('')}
@@ -333,7 +338,7 @@ function renderStateFormFields(name, state, allKeys) {
                     type="button"
                     class="btn btn-secondary btn-sm"
                     style="padding: 2px 7px; font-size: 0.75rem; color: var(--text-muted);"
-                    onclick="removeParallelBranch('${escapeHtml(name)}', ${bIdx})"
+                    onclick="removeParallelBranch(getStepName(this), ${bIdx})"
                     title="Delete Branch"
                     ${branches.length <= 1 ? 'disabled' : ''}
                   >
@@ -346,7 +351,7 @@ function renderStateFormFields(name, state, allKeys) {
               type="button"
               class="btn btn-secondary btn-sm"
               style="font-size: 0.75rem; align-self: flex-start; font-weight: 600; margin-top: 2px;"
-              onclick="addParallelBranch('${escapeHtml(name)}')"
+              onclick="addParallelBranch(getStepName(this))"
             >
               + Add Parallel Branch
             </button>
@@ -363,7 +368,7 @@ function renderStateFormFields(name, state, allKeys) {
             type="text"
             class="flow-field-input"
             value="${escapeHtml(jsonRes)}"
-            onchange="updatePassResult('${escapeHtml(name)}', this.value)"
+            onchange="updatePassResult(getStepName(this), this.value)"
           />
         </div>
         <div class="flow-field-row">
@@ -373,7 +378,7 @@ function renderStateFormFields(name, state, allKeys) {
             class="flow-field-input"
             placeholder="$.data"
             value="${escapeHtml(state.resultPath || '$')}"
-            onchange="updateStepProp('${escapeHtml(name)}', 'resultPath', this.value)"
+            onchange="updateStepProp(getStepName(this), 'resultPath', this.value)"
           />
         </div>
       `;
@@ -388,7 +393,7 @@ function renderStateFormFields(name, state, allKeys) {
             min="1"
             max="60"
             value="${state.seconds || 1}"
-            onchange="updateStepProp('${escapeHtml(name)}', 'seconds', parseInt(this.value, 10))"
+            onchange="updateStepProp(getStepName(this), 'seconds', parseInt(this.value, 10))"
           />
         </div>
       `;
@@ -402,7 +407,7 @@ function renderStateFormFields(name, state, allKeys) {
             class="flow-field-input"
             placeholder="OrderValidationFailed"
             value="${escapeHtml(state.error || state.cause || '')}"
-            onchange="updateStepProp('${escapeHtml(name)}', 'error', this.value)"
+            onchange="updateStepProp(getStepName(this), 'error', this.value)"
           />
         </div>
       `;
@@ -418,7 +423,7 @@ function renderChoiceValueInput(stepName, index, rule) {
       <select
         class="flow-field-select"
         style="flex: 1.4; padding: 0.35rem 0.5rem;"
-        onchange="updateChoiceBranchVal('${escapeHtml(stepName)}', ${index}, this.value)"
+        onchange="updateChoiceBranchVal(getStepName(this), ${index}, this.value)"
       >
         <option value="true" ${rule.booleanEquals === true ? 'selected' : ''}>true</option>
         <option value="false" ${rule.booleanEquals === false ? 'selected' : ''}>false</option>
@@ -431,7 +436,7 @@ function renderChoiceValueInput(stepName, index, rule) {
       <select
         class="flow-field-select"
         style="flex: 1.4; padding: 0.35rem 0.5rem;"
-        onchange="updateChoiceBranchVal('${escapeHtml(stepName)}', ${index}, this.value)"
+        onchange="updateChoiceBranchVal(getStepName(this), ${index}, this.value)"
       >
         <option value="true" ${rule.isPresent !== false ? 'selected' : ''}>is defined</option>
         <option value="false" ${rule.isPresent === false ? 'selected' : ''}>null/undefined</option>
@@ -459,7 +464,7 @@ function renderChoiceValueInput(stepName, index, rule) {
         style="flex: 1.4; padding: 0.35rem 0.5rem;"
         placeholder="0"
         value="${escapeHtml(String(numVal))}"
-        onchange="updateChoiceBranchVal('${escapeHtml(stepName)}', ${index}, this.value)"
+        onchange="updateChoiceBranchVal(getStepName(this), ${index}, this.value)"
       />
     `;
   }
@@ -472,13 +477,14 @@ function renderChoiceValueInput(stepName, index, rule) {
       style="flex: 1.4; padding: 0.35rem 0.5rem;"
       placeholder="string value"
       value="${escapeHtml(rule.stringEquals || '')}"
-      onchange="updateChoiceBranchVal('${escapeHtml(stepName)}', ${index}, this.value)"
+      onchange="updateChoiceBranchVal(getStepName(this), ${index}, this.value)"
     />
   `;
 }
 
 
 if (typeof window !== "undefined") {
+  window.getStepName = getStepName;
   window.renderStepCardHtml = renderStepCardHtml;
   window.renderStateFormFields = renderStateFormFields;
   window.renderChoiceValueInput = renderChoiceValueInput;

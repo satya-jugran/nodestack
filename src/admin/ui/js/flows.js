@@ -218,18 +218,18 @@ function renderFlowsListHtml() {
 
             <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border-subtle); padding-top: 0.75rem; margin-top: auto;">
               <div style="display: flex; gap: 6px;">
-                <button class="btn btn-primary btn-sm" onclick="openFlowDesigner('${flow.id}')" style="font-weight: 600;">
+                <button class="btn btn-primary btn-sm" data-flow-id="${escapeHtml(flow.id)}" onclick="openFlowDesigner(this.getAttribute('data-flow-id'))" style="font-weight: 600;">
                   Open Designer
                 </button>
-                <button class="btn btn-secondary btn-sm" onclick="quickTestFlow('${flow.id}')" title="Test Flow Execution">
+                <button class="btn btn-secondary btn-sm" data-flow-id="${escapeHtml(flow.id)}" onclick="quickTestFlow(this.getAttribute('data-flow-id'))" title="Test Flow Execution">
                   ▶ Run
                 </button>
               </div>
               <div style="display: flex; gap: 6px;">
-                <button class="btn btn-secondary btn-sm" onclick="toggleFlowStatus('${flow.id}', ${!flow.enabled})" title="${flow.enabled ? 'Disable' : 'Enable'}">
+                <button class="btn btn-secondary btn-sm" data-flow-id="${escapeHtml(flow.id)}" data-enabled="${!flow.enabled}" onclick="toggleFlowStatus(this.getAttribute('data-flow-id'), this.getAttribute('data-enabled') === 'true')" title="${flow.enabled ? 'Disable' : 'Enable'}">
                   ${flow.enabled ? 'Disable' : 'Enable'}
                 </button>
-                <button class="btn btn-danger btn-sm" onclick="deleteFlowPrompt('${flow.id}', '${escapeHtml(flow.name)}')" title="Delete Flow">
+                <button class="btn btn-danger btn-sm" data-flow-id="${escapeHtml(flow.id)}" data-flow-name="${escapeHtml(flow.name)}" onclick="deleteFlowPrompt(this.getAttribute('data-flow-id'), this.getAttribute('data-flow-name'))" title="Delete Flow">
                   🗑
                 </button>
               </div>
@@ -288,7 +288,7 @@ function renderFlowExecutionsListHtml() {
                   ${new Date(exec.startedAt).toLocaleString()}
                 </td>
                 <td style="padding: 0.75rem 1rem; text-align: right;">
-                  <button class="btn btn-secondary btn-sm" onclick="inspectExecutionDetail('${exec.id}')">
+                  <button class="btn btn-secondary btn-sm" data-exec-id="${escapeHtml(exec.id)}" onclick="inspectExecutionDetail(this.getAttribute('data-exec-id'))">
                     Inspect
                   </button>
                 </td>
@@ -540,7 +540,9 @@ async function inspectExecutionDetail(executionId) {
           <div style="display: flex; align-items: center; gap: 8px;">
             <button
               class="btn btn-secondary btn-sm"
-              onclick="openFlowFromExecution('${escapeHtml(exec.flowId)}', '${escapeHtml(exec.id)}')"
+              data-flow-id="${escapeHtml(exec.flowId)}"
+              data-exec-id="${escapeHtml(exec.id)}"
+              onclick="openFlowFromExecution(this.getAttribute('data-flow-id'), this.getAttribute('data-exec-id'))"
               title="Open flow in visual designer with this execution"
               style="font-size: 11px; padding: 4px 8px; font-weight: 600;"
             >

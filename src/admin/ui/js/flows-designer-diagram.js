@@ -59,6 +59,7 @@ function renderSvgFlowchart(flow) {
       viewBox="0 0 ${totalSvgWidth} ${totalSvgHeight}"
       preserveAspectRatio="xMidYMin meet"
       style="width: 100%; max-width: 520px; height: ${totalSvgHeight}px; flex-shrink: 0;"
+      onclick="handleDiagramNodeClick(event)"
     >
       <defs>
         <marker id="flow-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -229,7 +230,7 @@ function renderSvgFlowchart(flow) {
       const hh = p.height / 2;
 
       svg += `
-        <g class="flow-svg-node" onclick="selectStepFromDiagram('${escapeHtml(key)}')">
+        <g class="flow-svg-node" data-step="${escapeHtml(key)}" onclick="selectStepFromDiagram(this.getAttribute('data-step'))" role="button" tabindex="0" style="cursor: pointer;">
           <polygon
             points="${cx},${cy - hh} ${cx + hw},${cy} ${cx},${cy + hh} ${cx - hw},${cy}"
             fill="${bgColor}"
@@ -252,7 +253,7 @@ function renderSvgFlowchart(flow) {
       const nodeBg = isTerminal && !executionStep ? (p.type === 'Succeed' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)') : bgColor;
 
       svg += `
-        <g class="flow-svg-node" onclick="selectStepFromDiagram('${escapeHtml(key)}')">
+        <g class="flow-svg-node" data-step="${escapeHtml(key)}" onclick="selectStepFromDiagram(this.getAttribute('data-step'))" role="button" tabindex="0" style="cursor: pointer;">
           <rect x="${p.x - p.width / 2}" y="${p.y}" width="${p.width}" height="${p.height}" rx="10" fill="${nodeBg}" stroke="${nodeBorder}" stroke-width="${isSelected ? '2.5' : '1.5'}"/>
           <text x="${p.x - p.width / 2 + 16}" y="${p.y + 25}" fill="${textColor}" font-size="12" font-weight="700">
             ${escapeHtml(key.length > 20 ? key.substring(0, 18) + '...' : key)}
@@ -435,8 +436,19 @@ function drawCurveBranchArrow(src, dest, labels, color = '#94a3b8', side = 'righ
 }
 
 
+function handleDiagramNodeClick(evt) {
+  const node = evt?.target?.closest?.('.flow-svg-node');
+  if (node) {
+    const step = node.getAttribute('data-step');
+    if (step && typeof selectStepFromDiagram === 'function') {
+      selectStepFromDiagram(step);
+    }
+  }
+}
+
 if (typeof window !== "undefined") {
   window.renderSvgFlowchart = renderSvgFlowchart;
+  window.handleDiagramNodeClick = handleDiagramNodeClick;
   window.getChoiceRuleLabel = getChoiceRuleLabel;
   window.drawArrow = drawArrow;
   window.truncateRuleText = truncateRuleText;

@@ -94,8 +94,9 @@ function renderTriggerConfigHtml(flow) {
         Endpoint:
         <code
           style="font-size: 0.72rem; color: var(--accent-primary); background: var(--bg-main, #0f172a); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border-subtle); cursor: pointer;"
-          title="Click to copy endpoint: POST ${endpointPath}"
-          onclick="navigator.clipboard?.writeText('POST ${endpointPath}'); toast('Copied endpoint: POST ${endpointPath}', 'success')"
+          data-endpoint="POST ${endpointPath}"
+          title="Click to copy endpoint"
+          onclick="if (navigator.clipboard) { navigator.clipboard.writeText(this.getAttribute('data-endpoint')); toast('Copied endpoint: ' + this.getAttribute('data-endpoint'), 'success'); }"
         >
           POST ${endpointPath} 📋
         </code>
@@ -873,14 +874,16 @@ function validateFlowDefinitionClient(def) {
 function selectStepCard(name) {
   designerState.selectedStepName = name;
   document.querySelectorAll('.flow-step-card').forEach((el) => el.classList.remove('active-step'));
-  const card = document.getElementById(`step-card-${name}`);
+  const safeSelector = typeof CSS !== 'undefined' && CSS.escape ? `.flow-step-card[data-step-name="${CSS.escape(name)}"]` : null;
+  const card = (safeSelector ? document.querySelector(safeSelector) : null) || document.getElementById(`step-card-${name}`);
   if (card) card.classList.add('active-step');
 }
 
 function selectStepFromDiagram(name) {
   selectStepCard(name);
-  const card = document.getElementById(`step-card-${name}`);
-  if (card) {
+  const safeSelector = typeof CSS !== 'undefined' && CSS.escape ? `.flow-step-card[data-step-name="${CSS.escape(name)}"]` : null;
+  const card = (safeSelector ? document.querySelector(safeSelector) : null) || document.getElementById(`step-card-${name}`);
+  if (card && typeof card.scrollIntoView === 'function') {
     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
