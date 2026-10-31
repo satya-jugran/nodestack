@@ -130,6 +130,21 @@ async function parseUrlAndNavigate(initial = false) {
     } else {
       if (typeof switchFunctionsTab === 'function') switchFunctionsTab('functions', false);
     }
+  } else if (root === 'flows') {
+    await selectNav('flows', false);
+    if (parts.length >= 2 && parts[1]) {
+      if (parts[1] === 'executions') {
+        if (typeof switchFlowsTab === 'function') switchFlowsTab('executions', false);
+      } else {
+        if (typeof openFlowDesigner === 'function') await openFlowDesigner(parts[1], false, false);
+      }
+    } else {
+      if (typeof closeFlowDesigner === 'function' && typeof flowsState !== 'undefined' && flowsState.currentView === 'designer') {
+        closeFlowDesigner(false);
+      } else if (typeof switchFlowsTab === 'function') {
+        switchFlowsTab('flows', false);
+      }
+    }
   } else if (root === 'webhooks') {
     await selectNav('webhooks', false);
     if (parts[1] === 'deliveries') {
@@ -174,6 +189,8 @@ function initRouter() {
     if (typeof closeWebhookModal === 'function') closeWebhookModal();
     if (typeof closeWebhookDrawer === 'function') closeWebhookDrawer();
     if (typeof closeFunctionModal === 'function') closeFunctionModal();
+    if (typeof closeFlowModal === 'function') closeFlowModal();
+    if (typeof closeFlowExecutionDrawer === 'function') closeFlowExecutionDrawer();
     if (typeof closeCommandPalette === 'function') closeCommandPalette();
 
     await parseUrlAndNavigate(false);
@@ -182,11 +199,11 @@ function initRouter() {
 
 
 function showPageView(viewName) {
-  const views = ['home', 'collections', 'plugins', 'webhooks', 'functions', 'analytics', 'snapshots', 'logs'];
+  const views = ['home', 'collections', 'plugins', 'webhooks', 'functions', 'flows', 'analytics', 'snapshots', 'logs'];
   for (const v of views) {
     const el = document.getElementById('page-view-' + v);
     if (el) {
-      if (v === 'collections' || v === 'plugins') {
+      if (v === 'collections' || v === 'plugins' || v === 'flows') {
         el.style.display = (v === viewName) ? 'flex' : 'none';
       } else {
         el.style.display = (v === viewName) ? 'block' : 'none';
@@ -196,7 +213,7 @@ function showPageView(viewName) {
 }
 
 function clearSidebarNavActive() {
-  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-functions', 'nav-analytics', 'nav-snapshots', 'nav-logs'];
+  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-functions', 'nav-flows', 'nav-analytics', 'nav-snapshots', 'nav-logs'];
   for (const id of navIds) {
     document.getElementById(id)?.classList.remove('active');
   }
@@ -287,6 +304,18 @@ async function selectNav(nav, pushState = true) {
     document.getElementById('view-title').style.display = 'none';
     document.getElementById('view-actions').innerHTML = '';
     if (typeof renderFunctionsView === 'function') renderFunctionsView();
+  } else if (nav === 'flows') {
+    state.activeCollection = null;
+    if (typeof renderCollectionsList === 'function') renderCollectionsList();
+    showPageView('flows');
+    document.getElementById('collection-tabs').style.display = 'none';
+    document.getElementById('view-badge').style.display = 'none';
+    document.getElementById('nav-flows')?.classList.add('active');
+    document.getElementById('view-title').textContent = 'Functions Flow';
+    document.getElementById('view-title').style.display = 'none';
+    document.getElementById('view-actions').innerHTML = '';
+    if (typeof renderFlowsView === 'function') renderFlowsView();
+    if (typeof loadFlows === 'function') loadFlows().then(() => { if (typeof renderFlowsView === 'function') renderFlowsView(); });
   } else if (nav === 'analytics') {
     state.activeCollection = null;
     if (typeof renderCollectionsList === 'function') renderCollectionsList();
@@ -355,6 +384,12 @@ async function selectNav(nav, pushState = true) {
         ? '/' + (functionsState.activeFunctionForEdit.isNew ? 'new' : encodeURIComponent(functionsState.activeFunctionForEdit.name || functionsState.activeFunctionForEdit.id))
         : (typeof functionsState !== 'undefined' && functionsState.subTab === 'logs') ? '/logs' : '';
       updateUrl('/_/functions' + sub);
+    } else if (nav === 'flows') {
+      const activeFlow = (typeof flowsState !== 'undefined' && flowsState.activeFlowForEdit) || (typeof designerState !== 'undefined' && designerState.activeFlow);
+      const sub = (typeof flowsState !== 'undefined' && flowsState.currentView === 'designer' && activeFlow)
+        ? '/' + encodeURIComponent(activeFlow.name || activeFlow.id)
+        : (typeof flowsState !== 'undefined' && flowsState.subTab === 'executions') ? '/executions' : '';
+      updateUrl('/_/flows' + sub);
     } else if (nav === 'analytics') {
       updateUrl('/_/analytics');
     } else if (nav === 'snapshots') {
@@ -411,6 +446,9 @@ window.addEventListener('keydown', (e) => {
       if (typeof closeWebhookDrawer === 'function') {
         closeWebhookDrawer();
       }
+      if (typeof closeFlowExecutionDrawer === 'function') {
+        closeFlowExecutionDrawer();
+      }
       return;
     }
     const modalRoot = document.getElementById('modal-root');
@@ -422,6 +460,9 @@ window.addEventListener('keydown', (e) => {
       }
       if (typeof closeModal === 'function') {
         closeModal();
+      }
+      if (typeof closeFlowModal === 'function') {
+        closeFlowModal();
       }
       return;
     }

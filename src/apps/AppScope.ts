@@ -24,6 +24,7 @@ import { AnalyticsService } from '../analytics/AnalyticsService';
 import { AuditLogService } from '../audit/AuditLogService';
 import { WebhookService } from '../webhooks/WebhookService';
 import { FunctionService } from '../functions/FunctionService';
+import { FlowService } from '../flows/FlowService';
 import { AppRegistry } from './AppRegistry';
 import { IDatabaseDriver } from '../database/drivers/IDatabaseDriver';
 
@@ -52,6 +53,7 @@ export class AppScope {
   public readonly auditLogs: AuditLogService;
   public readonly webhooks: WebhookService;
   public readonly functions: FunctionService;
+  public readonly flows: FlowService;
 
   constructor(
     app: AppModel,
@@ -160,6 +162,12 @@ export class AppScope {
       this.schema,
       this.records,
       this.ruleEngine,
+      this.eventBus,
+      { id: app.id, slug: app.slug, name: app.name }
+    );
+    this.flows = new FlowService(
+      this.db,
+      this.functions,
       this.eventBus,
       { id: app.id, slug: app.slug, name: app.name }
     );

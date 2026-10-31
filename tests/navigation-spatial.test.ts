@@ -213,6 +213,7 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
         { id: 'nav-collections', label: 'Collections' },
         { id: 'nav-webhooks', label: 'Webhooks' },
         { id: 'nav-functions', label: 'Functions' },
+        { id: 'nav-flows', label: 'Flows' },
         { id: 'nav-plugins', label: 'Plugins' },
         { id: 'nav-snapshots', label: 'Snapshots' },
         { id: 'nav-logs', label: 'Audit Logs' },

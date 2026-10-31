@@ -84,6 +84,16 @@ function getAllCommandPaletteItems() {
   });
 
   items.push({
+    id: 'nav-flows',
+    title: 'Functions Flow',
+    description: 'Visual state machine orchestrator and pipeline designer',
+    category: 'Navigation',
+    badge: 'PAGE',
+    icon: '🔀',
+    keywords: ['flows', 'flow', 'pipeline', 'workflow', 'orchestrator', 'state machine', 'designer'],
+    action: () => selectNav('flows')
+  },
+  {
     id: 'nav-analytics',
     title: 'Analytics',
     description: 'Realtime telemetry, latency and request throughput',

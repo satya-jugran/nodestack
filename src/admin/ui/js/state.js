@@ -26,9 +26,6 @@
       apps: [],
       activeApp: JSON.parse(localStorage.getItem('nodestack_active_app') || 'null') || { id: 'app_default', slug: 'default', name: 'Default App', isDefault: true },
       demo: {
-
-
-
         hasSnapshot: false,
         snapshot: null,
         liveStats: null,
@@ -99,11 +96,15 @@
     // Toast helper
     function toast(msg, type = 'success') {
       const container = document.getElementById('toast-container');
+      if (!container) return;
       const el = document.createElement('div');
       el.className = `toast ${type}`;
-      el.innerHTML = `<span>${type === 'success' ? '✓' : '⚠'}</span> <span>${msg}</span>`;
+      const icon = type === 'success' ? '✓' : (type === 'error' ? '✕' : (type === 'warning' ? '⚠' : 'ℹ'));
+      el.innerHTML = `<span>${icon}</span> <span>${typeof escapeHtml === 'function' ? escapeHtml(msg) : msg}</span>`;
       container.appendChild(el);
-      setTimeout(() => el.remove(), 4000);
+      setTimeout(() => {
+        if (el.parentNode) el.remove();
+      }, 4000);
     }
 
     // Copy helper
@@ -137,4 +138,10 @@
         btnEl.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>';
         setTimeout(() => { btnEl.innerHTML = orig; }, 1500);
       }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.toast = toast;
+      window.copyToClipboard = copyToClipboard;
+      window.escapeHtml = escapeHtml;
     }

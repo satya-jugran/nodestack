@@ -20,6 +20,7 @@ import { SnapshotController } from './controllers/SnapshotController';
 import { AuditLogController } from './controllers/AuditLogController';
 import { WebhookController } from './controllers/WebhookController';
 import { FunctionController } from './controllers/FunctionController';
+import { FlowController } from './controllers/FlowController';
 import { AppController } from './controllers/AppController';
 import { AppResolutionMiddleware } from './middleware/AppResolutionMiddleware';
 import { ApiKeyController } from './controllers/ApiKeyController';
@@ -35,6 +36,7 @@ export class HttpServer {
   public readonly maintenanceGate?: MaintenanceGate;
   private apiKeyController?: ApiKeyController;
   private functionController?: FunctionController;
+  private flowController?: FlowController;
   private dynamicRouteHandler?: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>;
   private dynamicRouteMatcher?: (method: string, path: string) => any;
 
@@ -44,6 +46,10 @@ export class HttpServer {
 
   public setFunctionController(controller: FunctionController): void {
     this.functionController = controller;
+  }
+
+  public setFlowController(controller: FlowController): void {
+    this.flowController = controller;
   }
 
   public setDynamicRouteHandler(handler: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>): void {
@@ -79,7 +85,8 @@ export class HttpServer {
     private appController?: AppController,
     private appResolutionMiddleware?: AppResolutionMiddleware,
     apiKeyController?: ApiKeyController,
-    functionController?: FunctionController
+    functionController?: FunctionController,
+    flowController?: FlowController
   ) {
     this.maintenanceGate = maintenanceGate;
     if (apiKeyController) {
@@ -87,6 +94,9 @@ export class HttpServer {
     }
     if (functionController) {
       this.functionController = functionController;
+    }
+    if (flowController) {
+      this.flowController = flowController;
     }
 
     let analyticsController: AnalyticsController | undefined;
@@ -552,6 +562,40 @@ export class HttpServer {
       );
     }
 
+    if (this.flowController) {
+      const requireAdmin = this.authMiddleware.requireAdmin();
+      app.get('/api/apps/:appId/flows', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.getFlows(req, reply)
+      );
+      app.post('/api/apps/:appId/flows', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.createFlow(req, reply)
+      );
+      app.get('/api/apps/:appId/flows/executions', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.getExecutions(req, reply)
+      );
+      app.get('/api/apps/:appId/flows/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.getFlow(req, reply)
+      );
+      app.patch('/api/apps/:appId/flows/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.updateFlow(req, reply)
+      );
+      app.delete('/api/apps/:appId/flows/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.deleteFlow(req, reply)
+      );
+      app.post('/api/apps/:appId/flows/:id/execute', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.executeFlow(req, reply)
+      );
+      app.get('/api/apps/:appId/flows/:id/executions', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.getExecutions(req, reply)
+      );
+      app.get('/api/apps/:appId/flows/executions/:executionId', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.getExecution(req, reply)
+      );
+      app.delete('/api/apps/:appId/flows/:id/executions', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.clearExecutions(req, reply)
+      );
+    }
+
     app.get('/api/apps/:appId/realtime', (req, reply) => this.realtimeController.connect(req, reply));
     app.post('/api/apps/:appId/realtime', (req, reply) => this.realtimeController.setSubscriptions(req, reply));
 
@@ -866,6 +910,40 @@ export class HttpServer {
       );
       app.all('/api/functions/:name/invoke', (req: any, reply) =>
         this.functionController!.invoke(req, reply)
+      );
+    }
+
+    if (this.flowController) {
+      const requireAdmin = this.authMiddleware.requireAdmin();
+      app.get('/api/flows', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.getFlows(req, reply)
+      );
+      app.post('/api/flows', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.createFlow(req, reply)
+      );
+      app.get('/api/flows/executions', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.getExecutions(req, reply)
+      );
+      app.get('/api/flows/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.getFlow(req, reply)
+      );
+      app.patch('/api/flows/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.updateFlow(req, reply)
+      );
+      app.delete('/api/flows/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.deleteFlow(req, reply)
+      );
+      app.post('/api/flows/:id/execute', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.executeFlow(req, reply)
+      );
+      app.get('/api/flows/:id/executions', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.getExecutions(req, reply)
+      );
+      app.get('/api/flows/executions/:executionId', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.getExecution(req, reply)
+      );
+      app.delete('/api/flows/:id/executions', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.clearExecutions(req, reply)
       );
     }
 
