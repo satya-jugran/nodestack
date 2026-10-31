@@ -1,0 +1,408 @@
+/* Functions Flow Designer & Manager Styles */
+
+#page-view-flows {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content-body:has(#page-view-flows:not([style*="display: none"])) {
+  overflow: hidden !important;
+  padding: 1rem 1.25rem !important;
+}
+
+.flows-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 0 0 1.5rem 0;
+  max-width: 1560px;
+  width: 100%;
+  margin: 0 auto;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.flows-designer-workbench {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Toolbar */
+.flows-designer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 0.75rem 1.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  flex-shrink: 0;
+}
+
+.flows-split-pane {
+  display: grid;
+  grid-template-columns: 460px 1fr;
+  gap: 1.25rem;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+@media (max-width: 1100px) {
+  .flows-split-pane {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+    overflow: hidden;
+  }
+}
+
+/* Left Pane: Step Sequence List */
+.flows-steps-pane {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+  min-height: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.flows-steps-header {
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-card-hover, rgba(0, 0, 0, 0.02));
+}
+
+.flows-steps-list {
+  padding: 1rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex: 1;
+  background: var(--bg-main);
+}
+
+/* Step Card */
+.flow-step-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 1rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.flow-step-card:hover {
+  border-color: var(--accent-primary);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+.flow-step-card.active-step {
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 0 0 2px var(--accent-primary-subtle);
+}
+
+.flow-step-card.step-status-succeeded {
+  border-left: 5px solid var(--accent-success);
+}
+
+.flow-step-card.step-status-failed {
+  border-left: 5px solid var(--accent-danger);
+}
+
+.flow-step-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/* Reorder Buttons */
+.flow-step-reorder-btn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-muted);
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  font-size: 11px;
+  transition: all 0.15s ease;
+}
+
+.flow-step-reorder-btn:hover:not(:disabled) {
+  background: var(--bg-hover-subtle);
+  color: var(--text-main);
+  border-color: var(--border-default);
+}
+
+.flow-step-reorder-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+/* Step Type Pills */
+.flow-step-type-pill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.05em;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pill-task { background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.35); }
+.pill-choice { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); }
+.pill-map { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); }
+.pill-loop { background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.35); }
+.pill-parallel { background: rgba(236, 72, 153, 0.15); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.35); }
+.pill-pass { background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.35); }
+.pill-wait { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); }
+.pill-succeed { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35); }
+.pill-fail { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.35); }
+
+/* Field & Inputs (Theme Aware) */
+.flow-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.flow-field-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.flow-field-input, .flow-field-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.flow-field-input:focus, .flow-field-select:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-primary-subtle);
+  outline: none;
+}
+
+/* Choice Condition Item */
+.flow-choice-rule-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-main);
+  border: 1px solid var(--border-subtle);
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+/* Right Pane: Live Diagram Canvas */
+.flows-diagram-pane {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  height: 100%;
+  min-height: 0;
+}
+
+.flows-diagram-header {
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-card-hover, rgba(0, 0, 0, 0.02));
+  flex-shrink: 0;
+  z-index: 5;
+}
+
+.flows-diagram-canvas-wrap {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 1.5rem 1rem 3.5rem 1rem;
+  background-image: radial-gradient(var(--chart-grid, rgba(255, 255, 255, 0.08)) 1.5px, transparent 1.5px);
+  background-size: 24px 24px;
+}
+
+.flow-svg-node {
+  cursor: pointer;
+}
+
+.flow-svg-node rect,
+.flow-svg-node polygon {
+  transition: stroke 0.15s ease, stroke-width 0.15s ease, filter 0.15s ease, fill 0.15s ease;
+}
+
+.flow-svg-node:hover rect,
+.flow-svg-node:hover polygon {
+  stroke: var(--accent-primary) !important;
+  stroke-width: 2.5px !important;
+  filter: drop-shadow(0 3px 10px rgba(59, 130, 246, 0.3));
+}
+
+/* Dynamic Step Type Info Banner */
+.flow-type-info-banner {
+  background: var(--bg-hover-subtle, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-primary);
+  border-radius: 8px;
+  padding: 0.75rem 0.95rem;
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+/* Type Selection Cards in Modal (Deprecated in favor of Dropdown + Info Banner) */
+.flow-type-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.flow-type-option {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  user-select: none;
+}
+
+.flow-type-option:hover {
+  border-color: var(--accent-primary);
+  background: var(--bg-hover-subtle);
+}
+
+.flow-type-option.selected {
+  border-color: var(--accent-primary);
+  background: var(--nav-active-bg);
+  box-shadow: 0 0 0 1px var(--accent-primary);
+}
+
+.flow-type-option-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.flow-type-option-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+/* Interactive Test Drawer */
+.flow-execution-drawer {
+  width: 620px;
+  max-width: 95vw;
+}
+
+.flow-test-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 460px;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border-default);
+  box-shadow: var(--drawer-shadow, -12px 0 30px rgba(0, 0, 0, 0.3));
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.flow-test-drawer.open {
+  transform: translateX(0);
+}
+
+.flow-timeline-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem 0.95rem;
+  border-radius: 8px;
+  background: var(--bg-main);
+  border: 1px solid var(--border-subtle);
+  border-left: 4px solid var(--accent-primary);
+}
+
+.flow-timeline-item.status-succeeded {
+  border-left-color: var(--accent-success);
+}
+
+.flow-timeline-item.status-failed {
+  border-left-color: var(--accent-danger);
+}
+
+/* Enhanced Toast Notifications */
+.toast.warning { border-left: 4px solid #f59e0b; }
+.toast.info { border-left: 4px solid var(--accent-primary); }
+.toast {
+  color: var(--text-main);
+  border-radius: 8px;
+  font-weight: 500;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+}

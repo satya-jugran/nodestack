@@ -17,7 +17,7 @@ export class AdminUIBundler {
     // 1. Inline CSS files if css directory exists
     const cssDir = path.join(uiDir, 'css');
     if (fs.existsSync(cssDir)) {
-      const cssFiles = ['codemirror.css', 'main.css', 'rules.css', 'analytics.css', 'webhooks.css'];
+      const cssFiles = ['codemirror.css', 'main.css', 'rules.css', 'analytics.css', 'webhooks.css', 'flows.css'];
       let combinedCss = '';
       for (const file of cssFiles) {
         const filePath = path.join(cssDir, file);
@@ -57,6 +57,11 @@ export class AdminUIBundler {
         'functions.js',
         'functions-tester.js',
         'functions-workbench.js',
+        'flows.js',
+        'flows-designer.js',
+        'flows-designer-forms.js',
+        'flows-designer-modal.js',
+        'flows-designer-diagram.js',
         'app.js',
       ];
 

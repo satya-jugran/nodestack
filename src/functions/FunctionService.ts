@@ -21,7 +21,7 @@ import {
 } from './types';
 
 export const ALLOWED_AUTH_POLICIES: readonly FunctionAuthPolicy[] = ['public', 'auth', 'admin', 'apiKey'] as const;
-import { AppError, NotFoundError, ForbiddenError, ValidationError, ConflictError } from '../core/errors/AppError';
+import { AppError, NotFoundError, ForbiddenError, UnauthorizedError, ValidationError, ConflictError } from '../core/errors/AppError';
 
 export interface FunctionServiceOptions {
   runner?: SandboxedRunner;
@@ -282,6 +282,30 @@ export class FunctionService {
   // ==========================================
   // Execution & Testing
   // ==========================================
+
+  public verifyAuthPolicy(fn: FunctionConfig, auth?: any): void {
+    switch (fn.authPolicy) {
+      case 'admin':
+        if (!auth?.isAdmin) {
+          throw new ForbiddenError(`Superuser authorization required to invoke function '${fn.name}'`);
+        }
+        break;
+      case 'auth':
+        if (!auth || (!auth.id && !auth.isAdmin)) {
+          throw new UnauthorizedError(`Authentication token required to invoke function '${fn.name}'`);
+        }
+        break;
+      case 'apiKey':
+        if (!auth?.isApiKey && !auth?.isAdmin) {
+          throw new UnauthorizedError(`Valid API Key required to invoke function '${fn.name}'`);
+        }
+        break;
+      case 'public':
+        break;
+      default:
+        throw new ForbiddenError(`Unsupported auth policy '${fn.authPolicy}'`);
+    }
+  }
 
   public async executeFunction(
     functionIdOrName: string,

@@ -11,7 +11,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
   const PORT = 8421;
 
   beforeEach(async () => {
-    testDataDir = path.join(__dirname, `../nb_fts_test_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
+    testDataDir = path.join(__dirname, `../.test_fts_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
     if (fs.existsSync(testDataDir)) {
       fs.rmSync(testDataDir, { recursive: true, force: true });
     }

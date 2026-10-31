@@ -372,6 +372,17 @@ function updateBreadcrumbs() {
     } else {
       crumbs.push({ label: 'Functions', active: true });
     }
+  } else if (state.activeNav === 'flows') {
+    if (typeof flowsState !== 'undefined' && flowsState.currentView === 'designer' && ((typeof designerState !== 'undefined' && designerState.activeFlow) || flowsState.activeFlowForEdit)) {
+      crumbs.push({ label: 'Flows', clickable: true, action: () => { if (typeof closeFlowDesigner === 'function') closeFlowDesigner(); } });
+      const currentFlow = (typeof designerState !== 'undefined' && designerState.activeFlow) || flowsState.activeFlowForEdit;
+      crumbs.push({ label: currentFlow.name || currentFlow.id || 'Flow Designer', active: true });
+    } else if (typeof flowsState !== 'undefined' && flowsState.subTab === 'executions') {
+      crumbs.push({ label: 'Flows', clickable: true, action: () => { if (typeof switchFlowsTab === 'function') switchFlowsTab('flows'); } });
+      crumbs.push({ label: 'Execution History', active: true });
+    } else {
+      crumbs.push({ label: 'Flows', active: true });
+    }
   } else if (state.activeNav === 'home') {
     crumbs.push({ label: 'Overview', active: true });
   } else if (state.activeNav === 'analytics') {

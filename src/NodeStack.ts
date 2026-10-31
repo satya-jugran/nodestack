@@ -45,6 +45,8 @@ import { WebhookService } from './webhooks/WebhookService';
 import { WebhookController } from './http/controllers/WebhookController';
 import { FunctionService } from './functions/FunctionService';
 import { FunctionController } from './http/controllers/FunctionController';
+import { FlowService } from './flows/FlowService';
+import { FlowController } from './http/controllers/FlowController';
 import { AppRegistry } from './apps/AppRegistry';
 import { AppManager, DatabaseDriverFactory } from './apps/AppManager';
 import { AppScope } from './apps/AppScope';
@@ -103,6 +105,8 @@ export class NodeStack {
   public readonly webhooks: WebhookService;
   public readonly functions: FunctionService;
   public readonly functionController: FunctionController;
+  public readonly flows: FlowService;
+  public readonly flowController: FlowController;
   public readonly registry: AppRegistry;
   public readonly apps: AppManager;
   public readonly defaultApp: AppScope;
@@ -256,6 +260,13 @@ export class NodeStack {
     this.functionController = new FunctionController(this.functions);
     this.container.bindInstance(TOKENS.FunctionController, this.functionController);
 
+    // 17.8 Functions Flow ("Functions Flow Manager & Engine")
+    this.flows = this.defaultApp.flows;
+    this.container.bindInstance(TOKENS.FlowService, this.flows);
+
+    this.flowController = new FlowController(this.flows);
+    this.container.bindInstance(TOKENS.FlowController, this.flowController);
+
     // 17.8 Multi-App Management & Resolution
     this.appController = new AppController(this.apps);
     this.appResolution = new AppResolutionMiddleware(this.apps);
@@ -286,7 +297,8 @@ export class NodeStack {
       this.appController,
       this.appResolution,
       this.apiKeyController,
-      this.functionController
+      this.functionController,
+      this.flowController
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
 

@@ -165,3 +165,12 @@ export { AppRegistry } from './apps/AppRegistry';
 export { AppScope } from './apps/AppScope';
 export * from './apps/models/App';
 
+
+// Functions Flow ("Functions Flow Manager & Engine")
+export { FlowService, FlowServiceOptions } from './flows/FlowService';
+export { FlowEngine } from './flows/FlowEngine';
+export { FlowController } from './http/controllers/FlowController';
+export { FlowPathMapper } from './flows/utils/FlowPathMapper';
+export { ConcurrencyPool } from './flows/utils/ConcurrencyPool';
+export * from './flows/types';
+export * from './flows/runtime/IStateHandler';
