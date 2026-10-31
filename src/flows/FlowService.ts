@@ -104,7 +104,16 @@ export class FlowService {
     actor?: any
   ): Promise<void> {
     const flows = this.getAllFlows({ enabled: true });
-    const targetPatterns = [`${collection}:${action}`, `${collection}:*`, `*:${action}`, '*'];
+    const afterAction = `after${action.charAt(0).toUpperCase() + action.slice(1)}`;
+    const targetPatterns = [
+      `${collection}:${action}`,
+      `${collection}:${afterAction}`,
+      `${collection}:*`,
+      `*:${action}`,
+      `*:${afterAction}`,
+      '*:*',
+      '*',
+    ];
 
     const matchingFlows = flows.filter(
       (flow) =>
@@ -174,6 +183,10 @@ export class FlowService {
     }
     FlowValidator.validate(dto.definition);
 
+    const triggerType = dto.triggerType || 'http';
+    const eventTrigger = triggerType === 'event' ? (dto.eventTrigger ? dto.eventTrigger.trim() : null) : null;
+    FlowValidator.validateTrigger(triggerType, eventTrigger);
+
     const existing = this.getFlowByName(dto.name.trim());
     if (existing) {
       throw new ConflictError(`Flow with name '${dto.name}' already exists`);
@@ -182,8 +195,6 @@ export class FlowService {
     const id = dto.id || `flow_${crypto.randomBytes(8).toString('hex')}`;
     const now = new Date().toISOString();
     const enabled = dto.enabled !== undefined ? (dto.enabled ? 1 : 0) : 1;
-    const triggerType = dto.triggerType || 'http';
-    const eventTrigger = dto.eventTrigger || null;
     const description = dto.description || '';
     const definition = JSON.stringify(dto.definition);
 
@@ -212,11 +223,18 @@ export class FlowService {
       FlowValidator.validate(dto.definition);
     }
 
+    const triggerType = dto.triggerType !== undefined ? dto.triggerType : current.triggerType;
+    let eventTrigger = dto.eventTrigger !== undefined ? dto.eventTrigger : current.eventTrigger;
+    if (triggerType !== 'event') {
+      eventTrigger = null;
+    } else if (eventTrigger) {
+      eventTrigger = eventTrigger.trim();
+    }
+    FlowValidator.validateTrigger(triggerType, eventTrigger);
+
     const name = dto.name !== undefined ? dto.name.trim() : current.name;
     const description = dto.description !== undefined ? dto.description : current.description;
     const enabled = dto.enabled !== undefined ? (dto.enabled ? 1 : 0) : (current.enabled ? 1 : 0);
-    const triggerType = dto.triggerType !== undefined ? dto.triggerType : current.triggerType;
-    const eventTrigger = dto.eventTrigger !== undefined ? dto.eventTrigger : current.eventTrigger;
     const definition = dto.definition !== undefined ? JSON.stringify(dto.definition) : JSON.stringify(current.definition);
     const now = new Date().toISOString();
 

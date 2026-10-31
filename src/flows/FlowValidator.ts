@@ -1,4 +1,4 @@
-import { FlowDefinition, FlowState, ChoiceRule } from './types';
+import { FlowDefinition, FlowState, ChoiceRule, FlowTriggerType } from './types';
 import { AppError } from '../core/errors/AppError';
 
 export class FlowValidator {
@@ -20,6 +20,76 @@ export class FlowValidator {
 
     for (const [stateName, state] of Object.entries(def.states)) {
       this.validateState(stateName, state, stateKeys);
+    }
+  }
+
+  public static validateTrigger(triggerType?: string, eventTrigger?: string | null): void {
+    if (triggerType !== undefined) {
+      const validTriggers: FlowTriggerType[] = ['http', 'event', 'manual'];
+      if (!validTriggers.includes(triggerType as FlowTriggerType)) {
+        throw new AppError(
+          `Invalid triggerType '${triggerType}'. Allowed values: 'http', 'event', 'manual'`,
+          400
+        );
+      }
+    }
+
+    if (triggerType === 'event') {
+      if (!eventTrigger || typeof eventTrigger !== 'string' || !eventTrigger.trim()) {
+        throw new AppError("eventTrigger is required when triggerType is 'event'", 400);
+      }
+      this.validateEventPattern(eventTrigger.trim());
+    }
+  }
+
+  public static validateEventPattern(pattern: string): void {
+    if (!pattern || typeof pattern !== 'string') {
+      throw new AppError('eventTrigger must be a non-empty string', 400);
+    }
+
+    const trimmed = pattern.trim();
+    if (trimmed === '*' || trimmed === '*:*') {
+      return;
+    }
+
+    const parts = trimmed.split(':');
+    if (parts.length !== 2) {
+      throw new AppError(
+        `Invalid eventTrigger '${trimmed}'. Must be in '<collection>:<action>' format (e.g. 'orders:create', 'users:*', '*:delete', or '*')`,
+        400
+      );
+    }
+
+    const [collection, action] = parts;
+
+    if (!collection || (!/^[a-zA-Z0-9_-]+$/.test(collection) && collection !== '*')) {
+      throw new AppError(
+        `Invalid collection '${collection}' in eventTrigger '${trimmed}'. Must be a valid collection name or '*'`,
+        400
+      );
+    }
+
+    if (action.startsWith('before')) {
+      throw new AppError(
+        `Invalid action '${action}' in eventTrigger '${trimmed}'. Flows execute asynchronously and only support post-commit lifecycle actions ('create', 'update', 'delete', or '*'). For pre-commit hooks, use NodeStack Functions.`,
+        400
+      );
+    }
+
+    const allowedActions = [
+      'create',
+      'update',
+      'delete',
+      'afterCreate',
+      'afterUpdate',
+      'afterDelete',
+      '*',
+    ];
+    if (!allowedActions.includes(action)) {
+      throw new AppError(
+        `Invalid action '${action}' in eventTrigger '${trimmed}'. Allowed actions: 'create', 'update', 'delete', or '*'`,
+        400
+      );
     }
   }
 

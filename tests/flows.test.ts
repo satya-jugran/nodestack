@@ -914,6 +914,116 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(successElevatedExec.status).toBe('succeeded');
       expect(successElevatedExec.output).toEqual({ secure: true });
     });
+
+    it('should validate triggerType and eventTrigger patterns on create and update', async () => {
+      const dummyDef: FlowDefinition = {
+        startAt: 'PassState',
+        states: {
+          PassState: { type: 'Pass', end: true },
+        },
+      };
+
+      // 1. Reject invalid triggerType on create
+      expect(() => {
+        app.flows.createFlow({
+          name: 'InvalidTriggerFlow',
+          triggerType: 'webhook' as any,
+          definition: dummyDef,
+        });
+      }).toThrow(/Invalid triggerType 'webhook'/);
+
+      // 2. Reject event trigger without eventTrigger pattern
+      expect(() => {
+        app.flows.createFlow({
+          name: 'MissingEventTriggerFlow',
+          triggerType: 'event',
+          definition: dummyDef,
+        });
+      }).toThrow(/eventTrigger is required when triggerType is 'event'/);
+
+      expect(() => {
+        app.flows.createFlow({
+          name: 'EmptyEventTriggerFlow',
+          triggerType: 'event',
+          eventTrigger: '   ',
+          definition: dummyDef,
+        });
+      }).toThrow(/eventTrigger is required when triggerType is 'event'/);
+
+      // 3. Reject invalid eventTrigger patterns
+      expect(() => {
+        app.flows.createFlow({
+          name: 'NoColonFlow',
+          triggerType: 'event',
+          eventTrigger: 'orders',
+          definition: dummyDef,
+        });
+      }).toThrow(/Invalid eventTrigger 'orders'/);
+
+      expect(() => {
+        app.flows.createFlow({
+          name: 'BeforeHookFlow',
+          triggerType: 'event',
+          eventTrigger: 'orders:beforeCreate',
+          definition: dummyDef,
+        });
+      }).toThrow(/only support post-commit lifecycle actions/);
+
+      expect(() => {
+        app.flows.createFlow({
+          name: 'BadActionFlow',
+          triggerType: 'event',
+          eventTrigger: 'orders:read',
+          definition: dummyDef,
+        });
+      }).toThrow(/Invalid action 'read'/);
+
+      // 4. Accept valid patterns: orders:create, users:*, *:delete, *, *:*, orders:afterCreate
+      const validFlow = app.flows.createFlow({
+        name: 'ValidEventFlow',
+        triggerType: 'event',
+        eventTrigger: 'orders:create',
+        definition: dummyDef,
+      });
+      expect(validFlow.triggerType).toBe('event');
+      expect(validFlow.eventTrigger).toBe('orders:create');
+
+      // 5. Reject invalid triggerType on update
+      expect(() => {
+        app.flows.updateFlow(validFlow.id, { triggerType: 'cron' as any });
+      }).toThrow(/Invalid triggerType 'cron'/);
+
+      // 6. Reject invalid event pattern on update
+      expect(() => {
+        app.flows.updateFlow(validFlow.id, { eventTrigger: 'bad:pattern:extra' });
+      }).toThrow(/Invalid eventTrigger/);
+
+      // 7. Update to valid pattern
+      const updatedPattern = app.flows.updateFlow(validFlow.id, { eventTrigger: 'users:*' });
+      expect(updatedPattern.eventTrigger).toBe('users:*');
+
+      // 8. Switching from event to http clears eventTrigger to null
+      const switchedToHttp = app.flows.updateFlow(validFlow.id, { triggerType: 'http' });
+      expect(switchedToHttp.triggerType).toBe('http');
+      expect(switchedToHttp.eventTrigger).toBeNull();
+
+      // 9. Verify REST API rejects invalid triggerType
+      const apiCreateRes = await fetch('http://localhost:8197/api/flows', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'ApiInvalidTrigger',
+          triggerType: 'webhook',
+          definition: dummyDef,
+        }),
+      });
+      expect(apiCreateRes.status).toBe(400);
+      const apiCreateData = await apiCreateRes.json();
+      expect(apiCreateData.message).toContain("Invalid triggerType 'webhook'");
+    });
   });
 
   // ==========================================
