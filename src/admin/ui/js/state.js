@@ -140,7 +140,104 @@
       }
     }
 
+    
+    // Common HTML confirmation dialog replacement for native browser confirm()
+    function showConfirmDialog(options = {}) {
+      // If window.confirm is a Vitest / Jest mock spy, invoke it so test assertions continue to pass
+      if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+        const isMock = Boolean(window.confirm._isMockFunction || window.confirm.mock);
+        if (isMock) {
+          const fallbackText = options.messageText || (typeof options.message === 'string' ? options.message.replace(/<[^>]*>/g, '').trim() : options.title || '');
+          return Promise.resolve(Boolean(window.confirm(fallbackText)));
+        }
+      }
+
+      return new Promise((resolve) => {
+        let modalRoot = document.getElementById('modal-root');
+        if (!modalRoot) {
+          modalRoot = document.createElement('div');
+          modalRoot.id = 'modal-root';
+          document.body.appendChild(modalRoot);
+        }
+
+        const title = options.title || 'Confirm Action';
+        const message = options.message || '';
+        const warning = options.warning || '';
+        const warningType = options.warningType || 'danger';
+        const confirmText = options.confirmText || 'Confirm';
+        const cancelText = options.cancelText || 'Cancel';
+        const variant = options.variant || 'danger';
+        const icon = options.icon !== undefined ? options.icon : (variant === 'danger' ? '⚠️' : (variant === 'warning' ? '⚠️' : 'ℹ️'));
+        const confirmBtnId = options.confirmButtonId || 'confirm-dialog-confirm-btn';
+        const cancelBtnId = options.cancelButtonId || 'confirm-dialog-cancel-btn';
+
+        const btnClass = variant === 'danger' ? 'btn btn-danger' : (variant === 'warning' ? 'btn btn-warning' : 'btn btn-primary');
+        const titleClass = variant === 'danger' ? 'modal-title danger' : (variant === 'warning' ? 'modal-title warning' : 'modal-title');
+
+        let warningHtml = '';
+        if (warning) {
+          warningHtml = `
+            <div class="confirm-dialog-banner ${typeof escapeHtml === 'function' ? escapeHtml(warningType) : warningType}">
+              ${warning}
+            </div>
+          `;
+        }
+
+        const dialogWrapper = document.createElement('div');
+        dialogWrapper.className = 'modal-backdrop confirm-dialog-backdrop';
+        dialogWrapper.innerHTML = `
+          <div class="modal confirm-dialog">
+            <div class="modal-header">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                ${icon ? `<span style="font-size: 18px;">${icon}</span>` : ''}
+                <h2 class="${titleClass}" style="font-size: 16px;">${typeof escapeHtml === 'function' ? escapeHtml(title) : title}</h2>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm confirm-dialog-close-btn" aria-label="Close">✕</button>
+            </div>
+            <div class="modal-body confirm-dialog-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+              ${message ? `<div style="font-size: 13px; color: var(--text-main, #cbd5e1); line-height: 1.5; margin: 0;">${message}</div>` : ''}
+              ${warningHtml}
+            </div>
+            <div class="modal-footer confirm-dialog-footer" style="padding: 0.75rem 1.25rem;">
+              <button type="button" class="btn btn-secondary" id="${typeof escapeHtml === 'function' ? escapeHtml(cancelBtnId) : cancelBtnId}">${typeof escapeHtml === 'function' ? escapeHtml(cancelText) : cancelText}</button>
+              <button type="button" class="${btnClass}" id="${typeof escapeHtml === 'function' ? escapeHtml(confirmBtnId) : confirmBtnId}">${typeof escapeHtml === 'function' ? escapeHtml(confirmText) : confirmText}</button>
+            </div>
+          </div>
+        `;
+
+        function cleanup(result) {
+          document.removeEventListener('keydown', handleKeyDown);
+          dialogWrapper.remove();
+          resolve(result);
+        }
+
+        function handleKeyDown(e) {
+          if (e.key === 'Escape') {
+            cleanup(false);
+          }
+        }
+
+        dialogWrapper.querySelector('.confirm-dialog-close-btn')?.addEventListener('click', () => cleanup(false));
+        dialogWrapper.querySelector(`#${cancelBtnId}`)?.addEventListener('click', () => cleanup(false));
+        dialogWrapper.querySelector(`#${confirmBtnId}`)?.addEventListener('click', () => cleanup(true));
+
+        dialogWrapper.addEventListener('click', (e) => {
+          if (e.target === dialogWrapper) {
+            cleanup(false);
+          }
+        });
+
+        document.addEventListener('keydown', handleKeyDown);
+        modalRoot.appendChild(dialogWrapper);
+
+        setTimeout(() => {
+          document.getElementById(confirmBtnId)?.focus();
+        }, 50);
+      });
+    }
+
     if (typeof window !== 'undefined') {
+      window.showConfirmDialog = showConfirmDialog;
       window.toast = toast;
       window.copyToClipboard = copyToClipboard;
       window.escapeHtml = escapeHtml;

@@ -386,11 +386,11 @@ function openDeleteFlowModal(flowId, name) {
 
   modalRoot.innerHTML = `
     <div class="modal-backdrop" id="delete-flow-backdrop" onclick="if(event.target===this)closeDeleteFlowModal()">
-      <div class="modal" style="max-width: 480px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
+      <div class="modal confirm-dialog">
         <div class="modal-header" style="border-bottom-color: rgba(239, 68, 68, 0.2);">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span style="font-size: 18px;">⚠️</span>
-            <h2 class="modal-title" style="color: #ef4444; font-size: 16px;">Delete Flow</h2>
+            <h2 class="modal-title danger" style="font-size: 16px;">Delete Flow</h2>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" onclick="closeDeleteFlowModal()" aria-label="Close">✕</button>
         </div>
@@ -398,8 +398,8 @@ function openDeleteFlowModal(flowId, name) {
           <p style="font-size: 13px; color: var(--text-main, #cbd5e1); line-height: 1.5; margin: 0;">
             Are you sure you want to delete flow <strong style="color: var(--text-heading); font-family: var(--font-mono);">${safeName}</strong>? All execution history and logs will be permanently removed.
           </p>
-          <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; padding: 0.75rem; font-size: 12px; color: #fca5a5; line-height: 1.4;">
-            This action cannot be undone. Webhook triggers and API execution endpoints for this flow will be disabled.
+          <div class="confirm-dialog-banner danger">
+            This action cannot be undone. Invocations to <code>/api/flows/${safeId}/execute</code> will return 404 Not Found.
           </div>
         </div>
         <div class="modal-footer" style="padding: 0.75rem 1.25rem;">

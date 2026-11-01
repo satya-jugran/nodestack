@@ -440,11 +440,11 @@ function openDeleteFunctionModal(id, name) {
 
   modalRoot.innerHTML = `
     <div class="modal-backdrop" id="delete-function-backdrop" onclick="if(event.target===this)closeDeleteFunctionModal()">
-      <div class="modal" style="max-width: 480px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
+      <div class="modal confirm-dialog">
         <div class="modal-header" style="border-bottom-color: rgba(239, 68, 68, 0.2);">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span style="font-size: 18px;">⚠️</span>
-            <h2 class="modal-title" style="color: #ef4444; font-size: 16px;">Delete Function</h2>
+            <h2 class="modal-title danger" style="font-size: 16px;">Delete Function</h2>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" onclick="closeDeleteFunctionModal()" aria-label="Close">✕</button>
         </div>
@@ -452,8 +452,8 @@ function openDeleteFunctionModal(id, name) {
           <p style="font-size: 13px; color: var(--text-main, #cbd5e1); line-height: 1.5; margin: 0;">
             Are you sure you want to delete function <strong style="color: var(--text-heading); font-family: var(--font-mono);">${safeName}</strong>? All invocation history and logs will be permanently removed.
           </p>
-          <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; padding: 0.75rem; font-size: 12px; color: #fca5a5; line-height: 1.4;">
-            This action cannot be undone. Invocations to <code style="font-size: 11.5px; color: #fca5a5;">/api/functions/${safeName}/invoke</code> will return 404 Not Found.
+          <div class="confirm-dialog-banner danger">
+            This action cannot be undone. Invocations to <code>/api/functions/${safeName}/invoke</code> will return 404 Not Found.
           </div>
         </div>
         <div class="modal-footer" id="delete-function-modal-footer" style="padding: 0.75rem 1.25rem;">
@@ -531,7 +531,7 @@ function renderConflictModalState(id, name, conflictMessage) {
     header.innerHTML = `
       <div style="display: flex; align-items: center; gap: 0.5rem;">
         <span style="font-size: 18px;">⚠️</span>
-        <h2 class="modal-title" style="color: #f59e0b; font-size: 16px;">Cannot Delete: Flow Dependencies</h2>
+        <h2 class="modal-title warning" style="font-size: 16px;">Cannot Delete: Flow Dependencies</h2>
       </div>
       <button type="button" class="btn btn-secondary btn-sm" onclick="closeDeleteFunctionModal()" aria-label="Close">✕</button>
     `;
@@ -540,13 +540,11 @@ function renderConflictModalState(id, name, conflictMessage) {
   const body = document.getElementById('delete-function-modal-body');
   if (body) {
     body.innerHTML = `
-      <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 0.85rem; font-size: 12.5px; color: var(--text-main, #cbd5e1); line-height: 1.5;">
-        <div style="color: #f59e0b; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
-          <span>Cannot Delete: Function in Use</span>
-        </div>
+      <div class="confirm-dialog-banner warning">
+        <div class="confirm-dialog-banner-title">Cannot Delete: Function in Use</div>
         <div>${safeMsg}</div>
       </div>
-      <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; padding: 0.75rem; font-size: 12px; color: #fca5a5; line-height: 1.4;">
+      <div class="confirm-dialog-banner danger">
         <strong>Warning:</strong> Force deleting function <strong style="font-family: var(--font-mono);">${safeName}</strong> will remove it immediately. Subsequent executions of referencing flows will fail during state execution.
       </div>
     `;
@@ -833,11 +831,11 @@ function openClearLogsModal() {
 
   modalRoot.innerHTML = `
     <div class="modal-backdrop" id="clear-logs-backdrop" onclick="if(event.target===this)closeClearLogsModal()">
-      <div class="modal" style="max-width: 440px;">
+      <div class="modal confirm-dialog">
         <div class="modal-header" style="border-bottom-color: rgba(239, 68, 68, 0.2);">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span style="font-size: 18px;">⚠️</span>
-            <h2 class="modal-title" style="color: #ef4444; font-size: 16px;">Clear Execution Logs</h2>
+            <h2 class="modal-title danger" style="font-size: 16px;">Clear Execution Logs</h2>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" onclick="closeClearLogsModal()" aria-label="Close">✕</button>
         </div>
@@ -845,7 +843,7 @@ function openClearLogsModal() {
           <p style="font-size: 13px; color: var(--text-main, #cbd5e1); line-height: 1.5; margin: 0;">
             Are you sure you want to permanently clear all function invocation logs?
           </p>
-          <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; padding: 0.75rem; font-size: 12px; color: #fca5a5; line-height: 1.4;">
+          <div class="confirm-dialog-banner danger">
             This will delete all historical logs, timestamps, status codes, and console logs. This action cannot be undone.
           </div>
         </div>

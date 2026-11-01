@@ -582,7 +582,21 @@ async function triggerTestWebhook(webhookId) {
 }
 
 async function clearAllDeliveryLogs() {
-  if (!confirm('Are you sure you want to clear all webhook delivery logs? This cannot be undone.')) {
+  const confirmed = typeof showConfirmDialog === 'function'
+    ? await showConfirmDialog({
+        title: 'Clear Delivery Logs',
+        message: 'Are you sure you want to clear all webhook delivery logs?',
+        messageText: 'Are you sure you want to clear all webhook delivery logs? This cannot be undone.',
+        warning: 'This action cannot be undone. All delivery attempts, payloads, and response records will be permanently removed.',
+        warningType: 'danger',
+        confirmText: 'Clear Logs',
+        cancelText: 'Cancel',
+        variant: 'danger',
+        icon: '⚠️',
+      })
+    : confirm('Are you sure you want to clear all webhook delivery logs? This cannot be undone.');
+
+  if (!confirmed) {
     return;
   }
   try {
@@ -856,7 +870,22 @@ function handleDeleteWebhookClick(btnEl) {
 async function deleteWebhook(id, name) {
   const webhook = (webhooksState.webhooks || []).find(w => w.id === id);
   const webhookName = name || webhook?.name || 'this webhook';
-  if (!confirm(`Are you sure you want to delete webhook "${webhookName}"?`)) {
+  const safeName = typeof escapeHtml === 'function' ? escapeHtml(webhookName) : webhookName;
+  const confirmed = typeof showConfirmDialog === 'function'
+    ? await showConfirmDialog({
+        title: 'Delete Webhook',
+        message: `Are you sure you want to delete webhook <strong style="color: var(--text-heading); font-family: var(--font-mono);">${safeName}</strong>?`,
+        messageText: `Are you sure you want to delete webhook "${webhookName}"?`,
+        warning: 'This action cannot be undone. Outbound events will no longer be dispatched to this webhook endpoint.',
+        warningType: 'danger',
+        confirmText: 'Delete Webhook',
+        cancelText: 'Cancel',
+        variant: 'danger',
+        icon: '⚠️',
+      })
+    : confirm(`Are you sure you want to delete webhook "${webhookName}"?`);
+
+  if (!confirmed) {
     return;
   }
   try {

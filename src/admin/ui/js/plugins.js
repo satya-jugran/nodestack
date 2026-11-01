@@ -703,7 +703,22 @@ async function enablePlugin(id) {
 }
 
 async function disablePlugin(id) {
-  if (!confirm(`Are you sure you want to disable the "${id}" extension? Any background workers will stop.`)) {
+  const safeId = typeof escapeHtml === 'function' ? escapeHtml(id) : id;
+  const confirmed = typeof showConfirmDialog === 'function'
+    ? await showConfirmDialog({
+        title: 'Disable Extension',
+        message: `Are you sure you want to disable the <strong style="color: var(--text-heading); font-family: var(--font-mono);">${safeId}</strong> extension?`,
+        messageText: `Are you sure you want to disable the "${id}" extension? Any background workers will stop.`,
+        warning: 'Any background workers or active event listeners registered by this extension will stop immediately.',
+        warningType: 'warning',
+        confirmText: 'Disable Extension',
+        cancelText: 'Cancel',
+        variant: 'warning',
+        icon: '⚠️',
+      })
+    : confirm(`Are you sure you want to disable the "${id}" extension? Any background workers will stop.`);
+
+  if (!confirmed) {
     return;
   }
   try {

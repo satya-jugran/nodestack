@@ -619,7 +619,21 @@ async function deleteSnapshot(snapshotId) {
   const target = snapshots.find((s) => s.id === snapshotId);
   const label = target ? target.name : snapshotId;
 
-  if (!confirm(`Are you sure you want to delete snapshot '${label}'?`)) return;
+  const safeLabel = typeof escapeHtml === 'function' ? escapeHtml(label) : label;
+  const confirmed = typeof showConfirmDialog === 'function'
+    ? await showConfirmDialog({
+        title: 'Delete Snapshot',
+        message: `Are you sure you want to delete snapshot <strong style="color: var(--text-heading); font-family: var(--font-mono);">${safeLabel}</strong>?`,
+        messageText: `Are you sure you want to delete snapshot '${label}'?`,
+        warning: 'This action cannot be undone. The snapshot data will be permanently removed.',
+        warningType: 'danger',
+        confirmText: 'Delete Snapshot',
+        cancelText: 'Cancel',
+        variant: 'danger',
+        icon: '⚠️',
+      })
+    : confirm(`Are you sure you want to delete snapshot '${label}'?`);
+  if (!confirmed) return;
 
   try {
     await api(`/api/snapshots/${encodeURIComponent(snapshotId)}`, { method: 'DELETE' });
@@ -632,7 +646,20 @@ async function deleteSnapshot(snapshotId) {
 
 // Clear all snapshots
 async function openClearAllSnapshotsModal() {
-  if (!confirm('Are you sure you want to delete ALL application snapshots? This cannot be undone.')) return;
+  const confirmed = typeof showConfirmDialog === 'function'
+    ? await showConfirmDialog({
+        title: 'Delete All Snapshots',
+        message: 'Are you sure you want to delete ALL application snapshots?',
+        messageText: 'Are you sure you want to delete ALL application snapshots? This cannot be undone.',
+        warning: 'This action cannot be undone. All stored application snapshots will be permanently removed.',
+        warningType: 'danger',
+        confirmText: 'Delete All Snapshots',
+        cancelText: 'Cancel',
+        variant: 'danger',
+        icon: '⚠️',
+      })
+    : confirm('Are you sure you want to delete ALL application snapshots? This cannot be undone.');
+  if (!confirmed) return;
   try {
     await api('/api/snapshots', { method: 'DELETE' });
     toast('All snapshots deleted', 'info');
