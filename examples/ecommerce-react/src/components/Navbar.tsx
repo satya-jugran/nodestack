@@ -18,6 +18,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useFavorites } from '../context/FavoritesContext';
+import { getAdminUrl } from '../lib/nodestack';
 
 interface NavbarProps {
   searchQuery: string;
@@ -298,7 +299,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Footer Admin Link */}
             <div className="pt-2 flex flex-col sm:flex-row gap-3">
               <a
-                href="http://localhost:8090/_/"
+                href={getAdminUrl('/_/')}
                 target="_blank"
                 rel="noreferrer"
                 className="flex-1 py-3 px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-brand-500/20"

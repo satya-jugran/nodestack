@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { client } from './lib/nodestack';
+import { client, getAdminUrl, getBackendUrl } from './lib/nodestack';
 import { Category, Product, Review } from './lib/types';
 import { useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
@@ -180,7 +180,7 @@ export const App: React.FC = () => {
       {/* Backend connection banner if unreachable */}
       {backendConnected === false && (
         <div className="bg-rose-50 border-b border-rose-200 px-4 py-3 text-center text-xs sm:text-sm text-rose-800 font-semibold flex items-center justify-center gap-2">
-          <span>⚠️ Could not reach NodeStack at <strong>http://localhost:8090</strong>. Start it with:</span>
+          <span>⚠️ Could not reach NodeStack at <strong>{getBackendUrl()}</strong>. Start it with:</span>
           <code className="bg-rose-100 px-2 py-0.5 rounded text-rose-900 font-mono">
             npm start -- --template ecommerce
           </code>
@@ -294,7 +294,7 @@ export const App: React.FC = () => {
 
           <div className="flex items-center gap-4 flex-wrap">
             <a
-              href="http://localhost:8090/_/"
+              href={getAdminUrl('/_/')}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 font-bold text-slate-700 transition-colors"
@@ -305,7 +305,7 @@ export const App: React.FC = () => {
             </a>
 
             <a
-              href="http://localhost:8090/_/docs"
+              href={getAdminUrl('/_/docs')}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 font-bold text-slate-700 transition-colors"
