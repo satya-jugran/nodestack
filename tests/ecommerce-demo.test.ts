@@ -324,15 +324,25 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
   });
 
   describe('5. Client SDK Function & Flow Services', () => {
-    it('should invoke serverless function via client.functions.invoke', async () => {
+    it('should invoke serverless function via client.functions.invoke and return minTotal', async () => {
       const res = await client.functions.invoke('calculate-discount', {
         couponCode: 'SAVE20',
         cartTotal: 150,
       });
 
       expect(res.valid).toBe(true);
+      expect(res.minTotal).toBe(75);
       expect(res.discountAmount).toBe(30);
       expect(res.newTotal).toBe(120);
+    });
+
+    it('should reject coupons when cartTotal is below the minimum order threshold', async () => {
+      await expect(
+        client.functions.invoke('calculate-discount', {
+          couponCode: 'SAVE20',
+          cartTotal: 50,
+        })
+      ).rejects.toThrow(/minimum order/);
     });
 
     it('should execute flow via client.flows.execute with admin authentication', async () => {

@@ -39,6 +39,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ onProceedToCheckout }) =
     discountAmount,
     shippingCost,
     orderTotal,
+    meetsMinSpend,
   } = useCart();
 
   const [inputCode, setInputCode] = useState('');
@@ -212,27 +213,52 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ onProceedToCheckout }) =
                 </div>
 
                 {coupon ? (
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-200">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-emerald-500 text-white flex items-center justify-center">
-                        <Check className="w-4 h-4" />
+                  <div className={`p-3 rounded-xl border transition-colors ${
+                    meetsMinSpend
+                      ? 'bg-emerald-50 border-emerald-200'
+                      : 'bg-amber-50 border-amber-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-7 h-7 rounded-lg text-white flex items-center justify-center shrink-0 ${
+                          meetsMinSpend ? 'bg-emerald-500' : 'bg-amber-500'
+                        }`}>
+                          {meetsMinSpend ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className={`text-xs font-extrabold truncate ${
+                            meetsMinSpend ? 'text-emerald-900' : 'text-amber-900'
+                          }`}>
+                            {coupon.code} {meetsMinSpend ? 'Applied' : '(Threshold Not Met)'}
+                          </p>
+                          <p className={`text-[11px] truncate ${
+                            meetsMinSpend ? 'text-emerald-700' : 'text-amber-700'
+                          }`}>
+                            {coupon.description}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-xs font-extrabold text-emerald-900">
-                          {coupon.code} Applied
-                        </p>
-                        <p className="text-[11px] text-emerald-700">
-                          {coupon.description}
-                        </p>
-                      </div>
+                      <button
+                        onClick={removeCoupon}
+                        className={`p-1 rounded-lg transition-colors text-xs font-bold ${
+                          meetsMinSpend
+                            ? 'text-emerald-700 hover:text-emerald-900 hover:bg-emerald-100'
+                            : 'text-amber-700 hover:text-amber-900 hover:bg-amber-100'
+                        }`}
+                        title="Remove coupon"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
                     </div>
-                    <button
-                      onClick={removeCoupon}
-                      className="p-1 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-100 rounded-lg transition-colors text-xs font-bold"
-                      title="Remove coupon"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+
+                    {!meetsMinSpend && (
+                      <p className="text-[11px] font-medium text-amber-800 mt-2 flex items-center gap-1 bg-amber-100/70 px-2 py-1.5 rounded-lg">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                        <span>
+                          Add ${Math.max(0, (coupon.minTotal ?? 75) - subtotal).toFixed(2)} more to unlock {coupon.discountPercent ? `${coupon.discountPercent}% off` : 'your discount'}!
+                        </span>
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-2">

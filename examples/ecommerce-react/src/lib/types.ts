@@ -109,4 +109,5 @@ export interface AppliedCoupon {
   discountPercent: number;
   discountAmount: number;
   freeShipping: boolean;
+  minTotal?: number;
 }

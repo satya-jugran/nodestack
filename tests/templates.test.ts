@@ -48,7 +48,7 @@ describe('Starter Templates / Recipes Tests', () => {
       expect(ids).toContain('crm');
 
       const ecommerce = templates.find((t) => t.id === 'ecommerce')!;
-      expect(ecommerce.collections).toEqual(['categories', 'products', 'orders', 'reviews', 'favorites']);
+      expect(ecommerce.collections).toEqual(['categories', 'products', 'orders', 'reviews', 'favorites', 'cart_items']);
       expect(ecommerce.icon).toBe('🛒');
       expect(ecommerce.badge).toContain('20 Items');
       expect(ecommerce.stats.records).toBe(48);
@@ -93,7 +93,7 @@ describe('Starter Templates / Recipes Tests', () => {
       expect(res.success).toBe(true);
       expect(res.skipped).toBe(false);
       expect(res.template).toBe('ecommerce');
-      expect(res.collections).toEqual(['categories', 'products', 'orders', 'reviews', 'favorites']);
+      expect(res.collections).toEqual(['categories', 'products', 'orders', 'reviews', 'favorites', 'cart_items']);
 
       // 1. Verify collections exist in SchemaService
       const catCol = app.schema.getCollectionOrThrow('categories');
@@ -285,6 +285,7 @@ describe('Starter Templates / Recipes Tests', () => {
         'orders',
         'reviews',
         'favorites',
+        'cart_items',
       ]);
     });
 

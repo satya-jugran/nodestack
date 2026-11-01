@@ -24,7 +24,16 @@ interface CartContextType {
   shippingCost: number;
   orderTotal: number;
   isLoading: boolean;
+  meetsMinSpend: boolean;
 }
+
+export const KNOWN_COUPON_MIN_TOTALS: Record<string, number> = {
+  WELCOME10: 0,
+  SAVE20: 75,
+  FLAT50: 150,
+  FREESHIP: 0,
+  VIP30: 200,
+};
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
@@ -303,9 +312,12 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     0
   );
 
-  // Dynamic calculation based on current cart subtotal
+  // Dynamic calculation based on current cart subtotal and minimum order requirements
+  const couponMinTotal = coupon?.minTotal ?? (coupon?.code ? (KNOWN_COUPON_MIN_TOTALS[coupon.code] ?? 0) : 0);
+  const meetsMinSpend = Boolean(coupon && subtotal >= couponMinTotal && items.length > 0);
+
   let calculatedDiscount = 0;
-  if (coupon) {
+  if (coupon && meetsMinSpend) {
     if (coupon.type === 'percent') {
       calculatedDiscount = Math.round(subtotal * (coupon.discountPercent / 100) * 100) / 100;
     } else if (coupon.type === 'fixed') {
@@ -313,11 +325,32 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
-  // Free shipping reached at $100 or with FREESHIP coupon
+  // Free shipping reached at $100 or with qualifying FREESHIP coupon
   const FREE_SHIPPING_THRESHOLD = 100;
-  const isFreeShipping = (coupon?.freeShipping) || subtotal >= FREE_SHIPPING_THRESHOLD || items.length === 0;
+  const isFreeShipping = (coupon?.freeShipping && meetsMinSpend) || subtotal >= FREE_SHIPPING_THRESHOLD || items.length === 0;
   const shippingCost = isFreeShipping ? 0 : 9.99;
   const orderTotal = Math.max(0, Math.round((subtotal - calculatedDiscount + shippingCost) * 100) / 100);
+
+  // Revalidate coupon minimum spend when cart items/subtotal change
+  useEffect(() => {
+    if (!coupon) return;
+
+    if (items.length === 0) {
+      removeCoupon();
+      return;
+    }
+
+    const minSpend = coupon.minTotal ?? (KNOWN_COUPON_MIN_TOTALS[coupon.code] ?? 0);
+    if (subtotal < minSpend) {
+      const shortfall = (minSpend - subtotal).toFixed(2);
+      setCouponError(
+        `Coupon "${coupon.code}" requires a minimum order of $${minSpend.toFixed(2)} (add $${shortfall} more to qualify).`
+      );
+    } else {
+      // Clear error once cart qualifies again
+      setCouponError((prev) => (prev?.includes(coupon.code) ? null : prev));
+    }
+  }, [subtotal, items.length, coupon?.code, coupon?.minTotal]);
 
   // Check bundle perk if order reaches $150
   useEffect(() => {
@@ -390,6 +423,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (res && res.valid) {
+        const minSpend = typeof res.minTotal === 'number'
+          ? res.minTotal
+          : (KNOWN_COUPON_MIN_TOTALS[res.code] ?? 0);
+
         const applied: AppliedCoupon = {
           code: res.code,
           type: res.type,
@@ -397,6 +434,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
           discountPercent: res.discountPercent || 0,
           discountAmount: res.discountAmount || 0,
           freeShipping: Boolean(res.freeShipping),
+          minTotal: minSpend,
         };
         setCoupon(applied);
         setCouponError(null);
@@ -442,6 +480,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         shippingCost,
         orderTotal,
         isLoading,
+        meetsMinSpend,
       }}
     >
       {children}

@@ -230,7 +230,7 @@ describe('RuleEngine', () => {
         items: JSON.stringify([{ productId: 'prod_01', quantity: 1, price: 120.5 }]),
         shippingAddress: '100 Alpha St',
         paymentStatus: 'paid',
-      });
+      }, { id: 'cust_alpha', email: 'alpha@domain.com' });
 
       const ord2 = await app.records.create('orders', {
         orderNumber: 'ORD-USER2-002',
@@ -242,7 +242,7 @@ describe('RuleEngine', () => {
         items: JSON.stringify([{ productId: 'prod_02', quantity: 2, price: 125.0 }]),
         shippingAddress: '200 Beta Ave',
         paymentStatus: 'paid',
-      });
+      }, { id: 'cust_beta', email: 'beta@domain.com' });
 
       // 3. Customer Alpha lists orders without filter -> receives ONLY their own orders
       const alphaAuth = { id: 'cust_alpha', email: 'alpha@domain.com' };
