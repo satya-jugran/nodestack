@@ -10,6 +10,8 @@ import { DemoService } from './services/DemoService';
 import { SnapshotService } from './services/SnapshotService';
 import { WebhookService } from './services/WebhookService';
 import { AppService } from './services/AppService';
+import { FunctionService } from './services/FunctionService';
+import { FlowService } from './services/FlowService';
 import type {
   ClientOptions,
   SendOptions,
@@ -32,6 +34,8 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
   public readonly demo: DemoService;
   public readonly webhooks: WebhookService;
   public readonly apps: AppService;
+  public readonly functions: FunctionService;
+  public readonly flows: FlowService;
   public readonly appSlug?: string;
 
   private customFetch?: typeof fetch;
@@ -58,6 +62,8 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
     this.demo = new DemoService(this);
     this.webhooks = new WebhookService(this);
     this.apps = new AppService(this);
+    this.functions = new FunctionService(this);
+    this.flows = new FlowService(this);
   }
 
   /**

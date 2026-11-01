@@ -175,6 +175,12 @@ async function selectApp(slugOrId) {
     if (typeof loadFunctionsList === 'function' && state.activeNav === 'functions') {
       await loadFunctionsList();
     }
+    if (typeof loadFlows === 'function') {
+      await loadFlows();
+    }
+    if (typeof renderFlowsView === 'function' && state.activeNav === 'flows') {
+      renderFlowsView();
+    }
 
     // Refresh plugin catalog and nav items for the switched app
     try {
@@ -304,7 +310,7 @@ function openCreateAppModal() {
                 class="form-select"
               >
                 <option value="">Blank / Clean (Standard users collection only)</option>
-                <option value="ecommerce">E-Commerce (products, categories, orders, reviews)</option>
+                <option value="ecommerce">E-Commerce (categories, products, orders, reviews, favorites, cart)</option>
                 <option value="crm">CRM (contacts, deals, companies, activities)</option>
                 <option value="blog">Blog / Editorial (articles, authors, tags, comments)</option>
               </select>

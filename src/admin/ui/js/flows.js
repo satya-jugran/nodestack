@@ -21,9 +21,25 @@ if (typeof window !== 'undefined') {
 // 1. API Fetching
 // ==========================================
 
+function getFlowsApiBase() {
+  const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : (typeof state !== 'undefined' && state?.activeApp?.slug ? state.activeApp.slug : 'default');
+  return slug && slug !== 'default' ? `/api/apps/${slug}/flows` : '/api/flows';
+}
+
+function getFunctionsApiBase() {
+  const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : (typeof state !== 'undefined' && state?.activeApp?.slug ? state.activeApp.slug : 'default');
+  return slug && slug !== 'default' ? `/api/apps/${slug}/functions` : '/api/functions';
+}
+
+if (typeof window !== 'undefined') {
+  window.getFlowsApiBase = getFlowsApiBase;
+  window.getFunctionsApiBase = getFunctionsApiBase;
+}
+
 async function loadFlows() {
   try {
-    const res = await api('/api/flows');
+    const endpoint = getFlowsApiBase();
+    const res = await api(endpoint);
     flowsState.flows = Array.isArray(res) ? res : res?.data || [];
     updateSidebarFlowsCount();
     return flowsState.flows;
@@ -35,7 +51,8 @@ async function loadFlows() {
 
 async function loadFlowExecutions(flowId = '') {
   try {
-    const url = flowId ? `/api/flows/${flowId}/executions` : '/api/flows/executions';
+    const base = getFlowsApiBase();
+    const url = flowId ? `${base}/${flowId}/executions` : `${base}/executions`;
     const res = await api(url);
     flowsState.executions = res?.items || (Array.isArray(res) ? res : []);
     return flowsState.executions;
@@ -47,7 +64,8 @@ async function loadFlowExecutions(flowId = '') {
 
 async function loadFunctionsForPicker() {
   try {
-    const res = await api('/api/functions');
+    const endpoint = getFunctionsApiBase();
+    const res = await api(endpoint);
     flowsState.functions = Array.isArray(res) ? res : res?.data || [];
   } catch (err) {
     console.error('Failed to load functions for picker:', err);
@@ -260,6 +278,7 @@ function renderFlowExecutionsListHtml() {
             <th style="padding: 0.75rem 1rem;">Flow Name</th>
             <th style="padding: 0.75rem 1rem;">Duration</th>
             <th style="padding: 0.75rem 1rem;">Steps</th>
+            <th style="padding: 0.75rem 1rem;">Caller</th>
             <th style="padding: 0.75rem 1rem;">Started At</th>
             <th style="padding: 0.75rem 1rem; text-align: right;">Action</th>
           </tr>
@@ -283,6 +302,9 @@ function renderFlowExecutionsListHtml() {
                 </td>
                 <td style="padding: 0.75rem 1rem; color: var(--text-muted);">
                   ${stepCount} steps
+                </td>
+                <td style="padding: 0.75rem 1rem; font-family: var(--font-mono, monospace); font-size: 0.8rem; color: var(--text-muted);">
+                  <span class="badge" style="font-size: 11px; font-weight: 500; background: rgba(255,255,255,0.06);">${escapeHtml(exec.actorId || 'public')}</span>
                 </td>
                 <td style="padding: 0.75rem 1rem; color: var(--text-muted); font-size: 0.8rem;">
                   ${new Date(exec.startedAt).toLocaleString()}
@@ -339,7 +361,8 @@ function handleFlowsSearch(val) {
 
 async function toggleFlowStatus(flowId, enabled) {
   try {
-    await api(`/api/flows/${flowId}`, {
+    const base = getFlowsApiBase();
+    await api(`${base}/${flowId}`, {
       method: 'PATCH',
       body: JSON.stringify({ enabled }),
     });
@@ -355,7 +378,8 @@ async function deleteFlowPrompt(flowId, name) {
     return;
   }
   try {
-    await api(`/api/flows/${flowId}`, { method: 'DELETE' });
+    const base = getFlowsApiBase();
+    await api(`${base}/${flowId}`, { method: 'DELETE' });
     await refreshFlowsView();
     toast(`Flow "${name}" deleted successfully`, 'success');
   } catch (err) {
@@ -469,7 +493,8 @@ async function handleCreateFlowSubmit(e) {
   };
 
   try {
-    const created = await api('/api/flows', {
+    const base = getFlowsApiBase();
+    const created = await api(base, {
       method: 'POST',
       body: JSON.stringify(initialFlow),
     });
@@ -501,7 +526,8 @@ async function inspectExecutionDetail(executionId) {
   try {
     let exec = (flowsState.executions || []).find((e) => e.id === executionId);
     if (!exec || !exec.stepLogs) {
-      exec = await api(`/api/flows/executions/${executionId}`);
+      const base = getFlowsApiBase();
+      exec = await api(`${base}/executions/${executionId}`);
     }
     if (!exec) {
       toast('Execution record not found', 'error');
@@ -567,6 +593,10 @@ async function inspectExecutionDetail(executionId) {
             <div>
               <span style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; display: block;">Steps</span>
               <span style="font-weight: 600; color: var(--text-main);">${stepCount} steps</span>
+            </div>
+            <div>
+              <span style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; display: block;">Caller</span>
+              <span style="font-weight: 600; color: var(--accent-primary, #6366f1); font-family: monospace;">${escapeHtml(exec.actorId || 'public')}</span>
             </div>
             <div>
               <span style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; display: block;">Started</span>
@@ -726,4 +756,8 @@ if (typeof window !== 'undefined') {
   window.closeFlowExecutionDrawer = closeFlowExecutionDrawer;
   window.openFlowFromExecution = openFlowFromExecution;
   window.copyFlowJson = copyFlowJson;
+}
+
+if (typeof state !== 'undefined' && state.token && typeof loadFlows === 'function') {
+  loadFlows();
 }

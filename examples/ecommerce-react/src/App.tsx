@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { client } from './lib/nodestack';
+import { client, getAdminUrl, getBackendUrl } from './lib/nodestack';
 import { Category, Product, Review } from './lib/types';
+import { useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
 import { HeroBanner } from './components/HeroBanner';
 import { CategoryFilter } from './components/CategoryFilter';
@@ -25,12 +26,31 @@ export const App: React.FC = () => {
   const [sortBy, setSortBy] = useState('-created');
   const [inStockOnly, setInStockOnly] = useState(false);
 
+  const { isAuthenticated } = useAuth();
+  const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
+
   // Modals state
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isOrdersOpen, setIsOrdersOpen] = useState(false);
   const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
+
+  const handleProceedToCheckout = () => {
+    if (isAuthenticated) {
+      setIsCheckoutOpen(true);
+    } else {
+      setPendingCheckoutAfterAuth(true);
+      setIsAuthOpen(true);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated && pendingCheckoutAfterAuth) {
+      setPendingCheckoutAfterAuth(false);
+      setIsCheckoutOpen(true);
+    }
+  }, [isAuthenticated, pendingCheckoutAfterAuth]);
 
   // Products grid reference for scrolling
   const catalogRef = useRef<HTMLDivElement>(null);
@@ -160,7 +180,7 @@ export const App: React.FC = () => {
       {/* Backend connection banner if unreachable */}
       {backendConnected === false && (
         <div className="bg-rose-50 border-b border-rose-200 px-4 py-3 text-center text-xs sm:text-sm text-rose-800 font-semibold flex items-center justify-center gap-2">
-          <span>⚠️ Could not reach NodeStack at <strong>http://localhost:8090</strong>. Start it with:</span>
+          <span>⚠️ Could not reach NodeStack at <strong>{getBackendUrl()}</strong>. Start it with:</span>
           <code className="bg-rose-100 px-2 py-0.5 rounded text-rose-900 font-mono">
             npm start -- --template ecommerce
           </code>
@@ -274,7 +294,7 @@ export const App: React.FC = () => {
 
           <div className="flex items-center gap-4 flex-wrap">
             <a
-              href="http://localhost:8090/_/"
+              href={getAdminUrl('/_/')}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 font-bold text-slate-700 transition-colors"
@@ -285,7 +305,7 @@ export const App: React.FC = () => {
             </a>
 
             <a
-              href="http://localhost:8090/_/docs"
+              href={getAdminUrl('/_/docs')}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 font-bold text-slate-700 transition-colors"
@@ -300,7 +320,7 @@ export const App: React.FC = () => {
       </footer>
 
       {/* Slide-out Cart Drawer */}
-      <CartDrawer onProceedToCheckout={() => setIsCheckoutOpen(true)} />
+      <CartDrawer onProceedToCheckout={handleProceedToCheckout} />
 
       {/* Product Detail & Reviews Modal */}
       <ProductModal
@@ -349,7 +369,16 @@ export const App: React.FC = () => {
       {/* Auth Modal */}
       <AuthModal
         isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
+        onClose={() => {
+          setIsAuthOpen(false);
+          setPendingCheckoutAfterAuth(false);
+        }}
+        title={pendingCheckoutAfterAuth ? 'Sign In to Complete Checkout' : undefined}
+        subtitle={
+          pendingCheckoutAfterAuth
+            ? 'Sign in or use 1-click demo access to place your order and stream live tracking.'
+            : undefined
+        }
       />
 
     </div>

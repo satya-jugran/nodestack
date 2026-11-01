@@ -1,4 +1,6 @@
 import { CreateCollectionDto } from '../schema/models/Collection';
+import { CreateFunctionDto } from '../functions/types';
+import { CreateFlowDto } from '../flows/types';
 
 export interface GeneratedFileAsset {
   fieldName: string;
@@ -32,10 +34,14 @@ export interface TemplateDefinition {
   badge: string;
   aliases: string[];
   collections: TemplateCollectionDef[];
+  functions?: CreateFunctionDto[];
+  flows?: CreateFlowDto[];
   stats: {
     collections: number;
     records: number;
     images: number;
+    functions?: number;
+    flows?: number;
   };
 }
 
@@ -48,10 +54,14 @@ export interface TemplateSummary {
   badge: string;
   aliases: string[];
   collections: string[];
+  functions?: string[];
+  flows?: string[];
   stats: {
     collections: number;
     records: number;
     images: number;
+    functions?: number;
+    flows?: number;
   };
 }
 
@@ -67,6 +77,8 @@ export interface ApplyTemplateResult {
   collections: string[];
   totalRecords: number;
   totalImages: number;
+  totalFunctions?: number;
+  totalFlows?: number;
   durationMs: number;
   message: string;
 }

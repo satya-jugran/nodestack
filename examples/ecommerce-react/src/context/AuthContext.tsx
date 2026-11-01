@@ -64,24 +64,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     const demoEmail = 'alex.vance@nodestack.dev';
     const demoPass = 'DemoPassword123!';
+    const legacyPass = 'demoPassword123';
     const demoName = 'Alex Vance';
 
     try {
-      // Try login first
+      // 1. Try login with primary demo password
       try {
         const res = await client.collection('users').authWithPassword(demoEmail, demoPass);
         setUser(res.record as unknown as User);
         return;
-      } catch (err) {
-        // If user doesn't exist, register then login
+      } catch {
+        // 2. Try legacy password in case the app was seeded with the earlier version
+        try {
+          const res = await client.collection('users').authWithPassword(demoEmail, legacyPass);
+          setUser(res.record as unknown as User);
+          return;
+        } catch {
+          // Fall through to account creation
+        }
+      }
+
+      // 3. User does not exist or credentials changed; attempt registration
+      try {
         await client.collection('users').create({
           email: demoEmail,
           password: demoPass,
           passwordConfirm: demoPass,
           name: demoName,
         });
+      } catch (err: any) {
+        // Ignore 409 conflict if already registered
+        console.warn('Demo user register notice:', err?.message || err);
+      }
 
+      // 4. Authenticate after registration or sync
+      try {
         const res = await client.collection('users').authWithPassword(demoEmail, demoPass);
+        setUser(res.record as unknown as User);
+      } catch {
+        const res = await client.collection('users').authWithPassword(demoEmail, legacyPass);
         setUser(res.record as unknown as User);
       }
     } finally {
@@ -92,6 +113,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     client.authStore.clear();
     setUser(null);
+    try {
+      localStorage.removeItem('nodestack_ecommerce_cart');
+      localStorage.removeItem('nodestack_ecommerce_coupon');
+      localStorage.removeItem('nodestack_session_orders');
+    } catch {}
   };
 
   return (

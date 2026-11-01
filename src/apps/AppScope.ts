@@ -123,13 +123,7 @@ export class AppScope {
       this.realtime
     );
 
-    this.templates = new TemplateService(
-      this.db,
-      this.schema,
-      this.files,
-      this.eventBus,
-      this.realtime
-    );
+
 
     const isDefaultApp = Boolean(app.isDefault || app.slug === 'default');
     const appDbPath = config.getAppDbPath(app.slug);
@@ -170,6 +164,16 @@ export class AppScope {
       this.functions,
       this.eventBus,
       { id: app.id, slug: app.slug, name: app.name }
+    );
+
+    this.templates = new TemplateService(
+      this.db,
+      this.schema,
+      this.files,
+      this.eventBus,
+      this.realtime,
+      this.functions,
+      this.flows
     );
 
     // Wire up audit logs listeners for this app

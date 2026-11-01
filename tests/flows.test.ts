@@ -1373,6 +1373,18 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(pageContainer).not.toBeNull();
     });
 
+    it('should update sidebar-flows-count badge when flows are loaded on startup', async () => {
+      const badge = doc.getElementById('sidebar-flows-count');
+      expect(badge).not.toBeNull();
+
+      await win.loadFlows();
+      const flows = win.flowsState.flows || [];
+      expect(badge.textContent).toBe(String(flows.length));
+      if (flows.length > 0) {
+        expect(badge.style.display).toBe('inline-block');
+      }
+    });
+
     it('should activate flows tab when selectNav("flows") is invoked', async () => {
       await win.selectNav('flows', false);
       expect(win.state.activeNav).toBe('flows');

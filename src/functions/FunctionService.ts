@@ -666,7 +666,14 @@ export class FunctionService {
     const recordsBridge = {
       get: async (collection: string, id: string) => {
         if (this.recordService) {
-          return await this.recordService.getOne(collection, id, {}, effectiveAuth);
+          try {
+            return await this.recordService.getOne(collection, id, {}, effectiveAuth);
+          } catch (err: any) {
+            if (err?.name === 'NotFoundError' || err?.statusCode === 404 || (err?.message && err.message.includes('not found'))) {
+              return null;
+            }
+            throw err;
+          }
         }
         return this.db.prepare(`SELECT * FROM "${collection}" WHERE id = ?`).get(id) as any;
       },

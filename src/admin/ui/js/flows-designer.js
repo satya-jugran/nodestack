@@ -20,9 +20,22 @@ if (typeof window !== 'undefined') {
 // 1. Navigation & Workbench Shell
 // ==========================================
 
+function getDesignerFlowsApiBase() {
+  if (typeof getFlowsApiBase === 'function') return getFlowsApiBase();
+  const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : (typeof state !== 'undefined' && state?.activeApp?.slug ? state.activeApp.slug : 'default');
+  return slug && slug !== 'default' ? `/api/apps/${slug}/flows` : '/api/flows';
+}
+
+function getDesignerFunctionsApiBase() {
+  if (typeof getFunctionsApiBase === 'function') return getFunctionsApiBase();
+  const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : (typeof state !== 'undefined' && state?.activeApp?.slug ? state.activeApp.slug : 'default');
+  return slug && slug !== 'default' ? `/api/apps/${slug}/functions` : '/api/functions';
+}
+
 async function openFlowDesigner(flowId, openTestDrawer = false, pushState = true) {
   try {
-    const flow = await api(`/api/flows/${encodeURIComponent(flowId)}`);
+    const base = getDesignerFlowsApiBase();
+    const flow = await api(`${base}/${encodeURIComponent(flowId)}`);
     flowsState.currentView = 'designer';
     flowsState.activeFlowForEdit = flow;
     designerState.activeFlow = JSON.parse(JSON.stringify(flow));
@@ -38,7 +51,7 @@ async function openFlowDesigner(flowId, openTestDrawer = false, pushState = true
       updateBreadcrumbs();
     }
 
-    if (flowsState.functions.length === 0 && typeof loadFunctionsForPicker === 'function') {
+    if (typeof loadFunctionsForPicker === 'function') {
       await loadFunctionsForPicker();
     }
 
@@ -88,7 +101,8 @@ function renderTriggerConfigHtml(flow) {
   }
 
   if (triggerType === 'http') {
-    const endpointPath = `/api/flows/${flow.id}/execute`;
+    const base = getDesignerFlowsApiBase();
+    const endpointPath = `${base}/${flow.id}/execute`;
     return `
       <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; color: var(--text-muted);">
         Endpoint:
@@ -274,7 +288,7 @@ function renderCodeDslWorkspaceHtml(flow) {
     <div style="background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; height: 100%; min-height: 0; flex: 1; display: flex; flex-direction: column;">
       <div style="padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between;">
         <span style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted);">
-          JSON Definition (Amazon States Language / Flow DSL)
+          JSON Definition (Flow States Language / DSL)
         </span>
         <button class="btn btn-secondary btn-sm" onclick="syncDslToVisual()" style="font-weight: 600;">
           Apply Changes to Visual
@@ -350,7 +364,7 @@ function renderTestDrawerHtml(flow) {
             <span style="font-weight: 800; color: ${exec.status === 'succeeded' ? 'var(--accent-success)' : 'var(--accent-danger)'}; font-size: 0.85rem; text-transform: uppercase;">
               ● ${exec.status} (${exec.durationMs}ms)
             </span>
-            <span style="font-size: 0.75rem; color: var(--text-muted);">${new Date(exec.startedAt).toLocaleTimeString()}</span>
+            <span style="font-size: 0.75rem; color: var(--text-muted);">${new Date(exec.startedAt).toLocaleTimeString()} • Caller: <code style="font-size: 10px; font-weight: 600;">${escapeHtml(exec.actorId || 'admin / test')}</code></span>
           </div>
 
           <!-- Step Timeline -->
@@ -403,7 +417,8 @@ async function runFlowTest() {
   if (!flowId) return;
 
   try {
-    const res = await api(`/api/flows/${flowId}/execute?wait=true`, {
+    const base = getDesignerFlowsApiBase();
+    const res = await api(`${base}/${flowId}/execute?wait=true`, {
       method: 'POST',
       body: JSON.stringify(parsedPayload),
     });
@@ -928,7 +943,8 @@ async function saveFlowChanges() {
   }
 
   try {
-    const updated = await api(`/api/flows/${flow.id}`, {
+    const base = getDesignerFlowsApiBase();
+    const updated = await api(`${base}/${flow.id}`, {
       method: 'PATCH',
       body: JSON.stringify({
         name: flow.name,

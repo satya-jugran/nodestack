@@ -2006,9 +2006,9 @@
           icon: '🛒',
           badge: '20 Items & Images',
           accent: '#3b82f6',
-          description: 'Pre-seeded with 20 items & high-res SVG product images, categories, orders, and verified customer reviews.',
-          collections: ['products', 'categories', 'orders', 'reviews'],
-          stats: '4 collections • 48 records • 25 images'
+          description: 'Pre-seeded with 20 items & high-res SVG product images, categories, orders, verified reviews, customer favorites, and shopping cart.',
+          collections: ['categories', 'products', 'orders', 'reviews', 'favorites', 'cart_items'],
+          stats: '6 collections • 48 records • 25 images'
         },
         {
           id: 'blog',
@@ -2101,14 +2101,16 @@
           icon: '🛒',
           badge: '20 Items & SVG Images',
           accent: '#3b82f6',
-          description: 'Complete online storefront architecture with products catalog, categories, customer orders, and verified customer reviews.',
+          description: 'Complete online storefront architecture with products catalog, categories, customer orders, verified customer reviews, user favorites, and persistent cart.',
           collections: [
             { name: 'products', type: 'base', count: 20, desc: 'name, slug, price, description, inStock, rating, category, images (custom SVGs)' },
             { name: 'categories', type: 'base', count: 4, desc: 'title, slug, icon, active' },
             { name: 'orders', type: 'base', count: 8, desc: 'customerName, customerEmail, totalAmount, status, items' },
             { name: 'reviews', type: 'base', count: 15, desc: 'author, rating, comment, verifiedPurchase, product' },
+            { name: 'favorites', type: 'base', count: 1, desc: 'user, product (customer wishlist)' },
+            { name: 'cart_items', type: 'base', count: 0, desc: 'user, product, quantity (persistent shopping cart)' },
           ],
-          stats: '4 collections • 47 pre-seeded sample records • 20 vector SVG product images',
+          stats: '6 collections • 48 pre-seeded sample records • 25 vector SVG product images',
         },
         blog: {
           name: 'Blog / Content Engine',

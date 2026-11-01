@@ -43,6 +43,38 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               ids.push(fav.product);
               rMap[fav.product] = fav.id;
             }
+
+            // Merge guest favorites from localStorage into NodeStack backend
+            try {
+              const saved = localStorage.getItem(LOCAL_FAVS_KEY);
+              if (saved) {
+                const guestIds: string[] = JSON.parse(saved);
+                const unmergedIds: string[] = [];
+                for (const pId of guestIds) {
+                  if (!ids.includes(pId)) {
+                    try {
+                      const created = await client.collection('favorites').create({
+                        user: user.id,
+                        product: pId,
+                      });
+                      ids.push(pId);
+                      rMap[pId] = created.id;
+                    } catch (createErr) {
+                      console.warn('Failed to merge guest favorite to NodeStack:', createErr);
+                      unmergedIds.push(pId);
+                    }
+                  }
+                }
+                if (unmergedIds.length === 0) {
+                  localStorage.removeItem(LOCAL_FAVS_KEY);
+                } else {
+                  localStorage.setItem(LOCAL_FAVS_KEY, JSON.stringify(unmergedIds));
+                }
+              }
+            } catch (mergeErr) {
+              console.warn('Guest favorites merge note:', mergeErr);
+            }
+
             setFavoriteProductIds(ids);
             setRecordIdMap(rMap);
           }
@@ -53,6 +85,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           if (isMounted) setIsLoading(false);
         }
       } else {
+        setRecordIdMap({});
         loadGuestFavorites();
       }
     }
@@ -80,19 +113,27 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (isAuthenticated && user) {
       if (isFav) {
         // Remove from DB
-        const recordId = recordIdMap[product.id];
+        let recordId = recordIdMap[product.id];
         setFavoriteProductIds((prev) => prev.filter((id) => id !== product.id));
-        if (recordId) {
-          try {
+        try {
+          if (!recordId) {
+            const existing = await client.collection('favorites').getList(1, 1, {
+              filter: `user = "${user.id}" && product = "${product.id}"`,
+            });
+            if (existing.items.length > 0) {
+              recordId = existing.items[0].id;
+            }
+          }
+          if (recordId) {
             await client.collection('favorites').delete(recordId);
             setRecordIdMap((prev) => {
               const copy = { ...prev };
               delete copy[product.id];
               return copy;
             });
-          } catch (err) {
-            console.error('Failed to remove favorite from NodeStack:', err);
           }
+        } catch (err) {
+          console.error('Failed to remove favorite from NodeStack:', err);
         }
       } else {
         // Add to DB

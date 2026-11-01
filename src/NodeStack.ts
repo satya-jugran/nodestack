@@ -448,6 +448,9 @@ export class NodeStack {
     // 1. Ensure all plugins have completed asynchronous initialization
     await this.pluginManager.ensureInitialized();
 
+    // 1.1 Ensure built-in demo app is initialized
+    await this.apps.ensureDemoAppInitialized();
+
     const serveContext: ServeEventContext = {
       server: this.server.app,
       port,

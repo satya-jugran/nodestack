@@ -133,6 +133,9 @@
         if (typeof loadFunctionStats === 'function') {
           loadFunctionStats();
         }
+        if (typeof loadFlows === 'function') {
+          loadFlows();
+        }
         loadCollections().then(() => {
           if (state.activeCollection) {
             if (state.collectionTab === 'records') loadRecords();
@@ -209,6 +212,9 @@
       }
       if (typeof loadFunctionStats === 'function') {
         loadFunctionStats();
+      }
+      if (typeof loadFlows === 'function') {
+        loadFlows();
       }
       try {
         const pRes = await fetch('/api/plugins');
@@ -296,6 +302,8 @@
         await loadCollections();
         if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
         if (typeof loadWebhookStats === 'function') loadWebhookStats();
+        if (typeof loadFunctionStats === 'function') loadFunctionStats();
+        if (typeof loadFlows === 'function') loadFlows();
         initRealtime();
         if (typeof parseUrlAndNavigate === 'function') {
           await parseUrlAndNavigate(false);
@@ -367,6 +375,8 @@
         await loadCollections();
         if (typeof renderPluginNavItems === 'function') renderPluginNavItems();
         if (typeof loadWebhookStats === 'function') loadWebhookStats();
+        if (typeof loadFunctionStats === 'function') loadFunctionStats();
+        if (typeof loadFlows === 'function') loadFlows();
         initRealtime();
         if (typeof parseUrlAndNavigate === 'function') {
           await parseUrlAndNavigate(false);

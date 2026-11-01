@@ -132,7 +132,8 @@ export class FlowService {
       };
 
       // Asynchronous event trigger (do not block database write loop)
-      this.executeFlow(flow.id, eventPayload, actor).catch((err) => {
+      const eventActor = actor || (flow.eventTrigger ? { id: `event:${flow.eventTrigger}` } : { id: 'system:event' });
+      this.executeFlow(flow.id, eventPayload, eventActor).catch((err) => {
         console.error(`[FlowService] Event trigger failed for flow '${flow.name}':`, err);
       });
     }

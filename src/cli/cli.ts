@@ -86,6 +86,16 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             chalk.red(`\n  ✗ Failed to apply starter template '${options.template}': ${err.message}`)
           );
         }
+
+        // When ecommerce template is specified (e.g. npm run demo:backend),
+        // ensure the dedicated ecommerce-demo application scope is also idempotently restored/initialized
+        if (options.template === 'ecommerce') {
+          try {
+            await app.apps.ensureDemoAppInitialized(true, { overwrite: Boolean(options.overwrite) });
+          } catch (err: any) {
+            console.warn(chalk.yellow(`  ℹ Demo application restoration note: ${err.message}`));
+          }
+        }
       }
 
       if (options.mockDelay || options.mockFailRate || options.mockError) {

@@ -12,6 +12,7 @@ export type DatabaseDriverFactory = (app: AppModel, defaultDbPath: string) => ID
 export class AppManager {
   private appCache: Map<string, AppScope> = new Map();
   private onScopeInitHandlers: Array<(scope: AppScope) => void> = [];
+  private demoInitPromise?: Promise<AppScope | undefined>;
 
   constructor(
     public readonly registry: AppRegistry,
@@ -54,7 +55,126 @@ export class AppManager {
 
   public init(): AppScope {
     // Ensure default application scope is initialized
-    return this.get('default');
+    const defaultScope = this.get('default');
+    return defaultScope;
+  }
+
+  public async ensureDemoAppInitialized(
+    force = false,
+    options?: { overwrite?: boolean }
+  ): Promise<AppScope | undefined> {
+    if (this.demoInitPromise && !force && !options?.overwrite) {
+      return this.demoInitPromise;
+    }
+    this.demoInitPromise = this.doEnsureDemoAppInitialized(options);
+    return this.demoInitPromise;
+  }
+
+  private async doEnsureDemoAppInitialized(options?: { overwrite?: boolean }): Promise<AppScope | undefined> {
+    try {
+      let demoApp = this.registry.getApp('ecommerce-demo');
+      if (!demoApp) {
+        demoApp = this.registry.createApp({
+          slug: 'ecommerce-demo',
+          name: 'E-Commerce Demo',
+          description: 'Retail storefront showcase pre-seeded with catalog, serverless lambdas, and event-driven flows',
+          icon: 'shopping-bag',
+        });
+      }
+
+      const scope = this.get('ecommerce-demo');
+
+      // Idempotently apply ecommerce template: bootstraps or repairs missing collections,
+      // serverless functions, and orchestration flows even on partially initialized scopes.
+      await scope.templates.apply('ecommerce', { overwrite: Boolean(options?.overwrite) });
+
+      // Ensure baseline snapshot exists for Reset to Demo State
+      if (!scope.snapshots.hasSnapshot()) {
+        try {
+          await scope.snapshots.createSnapshot({
+            name: 'ecommerce-demo-baseline',
+            description: 'Baseline state for ecommerce-demo storefront and lambdas',
+          });
+        } catch (snapErr: any) {
+          console.warn(`[AppManager] Creating baseline snapshot note: ${snapErr.message}`);
+        }
+      }
+
+      // Pre-seed or synchronize demo customer account for instant 1-click login
+      try {
+        const userCol = scope.schema.getCollection('users');
+        if (userCol) {
+          const crypto = require('crypto');
+          const passwordHash = await scope.auth.hashPassword('DemoPassword123!');
+          const userExists = scope.db.get<{ id: string }>('SELECT id FROM users WHERE email = ?', 'alex.vance@nodestack.dev');
+          if (!userExists) {
+            const now = new Date().toISOString();
+            scope.db.run(
+              `INSERT INTO users (id, email, emailVisibility, verified, passwordHash, tokenKey, name, created, updated)
+               VALUES (?, ?, 1, 1, ?, ?, ?, ?, ?)`,
+              [
+                'usr_alex_vance',
+                'alex.vance@nodestack.dev',
+                passwordHash,
+                crypto.randomBytes(16).toString('hex'),
+                'Alex Vance',
+                now,
+                now,
+              ]
+            );
+          } else {
+            scope.db.run('UPDATE users SET passwordHash = ? WHERE email = ?', [passwordHash, 'alex.vance@nodestack.dev']);
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[AppManager] Pre-seeding demo user note: ${err.message}`);
+      }
+
+      // Ensure cart_items collection exists for persistent shopping cart
+      try {
+        const hasCartCol = scope.schema.getCollection('cart_items');
+        if (!hasCartCol) {
+          scope.schema.createCollection({
+            name: 'cart_items',
+            type: 'base',
+            listRule: '@request.auth.id != "" && user = @request.auth.id',
+            viewRule: '@request.auth.id != "" && user = @request.auth.id',
+            createRule: '@request.auth.id != "" && user = @request.auth.id',
+            updateRule: '@request.auth.id != "" && user = @request.auth.id',
+            deleteRule: '@request.auth.id != "" && user = @request.auth.id',
+            schema: [
+              {
+                id: 'f_cart_user',
+                name: 'user',
+                type: 'relation',
+                required: true,
+                options: { collectionId: 'users' },
+              },
+              {
+                id: 'f_cart_prod',
+                name: 'product',
+                type: 'relation',
+                required: true,
+                options: { collectionId: 'products' },
+              },
+              {
+                id: 'f_cart_qty',
+                name: 'quantity',
+                type: 'number',
+                required: true,
+              },
+            ],
+          });
+        }
+      } catch (err: any) {
+        console.warn(`[AppManager] cart_items collection note: ${err.message}`);
+      }
+
+      return scope;
+    } catch (err: any) {
+      console.warn(`[AppManager] ensureDemoAppInitialized warning: ${err.message}`);
+      return undefined;
+    }
   }
 
   public list(): AppModel[] {
@@ -165,6 +285,10 @@ export class AppManager {
     const target = this.registry.getAppOrThrow(slugOrId);
     if (target.isDefault || target.slug === 'default') {
       throw new AppError('Cannot delete the default application', 400);
+    }
+
+    if (target.slug === 'ecommerce-demo') {
+      this.demoInitPromise = undefined;
     }
 
     const cached = this.appCache.get(target.slug) || this.appCache.get(target.id);

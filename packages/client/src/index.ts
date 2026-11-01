@@ -26,6 +26,8 @@ export {
   verifyWebhookSignature,
 } from './services/WebhookService';
 export { AppService } from './services/AppService';
+export { FunctionService, FunctionConfig, FunctionExecutionResult } from './services/FunctionService';
+export { FlowService, FlowConfig, FlowExecution } from './services/FlowService';
 
 // Types & Models
 export * from './types';
