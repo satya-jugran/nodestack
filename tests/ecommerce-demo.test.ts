@@ -113,6 +113,35 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
       const baseline = snapshots.find((s) => s.name === 'ecommerce-demo-baseline');
       expect(baseline).toBeDefined();
     });
+
+    it('should repair missing flows, functions, and baseline snapshot on existing demo scope', async () => {
+      const scope = server.apps.get('ecommerce-demo');
+
+      // Simulate an older or partially initialized demo scope that already has products
+      // but where a flow, function, or baseline snapshot is missing
+      const flow = scope.flows.getFlowByName('OrderFulfillmentFlow');
+      expect(flow).toBeDefined();
+      await scope.flows.deleteFlow(flow!.id);
+      expect(scope.flows.getFlowByName('OrderFulfillmentFlow')).toBeNull();
+
+      const fn = scope.functions.getFunctionByName('validate-order');
+      expect(fn).toBeDefined();
+      await scope.functions.deleteFunction(fn!.id);
+      expect(scope.functions.getFunctionByName('validate-order')).toBeNull();
+
+      await scope.snapshots.clearAllSnapshots();
+      expect(scope.snapshots.hasSnapshot()).toBe(false);
+
+      // Re-invoke ensureDemoAppInitialized with force=true to trigger bootstrap repair
+      await server.apps.ensureDemoAppInitialized(true);
+
+      // Verify that missing flow, function, and baseline snapshot were repaired
+      expect(scope.flows.getFlowByName('OrderFulfillmentFlow')).not.toBeNull();
+      expect(scope.functions.getFunctionByName('validate-order')).not.toBeNull();
+      expect(scope.snapshots.hasSnapshot()).toBe(true);
+      const repairedSnapshots = await scope.snapshots.listSnapshots();
+      expect(repairedSnapshots.some((s) => s.name === 'ecommerce-demo-baseline')).toBe(true);
+    });
   });
 
   describe('3. Serverless Functions (Lambdas)', () => {

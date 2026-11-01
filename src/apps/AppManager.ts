@@ -59,8 +59,8 @@ export class AppManager {
     return defaultScope;
   }
 
-  public async ensureDemoAppInitialized(): Promise<AppScope | undefined> {
-    if (this.demoInitPromise) {
+  public async ensureDemoAppInitialized(force = false): Promise<AppScope | undefined> {
+    if (this.demoInitPromise && !force) {
       return this.demoInitPromise;
     }
     this.demoInitPromise = this.doEnsureDemoAppInitialized();
@@ -73,17 +73,21 @@ export class AppManager {
       if (!demoApp) return undefined;
 
       const scope = this.get('ecommerce-demo');
-      const hasProducts = scope.schema.getCollection('products');
-      if (!hasProducts) {
-        await scope.templates.apply('ecommerce');
 
-        // Create baseline snapshot for Reset to Demo State
+      // Idempotently apply ecommerce template: bootstraps or repairs missing collections,
+      // serverless functions, and orchestration flows even on partially initialized scopes.
+      await scope.templates.apply('ecommerce');
+
+      // Ensure baseline snapshot exists for Reset to Demo State
+      if (!scope.snapshots.hasSnapshot()) {
         try {
           await scope.snapshots.createSnapshot({
             name: 'ecommerce-demo-baseline',
             description: 'Baseline state for ecommerce-demo storefront and lambdas',
           });
-        } catch {}
+        } catch (snapErr: any) {
+          console.warn(`[AppManager] Creating baseline snapshot note: ${snapErr.message}`);
+        }
       }
 
       // Pre-seed or synchronize demo customer account for instant 1-click login
