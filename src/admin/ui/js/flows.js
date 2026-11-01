@@ -21,10 +21,24 @@ if (typeof window !== 'undefined') {
 // 1. API Fetching
 // ==========================================
 
+function getFlowsApiBase() {
+  const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : (typeof state !== 'undefined' && state?.activeApp?.slug ? state.activeApp.slug : 'default');
+  return slug && slug !== 'default' ? `/api/apps/${slug}/flows` : '/api/flows';
+}
+
+function getFunctionsApiBase() {
+  const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : (typeof state !== 'undefined' && state?.activeApp?.slug ? state.activeApp.slug : 'default');
+  return slug && slug !== 'default' ? `/api/apps/${slug}/functions` : '/api/functions';
+}
+
+if (typeof window !== 'undefined') {
+  window.getFlowsApiBase = getFlowsApiBase;
+  window.getFunctionsApiBase = getFunctionsApiBase;
+}
+
 async function loadFlows() {
   try {
-    const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : (state?.activeApp?.slug || 'default');
-    const endpoint = slug && slug !== 'default' ? `/api/apps/${slug}/flows` : '/api/flows';
+    const endpoint = getFlowsApiBase();
     const res = await api(endpoint);
     flowsState.flows = Array.isArray(res) ? res : res?.data || [];
     updateSidebarFlowsCount();
@@ -37,7 +51,8 @@ async function loadFlows() {
 
 async function loadFlowExecutions(flowId = '') {
   try {
-    const url = flowId ? `/api/flows/${flowId}/executions` : '/api/flows/executions';
+    const base = getFlowsApiBase();
+    const url = flowId ? `${base}/${flowId}/executions` : `${base}/executions`;
     const res = await api(url);
     flowsState.executions = res?.items || (Array.isArray(res) ? res : []);
     return flowsState.executions;
@@ -49,7 +64,8 @@ async function loadFlowExecutions(flowId = '') {
 
 async function loadFunctionsForPicker() {
   try {
-    const res = await api('/api/functions');
+    const endpoint = getFunctionsApiBase();
+    const res = await api(endpoint);
     flowsState.functions = Array.isArray(res) ? res : res?.data || [];
   } catch (err) {
     console.error('Failed to load functions for picker:', err);
@@ -345,7 +361,8 @@ function handleFlowsSearch(val) {
 
 async function toggleFlowStatus(flowId, enabled) {
   try {
-    await api(`/api/flows/${flowId}`, {
+    const base = getFlowsApiBase();
+    await api(`${base}/${flowId}`, {
       method: 'PATCH',
       body: JSON.stringify({ enabled }),
     });
@@ -361,7 +378,8 @@ async function deleteFlowPrompt(flowId, name) {
     return;
   }
   try {
-    await api(`/api/flows/${flowId}`, { method: 'DELETE' });
+    const base = getFlowsApiBase();
+    await api(`${base}/${flowId}`, { method: 'DELETE' });
     await refreshFlowsView();
     toast(`Flow "${name}" deleted successfully`, 'success');
   } catch (err) {
@@ -475,7 +493,8 @@ async function handleCreateFlowSubmit(e) {
   };
 
   try {
-    const created = await api('/api/flows', {
+    const base = getFlowsApiBase();
+    const created = await api(base, {
       method: 'POST',
       body: JSON.stringify(initialFlow),
     });
@@ -507,7 +526,8 @@ async function inspectExecutionDetail(executionId) {
   try {
     let exec = (flowsState.executions || []).find((e) => e.id === executionId);
     if (!exec || !exec.stepLogs) {
-      exec = await api(`/api/flows/executions/${executionId}`);
+      const base = getFlowsApiBase();
+      exec = await api(`${base}/executions/${executionId}`);
     }
     if (!exec) {
       toast('Execution record not found', 'error');
