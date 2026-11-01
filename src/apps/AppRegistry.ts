@@ -120,7 +120,7 @@ export class AppRegistry {
       throw new ConflictError(`Application with slug '${slug}' already exists`);
     }
 
-    const id = `app_${crypto.randomBytes(6).toString('hex')}`;
+    const id = dto.slug === 'ecommerce-demo' ? 'app_ecommerce_demo' : `app_${crypto.randomBytes(6).toString('hex')}`;
     const now = new Date().toISOString();
     const description = (dto.description || '').trim();
     const icon = (dto.icon || 'cube').trim();
@@ -155,7 +155,7 @@ export class AppRegistry {
 
   public deleteApp(slugOrId: string): AppModel {
     const current = this.getAppOrThrow(slugOrId);
-    if (current.isDefault || current.slug === 'default' || current.slug === 'ecommerce-demo') {
+    if (current.isDefault || current.slug === 'default') {
       throw new AppError('Cannot delete the default application', 400);
     }
 

@@ -59,24 +59,34 @@ export class AppManager {
     return defaultScope;
   }
 
-  public async ensureDemoAppInitialized(force = false): Promise<AppScope | undefined> {
-    if (this.demoInitPromise && !force) {
+  public async ensureDemoAppInitialized(
+    force = false,
+    options?: { overwrite?: boolean }
+  ): Promise<AppScope | undefined> {
+    if (this.demoInitPromise && !force && !options?.overwrite) {
       return this.demoInitPromise;
     }
-    this.demoInitPromise = this.doEnsureDemoAppInitialized();
+    this.demoInitPromise = this.doEnsureDemoAppInitialized(options);
     return this.demoInitPromise;
   }
 
-  private async doEnsureDemoAppInitialized(): Promise<AppScope | undefined> {
+  private async doEnsureDemoAppInitialized(options?: { overwrite?: boolean }): Promise<AppScope | undefined> {
     try {
-      const demoApp = this.registry.getApp('ecommerce-demo');
-      if (!demoApp) return undefined;
+      let demoApp = this.registry.getApp('ecommerce-demo');
+      if (!demoApp) {
+        demoApp = this.registry.createApp({
+          slug: 'ecommerce-demo',
+          name: 'E-Commerce Demo',
+          description: 'Retail storefront showcase pre-seeded with catalog, serverless lambdas, and event-driven flows',
+          icon: 'shopping-bag',
+        });
+      }
 
       const scope = this.get('ecommerce-demo');
 
       // Idempotently apply ecommerce template: bootstraps or repairs missing collections,
       // serverless functions, and orchestration flows even on partially initialized scopes.
-      await scope.templates.apply('ecommerce');
+      await scope.templates.apply('ecommerce', { overwrite: Boolean(options?.overwrite) });
 
       // Ensure baseline snapshot exists for Reset to Demo State
       if (!scope.snapshots.hasSnapshot()) {
@@ -273,8 +283,12 @@ export class AppManager {
 
   public async delete(slugOrId: string): Promise<void> {
     const target = this.registry.getAppOrThrow(slugOrId);
-    if (target.isDefault || target.slug === 'default' || target.slug === 'ecommerce-demo') {
-      throw new AppError('Cannot delete the default or built-in demo application', 400);
+    if (target.isDefault || target.slug === 'default') {
+      throw new AppError('Cannot delete the default application', 400);
+    }
+
+    if (target.slug === 'ecommerce-demo') {
+      this.demoInitPromise = undefined;
     }
 
     const cached = this.appCache.get(target.slug) || this.appCache.get(target.id);

@@ -62,10 +62,36 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
       expect(fs.existsSync(path.join(demoDir, 'storage'))).toBe(true);
     });
 
-    it('should prevent deletion of the ecommerce-demo application', async () => {
-      await expect(server.apps.delete('ecommerce-demo')).rejects.toThrow(
-        /Cannot delete the default or built-in demo application/
+    it('should protect default app but allow deleting and idempotently restoring ecommerce-demo', async () => {
+      // 1. Deleting default application must be prevented
+      await expect(server.apps.delete('default')).rejects.toThrow(
+        /Cannot delete the default application/
       );
+      expect(() => (server.apps as any).registry.deleteApp('default')).toThrow(
+        /Cannot delete the default application/
+      );
+
+      // 2. Deleting ecommerce-demo must succeed
+      await server.apps.delete('ecommerce-demo');
+      expect(server.apps.has('ecommerce-demo')).toBe(false);
+      const appsAfterDelete = server.apps.list();
+      expect(appsAfterDelete.some((a) => a.slug === 'ecommerce-demo')).toBe(false);
+
+      // 3. Re-running demo initialization idempotently restores the deleted application
+      const restoredScope = await server.apps.ensureDemoAppInitialized(true);
+      expect(restoredScope).toBeDefined();
+      expect(server.apps.has('ecommerce-demo')).toBe(true);
+
+      const appsAfterRestore = server.apps.list();
+      const restoredApp = appsAfterRestore.find((a) => a.slug === 'ecommerce-demo');
+      expect(restoredApp).toBeDefined();
+      expect(restoredApp?.name).toBe('E-Commerce Demo');
+
+      // Verify restored scope has collections, catalog products, and baseline snapshot
+      const restoredCollections = restoredScope!.schema.getAllCollections();
+      expect(restoredCollections.some((c) => c.name === 'products')).toBe(true);
+      expect(restoredCollections.some((c) => c.name === 'orders')).toBe(true);
+      expect(restoredScope!.snapshots.hasSnapshot()).toBe(true);
     });
   });
 
