@@ -109,26 +109,38 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const savedGuest = localStorage.getItem(GUEST_CART_KEY);
             if (savedGuest) {
               const guestItems: CartItem[] = JSON.parse(savedGuest);
+              const unmergedItems: CartItem[] = [];
+
               for (const gItem of guestItems) {
-                const existingIdx = loadedItems.findIndex((it) => it.product.id === gItem.product.id);
-                if (existingIdx >= 0) {
-                  const newQty = loadedItems[existingIdx].quantity + gItem.quantity;
-                  loadedItems[existingIdx].quantity = newQty;
-                  const rId = rMap[gItem.product.id];
-                  if (rId) {
-                    await client.collection('cart_items').update(rId, { quantity: newQty });
+                try {
+                  const existingIdx = loadedItems.findIndex((it) => it.product.id === gItem.product.id);
+                  if (existingIdx >= 0) {
+                    const newQty = loadedItems[existingIdx].quantity + gItem.quantity;
+                    const rId = rMap[gItem.product.id];
+                    if (rId) {
+                      await client.collection('cart_items').update(rId, { quantity: newQty });
+                    }
+                    loadedItems[existingIdx].quantity = newQty;
+                  } else {
+                    const created = await client.collection('cart_items').create({
+                      user: user.id,
+                      product: gItem.product.id,
+                      quantity: gItem.quantity,
+                    });
+                    rMap[gItem.product.id] = created.id;
+                    loadedItems.push(gItem);
                   }
-                } else {
-                  loadedItems.push(gItem);
-                  const created = await client.collection('cart_items').create({
-                    user: user.id,
-                    product: gItem.product.id,
-                    quantity: gItem.quantity,
-                  });
-                  rMap[gItem.product.id] = created.id;
+                } catch (itemErr) {
+                  console.warn(`Failed to merge guest cart item "${gItem.product?.name || gItem.product?.id}":`, itemErr);
+                  unmergedItems.push(gItem);
                 }
               }
-              localStorage.removeItem(GUEST_CART_KEY);
+
+              if (unmergedItems.length === 0) {
+                localStorage.removeItem(GUEST_CART_KEY);
+              } else {
+                localStorage.setItem(GUEST_CART_KEY, JSON.stringify(unmergedItems));
+              }
             }
           } catch (mergeErr) {
             console.warn('Guest cart merge note:', mergeErr);

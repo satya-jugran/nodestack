@@ -49,6 +49,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               const saved = localStorage.getItem(LOCAL_FAVS_KEY);
               if (saved) {
                 const guestIds: string[] = JSON.parse(saved);
+                const unmergedIds: string[] = [];
                 for (const pId of guestIds) {
                   if (!ids.includes(pId)) {
                     try {
@@ -60,10 +61,15 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                       rMap[pId] = created.id;
                     } catch (createErr) {
                       console.warn('Failed to merge guest favorite to NodeStack:', createErr);
+                      unmergedIds.push(pId);
                     }
                   }
                 }
-                localStorage.removeItem(LOCAL_FAVS_KEY);
+                if (unmergedIds.length === 0) {
+                  localStorage.removeItem(LOCAL_FAVS_KEY);
+                } else {
+                  localStorage.setItem(LOCAL_FAVS_KEY, JSON.stringify(unmergedIds));
+                }
               }
             } catch (mergeErr) {
               console.warn('Guest favorites merge note:', mergeErr);
