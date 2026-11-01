@@ -260,7 +260,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                NodeStack ships with <code>ecommerce-demo</code> pre-seeded alongside the clean <code>default</code> app. This storefront connects to <code>ecommerce-demo</code> with isolated SQLite storage, 5 collections, 20 products with SVG images, and verified reviews.
+                NodeStack ships with <code>ecommerce-demo</code> pre-seeded alongside the clean <code>default</code> app. This storefront connects to <code>ecommerce-demo</code> with isolated SQLite storage, 6 collections, 20 products with SVG images, and verified reviews.
               </p>
             </div>
 

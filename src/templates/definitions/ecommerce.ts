@@ -4,9 +4,9 @@ import { TemplateImageGenerator } from '../TemplateImageGenerator';
 export const ecommerceTemplate: TemplateDefinition = {
   id: 'ecommerce',
   name: 'E-Commerce',
-  tagline: 'Instant storefront with products, categories, orders & customer reviews',
+  tagline: 'Instant storefront with products, categories, orders, reviews, favorites & cart',
   description:
-    'Full-featured retail schema pre-seeded with 20 realistic products, custom generated SVG product images, relational categories, customer orders, and verified reviews.',
+    'Full-featured retail schema pre-seeded with 20 realistic products, custom generated SVG product images, relational categories, customer orders, verified reviews, user favorites, and shopping cart.',
   icon: '🛒',
   badge: '20 Items & Images',
   aliases: ['ecommerce', 'e-commerce', 'shop', 'store'],
