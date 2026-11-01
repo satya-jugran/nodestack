@@ -449,7 +449,7 @@ export const ecommerceTemplate: TemplateDefinition = {
         type: 'base',
         listRule: '@request.auth.id != "" && user = @request.auth.id',
         viewRule: '@request.auth.id != "" && user = @request.auth.id',
-        createRule: '@request.auth.id != ""',
+        createRule: '@request.auth.id != "" && user = @request.auth.id',
         updateRule: '@request.auth.id != "" && user = @request.auth.id',
         deleteRule: null,
         schema: [

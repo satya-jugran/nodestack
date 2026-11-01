@@ -460,5 +460,51 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
       // Clean up
       await client.collection('favorites').delete(created.id);
     });
+
+    it('should enforce user = @request.auth.id on orders createRule, preventing spoofing other accounts', async () => {
+      // 1. Authenticate as demo customer Alex Vance
+      const auth = await client.collection('users').authWithPassword('alex.vance@nodestack.dev', 'DemoPassword123!');
+      expect(auth.token).toBeDefined();
+
+      // 2. Creating order matching auth.record.id succeeds
+      const validOrder = await client.collection('orders').create({
+        orderNumber: 'ORD-SECURITY-001',
+        user: auth.record.id,
+        customerName: 'Alex Vance',
+        customerEmail: 'alex.vance@nodestack.dev',
+        shippingAddress: '742 Evergreen Terrace, Austin, TX 78701',
+        total: 99.0,
+        status: 'pending',
+        items: JSON.stringify([{ productId: 'prod_01', quantity: 1, price: 99.0 }]),
+      });
+      expect(validOrder.id).toBeDefined();
+
+      // 3. Attempting to create order with another user ID fails
+      await expect(
+        client.collection('orders').create({
+          orderNumber: 'ORD-SECURITY-HACK',
+          user: 'usr_another_victim',
+          customerName: 'Imposter',
+          customerEmail: 'imposter@bad.com',
+          shippingAddress: '123 Fake St',
+          total: 50.0,
+          status: 'pending',
+          items: JSON.stringify([]),
+        })
+      ).rejects.toThrow();
+
+      // 4. Attempting to create order without user relation fails
+      await expect(
+        client.collection('orders').create({
+          orderNumber: 'ORD-SECURITY-NOUSER',
+          customerName: 'No User',
+          customerEmail: 'nouser@bad.com',
+          shippingAddress: '123 Fake St',
+          total: 50.0,
+          status: 'pending',
+          items: JSON.stringify([]),
+        })
+      ).rejects.toThrow();
+    });
   });
 });
