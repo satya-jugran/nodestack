@@ -397,4 +397,44 @@ export class FlowValidator {
       this.validateChoiceRule(stateName, 0, rule.not, allKeys, isLoopCondition, `${pathPrefix}.not`, true, contextPath);
     }
   }
+
+  /**
+   * Recursively extracts all function names/identifiers referenced in a flow definition
+   * (e.g. from top-level Task states, Map iterator states, Parallel branches, etc.)
+   */
+  public static extractReferencedFunctions(
+    defOrStates: FlowDefinition | Record<string, FlowState> | null | undefined
+  ): Set<string> {
+    const referenced = new Set<string>();
+    if (!defOrStates || typeof defOrStates !== 'object') {
+      return referenced;
+    }
+
+    const states: Record<string, FlowState> =
+      (defOrStates as FlowDefinition).states || (defOrStates as Record<string, FlowState>);
+    if (!states || typeof states !== 'object') {
+      return referenced;
+    }
+
+    function scanStates(stateRecord: Record<string, any>) {
+      if (!stateRecord || typeof stateRecord !== 'object') return;
+      for (const state of Object.values(stateRecord)) {
+        if (!state || typeof state !== 'object') continue;
+        if (state.type === 'Task' && typeof state.function === 'string' && state.function.trim()) {
+          referenced.add(state.function.trim());
+        } else if (state.type === 'Map' && state.iterator && typeof state.iterator === 'object' && state.iterator.states) {
+          scanStates(state.iterator.states);
+        } else if (state.type === 'Parallel' && Array.isArray(state.branches)) {
+          for (const branch of state.branches) {
+            if (branch && typeof branch === 'object' && branch.states) {
+              scanStates(branch.states);
+            }
+          }
+        }
+      }
+    }
+
+    scanStates(states);
+    return referenced;
+  }
 }

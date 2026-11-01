@@ -2027,4 +2027,431 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(win.escapeHtml('<script>"test"&\'</script>')).toBe('&lt;script&gt;&quot;test&quot;&amp;&#39;&lt;/script&gt;');
     });
   });
+
+  describe('Function-Flow Referential Integrity', () => {
+    it('should recursively extract referenced function names from FlowDefinition', () => {
+      const complexDef: FlowDefinition = {
+        startAt: 'TopTask',
+        states: {
+          TopTask: {
+            type: 'Task',
+            function: 'fn-top-level',
+            next: 'MapState',
+          },
+          MapState: {
+            type: 'Map',
+            itemsPath: '$.items',
+            iterator: {
+              startAt: 'NestedTaskInMap',
+              states: {
+                NestedTaskInMap: {
+                  type: 'Task',
+                  function: 'fn-inside-map',
+                  end: true,
+                },
+              },
+            },
+            next: 'ParallelState',
+          },
+          ParallelState: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'Branch1Task',
+                states: {
+                  Branch1Task: {
+                    type: 'Task',
+                    function: 'fn-inside-parallel-1',
+                    end: true,
+                  },
+                },
+              },
+              {
+                startAt: 'Branch2Task',
+                states: {
+                  Branch2Task: {
+                    type: 'Task',
+                    function: 'fn-inside-parallel-2',
+                    end: true,
+                  },
+                },
+              },
+            ],
+            next: 'Finish',
+          },
+          Finish: {
+            type: 'Succeed',
+          },
+        },
+      };
+
+      const extracted = FlowValidator.extractReferencedFunctions(complexDef);
+      expect(extracted.has('fn-top-level')).toBe(true);
+      expect(extracted.has('fn-inside-map')).toBe(true);
+      expect(extracted.has('fn-inside-parallel-1')).toBe(true);
+      expect(extracted.has('fn-inside-parallel-2')).toBe(true);
+      expect(extracted.size).toBe(4);
+    });
+
+    it('should safely extract from null, undefined, and non-task definitions', () => {
+      expect(FlowValidator.extractReferencedFunctions(null).size).toBe(0);
+      expect(FlowValidator.extractReferencedFunctions(undefined).size).toBe(0);
+      expect(
+        FlowValidator.extractReferencedFunctions({
+          startAt: 'WaitStep',
+          states: { WaitStep: { type: 'Wait', seconds: 1, end: true } },
+        }).size
+      ).toBe(0);
+    });
+
+    it('should prevent deleting a function referenced in a top-level flow task (ConflictError 409)', async () => {
+      // 1. Create dedicated function
+      const fn = app.functions.createFunction({
+        name: 'flow-guarded-fn',
+        code: 'export default async function() { return { ok: true }; }',
+        enabled: true,
+      });
+
+      // 2. Create flow referencing this function
+      const flow = app.flows.createFlow({
+        name: 'GuardedTaskFlow',
+        triggerType: 'http',
+        definition: {
+          startAt: 'Step1',
+          states: {
+            Step1: {
+              type: 'Task',
+              function: 'flow-guarded-fn',
+              end: true,
+            },
+          },
+        },
+      });
+
+      // 3. Attempt to delete function without force - should throw ConflictError (409)
+      expect(() => {
+        app.functions.deleteFunction(fn.id);
+      }).toThrow(/Cannot delete function 'flow-guarded-fn': referenced by 1 flow\(s\) \('GuardedTaskFlow'\)/);
+
+      // Verify function was NOT deleted
+      expect(app.functions.getFunctionById(fn.id)).not.toBeNull();
+
+      // 4. Test REST API DELETE /api/functions/:id - should return 409
+      const delRes = await app.server.inject({
+        method: 'DELETE',
+        url: `/api/functions/${fn.id}`,
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(delRes.statusCode).toBe(409);
+      expect(delRes.json().message).toContain("Cannot delete function 'flow-guarded-fn': referenced by 1 flow(s) ('GuardedTaskFlow')");
+
+      // 5. Delete flow, then delete function without force - should now succeed
+      app.flows.deleteFlow(flow.id);
+      expect(app.functions.deleteFunction(fn.id)).toBe(true);
+      expect(app.functions.getFunctionById(fn.id)).toBeNull();
+    });
+
+    it('should prevent deleting a function referenced in nested Map or Parallel states', async () => {
+      const mapFn = app.functions.createFunction({
+        name: 'nested-map-fn',
+        code: 'export default async function() { return { ok: true }; }',
+        enabled: true,
+      });
+
+      const parallelFn = app.functions.createFunction({
+        name: 'nested-parallel-fn',
+        code: 'export default async function() { return { ok: true }; }',
+        enabled: true,
+      });
+
+      const complexFlow = app.flows.createFlow({
+        name: 'NestedIntegrityFlow',
+        triggerType: 'http',
+        definition: {
+          startAt: 'BatchMap',
+          states: {
+            BatchMap: {
+              type: 'Map',
+              itemsPath: '$.items',
+              iterator: {
+                startAt: 'ProcessMapItem',
+                states: {
+                  ProcessMapItem: {
+                    type: 'Task',
+                    function: 'nested-map-fn',
+                    end: true,
+                  },
+                },
+              },
+              next: 'ParallelBranches',
+            },
+            ParallelBranches: {
+              type: 'Parallel',
+              branches: [
+                {
+                  startAt: 'ParallelTask',
+                  states: {
+                    ParallelTask: {
+                      type: 'Task',
+                      function: 'nested-parallel-fn',
+                      end: true,
+                    },
+                  },
+                },
+              ],
+              end: true,
+            },
+          },
+        },
+      });
+
+      // Both nested functions should be protected
+      expect(() => {
+        app.functions.deleteFunction(mapFn.id);
+      }).toThrow(/Cannot delete function 'nested-map-fn': referenced by 1 flow\(s\)/);
+
+      expect(() => {
+        app.functions.deleteFunction(parallelFn.id);
+      }).toThrow(/Cannot delete function 'nested-parallel-fn': referenced by 1 flow\(s\)/);
+
+      // Force delete nested-map-fn via API with ?force=true
+      const forceRes = await app.server.inject({
+        method: 'DELETE',
+        url: `/api/functions/${mapFn.id}?force=true`,
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(forceRes.statusCode).toBe(200);
+      expect(forceRes.json().success).toBe(true);
+      expect(app.functions.getFunctionById(mapFn.id)).toBeNull();
+
+      // Clean up flow and remaining parallelFn
+      app.flows.deleteFlow(complexFlow.id);
+      expect(app.functions.deleteFunction(parallelFn.id)).toBe(true);
+    });
+
+    it('should list all referencing flows when a function is referenced by multiple flows', async () => {
+      const sharedFn = app.functions.createFunction({
+        name: 'shared-utility-fn',
+        code: 'export default async function() { return { ok: true }; }',
+        enabled: true,
+      });
+
+      const flowA = app.flows.createFlow({
+        name: 'FlowAlpha',
+        triggerType: 'http',
+        definition: {
+          startAt: 'AlphaTask',
+          states: {
+            AlphaTask: {
+              type: 'Task',
+              function: 'shared-utility-fn',
+              end: true,
+            },
+          },
+        },
+      });
+
+      const flowB = app.flows.createFlow({
+        name: 'FlowBeta',
+        triggerType: 'http',
+        definition: {
+          startAt: 'BetaTask',
+          states: {
+            BetaTask: {
+              type: 'Task',
+              function: 'shared-utility-fn',
+              end: true,
+            },
+          },
+        },
+      });
+
+      expect(() => {
+        app.functions.deleteFunction(sharedFn.id);
+      }).toThrow("Cannot delete function 'shared-utility-fn': referenced by 2 flow(s)");
+
+      // Force delete with options { force: true }
+      expect(app.functions.deleteFunction(sharedFn.id, undefined, { force: true })).toBe(true);
+      expect(app.functions.getFunctionById(sharedFn.id)).toBeNull();
+
+      app.flows.deleteFlow(flowA.id);
+      app.flows.deleteFlow(flowB.id);
+    });
+
+    it('should preserve referential integrity when referenced by function ID instead of name', async () => {
+      const fnById = app.functions.createFunction({
+        name: 'id-referenced-fn',
+        code: 'export default async function() { return { ok: true }; }',
+        enabled: true,
+      });
+
+      const flowWithId = app.flows.createFlow({
+        name: 'FlowReferencingId',
+        triggerType: 'http',
+        definition: {
+          startAt: 'StepUsingId',
+          states: {
+            StepUsingId: {
+              type: 'Task',
+              function: fnById.id,
+              end: true,
+            },
+          },
+        },
+      });
+
+      expect(() => {
+        app.functions.deleteFunction(fnById.id);
+      }).toThrow("Cannot delete function 'id-referenced-fn': referenced by 1 flow(s) ('FlowReferencingId')");
+
+      app.flows.deleteFlow(flowWithId.id);
+      expect(app.functions.deleteFunction(fnById.id)).toBe(true);
+    });
+
+    it('should support direct SQLite fallback when FlowService is unassigned', async () => {
+      const isolatedFn = app.functions.createFunction({
+        name: 'isolated-check-fn',
+        code: 'export default async function() { return { ok: true }; }',
+        enabled: true,
+      });
+
+      const flow = app.flows.createFlow({
+        name: 'IsolatedFlowTest',
+        triggerType: 'http',
+        definition: {
+          startAt: 'IsolatedTask',
+          states: {
+            IsolatedTask: {
+              type: 'Task',
+              function: 'isolated-check-fn',
+              end: true,
+            },
+          },
+        },
+      });
+
+      // Temporarily unset flowService on app.functions to test fallback path
+      const originalFlowService = (app.functions as any).flowService;
+      (app.functions as any).flowService = undefined;
+
+      try {
+        const dependent = app.functions.getDependentFlows('isolated-check-fn', isolatedFn.id);
+        expect(dependent.length).toBe(1);
+        expect(dependent[0].name).toBe('IsolatedFlowTest');
+
+        expect(() => {
+          app.functions.deleteFunction(isolatedFn.id);
+        }).toThrow("Cannot delete function 'isolated-check-fn': referenced by 1 flow(s) ('IsolatedFlowTest')");
+      } finally {
+        (app.functions as any).flowService = originalFlowService;
+        app.flows.deleteFlow(flow.id);
+        app.functions.deleteFunction(isolatedFn.id);
+      }
+    });
+    it('should enforce referential integrity per app scope and allow force delete in tenant app', async () => {
+      const tenantScope = await app.apps.create({
+        name: 'Tenant CRM',
+        slug: 'tenant-crm',
+      });
+
+      const tenantFn = tenantScope.functions.createFunction({
+        name: 'tenant-mailer',
+        code: 'export default async function() { return { mailed: true }; }',
+        enabled: true,
+      });
+
+      const tenantFlow = tenantScope.flows.createFlow({
+        name: 'TenantWorkflow',
+        triggerType: 'http',
+        definition: {
+          startAt: 'SendMail',
+          states: {
+            SendMail: {
+              type: 'Task',
+              function: 'tenant-mailer',
+              end: true,
+            },
+          },
+        },
+      });
+
+      // Attempt to delete via tenant app REST endpoint without force -> 409
+      const delRes = await app.server.inject({
+        method: 'DELETE',
+        url: `/api/apps/tenant-crm/functions/${tenantFn.id}`,
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(delRes.statusCode).toBe(409);
+      expect(delRes.json().message).toContain("Cannot delete function 'tenant-mailer': referenced by 1 flow(s) ('TenantWorkflow')");
+
+      // Now force delete via tenant app REST endpoint with ?force=true -> 200
+      const forceRes = await app.server.inject({
+        method: 'DELETE',
+        url: `/api/apps/tenant-crm/functions/${tenantFn.id}?force=true`,
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(forceRes.statusCode).toBe(200);
+      expect(forceRes.json().success).toBe(true);
+      expect(tenantScope.functions.getFunctionById(tenantFn.id)).toBeNull();
+
+      // Clean up tenant flow and app
+      tenantScope.flows.deleteFlow(tenantFlow.id);
+      await app.apps.delete('tenant-crm');
+    });
+
+    it('should prompt to force delete in Admin UI when deleteFunctionPrompt receives 409 Conflict', async () => {
+      const htmlPath = path.resolve(__dirname, '../dist/admin/ui/index.html');
+      const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+
+      const dom = new JSDOM(htmlContent, {
+        runScripts: 'dangerously',
+        resources: 'usable',
+        url: 'http://localhost:8197/_/',
+      });
+      const win = dom.window as any;
+
+      let confirmCount = 0;
+      const confirmPrompts: string[] = [];
+      win.confirm = (msg: string) => {
+        confirmCount++;
+        confirmPrompts.push(msg);
+        return true; // confirm both initial prompt and force prompt
+      };
+
+      const requestedUrls: string[] = [];
+      win.api = async (path: string, opts: any) => {
+        requestedUrls.push(`${opts?.method || 'GET'} ${path}`);
+        if (opts?.method === 'DELETE' && !path.includes('force=true')) {
+          const err: any = new Error("Cannot delete function 'flow-task-fn': referenced by 1 flow(s) ('FlowA')");
+          err.status = 409;
+          throw err;
+        }
+        return { success: true };
+      };
+
+      let toastedMsg = '';
+      let toastedType = '';
+      win.toast = (msg: string, type: string) => {
+        toastedMsg = msg;
+        toastedType = type;
+      };
+
+      await win.deleteFunctionPrompt('fn_123', 'flow-task-fn');
+
+      // Both confirms triggered: 1st for deletion, 2nd for force delete
+      expect(confirmCount).toBe(2);
+      expect(confirmPrompts[0]).toContain("Are you sure you want to delete function 'flow-task-fn'");
+      expect(confirmPrompts[1]).toContain("Do you want to FORCE delete this function anyway");
+
+      // Verify two DELETE calls made: initial and force
+      const deleteCalls = requestedUrls.filter((u) => u.startsWith('DELETE'));
+      expect(deleteCalls).toEqual([
+        'DELETE /api/functions/fn_123',
+        'DELETE /api/functions/fn_123?force=true',
+      ]);
+      expect(toastedMsg).toContain("Function 'flow-task-fn' deleted (forced)");
+      expect(toastedType).toBe('info');
+    });
+  });
+
 });

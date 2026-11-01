@@ -22,11 +22,13 @@ import {
 
 export const ALLOWED_AUTH_POLICIES: readonly FunctionAuthPolicy[] = ['public', 'auth', 'admin', 'apiKey'] as const;
 import { AppError, NotFoundError, ForbiddenError, UnauthorizedError, ValidationError, ConflictError } from '../core/errors/AppError';
+import { FlowValidator } from '../flows/FlowValidator';
 
 export interface FunctionServiceOptions {
   runner?: SandboxedRunner;
   maxConcurrent?: number;
   maxRecursionDepth?: number;
+  flowService?: any;
 }
 
 export class FunctionService {
@@ -35,6 +37,7 @@ export class FunctionService {
   private maxRecursionDepth: number;
   private activeExecutions = 0;
   private executionStorage = new AsyncLocalStorage<{ depth: number; activeFns: Set<string> }>();
+  private flowService?: any;
 
   constructor(
     private db: DatabaseService,
@@ -48,6 +51,7 @@ export class FunctionService {
     this.runner = options.runner || new SandboxedRunner();
     this.maxConcurrent = options.maxConcurrent || 15;
     this.maxRecursionDepth = options.maxRecursionDepth || 5;
+    this.flowService = options.flowService;
     this.initTables();
   }
 
@@ -268,14 +272,76 @@ export class FunctionService {
     return this.getFunctionById(id)!;
   }
 
-  public deleteFunction(id: string, actor?: any): boolean {
-    const current = this.getFunctionById(id);
+  public setFlowService(flowService: any): void {
+    this.flowService = flowService;
+  }
+
+  public getFlowService(): any {
+    return this.flowService;
+  }
+
+  /**
+   * Finds all flows that reference a function by name or ID.
+   * Uses wired FlowService if available, or falls back to direct SQLite query on _flows table.
+   */
+  public getDependentFlows(functionName: string, functionId?: string): Array<{ id: string; name: string }> {
+    if (this.flowService && typeof this.flowService.getFlowsReferencingFunction === 'function') {
+      return this.flowService.getFlowsReferencingFunction(functionName, functionId).map((f: any) => ({
+        id: f.id,
+        name: f.name,
+      }));
+    }
+
+    // Direct SQLite fallback: query _flows table if it exists
+    try {
+      const tableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_flows'").get();
+      if (!tableExists) {
+        return [];
+      }
+      const rows = this.db.prepare('SELECT id, name, definition FROM _flows').all() as Array<{
+        id: string;
+        name: string;
+        definition: string;
+      }>;
+      const targetName = functionName ? functionName.trim() : '';
+      const targetId = functionId ? functionId.trim() : '';
+      const dependent: Array<{ id: string; name: string }> = [];
+
+      for (const row of rows) {
+        try {
+          const def = JSON.parse(row.definition);
+          const referenced = FlowValidator.extractReferencedFunctions(def);
+          if ((targetName && referenced.has(targetName)) || (targetId && referenced.has(targetId))) {
+            dependent.push({ id: row.id, name: row.name });
+          }
+        } catch {
+          // ignore corrupted flow row
+        }
+      }
+      return dependent;
+    } catch {
+      return [];
+    }
+  }
+
+  public deleteFunction(id: string, actor?: any, options?: { force?: boolean }): boolean {
+    const current = this.getFunctionById(id) || this.getFunctionByName(id);
     if (!current) {
       throw new NotFoundError(`Function '${id}' not found`);
     }
 
-    this.db.prepare('DELETE FROM _function_logs WHERE functionId = ?').run(id);
-    this.db.prepare('DELETE FROM _functions WHERE id = ?').run(id);
+    if (!options?.force) {
+      const dependent = this.getDependentFlows(current.name, current.id);
+      if (dependent.length > 0) {
+        const flowList = dependent.map((f) => `'${f.name}'`).join(', ');
+        throw new ConflictError(
+          `Cannot delete function '${current.name}': referenced by ${dependent.length} flow(s) (${flowList})`
+        );
+      }
+    }
+
+    this.db.prepare('DELETE FROM _function_logs WHERE functionId = ?').run(current.id);
+    this.db.prepare('DELETE FROM _functions WHERE id = ?').run(current.id);
     return true;
   }
 

@@ -78,12 +78,14 @@ export class FunctionController extends BaseController {
   }
 
   public async deleteFunction(
-    req: FastifyRequest<{ Params: { id: string } }>,
+    req: FastifyRequest<{ Params: { id: string }; Querystring: { force?: string } }>,
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getFunctionsService(req);
     try {
-      service.deleteFunction(req.params.id, (req as any).auth);
+      const forceQuery = (req.query as any)?.force;
+      const force = forceQuery === 'true' || forceQuery === '1' || forceQuery === true;
+      service.deleteFunction(req.params.id, (req as any).auth, { force });
       this.ok(reply, { success: true, message: 'Function deleted' });
     } catch (err: any) {
       if (err instanceof AppError) {

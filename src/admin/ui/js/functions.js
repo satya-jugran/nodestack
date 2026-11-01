@@ -431,14 +431,35 @@ async function deleteFunctionPrompt(id, name) {
   if (!confirm(`Are you sure you want to delete function '${name}'? All invocation history will be removed.`)) {
     return;
   }
+  const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+  const endpoint = slug && slug !== 'default' ? `/api/apps/${slug}/functions/${id}` : `/api/functions/${id}`;
   try {
-    const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
-    const endpoint = slug && slug !== 'default' ? `/api/apps/${slug}/functions/${id}` : `/api/functions/${id}`;
     await api(endpoint, { method: 'DELETE' });
     toast(`Function '${name}' deleted`, 'info');
+    if (typeof closeFunctionEditor === 'function') {
+      closeFunctionEditor();
+    }
     await loadFunctionStats();
     await loadFunctionsList();
   } catch (err) {
+    if (err.status === 409) {
+      if (confirm(`${err.message}\n\nDo you want to FORCE delete this function anyway? Flow executions referencing this function will fail.`)) {
+        try {
+          await api(`${endpoint}?force=true`, { method: 'DELETE' });
+          toast(`Function '${name}' deleted (forced)`, 'info');
+          if (typeof closeFunctionEditor === 'function') {
+            closeFunctionEditor();
+          }
+          await loadFunctionStats();
+          await loadFunctionsList();
+          return;
+        } catch (forceErr) {
+          toast(forceErr.message || 'Failed to force delete function', 'error');
+          return;
+        }
+      }
+      return;
+    }
     toast(err.message || 'Failed to delete function', 'error');
   }
 }
