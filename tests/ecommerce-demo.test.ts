@@ -445,6 +445,31 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
       expect(adminRes.success).toBe(true);
     });
 
+    it('should protect send-order-notification with admin authPolicy, denying unauthenticated and customer callers', async () => {
+      // 1. Unauthenticated direct invocation via client should fail with 403 Forbidden
+      client.authStore.clear();
+      await expect(
+        client.functions.invoke('send-order-notification', {
+          record: { id: 'ord_fake_123', orderNumber: 'ORD-HACK-1' }
+        })
+      ).rejects.toThrow(/Superuser authorization required/i);
+
+      // 2. Authenticated non-admin (customer) direct invocation via client should fail with 403
+      await client.collection('users').authWithPassword('alex.vance@nodestack.dev', 'DemoPassword123!');
+      await expect(
+        client.functions.invoke('send-order-notification', {
+          record: { id: 'ord_fake_123', orderNumber: 'ORD-HACK-2' }
+        })
+      ).rejects.toThrow(/Superuser authorization required/i);
+
+      // 3. Admin direct invocation succeeds
+      await client.admins.authWithPassword('admin@nodestack.dev', 'AdminDemoPass123!');
+      const adminRes = await client.functions.invoke('send-order-notification', {
+        record: { orderNumber: 'ORD-ADMIN-1', customerEmail: 'alex.vance@nodestack.dev' }
+      });
+      expect(adminRes.notified).toBe(true);
+    });
+
     it('should persist and synchronize cart items for authenticated customer in NodeStack backend', async () => {
       // 1. Authenticate as demo customer
       const auth = await client.collection('users').authWithPassword('alex.vance@nodestack.dev', 'DemoPassword123!');

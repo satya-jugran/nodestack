@@ -918,7 +918,7 @@ export const ecommerceTemplate: TemplateDefinition = {
     "name": "send-order-notification",
     "description": "Dispatches order confirmation receipt, tracking link, and updates order fulfillment record",
     "enabled": true,
-    "authPolicy": "public",
+    "authPolicy": "admin",
     "methods": [
       "POST"
     ],
@@ -927,7 +927,7 @@ export const ecommerceTemplate: TemplateDefinition = {
     "allowedDomains": [],
     "elevated": true,
     "env": {},
-    "code": "export default async function(ctx) {\n  const body = ctx.request?.body || {};\n  const order = body.record || body.order || body;\n  const tracking = body.fulfillment?.[1] || body.shippingResult || body.tracking || {};\n  const vip = body.vipRewards || {};\n\n  const trackingNumber = tracking.trackingNumber || `TRK-US-${Math.floor(100000 + Math.random() * 900000)}`;\n  const carrier = tracking.carrier || 'FedEx Priority Express';\n  const loyaltyPoints = Number(vip.pointsAwarded || 0);\n\n  ctx.log(`[send-order-notification] Finalizing order #${order.orderNumber}: tracking=${trackingNumber}, points=${loyaltyPoints}`);\n\n  if (order.id) {\n    try {\n      await ctx.records.update('orders', order.id, {\n        status: 'processing',\n        trackingNumber: trackingNumber,\n        carrier: carrier,\n        loyaltyPoints: loyaltyPoints\n      });\n      ctx.log(`[send-order-notification] Updated order record ${order.id} with tracking number & loyalty points.`);\n    } catch (err) {\n      ctx.log(`[send-order-notification] Note updating order record: ${err.message}`);\n    }\n  }\n\n  return {\n    status: 200,\n    body: {\n      notified: true,\n      orderNumber: order.orderNumber,\n      recipient: order.customerEmail,\n      carrier,\n      trackingNumber,\n      loyaltyPoints,\n      sentAt: new Date().toISOString()\n    }\n  };\n}"
+    "code": "export default async function(ctx) {\n  const auth = ctx.request?.auth;\n  if (!auth?.role?.includes('admin') && auth?.role !== 'service-role' && !auth?.isAdmin) {\n    return {\n      status: 403,\n      body: {\n        error: 'Forbidden',\n        message: 'Admin or service-role privileges required to send order notification'\n      }\n    };\n  }\n\n  const body = ctx.request?.body || {};\n  const order = body.record || body.order || body;\n  const tracking = body.fulfillment?.[1] || body.shippingResult || body.tracking || {};\n  const vip = body.vipRewards || {};\n\n  const trackingNumber = tracking.trackingNumber || `TRK-US-${Math.floor(100000 + Math.random() * 900000)}`;\n  const carrier = tracking.carrier || 'FedEx Priority Express';\n  const loyaltyPoints = Number(vip.pointsAwarded || 0);\n\n  ctx.log(`[send-order-notification] Finalizing order #${order.orderNumber}: tracking=${trackingNumber}, points=${loyaltyPoints}`);\n\n  if (order.id) {\n    try {\n      await ctx.records.update('orders', order.id, {\n        status: 'processing',\n        trackingNumber: trackingNumber,\n        carrier: carrier,\n        loyaltyPoints: loyaltyPoints\n      });\n      ctx.log(`[send-order-notification] Updated order record ${order.id} with tracking number & loyalty points.`);\n    } catch (err) {\n      ctx.log(`[send-order-notification] Note updating order record: ${err.message}`);\n    }\n  }\n\n  return {\n    status: 200,\n    body: {\n      notified: true,\n      orderNumber: order.orderNumber,\n      recipient: order.customerEmail,\n      carrier,\n      trackingNumber,\n      loyaltyPoints,\n      sentAt: new Date().toISOString()\n    }\n  };\n}"
   }
 ],
   flows: [
@@ -1006,6 +1006,7 @@ export const ecommerceTemplate: TemplateDefinition = {
         "NotifyCustomer": {
           "type": "Task",
           "function": "send-order-notification",
+          "serviceRole": true,
           "resultPath": "$.notification",
           "next": "OrderFulfilled"
         },
