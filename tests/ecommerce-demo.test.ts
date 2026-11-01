@@ -191,7 +191,7 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
       expect(result.body.message).toContain('Invalid coupon');
     });
 
-    it('should validate customer order payloads with validate-order lambda', async () => {
+    it('should validate customer order payloads and catalog stock with validate-order lambda', async () => {
       const scope = server.apps.get('ecommerce-demo');
       const validRes = await scope.functions.executeFunction('validate-order', {
         method: 'POST',
@@ -199,7 +199,7 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
           orderNumber: 'ORD-TEST-1',
           customerEmail: 'alex.vance@nodestack.dev',
           shippingAddress: '404 Research Dr, Black Mesa, NM',
-          items: [{ productId: 'test_prod', quantity: 1, price: 50 }],
+          items: [{ productId: 'prod_01', quantity: 1, price: 299.99 }],
         },
       });
 
@@ -207,6 +207,7 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
       expect(validRes.body.passed).toBe(true);
       expect(validRes.body.riskScore).toBe('low');
 
+      // Invalid customer details
       const invalidRes = await scope.functions.executeFunction('validate-order', {
         method: 'POST',
         body: {
@@ -220,6 +221,42 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
       expect(invalidRes.body.passed).toBe(false);
       expect(invalidRes.body.riskScore).toBe('high');
       expect(invalidRes.body.issues.length).toBeGreaterThanOrEqual(2);
+
+      // Rejection of non-existent catalog product
+      const fakeProdRes = await scope.functions.executeFunction('validate-order', {
+        method: 'POST',
+        body: {
+          customerEmail: 'alex.vance@nodestack.dev',
+          shippingAddress: '404 Research Dr, Black Mesa, NM',
+          items: [{ productId: 'fake_sku_999', quantity: 1, price: 50.0 }],
+        },
+      });
+      expect(fakeProdRes.body.passed).toBe(false);
+      expect(fakeProdRes.body.issues.some((i: string) => i.includes('does not exist in catalog'))).toBe(true);
+
+      // Rejection of excessive quantity exceeding available stock
+      const stockRes = await scope.functions.executeFunction('validate-order', {
+        method: 'POST',
+        body: {
+          customerEmail: 'alex.vance@nodestack.dev',
+          shippingAddress: '404 Research Dr, Black Mesa, NM',
+          items: [{ productId: 'prod_01', quantity: 99999, price: 299.99 }],
+        },
+      });
+      expect(stockRes.body.passed).toBe(false);
+      expect(stockRes.body.issues.some((i: string) => i.includes('Insufficient stock'))).toBe(true);
+
+      // Rejection of price tampering
+      const priceTamperRes = await scope.functions.executeFunction('validate-order', {
+        method: 'POST',
+        body: {
+          customerEmail: 'alex.vance@nodestack.dev',
+          shippingAddress: '404 Research Dr, Black Mesa, NM',
+          items: [{ productId: 'prod_01', quantity: 1, price: 0.99 }],
+        },
+      });
+      expect(priceTamperRes.body.passed).toBe(false);
+      expect(priceTamperRes.body.issues.some((i: string) => i.includes('Price mismatch'))).toBe(true);
     });
   });
 
