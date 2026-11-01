@@ -12,6 +12,8 @@ import {
   RotateCcw,
   Star,
   ExternalLink,
+  Tag,
+  Zap,
 } from 'lucide-react';
 
 interface OrdersModalProps {
@@ -48,43 +50,26 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
         }
         if (isMounted) setAllProducts(pMap);
 
-        // 2. Load orders for current customer
-        const sessionOrders: Order[] = [];
+        // 2. Load orders directly from backend database (single source of truth)
         try {
-          const raw = localStorage.getItem('nodestack_session_orders');
-          if (raw) sessionOrders.push(...JSON.parse(raw));
+          localStorage.removeItem('nodestack_session_orders');
         } catch {}
 
         let backendOrders: Order[] = [];
-        try {
-          if (isAuthenticated && user) {
-            const filterExpr = `user = "${user.id}"`;
+        if (isAuthenticated && user) {
+          try {
+            const filterExpr = `user = "${user.id}" || customerEmail = "${user.email}"`;
             const orderRes = await client.collection('orders').getList(1, 50, {
               filter: filterExpr,
               sort: '-created',
             });
             backendOrders = orderRes.items as unknown as Order[];
+          } catch (err) {
+            console.warn('Backend order lookup notice:', err);
           }
-        } catch (err) {
-          console.warn('Backend order lookup notice:', err);
         }
 
-        // Merge orders deduplicating by orderNumber or id
-        const mergedMap = new Map<string, Order>();
-        for (const o of sessionOrders) {
-          mergedMap.set(o.orderNumber || o.id, o);
-        }
-        for (const o of backendOrders) {
-          mergedMap.set(o.orderNumber || o.id, o);
-        }
-
-        const combinedOrders = Array.from(mergedMap.values()).sort((a, b) => {
-          const timeA = new Date(a.created || 0).getTime();
-          const timeB = new Date(b.created || 0).getTime();
-          return timeB - timeA;
-        });
-
-        if (isMounted) setOrders(combinedOrders);
+        if (isMounted) setOrders(backendOrders);
       } catch (err) {
         console.error('Failed to load orders:', err);
       } finally {
@@ -94,56 +79,97 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
     loadData();
 
+    // 3. Realtime SSE subscription for live OrderFulfillmentFlow updates
+    let unsubscribe: (() => void) | undefined;
+    try {
+      client
+        .collection('orders')
+        .subscribe('*', (e: any) => {
+          if (e.action === 'update' || e.action === 'create') {
+            const incoming = e.record as Order;
+            setOrders((prev) => {
+              const idx = prev.findIndex(
+                (o) => o.id === incoming.id || o.orderNumber === incoming.orderNumber
+              );
+              if (idx >= 0) {
+                const next = [...prev];
+                next[idx] = { ...next[idx], ...incoming };
+                return next;
+              } else {
+                return [incoming, ...prev];
+              }
+            });
+          }
+        })
+        .then((unsub) => {
+          unsubscribe = unsub;
+        })
+        .catch(() => {});
+    } catch {}
+
     return () => {
       isMounted = false;
+      if (unsubscribe) unsubscribe();
     };
   }, [isOpen, isAuthenticated, user?.email]);
 
-  if (!isOpen) return null;
-
-  const getStatusBadge = (status: Order['status']) => {
-    switch (status) {
-      case 'delivered':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Delivered
-          </span>
-        );
-      case 'shipped':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200">
-            <Truck className="w-3.5 h-3.5" /> Shipped
-          </span>
-        );
-      case 'processing':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
-            <Clock className="w-3.5 h-3.5" /> Processing
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
-            Pending
-          </span>
-        );
-    }
-  };
-
-  const parseOrderItems = (rawItems: string | OrderItem[]): OrderItem[] => {
-    if (Array.isArray(rawItems)) return rawItems;
+  const parseOrderItems = (raw: string | OrderItem[]): OrderItem[] => {
+    if (Array.isArray(raw)) return raw;
     try {
-      return JSON.parse(rawItems);
+      return JSON.parse(raw);
     } catch {
       return [];
     }
   };
 
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'delivered':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Delivered
+          </span>
+        );
+      case 'shipped':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+            <Truck className="w-3.5 h-3.5 text-indigo-600" /> Shipped
+          </span>
+        );
+      case 'processing':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
+            <RotateCcw className="w-3.5 h-3.5 text-blue-600 animate-spin" /> Processing
+          </span>
+        );
+      case 'pending':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+            <Clock className="w-3.5 h-3.5 text-amber-600" /> Pending
+          </span>
+        );
+      case 'cancelled':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
+            Cancelled
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+            {status}
+          </span>
+        );
+    }
+  };
+
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="fixed inset-0" onClick={onClose} />
 
-      <div className="relative bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl z-10 border border-slate-100 p-6 sm:p-8 flex flex-col">
+      <div className="relative bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl z-10 border border-slate-100 p-6 sm:p-8 flex flex-col justify-between">
         
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
@@ -153,7 +179,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
             </div>
             <div>
               <h2 className="font-extrabold text-xl text-slate-900">
-                Past Orders & Reviews
+                Past Orders & Tracking
               </h2>
               <p className="text-xs text-slate-500">
                 {isAuthenticated
@@ -226,6 +252,30 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       </div>
                     </div>
 
+                    {/* NodeStack Flow & Lambda Metadata Badges */}
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {order.trackingNumber && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-700 text-[11px] font-semibold">
+                          <Truck className="w-3.5 h-3.5" />
+                          <span>{order.carrier || 'Carrier'}: <strong>{order.trackingNumber}</strong></span>
+                        </div>
+                      )}
+
+                      {order.loyaltyPoints !== undefined && order.loyaltyPoints > 0 && (
+                        <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-100 text-amber-800 text-[11px] font-semibold">
+                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                          <span>VIP Points: +{order.loyaltyPoints.toLocaleString()}</span>
+                        </div>
+                      )}
+
+                      {order.discount !== undefined && order.discount > 0 && (
+                        <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-800 text-[11px] font-semibold">
+                          <Tag className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Discount: -${order.discount.toFixed(2)} ({order.couponCode || 'PROMO'})</span>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Timeline stepper */}
                     <div className="grid grid-cols-4 gap-2 pt-1 pb-1">
                       {['pending', 'processing', 'shipped', 'delivered'].map((step, idx) => {
@@ -263,56 +313,63 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       })}
                     </div>
 
-                    {/* Items List */}
-                    <div className="divide-y divide-slate-100 border-t border-slate-100 pt-2 space-y-2">
+                    {/* Items Breakdown */}
+                    <div className="space-y-2 pt-2 border-t border-slate-200/60">
                       {itemsList.map((item, idx) => {
                         const product = allProducts[item.productId];
+                        const img = product ? getProductImageUrl(product) : item.image;
 
                         return (
                           <div
                             key={idx}
-                            className="flex items-center justify-between gap-3 pt-2 text-xs"
+                            className="flex items-center justify-between text-xs py-1.5"
                           >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="w-10 h-10 rounded-lg bg-white border border-slate-200 p-1 flex items-center justify-center shrink-0">
-                                {product?.image ? (
-                                  <img
-                                    src={getProductImageUrl(product)}
-                                    alt={item.name}
-                                    className="max-w-full max-h-full object-contain"
-                                  />
-                                ) : (
-                                  <Package className="w-4 h-4 text-slate-400" />
-                                )}
-                              </div>
-                              <div className="min-w-0 truncate">
-                                <p className="font-bold text-slate-800 truncate">{item.name}</p>
-                                <p className="text-slate-400">Qty: {item.quantity} • ${item.price.toFixed(2)}</p>
+                            <div className="flex items-center gap-2.5">
+                              {img && (
+                                <img
+                                  src={img}
+                                  alt={item.name}
+                                  className="w-8 h-8 rounded-lg object-contain bg-white border border-slate-200 p-0.5"
+                                />
+                              )}
+                              <div>
+                                <p className="font-bold text-slate-800 line-clamp-1">
+                                  {item.name}
+                                </p>
+                                <p className="text-[10px] text-slate-400">
+                                  Qty: {item.quantity} × ${item.price.toFixed(2)}
+                                </p>
                               </div>
                             </div>
 
-                            {/* Review Action */}
-                            {product && (
-                              <button
-                                onClick={() => {
-                                  onClose();
-                                  onReviewProduct(product);
-                                }}
-                                className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold text-[11px] flex items-center gap-1.5 transition-colors"
-                              >
-                                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
-                                <span>Write Review</span>
-                              </button>
-                            )}
+                            <div className="flex items-center gap-3">
+                              <span className="font-bold text-slate-800">
+                                ${(item.price * item.quantity).toFixed(2)}
+                              </span>
+
+                              {product && (
+                                <button
+                                  onClick={() => {
+                                    onClose();
+                                    onReviewProduct(product);
+                                  }}
+                                  className="text-[10px] text-brand-600 hover:text-brand-800 font-bold hover:underline flex items-center gap-1"
+                                >
+                                  <Star className="w-3 h-3" />
+                                  <span>Review</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
                     </div>
 
-                    {/* Address footer */}
+                    {/* Shipping Address */}
                     {order.shippingAddress && (
-                      <div className="text-[11px] text-slate-400 pt-1">
-                        Shipping address: <span className="text-slate-600">{order.shippingAddress}</span>
+                      <div className="text-[11px] text-slate-400 pt-2 border-t border-slate-100 flex items-center justify-between">
+                        <span>Ships to: {order.shippingAddress}</span>
+                        <span className="text-slate-300 font-mono text-[10px]">{order.id}</span>
                       </div>
                     )}
                   </div>
@@ -320,6 +377,20 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               })}
             </div>
           )}
+        </div>
+
+        {/* Footer */}
+        <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+            <Zap className="w-3.5 h-3.5 text-brand-600" />
+            <span>Realtime State Machine & Inventory Tracking</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors"
+          >
+            Close
+          </button>
         </div>
 
       </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { client } from './lib/nodestack';
 import { Category, Product, Review } from './lib/types';
+import { useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
 import { HeroBanner } from './components/HeroBanner';
 import { CategoryFilter } from './components/CategoryFilter';
@@ -25,12 +26,31 @@ export const App: React.FC = () => {
   const [sortBy, setSortBy] = useState('-created');
   const [inStockOnly, setInStockOnly] = useState(false);
 
+  const { isAuthenticated } = useAuth();
+  const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
+
   // Modals state
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isOrdersOpen, setIsOrdersOpen] = useState(false);
   const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
+
+  const handleProceedToCheckout = () => {
+    if (isAuthenticated) {
+      setIsCheckoutOpen(true);
+    } else {
+      setPendingCheckoutAfterAuth(true);
+      setIsAuthOpen(true);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated && pendingCheckoutAfterAuth) {
+      setPendingCheckoutAfterAuth(false);
+      setIsCheckoutOpen(true);
+    }
+  }, [isAuthenticated, pendingCheckoutAfterAuth]);
 
   // Products grid reference for scrolling
   const catalogRef = useRef<HTMLDivElement>(null);
@@ -300,7 +320,7 @@ export const App: React.FC = () => {
       </footer>
 
       {/* Slide-out Cart Drawer */}
-      <CartDrawer onProceedToCheckout={() => setIsCheckoutOpen(true)} />
+      <CartDrawer onProceedToCheckout={handleProceedToCheckout} />
 
       {/* Product Detail & Reviews Modal */}
       <ProductModal
@@ -349,7 +369,16 @@ export const App: React.FC = () => {
       {/* Auth Modal */}
       <AuthModal
         isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
+        onClose={() => {
+          setIsAuthOpen(false);
+          setPendingCheckoutAfterAuth(false);
+        }}
+        title={pendingCheckoutAfterAuth ? 'Sign In to Complete Checkout' : undefined}
+        subtitle={
+          pendingCheckoutAfterAuth
+            ? 'Sign in or use 1-click demo access to place your order and stream live tracking.'
+            : undefined
+        }
       />
 
     </div>

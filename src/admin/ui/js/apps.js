@@ -175,6 +175,12 @@ async function selectApp(slugOrId) {
     if (typeof loadFunctionsList === 'function' && state.activeNav === 'functions') {
       await loadFunctionsList();
     }
+    if (typeof loadFlows === 'function') {
+      await loadFlows();
+    }
+    if (typeof renderFlowsView === 'function' && state.activeNav === 'flows') {
+      renderFlowsView();
+    }
 
     // Refresh plugin catalog and nav items for the switched app
     try {

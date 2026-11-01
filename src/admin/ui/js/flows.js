@@ -23,7 +23,9 @@ if (typeof window !== 'undefined') {
 
 async function loadFlows() {
   try {
-    const res = await api('/api/flows');
+    const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : (state?.activeApp?.slug || 'default');
+    const endpoint = slug && slug !== 'default' ? `/api/apps/${slug}/flows` : '/api/flows';
+    const res = await api(endpoint);
     flowsState.flows = Array.isArray(res) ? res : res?.data || [];
     updateSidebarFlowsCount();
     return flowsState.flows;
@@ -260,6 +262,7 @@ function renderFlowExecutionsListHtml() {
             <th style="padding: 0.75rem 1rem;">Flow Name</th>
             <th style="padding: 0.75rem 1rem;">Duration</th>
             <th style="padding: 0.75rem 1rem;">Steps</th>
+            <th style="padding: 0.75rem 1rem;">Caller</th>
             <th style="padding: 0.75rem 1rem;">Started At</th>
             <th style="padding: 0.75rem 1rem; text-align: right;">Action</th>
           </tr>
@@ -283,6 +286,9 @@ function renderFlowExecutionsListHtml() {
                 </td>
                 <td style="padding: 0.75rem 1rem; color: var(--text-muted);">
                   ${stepCount} steps
+                </td>
+                <td style="padding: 0.75rem 1rem; font-family: var(--font-mono, monospace); font-size: 0.8rem; color: var(--text-muted);">
+                  <span class="badge" style="font-size: 11px; font-weight: 500; background: rgba(255,255,255,0.06);">${escapeHtml(exec.actorId || 'public')}</span>
                 </td>
                 <td style="padding: 0.75rem 1rem; color: var(--text-muted); font-size: 0.8rem;">
                   ${new Date(exec.startedAt).toLocaleString()}
@@ -569,6 +575,10 @@ async function inspectExecutionDetail(executionId) {
               <span style="font-weight: 600; color: var(--text-main);">${stepCount} steps</span>
             </div>
             <div>
+              <span style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; display: block;">Caller</span>
+              <span style="font-weight: 600; color: var(--accent-primary, #6366f1); font-family: monospace;">${escapeHtml(exec.actorId || 'public')}</span>
+            </div>
+            <div>
               <span style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; display: block;">Started</span>
               <span style="color: var(--text-muted);" title="${escapeHtml(exec.startedAt)}">${new Date(exec.startedAt).toLocaleTimeString()}</span>
             </div>
@@ -726,4 +736,8 @@ if (typeof window !== 'undefined') {
   window.closeFlowExecutionDrawer = closeFlowExecutionDrawer;
   window.openFlowFromExecution = openFlowFromExecution;
   window.copyFlowJson = copyFlowJson;
+}
+
+if (typeof state !== 'undefined' && state.token && typeof loadFlows === 'function') {
+  loadFlows();
 }

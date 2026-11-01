@@ -58,6 +58,11 @@ export interface Order {
   items: string | OrderItem[]; // stringified JSON in sqlite
   shippingAddress: string;
   paymentStatus: 'paid' | 'pending' | 'refunded' | 'failed';
+  discount?: number;
+  couponCode?: string;
+  trackingNumber?: string;
+  carrier?: string;
+  loyaltyPoints?: number;
   created?: string;
   updated?: string;
 }
@@ -83,4 +88,25 @@ export interface User {
 export interface CartItem {
   product: Product;
   quantity: number;
+}
+
+export interface CartItemRecord {
+  id: string;
+  user: string;
+  product: string;
+  quantity: number;
+  created?: string;
+  updated?: string;
+  expand?: {
+    product?: Product;
+  };
+}
+
+export interface AppliedCoupon {
+  code: string;
+  type: 'percent' | 'fixed' | 'shipping';
+  description: string;
+  discountPercent: number;
+  discountAmount: number;
+  freeShipping: boolean;
 }

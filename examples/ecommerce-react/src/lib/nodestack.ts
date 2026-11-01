@@ -1,10 +1,10 @@
 import { NodeStackClient } from 'nodestack-client';
 
 const NODESTACK_URL = import.meta.env.VITE_NODESTACK_URL || 'http://localhost:8090';
-const NODESTACK_APP = import.meta.env.VITE_NODESTACK_APP;
+const NODESTACK_APP = import.meta.env.VITE_NODESTACK_APP || 'ecommerce-demo';
 
 export const client = new NodeStackClient(NODESTACK_URL, {
-  app: NODESTACK_APP || undefined,
+  app: NODESTACK_APP,
 });
 
 /**

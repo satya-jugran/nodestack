@@ -2,7 +2,17 @@ import React, { useState } from 'react';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { client } from '../lib/nodestack';
-import { X, CheckCircle2, ShieldCheck, CreditCard, Sparkles, ArrowRight, Package } from 'lucide-react';
+import {
+  X,
+  CheckCircle2,
+  ShieldCheck,
+  CreditCard,
+  Sparkles,
+  ArrowRight,
+  Package,
+  Tag,
+  Zap,
+} from 'lucide-react';
 
 interface CheckoutModalProps {
   isOpen: boolean;
@@ -15,17 +25,18 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onClose,
   onViewOrders,
 }) => {
-  const { items, subtotal, clearCart } = useCart();
+  const { items, subtotal, coupon, discountAmount, shippingCost, orderTotal, clearCart } = useCart();
   const { user, isAuthenticated } = useAuth();
 
-  const [customerName, setCustomerName] = useState(user?.name || (isAuthenticated && user?.email ? user.email.split('@')[0] : ''));
+  const [customerName, setCustomerName] = useState(
+    user?.name || (isAuthenticated && user?.email ? user.email.split('@')[0] : '')
+  );
   const [customerEmail, setCustomerEmail] = useState(user?.email || '');
   const [shippingAddress, setShippingAddress] = useState('742 Evergreen Terrace, Austin, TX 78701');
   const [cardNumber, setCardNumber] = useState('4242 •••• •••• 4242');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmedOrderNumber, setConfirmedOrderNumber] = useState<string | null>(null);
 
-  // Sync customer details when user changes or modal opens
   React.useEffect(() => {
     if (user) {
       setCustomerName(user.name || (user.email ? user.email.split('@')[0] : ''));
@@ -35,12 +46,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
   if (!isOpen) return null;
 
-  const FREE_SHIPPING_THRESHOLD = 100;
-  const shippingCost = subtotal >= FREE_SHIPPING_THRESHOLD || items.length === 0 ? 0 : 9.99;
-  const orderTotal = subtotal + shippingCost;
-
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAuthenticated || !user) {
+      alert('Please sign in or use 1-Click Demo Login to place this order.');
+      return;
+    }
     if (!customerEmail || !customerName || !shippingAddress) return;
 
     setIsSubmitting(true);
@@ -60,19 +71,14 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         user: user?.id || undefined,
         customerName: customerName.trim(),
         customerEmail: customerEmail.trim(),
-        status: 'processing',
+        status: 'pending',
         total: orderTotal,
+        discount: discountAmount,
+        couponCode: coupon?.code || undefined,
         items: JSON.stringify(orderItems),
         shippingAddress: shippingAddress.trim(),
         paymentStatus: 'paid',
       });
-
-      // Save to local session orders
-      try {
-        const sessionOrders = JSON.parse(localStorage.getItem('nodestack_session_orders') || '[]');
-        sessionOrders.unshift(created);
-        localStorage.setItem('nodestack_session_orders', JSON.stringify(sessionOrders));
-      } catch {}
 
       setConfirmedOrderNumber(orderNumber);
       clearCart();
@@ -98,173 +104,181 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         </button>
 
         {confirmedOrderNumber ? (
-          /* Confirmation Screen */
-          <div className="text-center py-6 space-y-5">
-            <div className="w-16 h-16 rounded-3xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20">
+          <div className="text-center py-6 space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="w-20 h-20 rounded-3xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
               <CheckCircle2 className="w-10 h-10" />
             </div>
 
-            <div className="space-y-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
-                Order Placed Successfully
+            <div>
+              <span className="text-xs font-bold tracking-widest text-emerald-600 uppercase bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+                Order Confirmed
               </span>
-              <h2 className="text-2xl font-black text-slate-900">
+              <h2 className="text-2xl font-black text-slate-900 mt-2">
                 Thank You for Your Order!
               </h2>
-              <p className="text-sm text-slate-600">
-                Your order <strong className="text-slate-900 font-mono">#{confirmedOrderNumber}</strong> is stored in NodeStack SQLite backend.
+              <p className="text-xs text-slate-500 mt-1">
+                Order reference: <strong className="text-slate-800 font-mono">{confirmedOrderNumber}</strong>
               </p>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 text-left space-y-1.5 text-xs text-slate-600">
-              <div className="flex justify-between">
-                <span>Confirmation sent to:</span>
-                <strong className="text-slate-800">{customerEmail}</strong>
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-left text-xs space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-800">
+                <Zap className="w-4 h-4 text-brand-600" />
+                <span>NodeStack OrderFulfillmentFlow Triggered</span>
               </div>
-              <div className="flex justify-between">
-                <span>Shipping to:</span>
-                <strong className="text-slate-800">{shippingAddress}</strong>
-              </div>
-              <div className="flex justify-between">
-                <span>Amount Paid:</span>
-                <strong className="text-emerald-700 font-extrabold text-sm">${orderTotal.toFixed(2)}</strong>
-              </div>
+              <p className="text-slate-500 text-[11px] leading-relaxed">
+                Your order just triggered an event-driven <strong>Flow State Machine</strong> in NodeStack. It validates items, decrements inventory in SQLite, and generates a carrier tracking number in real time.
+              </p>
             </div>
 
-            <div className="pt-2 flex flex-col sm:flex-row gap-3">
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
               <button
                 onClick={() => {
                   onClose();
                   onViewOrders();
                 }}
-                className="flex-1 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md shadow-slate-900/10"
+                className="flex-1 py-3 px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md shadow-brand-500/20"
               >
-                <Package className="w-4 h-4" /> View in Past Orders
+                <Package className="w-4 h-4" />
+                <span>View My Orders & Tracking</span>
               </button>
-
               <button
                 onClick={onClose}
-                className="px-6 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition-colors"
+                className="py-3 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-sm transition-colors"
               >
                 Continue Shopping
               </button>
             </div>
           </div>
         ) : (
-          /* Checkout Form */
           <form onSubmit={handlePlaceOrder} className="space-y-6">
-            <div className="space-y-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-brand-600">
-                Instant Demo Checkout
-              </span>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+            <div>
+              <div className="flex items-center gap-2 text-brand-600 mb-1">
+                <CreditCard className="w-5 h-5" />
+                <span className="text-xs font-bold uppercase tracking-wider">Fast Checkout</span>
+              </div>
+              <h2 className="text-xl font-black text-slate-900">
                 Complete Your Order
               </h2>
-              <p className="text-xs text-slate-500">
-                Orders are committed directly to NodeStack's SQLite database.
+              <p className="text-xs text-slate-400">
+                Review items, shipping destination, and discount before payment.
               </p>
             </div>
 
-            {/* Customer Information */}
+            {/* Customer Details */}
             <div className="space-y-3">
-              <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wide">
-                1. Customer & Shipping
+              <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                1. Contact & Shipping
               </h3>
-
+              
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 mb-1 block">Full Name</label>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">Full Name</label>
                   <input
                     type="text"
                     required
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
-                    placeholder="e.g. Alex Vance"
-                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-brand-500 outline-none"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-brand-500"
                   />
                 </div>
-
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 mb-1 block">Email</label>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">Email Address</label>
                   <input
                     type="email"
                     required
                     value={customerEmail}
                     onChange={(e) => setCustomerEmail(e.target.value)}
-                    placeholder="alex@example.com"
-                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-brand-500 outline-none"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-brand-500"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-700 mb-1 block">Delivery Address</label>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1">Shipping Address</label>
                 <input
                   type="text"
                   required
                   value={shippingAddress}
                   onChange={(e) => setShippingAddress(e.target.value)}
-                  placeholder="Street, City, State, ZIP"
-                  className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-brand-500 outline-none"
+                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-brand-500"
                 />
               </div>
             </div>
 
-            {/* Payment Method */}
+            {/* Simulated Payment */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wide">
+                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                   2. Payment Method
                 </h3>
-                <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5" /> Simulated Demo Gateway
+                <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                  Demo Mode
                 </span>
               </div>
 
               <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center">
-                    <CreditCard className="w-5 h-5" />
+                  <div className="w-10 h-7 rounded bg-slate-800 text-white flex items-center justify-center font-bold text-[10px] tracking-widest">
+                    VISA
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-slate-800">Demo Credit Card</p>
-                    <p className="text-[11px] text-slate-500 font-mono">{cardNumber}</p>
+                    <input
+                      type="text"
+                      value={cardNumber}
+                      onChange={(e) => setCardNumber(e.target.value)}
+                      className="text-xs font-mono font-bold text-slate-800 bg-transparent border-none p-0 focus:outline-none"
+                    />
+                    <p className="text-[10px] text-slate-400">Expires 12/28 • CVC 888</p>
                   </div>
                 </div>
-                <span className="text-[11px] font-bold text-slate-600 bg-white px-2.5 py-1 rounded-md border border-slate-200">
-                  Pre-filled
-                </span>
+                <ShieldCheck className="w-4 h-4 text-slate-400" />
               </div>
             </div>
 
-            {/* Summary */}
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2 text-xs">
-              <div className="flex justify-between text-slate-600">
-                <span>Items ({items.reduce((s, i) => s + i.quantity, 0)})</span>
-                <span className="font-semibold text-slate-800">${subtotal.toFixed(2)}</span>
+            {/* Order Summary & Pricing Breakdown */}
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 text-xs">
+              <div className="flex justify-between text-slate-500">
+                <span>Subtotal ({items.reduce((s, i) => s + i.quantity, 0)} items)</span>
+                <span className="font-semibold text-slate-700">${subtotal.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between text-slate-600">
+
+              {discountAmount > 0 && (
+                <div className="flex justify-between text-emerald-600 font-bold">
+                  <span className="flex items-center gap-1">
+                    <Tag className="w-3.5 h-3.5" />
+                    Coupon Discount ({coupon?.code})
+                  </span>
+                  <span>-${discountAmount.toFixed(2)}</span>
+                </div>
+              )}
+
+              <div className="flex justify-between text-slate-500">
                 <span>Shipping</span>
-                <span className="font-semibold text-slate-800">
+                <span className="font-semibold text-slate-700">
                   {shippingCost === 0 ? 'FREE' : `$${shippingCost.toFixed(2)}`}
                 </span>
               </div>
-              <div className="flex justify-between text-sm font-extrabold text-slate-900 pt-2 border-t border-slate-200">
+
+              <div className="flex justify-between text-sm font-extrabold text-slate-900 pt-2 border-t border-slate-200/60">
                 <span>Total Due</span>
-                <span>${orderTotal.toFixed(2)}</span>
+                <span className="text-brand-600">${orderTotal.toFixed(2)}</span>
               </div>
             </div>
 
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="w-full py-3.5 rounded-xl bg-brand-600 hover:bg-brand-700 active:scale-95 text-white font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-brand-500/25 disabled:bg-slate-300"
+              disabled={isSubmitting || items.length === 0}
+              className="w-full py-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-extrabold text-sm flex items-center justify-center gap-2 transition-all shadow-md shadow-slate-900/20"
             >
               {isSubmitting ? (
-                <span>Writing to Database...</span>
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Processing Order...</span>
+                </>
               ) : (
                 <>
-                  <span>Pay & Place Order • ${orderTotal.toFixed(2)}</span>
+                  <span>Place Order • ${orderTotal.toFixed(2)}</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}

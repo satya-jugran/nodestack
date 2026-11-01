@@ -107,21 +107,38 @@ export class FlowController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getFlowsService(req);
+    const flow = service.getFlowById(req.params.id) || service.getFlowByName(req.params.id);
+    if (!flow) {
+      this.error(reply, 'Flow not found', 404);
+      return;
+    }
+
+    if (!flow.enabled) {
+      this.error(reply, `Flow '${flow.name}' is currently disabled`, 403);
+      return;
+    }
+
+    // If triggerType is not 'http', require admin credentials
+    if (flow.triggerType !== 'http') {
+      const auth = (req as any).auth;
+      if (!auth || !auth.isAdmin) {
+        this.error(
+          reply,
+          `Flow '${flow.name}' has triggerType '${flow.triggerType}' and requires admin credentials to execute directly`,
+          403
+        );
+        return;
+      }
+    }
+
     const wait = req.query.wait === 'true' || req.query.wait === '1';
 
     try {
       if (wait) {
-        const execution = await service.executeFlow(req.params.id, req.body || {}, (req as any).auth, { wait: true });
+        const execution = await service.executeFlow(flow.id, req.body || {}, (req as any).auth, { wait: true });
         this.ok(reply, execution);
       } else {
         // Fire-and-forget execution
-        const flow = service.getFlowById(req.params.id) || service.getFlowByName(req.params.id);
-        if (!flow) {
-          this.error(reply, 'Flow not found', 404);
-          return;
-        }
-
-        // Trigger in background
         service.executeFlow(flow.id, req.body || {}, (req as any).auth).catch((err) => {
           console.error(`[FlowController] Background execution failed for flow '${flow.name}':`, err);
         });

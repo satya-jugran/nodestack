@@ -64,6 +64,25 @@ export class AppRegistry {
         now
       );
     }
+
+    // Ensure built-in ecommerce-demo application exists
+    const demoExists = this.driver.prepare('SELECT id FROM _apps WHERE slug = ?').get('ecommerce-demo');
+    if (!demoExists) {
+      const now = new Date().toISOString();
+      this.driver.prepare(`
+        INSERT INTO _apps (id, name, slug, description, icon, isDefault, created, updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        'app_ecommerce_demo',
+        'E-Commerce Demo',
+        'ecommerce-demo',
+        'Retail storefront showcase pre-seeded with catalog, serverless lambdas, and event-driven flows',
+        'shopping-bag',
+        0,
+        now,
+        now
+      );
+    }
   }
 
   public getAllApps(): AppModel[] {
@@ -136,7 +155,7 @@ export class AppRegistry {
 
   public deleteApp(slugOrId: string): AppModel {
     const current = this.getAppOrThrow(slugOrId);
-    if (current.isDefault || current.slug === 'default') {
+    if (current.isDefault || current.slug === 'default' || current.slug === 'ecommerce-demo') {
       throw new AppError('Cannot delete the default application', 400);
     }
 

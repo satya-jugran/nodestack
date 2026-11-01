@@ -4,6 +4,8 @@ import { SchemaService } from '../schema/SchemaService';
 import { FileStorageService } from '../files/FileStorageService';
 import { EventBus } from '../core/events/EventBus';
 import { RealtimeService } from '../realtime/RealtimeService';
+import { FunctionService } from '../functions/FunctionService';
+import { FlowService } from '../flows/FlowService';
 import { NotFoundError } from '../core/errors/AppError';
 import { RecordValidator } from '../records/RecordValidator';
 import { STARTER_TEMPLATES } from './definitions';
@@ -22,7 +24,9 @@ export class TemplateService {
     private schemaService: SchemaService,
     private fileStorageService: FileStorageService,
     private eventBus: EventBus,
-    private realtimeService: RealtimeService
+    private realtimeService: RealtimeService,
+    private functionService?: FunctionService,
+    private flowService?: FlowService
   ) {}
 
   /**
@@ -38,6 +42,8 @@ export class TemplateService {
       badge: t.badge,
       aliases: t.aliases,
       collections: t.collections.map((c) => c.name),
+      functions: t.functions?.map((f) => f.name),
+      flows: t.flows?.map((f) => f.name),
       stats: t.stats,
     }));
   }
@@ -90,6 +96,25 @@ export class TemplateService {
     const allExist = existingCollections.every((c) => c !== undefined);
 
     if (allExist && !options.overwrite) {
+      // Ensure functions & flows are also seeded if missing
+      if (this.functionService && template.functions) {
+        for (const fn of template.functions) {
+          try {
+            if (!this.functionService.getFunctionByName(fn.name)) {
+              this.functionService.createFunction(fn);
+            }
+          } catch {}
+        }
+      }
+      if (this.flowService && template.flows) {
+        for (const flow of template.flows) {
+          try {
+            if (!this.flowService.getFlowByName(flow.name)) {
+              this.flowService.createFlow(flow);
+            }
+          } catch {}
+        }
+      }
       return {
         success: true,
         skipped: true,
@@ -249,6 +274,44 @@ export class TemplateService {
       }
     }
 
+    // 5. Seed Functions (Lambdas)
+    let totalFunctions = 0;
+    if (this.functionService && template.functions && template.functions.length > 0) {
+      for (const fnDto of template.functions) {
+        try {
+          const existing = this.functionService.getFunctionByName(fnDto.name);
+          if (!existing) {
+            this.functionService.createFunction(fnDto);
+            totalFunctions++;
+          } else if (options.overwrite) {
+            this.functionService.updateFunction(existing.id, fnDto);
+            totalFunctions++;
+          }
+        } catch (err: any) {
+          console.warn(`[TemplateService] Could not register function '${fnDto.name}':`, err?.message);
+        }
+      }
+    }
+
+    // 6. Seed Flows
+    let totalFlows = 0;
+    if (this.flowService && template.flows && template.flows.length > 0) {
+      for (const flowDto of template.flows) {
+        try {
+          const existing = this.flowService.getFlowByName(flowDto.name);
+          if (!existing) {
+            this.flowService.createFlow(flowDto);
+            totalFlows++;
+          } else if (options.overwrite) {
+            this.flowService.updateFlow(existing.id, flowDto);
+            totalFlows++;
+          }
+        } catch (err: any) {
+          console.warn(`[TemplateService] Could not register flow '${flowDto.name}':`, err?.message);
+        }
+      }
+    }
+
     const durationMs = Date.now() - startTime;
 
     return {
@@ -259,6 +322,8 @@ export class TemplateService {
       collections: targetCollectionNames,
       totalRecords,
       totalImages,
+      totalFunctions,
+      totalFlows,
       durationMs,
       message: `Template '${template.name}' applied successfully (${targetCollectionNames.length} collections, ${totalRecords} records, ${totalImages} images in ${durationMs}ms)`,
     };

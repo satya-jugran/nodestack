@@ -12,6 +12,7 @@ export type DatabaseDriverFactory = (app: AppModel, defaultDbPath: string) => ID
 export class AppManager {
   private appCache: Map<string, AppScope> = new Map();
   private onScopeInitHandlers: Array<(scope: AppScope) => void> = [];
+  private demoInitPromise?: Promise<AppScope | undefined>;
 
   constructor(
     public readonly registry: AppRegistry,
@@ -54,7 +55,112 @@ export class AppManager {
 
   public init(): AppScope {
     // Ensure default application scope is initialized
-    return this.get('default');
+    const defaultScope = this.get('default');
+    return defaultScope;
+  }
+
+  public async ensureDemoAppInitialized(): Promise<AppScope | undefined> {
+    if (this.demoInitPromise) {
+      return this.demoInitPromise;
+    }
+    this.demoInitPromise = this.doEnsureDemoAppInitialized();
+    return this.demoInitPromise;
+  }
+
+  private async doEnsureDemoAppInitialized(): Promise<AppScope | undefined> {
+    try {
+      const demoApp = this.registry.getApp('ecommerce-demo');
+      if (!demoApp) return undefined;
+
+      const scope = this.get('ecommerce-demo');
+      const hasProducts = scope.schema.getCollection('products');
+      if (!hasProducts) {
+        await scope.templates.apply('ecommerce');
+
+        // Create baseline snapshot for Reset to Demo State
+        try {
+          await scope.snapshots.createSnapshot({
+            name: 'ecommerce-demo-baseline',
+            description: 'Baseline state for ecommerce-demo storefront and lambdas',
+          });
+        } catch {}
+      }
+
+      // Pre-seed or synchronize demo customer account for instant 1-click login
+      try {
+        const userCol = scope.schema.getCollection('users');
+        if (userCol) {
+          const crypto = require('crypto');
+          const passwordHash = await scope.auth.hashPassword('DemoPassword123!');
+          const userExists = scope.db.get<{ id: string }>('SELECT id FROM users WHERE email = ?', 'alex.vance@nodestack.dev');
+          if (!userExists) {
+            const now = new Date().toISOString();
+            scope.db.run(
+              `INSERT INTO users (id, email, emailVisibility, verified, passwordHash, tokenKey, name, created, updated)
+               VALUES (?, ?, 1, 1, ?, ?, ?, ?, ?)`,
+              [
+                'usr_alex_vance',
+                'alex.vance@nodestack.dev',
+                passwordHash,
+                crypto.randomBytes(16).toString('hex'),
+                'Alex Vance',
+                now,
+                now,
+              ]
+            );
+          } else {
+            scope.db.run('UPDATE users SET passwordHash = ? WHERE email = ?', [passwordHash, 'alex.vance@nodestack.dev']);
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[AppManager] Pre-seeding demo user note: ${err.message}`);
+      }
+
+      // Ensure cart_items collection exists for persistent shopping cart
+      try {
+        const hasCartCol = scope.schema.getCollection('cart_items');
+        if (!hasCartCol) {
+          scope.schema.createCollection({
+            name: 'cart_items',
+            type: 'base',
+            listRule: '@request.auth.id != "" && user = @request.auth.id',
+            viewRule: '@request.auth.id != "" && user = @request.auth.id',
+            createRule: '@request.auth.id != "" && user = @request.auth.id',
+            updateRule: '@request.auth.id != "" && user = @request.auth.id',
+            deleteRule: '@request.auth.id != "" && user = @request.auth.id',
+            schema: [
+              {
+                id: 'f_cart_user',
+                name: 'user',
+                type: 'relation',
+                required: true,
+                options: { collectionId: 'users' },
+              },
+              {
+                id: 'f_cart_prod',
+                name: 'product',
+                type: 'relation',
+                required: true,
+                options: { collectionId: 'products' },
+              },
+              {
+                id: 'f_cart_qty',
+                name: 'quantity',
+                type: 'number',
+                required: true,
+              },
+            ],
+          });
+        }
+      } catch (err: any) {
+        console.warn(`[AppManager] cart_items collection note: ${err.message}`);
+      }
+
+      return scope;
+    } catch (err: any) {
+      console.warn(`[AppManager] ensureDemoAppInitialized warning: ${err.message}`);
+      return undefined;
+    }
   }
 
   public list(): AppModel[] {
@@ -163,8 +269,8 @@ export class AppManager {
 
   public async delete(slugOrId: string): Promise<void> {
     const target = this.registry.getAppOrThrow(slugOrId);
-    if (target.isDefault || target.slug === 'default') {
-      throw new AppError('Cannot delete the default application', 400);
+    if (target.isDefault || target.slug === 'default' || target.slug === 'ecommerce-demo') {
+      throw new AppError('Cannot delete the default or built-in demo application', 400);
     }
 
     const cached = this.appCache.get(target.slug) || this.appCache.get(target.id);

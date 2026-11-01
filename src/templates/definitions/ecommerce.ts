@@ -14,6 +14,8 @@ export const ecommerceTemplate: TemplateDefinition = {
     collections: 5,
     records: 48,
     images: 25,
+    functions: 6,
+    flows: 2,
   },
   collections: [
     // 1. Categories
@@ -447,7 +449,7 @@ export const ecommerceTemplate: TemplateDefinition = {
         type: 'base',
         listRule: '@request.auth.id != "" && user = @request.auth.id',
         viewRule: '@request.auth.id != "" && user = @request.auth.id',
-        createRule: '',
+        createRule: '@request.auth.id != ""',
         updateRule: '@request.auth.id != "" && user = @request.auth.id',
         deleteRule: null,
         schema: [
@@ -470,6 +472,11 @@ export const ecommerceTemplate: TemplateDefinition = {
             type: 'select',
             options: { values: ['paid', 'pending', 'refunded', 'failed'] },
           },
+          { id: 'f_ord_discount', name: 'discount', type: 'number' },
+          { id: 'f_ord_coupon', name: 'couponCode', type: 'text' },
+          { id: 'f_ord_tracking', name: 'trackingNumber', type: 'text' },
+          { id: 'f_ord_carrier', name: 'carrier', type: 'text' },
+          { id: 'f_ord_points', name: 'loyaltyPoints', type: 'number' },
         ],
       },
       seed: async (_ctx: TemplateSeedContext): Promise<Array<Record<string, any>>> => {
@@ -487,6 +494,11 @@ export const ecommerceTemplate: TemplateDefinition = {
             ]),
             shippingAddress: '742 Evergreen Terrace, Austin, TX 78701',
             paymentStatus: 'paid',
+            discount: 60.00,
+            couponCode: 'SAVE20',
+            trackingNumber: 'TRK-US-890124',
+            carrier: 'FedEx Priority Express',
+            loyaltyPoints: 3590,
           },
           {
             id: 'ord_1002',
@@ -786,5 +798,271 @@ export const ecommerceTemplate: TemplateDefinition = {
         return [];
       },
     },
+    // 6. Cart Items (Persistent Server-side Shopping Cart)
+    {
+      name: 'cart_items',
+      dto: {
+        name: 'cart_items',
+        type: 'base',
+        listRule: '@request.auth.id != "" && user = @request.auth.id',
+        viewRule: '@request.auth.id != "" && user = @request.auth.id',
+        createRule: '@request.auth.id != "" && user = @request.auth.id',
+        updateRule: '@request.auth.id != "" && user = @request.auth.id',
+        deleteRule: '@request.auth.id != "" && user = @request.auth.id',
+        schema: [
+          {
+            id: 'f_cart_user',
+            name: 'user',
+            type: 'relation',
+            required: true,
+            options: { collectionId: 'users' },
+          },
+          {
+            id: 'f_cart_prod',
+            name: 'product',
+            type: 'relation',
+            required: true,
+            options: { collectionId: 'products' },
+          },
+          {
+            id: 'f_cart_qty',
+            name: 'quantity',
+            type: 'number',
+            required: true,
+          },
+        ],
+      },
+      seed: async (_ctx: TemplateSeedContext): Promise<Array<Record<string, any>>> => {
+        return [];
+      },
+    },
   ],
+  functions: [
+  {
+    "name": "calculate-discount",
+    "description": "Serverless coupon & discount calculator engine with tier rules and execution logging",
+    "enabled": true,
+    "authPolicy": "public",
+    "methods": [
+      "POST",
+      "GET"
+    ],
+    "timeoutMs": 2000,
+    "memoryLimitMb": 32,
+    "allowedDomains": [],
+    "elevated": false,
+    "env": {},
+    "code": "export default async function(ctx) {\n  const payload = ctx.request?.body || ctx.request?.query || {};\n  const code = (payload.couponCode || payload.code || '').trim().toUpperCase();\n  const total = Number(payload.cartTotal ?? payload.subtotal ?? 0);\n  const items = payload.items || [];\n\n  ctx.log(`[calculate-discount] Evaluating coupon \"${code}\" for total ${total.toFixed(2)} with ${items.length} items`);\n\n  if (!code) {\n    return {\n      status: 400,\n      body: { valid: false, message: 'Please provide a coupon code.' }\n    };\n  }\n\n  const COUPONS = {\n    'WELCOME10': { type: 'percent', value: 10, minTotal: 0, desc: '10% off your entire order' },\n    'SAVE20': { type: 'percent', value: 20, minTotal: 75, desc: '20% off orders over $75' },\n    'FLAT50': { type: 'fixed', value: 50, minTotal: 150, desc: '$50 off orders over $150' },\n    'FREESHIP': { type: 'shipping', value: 100, minTotal: 0, desc: 'Free express shipping on your order' },\n    'VIP30': { type: 'percent', value: 30, minTotal: 200, desc: '30% VIP discount on orders over $200' },\n  };\n\n  const coupon = COUPONS[code];\n  if (!coupon) {\n    ctx.log(`[calculate-discount] Invalid coupon code: \"${code}\"`);\n    return {\n      status: 400,\n      body: {\n        valid: false,\n        code: code,\n        message: `Invalid coupon \"${code}\". Try SAVE20, WELCOME10, FLAT50, or FREESHIP.`\n      }\n    };\n  }\n\n  if (total < coupon.minTotal) {\n    return {\n      status: 400,\n      body: {\n        valid: false,\n        code: code,\n        message: `Coupon \"${code}\" requires a minimum order of ${coupon.minTotal.toFixed(2)} (current: ${total.toFixed(2)}).`\n      }\n    };\n  }\n\n  let discountAmount = 0;\n  let freeShipping = false;\n\n  if (coupon.type === 'percent') {\n    discountAmount = Math.round(total * (coupon.value / 100) * 100) / 100;\n  } else if (coupon.type === 'fixed') {\n    discountAmount = Math.min(total, coupon.value);\n  } else if (coupon.type === 'shipping') {\n    freeShipping = true;\n  }\n\n  const newTotal = Math.max(0, Math.round((total - discountAmount) * 100) / 100);\n\n  ctx.log(`[calculate-discount] Successfully applied \"${code}\": discount=${discountAmount.toFixed(2)}, newTotal=${newTotal.toFixed(2)}`);\n\n  return {\n    status: 200,\n    headers: {\n      'x-discount-code': code,\n      'x-savings-amount': String(discountAmount),\n    },\n    body: {\n      valid: true,\n      code: code,\n      type: coupon.type,\n      description: coupon.desc,\n      discountPercent: coupon.type === 'percent' ? coupon.value : 0,\n      discountAmount,\n      freeShipping,\n      originalTotal: total,\n      newTotal,\n      message: `Coupon applied! ${coupon.desc}`\n    }\n  };\n}"
+  },
+  {
+    "name": "validate-order",
+    "description": "Validates order payload, customer address, and stock sufficiency against catalog",
+    "enabled": true,
+    "authPolicy": "public",
+    "methods": [
+      "POST"
+    ],
+    "timeoutMs": 2000,
+    "memoryLimitMb": 32,
+    "allowedDomains": [],
+    "elevated": false,
+    "env": {},
+    "code": "export default async function(ctx) {\n  const order = ctx.request?.body?.record || ctx.request?.body || {};\n  ctx.log(`[validate-order] Validating order #${order.orderNumber || 'new'} for ${order.customerEmail}`);\n\n  let items = [];\n  try {\n    items = typeof order.items === 'string' ? JSON.parse(order.items) : (order.items || []);\n  } catch {\n    items = [];\n  }\n\n  const issues = [];\n  if (!order.customerEmail || !order.customerEmail.includes('@')) {\n    issues.push('Invalid customer email address');\n  }\n  if (!order.shippingAddress || order.shippingAddress.trim().length < 5) {\n    issues.push('Shipping address is required');\n  }\n  if (items.length === 0) {\n    issues.push('Order contains no line items');\n  }\n\n  const passed = issues.length === 0;\n  ctx.log(`[validate-order] Order #${order.orderNumber} validation result: passed=${passed}, issues=${issues.length}`);\n\n  return {\n    status: 200,\n    body: {\n      passed,\n      orderNumber: order.orderNumber,\n      itemCount: items.length,\n      issues,\n      riskScore: passed ? 'low' : 'high',\n      timestamp: new Date().toISOString()\n    }\n  };\n}"
+  },
+  {
+    "name": "update-inventory",
+    "description": "Decrements stock levels in products collection for purchased items",
+    "enabled": true,
+    "authPolicy": "public",
+    "methods": [
+      "POST"
+    ],
+    "timeoutMs": 3000,
+    "memoryLimitMb": 32,
+    "allowedDomains": [],
+    "elevated": true,
+    "env": {},
+    "code": "export default async function(ctx) {\n  const order = ctx.request?.body?.record || ctx.request?.body || {};\n  let items = [];\n  try {\n    items = typeof order.items === 'string' ? JSON.parse(order.items) : (order.items || []);\n  } catch {\n    items = [];\n  }\n\n  ctx.log(`[update-inventory] Decrementing inventory for ${items.length} items from order #${order.orderNumber}`);\n  const updatedProducts = [];\n\n  for (const item of items) {\n    const prodId = item.productId || item.id;\n    if (!prodId) continue;\n\n    try {\n      const product = await ctx.records.get('products', prodId);\n      if (product) {\n        const qty = Number(item.quantity || 1);\n        const currentStock = Number(product.stock || 0);\n        const newStock = Math.max(0, currentStock - qty);\n        const newStatus = newStock === 0 ? 'out_of_stock' : (newStock < 10 ? 'low_stock' : 'in_stock');\n\n        await ctx.records.update('products', prodId, {\n          stock: newStock,\n          status: newStatus\n        });\n\n        updatedProducts.push({ id: prodId, name: product.name, prevStock: currentStock, newStock });\n        ctx.log(`[update-inventory] Updated ${product.name} (ID: ${prodId}): ${currentStock} -> ${newStock}`);\n      }\n    } catch (err) {\n      ctx.log(`[update-inventory] Error updating stock for item ${prodId}: ${err.message}`);\n    }\n  }\n\n  return {\n    status: 200,\n    body: {\n      success: true,\n      orderNumber: order.orderNumber,\n      itemsProcessed: updatedProducts.length,\n      updates: updatedProducts\n    }\n  };\n}"
+  },
+  {
+    "name": "generate-tracking-label",
+    "description": "Generates carrier shipping label, tracking number, and dispatch ETA",
+    "enabled": true,
+    "authPolicy": "public",
+    "methods": [
+      "POST"
+    ],
+    "timeoutMs": 2000,
+    "memoryLimitMb": 32,
+    "allowedDomains": [],
+    "elevated": false,
+    "env": {},
+    "code": "export default async function(ctx) {\n  const order = ctx.request?.body?.record || ctx.request?.body || {};\n  const randCode = Math.floor(100000 + Math.random() * 900000);\n  const carriers = ['FedEx Priority Express', 'DHL Express Air', 'UPS Worldwide'];\n  const carrier = carriers[Math.floor(Math.random() * carriers.length)];\n  const trackingNumber = `TRK-US-${randCode}`;\n\n  const eta = new Date();\n  eta.setDate(eta.getDate() + 3);\n\n  ctx.log(`[generate-tracking-label] Generated label for order #${order.orderNumber}: ${carrier} - ${trackingNumber}`);\n\n  return {\n    status: 200,\n    body: {\n      success: true,\n      carrier,\n      trackingNumber,\n      estimatedDelivery: eta.toISOString().split('T')[0],\n      dispatchedAt: new Date().toISOString()\n    }\n  };\n}"
+  },
+  {
+    "name": "grant-loyalty-points",
+    "description": "Awards customer VIP reward points based on order total",
+    "enabled": true,
+    "authPolicy": "public",
+    "methods": [
+      "POST"
+    ],
+    "timeoutMs": 2000,
+    "memoryLimitMb": 32,
+    "allowedDomains": [],
+    "elevated": false,
+    "env": {},
+    "code": "export default async function(ctx) {\n  const order = ctx.request?.body?.record || ctx.request?.body || {};\n  const total = Number(order.total || 0);\n  const pointsPerDollar = 10;\n  const pointsAwarded = Math.round(total * pointsPerDollar);\n\n  let tier = 'Bronze';\n  if (total >= 400) tier = 'Platinum';\n  else if (total >= 200) tier = 'Gold';\n  else if (total >= 100) tier = 'Silver';\n\n  ctx.log(`[grant-loyalty-points] Customer ${order.customerEmail} awarded ${pointsAwarded} VIP points (Tier: ${tier})`);\n\n  return {\n    status: 200,\n    body: {\n      success: true,\n      customerEmail: order.customerEmail,\n      pointsAwarded,\n      loyaltyTier: tier,\n      message: `Congratulations! You earned ${pointsAwarded.toLocaleString()} VIP reward points.`\n    }\n  };\n}"
+  },
+  {
+    "name": "send-order-notification",
+    "description": "Dispatches order confirmation receipt, tracking link, and updates order fulfillment record",
+    "enabled": true,
+    "authPolicy": "public",
+    "methods": [
+      "POST"
+    ],
+    "timeoutMs": 3000,
+    "memoryLimitMb": 32,
+    "allowedDomains": [],
+    "elevated": true,
+    "env": {},
+    "code": "export default async function(ctx) {\n  const body = ctx.request?.body || {};\n  const order = body.record || body.order || body;\n  const tracking = body.fulfillment?.[1] || body.shippingResult || body.tracking || {};\n  const vip = body.vipRewards || {};\n\n  const trackingNumber = tracking.trackingNumber || `TRK-US-${Math.floor(100000 + Math.random() * 900000)}`;\n  const carrier = tracking.carrier || 'FedEx Priority Express';\n  const loyaltyPoints = Number(vip.pointsAwarded || 0);\n\n  ctx.log(`[send-order-notification] Finalizing order #${order.orderNumber}: tracking=${trackingNumber}, points=${loyaltyPoints}`);\n\n  if (order.id) {\n    try {\n      await ctx.records.update('orders', order.id, {\n        status: 'processing',\n        trackingNumber: trackingNumber,\n        carrier: carrier,\n        loyaltyPoints: loyaltyPoints\n      });\n      ctx.log(`[send-order-notification] Updated order record ${order.id} with tracking number & loyalty points.`);\n    } catch (err) {\n      ctx.log(`[send-order-notification] Note updating order record: ${err.message}`);\n    }\n  }\n\n  return {\n    status: 200,\n    body: {\n      notified: true,\n      orderNumber: order.orderNumber,\n      recipient: order.customerEmail,\n      carrier,\n      trackingNumber,\n      loyaltyPoints,\n      sentAt: new Date().toISOString()\n    }\n  };\n}"
+  }
+],
+  flows: [
+  {
+    "name": "OrderFulfillmentFlow",
+    "description": "Automated order processing pipeline with validation, parallel inventory & tracking fulfillment, and VIP rewards",
+    "enabled": true,
+    "triggerType": "event",
+    "eventTrigger": "orders:create",
+    "definition": {
+      "comment": "Automated e-commerce order fulfillment state machine pipeline",
+      "startAt": "ValidateOrder",
+      "states": {
+        "ValidateOrder": {
+          "type": "Task",
+          "function": "validate-order",
+          "resultPath": "$.validation",
+          "next": "CheckFraudRisk"
+        },
+        "CheckFraudRisk": {
+          "type": "Choice",
+          "choices": [
+            {
+              "variable": "$.validation.passed",
+              "booleanEquals": false,
+              "next": "ValidationFailed"
+            }
+          ],
+          "default": "ProcessFulfillment"
+        },
+        "ProcessFulfillment": {
+          "type": "Parallel",
+          "branches": [
+            {
+              "startAt": "DeductInventory",
+              "states": {
+                "DeductInventory": {
+                  "type": "Task",
+                  "function": "update-inventory",
+                  "end": true
+                }
+              }
+            },
+            {
+              "startAt": "CreateShippingLabel",
+              "states": {
+                "CreateShippingLabel": {
+                  "type": "Task",
+                  "function": "generate-tracking-label",
+                  "end": true
+                }
+              }
+            }
+          ],
+          "resultPath": "$.fulfillment",
+          "next": "CheckHighValueVIP"
+        },
+        "CheckHighValueVIP": {
+          "type": "Choice",
+          "choices": [
+            {
+              "variable": "$.record.total",
+              "numericGreaterThanEquals": 200,
+              "next": "AwardVipPoints"
+            }
+          ],
+          "default": "NotifyCustomer"
+        },
+        "AwardVipPoints": {
+          "type": "Task",
+          "function": "grant-loyalty-points",
+          "resultPath": "$.vipRewards",
+          "next": "NotifyCustomer"
+        },
+        "NotifyCustomer": {
+          "type": "Task",
+          "function": "send-order-notification",
+          "resultPath": "$.notification",
+          "next": "OrderFulfilled"
+        },
+        "OrderFulfilled": {
+          "type": "Succeed"
+        },
+        "ValidationFailed": {
+          "type": "Fail",
+          "error": "ORDER_VALIDATION_FAILED",
+          "cause": "Order validation failed during fulfillment pipeline"
+        }
+      }
+    }
+  },
+  {
+    "name": "CheckoutPromotionFlow",
+    "description": "Step-function pipeline evaluating promo codes and unlocking bundle perks",
+    "enabled": true,
+    "triggerType": "http",
+    "definition": {
+      "comment": "Interactive checkout pricing and promotion rules pipeline",
+      "startAt": "ApplyCoupon",
+      "states": {
+        "ApplyCoupon": {
+          "type": "Task",
+          "function": "calculate-discount",
+          "resultPath": "$.discountResult",
+          "next": "CheckBundleThreshold"
+        },
+        "CheckBundleThreshold": {
+          "type": "Choice",
+          "choices": [
+            {
+              "variable": "$.cartTotal",
+              "numericGreaterThanEquals": 150,
+              "next": "GrantGiftCredit"
+            }
+          ],
+          "default": "FinalizePricing"
+        },
+        "GrantGiftCredit": {
+          "type": "Pass",
+          "result": {
+            "unlockedPerk": "Free Premium Express Packaging + $15 Gift Credit",
+            "giftCredit": 15
+          },
+          "resultPath": "$.bundlePerk",
+          "next": "FinalizePricing"
+        },
+        "FinalizePricing": {
+          "type": "Pass",
+          "next": "PricingSuccess"
+        },
+        "PricingSuccess": {
+          "type": "Succeed"
+        }
+      }
+    }
+  }
+],
 };

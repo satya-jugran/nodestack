@@ -5,9 +5,11 @@ import { X, Sparkles, LogIn, UserPlus, ShieldCheck } from 'lucide-react';
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
+  title?: string;
+  subtitle?: string;
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, title, subtitle }) => {
   const { login, register, demoLogin, isLoading } = useAuth();
   const [mode, setMode] = useState<'login' | 'register'>('login');
 
@@ -57,6 +59,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         >
           <X className="w-5 h-5" />
         </button>
+
+        {title && (
+          <div className="mb-4 pr-8">
+            <h3 className="text-base font-extrabold text-slate-900">{title}</h3>
+            {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+          </div>
+        )}
 
         {/* 1-Click Demo Box */}
         <div className="mb-6 p-4 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200/80 space-y-2">

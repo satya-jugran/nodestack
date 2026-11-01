@@ -274,7 +274,7 @@ function renderCodeDslWorkspaceHtml(flow) {
     <div style="background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; height: 100%; min-height: 0; flex: 1; display: flex; flex-direction: column;">
       <div style="padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between;">
         <span style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted);">
-          JSON Definition (Amazon States Language / Flow DSL)
+          JSON Definition (Flow States Language / DSL)
         </span>
         <button class="btn btn-secondary btn-sm" onclick="syncDslToVisual()" style="font-weight: 600;">
           Apply Changes to Visual
@@ -350,7 +350,7 @@ function renderTestDrawerHtml(flow) {
             <span style="font-weight: 800; color: ${exec.status === 'succeeded' ? 'var(--accent-success)' : 'var(--accent-danger)'}; font-size: 0.85rem; text-transform: uppercase;">
               ● ${exec.status} (${exec.durationMs}ms)
             </span>
-            <span style="font-size: 0.75rem; color: var(--text-muted);">${new Date(exec.startedAt).toLocaleTimeString()}</span>
+            <span style="font-size: 0.75rem; color: var(--text-muted);">${new Date(exec.startedAt).toLocaleTimeString()} • Caller: <code style="font-size: 10px; font-weight: 600;">${escapeHtml(exec.actorId || 'admin / test')}</code></span>
           </div>
 
           <!-- Step Timeline -->

@@ -243,7 +243,7 @@ export class FlowEngine {
         output: currentPayload,
         durationMs: totalDuration,
         stepLogs,
-        actorId: options.actor?.id || null,
+        actorId: typeof options.actor === 'string' ? options.actor : (options.actor?.id || options.actor?.email || null),
         startedAt,
         finishedAt: new Date().toISOString(),
       };
@@ -266,7 +266,7 @@ export class FlowEngine {
         error: err.message || String(err),
         durationMs: totalDuration,
         stepLogs,
-        actorId: options.actor?.id || null,
+        actorId: typeof options.actor === 'string' ? options.actor : (options.actor?.id || options.actor?.email || null),
         startedAt,
         finishedAt: new Date().toISOString(),
       };
