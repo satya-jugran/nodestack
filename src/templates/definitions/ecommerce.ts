@@ -873,7 +873,7 @@ export const ecommerceTemplate: TemplateDefinition = {
     "name": "update-inventory",
     "description": "Decrements stock levels in products collection for purchased items",
     "enabled": true,
-    "authPolicy": "public",
+    "authPolicy": "admin",
     "methods": [
       "POST"
     ],
@@ -882,7 +882,7 @@ export const ecommerceTemplate: TemplateDefinition = {
     "allowedDomains": [],
     "elevated": true,
     "env": {},
-    "code": "export default async function(ctx) {\n  const order = ctx.request?.body?.record || ctx.request?.body || {};\n  let items = [];\n  try {\n    items = typeof order.items === 'string' ? JSON.parse(order.items) : (order.items || []);\n  } catch {\n    items = [];\n  }\n\n  ctx.log(`[update-inventory] Decrementing inventory for ${items.length} items from order #${order.orderNumber}`);\n  const updatedProducts = [];\n\n  for (const item of items) {\n    const prodId = item.productId || item.id;\n    if (!prodId) continue;\n\n    try {\n      const product = await ctx.records.get('products', prodId);\n      if (product) {\n        const qty = Number(item.quantity || 1);\n        const currentStock = Number(product.stock || 0);\n        const newStock = Math.max(0, currentStock - qty);\n        const newStatus = newStock === 0 ? 'out_of_stock' : (newStock < 10 ? 'low_stock' : 'in_stock');\n\n        await ctx.records.update('products', prodId, {\n          stock: newStock,\n          status: newStatus\n        });\n\n        updatedProducts.push({ id: prodId, name: product.name, prevStock: currentStock, newStock });\n        ctx.log(`[update-inventory] Updated ${product.name} (ID: ${prodId}): ${currentStock} -> ${newStock}`);\n      }\n    } catch (err) {\n      ctx.log(`[update-inventory] Error updating stock for item ${prodId}: ${err.message}`);\n    }\n  }\n\n  return {\n    status: 200,\n    body: {\n      success: true,\n      orderNumber: order.orderNumber,\n      itemsProcessed: updatedProducts.length,\n      updates: updatedProducts\n    }\n  };\n}"
+    "code": "export default async function(ctx) {\n  const auth = ctx.request?.auth;\n  if (!auth?.role?.includes('admin') && auth?.role !== 'service-role' && !auth?.isAdmin) {\n    return {\n      status: 403,\n      body: {\n        error: 'Forbidden',\n        message: 'Admin or service-role privileges required to update inventory'\n      }\n    };\n  }\n\n  const order = ctx.request?.body?.record || ctx.request?.body || {};\n  let items = [];\n  try {\n    items = typeof order.items === 'string' ? JSON.parse(order.items) : (order.items || []);\n  } catch {\n    items = [];\n  }\n\n  ctx.log(`[update-inventory] Decrementing inventory for ${items.length} items from order #${order.orderNumber}`);\n  const updatedProducts = [];\n\n  for (const item of items) {\n    const prodId = item.productId || item.id;\n    if (!prodId) continue;\n\n    try {\n      const product = await ctx.records.get('products', prodId);\n      if (product) {\n        const qty = Number(item.quantity || 1);\n        const currentStock = Number(product.stock || 0);\n        const newStock = Math.max(0, currentStock - qty);\n        const newStatus = newStock === 0 ? 'out_of_stock' : (newStock < 10 ? 'low_stock' : 'in_stock');\n\n        await ctx.records.update('products', prodId, {\n          stock: newStock,\n          status: newStatus\n        });\n\n        updatedProducts.push({ id: prodId, name: product.name, prevStock: currentStock, newStock });\n        ctx.log(`[update-inventory] Updated ${product.name} (ID: ${prodId}): ${currentStock} -> ${newStock}`);\n      }\n    } catch (err) {\n      ctx.log(`[update-inventory] Error updating stock for item ${prodId}: ${err.message}`);\n    }\n  }\n\n  return {\n    status: 200,\n    body: {\n      success: true,\n      orderNumber: order.orderNumber,\n      itemsProcessed: updatedProducts.length,\n      updates: updatedProducts\n    }\n  };\n}"
   },
   {
     "name": "generate-tracking-label",
@@ -967,6 +967,7 @@ export const ecommerceTemplate: TemplateDefinition = {
                 "DeductInventory": {
                   "type": "Task",
                   "function": "update-inventory",
+                  "serviceRole": true,
                   "end": true
                 }
               }
