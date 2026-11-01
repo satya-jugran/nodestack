@@ -2399,7 +2399,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       await app.apps.delete('tenant-crm');
     });
 
-    it('should prompt to force delete in Admin UI when deleteFunctionPrompt receives 409 Conflict', async () => {
+    it('should render HTML dialog modal for function deletion and transition to force delete on 409 Conflict', async () => {
       const htmlPath = path.resolve(__dirname, '../dist/admin/ui/index.html');
       const htmlContent = fs.readFileSync(htmlPath, 'utf8');
 
@@ -2409,14 +2409,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         url: 'http://localhost:8197/_/',
       });
       const win = dom.window as any;
-
-      let confirmCount = 0;
-      const confirmPrompts: string[] = [];
-      win.confirm = (msg: string) => {
-        confirmCount++;
-        confirmPrompts.push(msg);
-        return true; // confirm both initial prompt and force prompt
-      };
+      const doc = win.document;
 
       const requestedUrls: string[] = [];
       win.api = async (path: string, opts: any) => {
@@ -2436,14 +2429,32 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         toastedType = type;
       };
 
-      await win.deleteFunctionPrompt('fn_123', 'flow-task-fn');
+      // 1. Open HTML Delete Modal
+      win.deleteFunctionPrompt('fn_123', 'flow-task-fn');
 
-      // Both confirms triggered: 1st for deletion, 2nd for force delete
-      expect(confirmCount).toBe(2);
-      expect(confirmPrompts[0]).toContain("Are you sure you want to delete function 'flow-task-fn'");
-      expect(confirmPrompts[1]).toContain("Do you want to FORCE delete this function anyway");
+      const modalRoot = doc.getElementById('modal-root')!;
+      expect(modalRoot.innerHTML).toContain('Delete Function');
+      expect(modalRoot.innerHTML).toContain('flow-task-fn');
 
-      // Verify two DELETE calls made: initial and force
+      const deleteBtn = doc.getElementById('btn-confirm-delete-function') as HTMLButtonElement;
+      expect(deleteBtn).not.toBeNull();
+      expect(deleteBtn.textContent?.trim()).toBe('Delete Function');
+
+      // 2. Click Delete -> Fails with 409 Conflict -> Modal updates in-place to Conflict State
+      await win.confirmDeleteFunction('fn_123', 'flow-task-fn', false);
+
+      expect(modalRoot.innerHTML).toContain('Cannot Delete: Flow Dependencies');
+      expect(modalRoot.innerHTML).toContain("referenced by 1 flow(s) ('FlowA')");
+      expect(modalRoot.innerHTML).toContain('Force Delete Anyway');
+
+      const forceBtn = doc.getElementById('btn-force-delete-function') as HTMLButtonElement;
+      expect(forceBtn).not.toBeNull();
+
+      // 3. Click Force Delete Anyway -> Succeeds with ?force=true and closes modal
+      await win.confirmDeleteFunction('fn_123', 'flow-task-fn', true);
+
+      expect(modalRoot.innerHTML).toBe('');
+
       const deleteCalls = requestedUrls.filter((u) => u.startsWith('DELETE'));
       expect(deleteCalls).toEqual([
         'DELETE /api/functions/fn_123',
@@ -2451,6 +2462,50 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       ]);
       expect(toastedMsg).toContain("Function 'flow-task-fn' deleted (forced)");
       expect(toastedType).toBe('info');
+    });
+
+    it('should render HTML dialog modal for flow deletion and close on cancellation or completion', async () => {
+      const htmlPath = path.resolve(__dirname, '../dist/admin/ui/index.html');
+      const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+
+      const dom = new JSDOM(htmlContent, {
+        runScripts: 'dangerously',
+        resources: 'usable',
+        url: 'http://localhost:8197/_/',
+      });
+      const win = dom.window as any;
+      const doc = win.document;
+
+      let deletedFlowUrl = '';
+      win.api = async (path: string, opts: any) => {
+        if (opts?.method === 'DELETE') {
+          deletedFlowUrl = path;
+        }
+        return { success: true };
+      };
+
+      // 1. Open HTML Delete Modal for Flow
+      win.deleteFlowPrompt('flow_abc', 'OrderFulfillmentFlow');
+
+      const modalRoot = doc.getElementById('modal-root')!;
+      expect(modalRoot.innerHTML).toContain('Delete Flow');
+      expect(modalRoot.innerHTML).toContain('OrderFulfillmentFlow');
+
+      const confirmBtn = doc.getElementById('btn-confirm-delete-flow') as HTMLButtonElement;
+      expect(confirmBtn).not.toBeNull();
+      expect(confirmBtn.textContent?.trim()).toBe('Delete Flow');
+
+      // 2. Test cancel closes modal without API call
+      win.closeDeleteFlowModal();
+      expect(modalRoot.innerHTML).toBe('');
+      expect(deletedFlowUrl).toBe('');
+
+      // 3. Re-open and confirm deletion
+      win.deleteFlowPrompt('flow_abc', 'OrderFulfillmentFlow');
+      await win.confirmDeleteFlow('flow_abc', 'OrderFulfillmentFlow');
+
+      expect(deletedFlowUrl).toBe('/api/flows/flow_abc');
+      expect(modalRoot.innerHTML).toBe('');
     });
   });
 

@@ -373,18 +373,78 @@ async function toggleFlowStatus(flowId, enabled) {
   }
 }
 
-async function deleteFlowPrompt(flowId, name) {
-  if (!confirm(`Are you sure you want to delete flow "${name}"? This action cannot be undone.`)) {
-    return;
+function openDeleteFlowModal(flowId, name) {
+  let modalRoot = document.getElementById('modal-root');
+  if (!modalRoot) {
+    modalRoot = document.createElement('div');
+    modalRoot.id = 'modal-root';
+    document.body.appendChild(modalRoot);
+  }
+
+  const safeId = typeof escapeHtml === 'function' ? escapeHtml(flowId) : flowId;
+  const safeName = typeof escapeHtml === 'function' ? escapeHtml(name) : name;
+
+  modalRoot.innerHTML = `
+    <div class="modal-backdrop" id="delete-flow-backdrop" onclick="if(event.target===this)closeDeleteFlowModal()">
+      <div class="modal" style="max-width: 480px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
+        <div class="modal-header" style="border-bottom-color: rgba(239, 68, 68, 0.2);">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span style="font-size: 18px;">⚠️</span>
+            <h2 class="modal-title" style="color: #ef4444; font-size: 16px;">Delete Flow</h2>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="closeDeleteFlowModal()" aria-label="Close">✕</button>
+        </div>
+        <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+          <p style="font-size: 13px; color: var(--text-main, #cbd5e1); line-height: 1.5; margin: 0;">
+            Are you sure you want to delete flow <strong style="color: var(--text-heading); font-family: var(--font-mono);">${safeName}</strong>? All execution history and logs will be permanently removed.
+          </p>
+          <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; padding: 0.75rem; font-size: 12px; color: #fca5a5; line-height: 1.4;">
+            This action cannot be undone. Webhook triggers and API execution endpoints for this flow will be disabled.
+          </div>
+        </div>
+        <div class="modal-footer" style="padding: 0.75rem 1.25rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeDeleteFlowModal()">Cancel</button>
+          <button type="button" class="btn btn-danger" id="btn-confirm-delete-flow" onclick="confirmDeleteFlow('${safeId}', '${safeName}')">
+            Delete Flow
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  setTimeout(() => {
+    document.getElementById('btn-confirm-delete-flow')?.focus();
+  }, 50);
+}
+
+function closeDeleteFlowModal() {
+  const modalRoot = document.getElementById('modal-root');
+  if (modalRoot) modalRoot.innerHTML = '';
+}
+
+async function confirmDeleteFlow(flowId, name) {
+  const btn = document.getElementById('btn-confirm-delete-flow');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Deleting...';
   }
   try {
     const base = getFlowsApiBase();
     await api(`${base}/${flowId}`, { method: 'DELETE' });
+    closeDeleteFlowModal();
     await refreshFlowsView();
     toast(`Flow "${name}" deleted successfully`, 'success');
   } catch (err) {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Delete Flow';
+    }
     toast('Failed to delete flow: ' + (err.message || err), 'error');
   }
+}
+
+function deleteFlowPrompt(flowId, name) {
+  openDeleteFlowModal(flowId, name);
 }
 
 function openCreateFlowModal() {
@@ -746,6 +806,9 @@ if (typeof window !== 'undefined') {
   window.handleFlowsSearch = handleFlowsSearch;
   window.toggleFlowStatus = toggleFlowStatus;
   window.deleteFlowPrompt = deleteFlowPrompt;
+  window.openDeleteFlowModal = openDeleteFlowModal;
+  window.closeDeleteFlowModal = closeDeleteFlowModal;
+  window.confirmDeleteFlow = confirmDeleteFlow;
   window.openCreateFlowModal = openCreateFlowModal;
   window.closeFlowModal = closeFlowModal;
   window.toggleFlowTriggerInput = toggleFlowTriggerInput;
