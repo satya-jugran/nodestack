@@ -11,7 +11,7 @@ export const ecommerceTemplate: TemplateDefinition = {
   badge: '20 Items & Images',
   aliases: ['ecommerce', 'e-commerce', 'shop', 'store'],
   stats: {
-    collections: 5,
+    collections: 6,
     records: 48,
     images: 25,
     functions: 6,
