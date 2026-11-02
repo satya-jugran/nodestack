@@ -540,7 +540,7 @@ function renderWorkbenchHeader(fn, isNew, invokePath) {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             <span>Run Test</span>
           </button>
-          <button class="btn btn-secondary btn-sm" onclick="deleteFunctionPrompt('${fn.id}', '${escapeHtml(fn.name)}')" style="color: var(--accent-danger);" title="Delete Function">
+          <button class="btn btn-secondary btn-sm" data-fn-id="${escapeHtml(fn.id)}" data-fn-name="${escapeHtml(fn.name)}" onclick="deleteFunctionPrompt(this.getAttribute('data-fn-id'), this.getAttribute('data-fn-name'))" style="color: var(--accent-danger);" title="Delete Function">
             Delete
           </button>
         ` : `

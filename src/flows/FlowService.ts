@@ -6,6 +6,8 @@ import { FunctionService } from '../functions/FunctionService';
 import { FlowEngine } from './FlowEngine';
 import {
   FlowConfig,
+  FlowDefinition,
+  FlowState,
   CreateFlowDto,
   UpdateFlowDto,
   FlowExecution,
@@ -172,6 +174,40 @@ export class FlowService {
   public getFlowByName(name: string): FlowConfig | null {
     const row = this.db.prepare('SELECT * FROM _flows WHERE name = ?').get(name) as any;
     return row ? this.mapRowToConfig(row) : null;
+  }
+
+  /**
+   * Recursively extracts all function names/identifiers referenced in a flow definition.
+   */
+  public static extractReferencedFunctions(
+    defOrStates: FlowDefinition | Record<string, FlowState> | null | undefined
+  ): Set<string> {
+    return FlowValidator.extractReferencedFunctions(defOrStates);
+  }
+
+  /**
+   * Finds all flows that reference a function by name or ID.
+   */
+  public getFlowsReferencingFunction(functionName: string, functionId?: string): FlowConfig[] {
+    const allFlows = this.getAllFlows();
+    const matched: FlowConfig[] = [];
+    const targetName = functionName ? functionName.trim() : '';
+    const targetId = functionId ? functionId.trim() : '';
+
+    for (const flow of allFlows) {
+      if (!flow.definition || typeof flow.definition !== 'object' || Array.isArray(flow.definition)) {
+        throw new AppError(
+          `Failed to inspect flow dependencies: malformed definition in flow '${flow.name || flow.id}'`,
+          500
+        );
+      }
+      const referenced = FlowValidator.extractReferencedFunctions(flow.definition);
+      if ((targetName && referenced.has(targetName)) || (targetId && referenced.has(targetId))) {
+        matched.push(flow);
+      }
+    }
+
+    return matched;
   }
 
   public createFlow(dto: CreateFlowDto, actor?: any): FlowConfig {

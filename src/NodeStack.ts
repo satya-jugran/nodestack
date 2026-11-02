@@ -263,6 +263,7 @@ export class NodeStack {
     // 17.8 Functions Flow ("Functions Flow Manager & Engine")
     this.flows = this.defaultApp.flows;
     this.container.bindInstance(TOKENS.FlowService, this.flows);
+    this.functions.setFlowService(this.flows);
 
     this.flowController = new FlowController(this.flows);
     this.container.bindInstance(TOKENS.FlowController, this.flowController);

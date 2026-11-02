@@ -378,7 +378,7 @@ function renderFunctionsTable(functions) {
             <button class="btn btn-secondary btn-sm" onclick="toggleFunctionEnabled('${fn.id}', ${!isEnabled})" title="${isEnabled ? 'Disable function' : 'Enable function'}">
               ${isEnabled ? 'Disable' : 'Enable'}
             </button>
-            <button class="btn btn-secondary btn-sm" onclick="deleteFunctionPrompt('${fn.id}', '${escapeHtml(fn.name)}')" style="color: var(--accent-danger);" title="Delete function">
+            <button class="btn btn-secondary btn-sm" data-fn-id="${escapeHtml(fn.id)}" data-fn-name="${escapeHtml(fn.name)}" onclick="deleteFunctionPrompt(this.getAttribute('data-fn-id'), this.getAttribute('data-fn-name'))" style="color: var(--accent-danger);" title="Delete function">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
           </div>
@@ -427,20 +427,154 @@ async function toggleFunctionEnabled(id, enabled) {
   }
 }
 
-async function deleteFunctionPrompt(id, name) {
-  if (!confirm(`Are you sure you want to delete function '${name}'? All invocation history will be removed.`)) {
-    return;
+function openDeleteFunctionModal(id, name) {
+  let modalRoot = document.getElementById('modal-root');
+  if (!modalRoot) {
+    modalRoot = document.createElement('div');
+    modalRoot.id = 'modal-root';
+    document.body.appendChild(modalRoot);
   }
+
+  const safeId = typeof escapeHtml === 'function' ? escapeHtml(id) : id;
+  const safeName = typeof escapeHtml === 'function' ? escapeHtml(name) : name;
+
+  modalRoot.innerHTML = `
+    <div class="modal-backdrop" id="delete-function-backdrop" onclick="if(event.target===this)closeDeleteFunctionModal()">
+      <div class="modal confirm-dialog">
+        <div class="modal-header" style="border-bottom-color: rgba(239, 68, 68, 0.2);">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span style="font-size: 18px;">⚠️</span>
+            <h2 class="modal-title danger" style="font-size: 16px;">Delete Function</h2>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="closeDeleteFunctionModal()" aria-label="Close">✕</button>
+        </div>
+        <div class="modal-body" id="delete-function-modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+          <p style="font-size: 13px; color: var(--text-main, #cbd5e1); line-height: 1.5; margin: 0;">
+            Are you sure you want to delete function <strong style="color: var(--text-heading); font-family: var(--font-mono);">${safeName}</strong>? All invocation history and logs will be permanently removed.
+          </p>
+          <div class="confirm-dialog-banner danger">
+            This action cannot be undone. Invocations to <code>/api/functions/${safeName}/invoke</code> will return 404 Not Found.
+          </div>
+        </div>
+        <div class="modal-footer" id="delete-function-modal-footer" style="padding: 0.75rem 1.25rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeDeleteFunctionModal()">Cancel</button>
+          <button type="button" class="btn btn-danger" id="btn-confirm-delete-function" data-fn-id="${safeId}">
+            Delete Function
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const deleteBtn = document.getElementById('btn-confirm-delete-function');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', () => confirmDeleteFunction(id, name, false));
+  }
+
+  setTimeout(() => {
+    document.getElementById('btn-confirm-delete-function')?.focus();
+  }, 50);
+}
+
+function closeDeleteFunctionModal() {
+  const modalRoot = document.getElementById('modal-root');
+  if (modalRoot) modalRoot.innerHTML = '';
+}
+
+async function confirmDeleteFunction(id, name, force = false) {
+  const actionBtnId = force ? 'btn-force-delete-function' : 'btn-confirm-delete-function';
+  const btn = document.getElementById(actionBtnId);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = force ? 'Force Deleting...' : 'Deleting...';
+  }
+
+  const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+  const basePath = slug && slug !== 'default' ? `/api/apps/${slug}/functions/${id}` : `/api/functions/${id}`;
+  const endpoint = force ? `${basePath}?force=true` : basePath;
+
   try {
-    const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
-    const endpoint = slug && slug !== 'default' ? `/api/apps/${slug}/functions/${id}` : `/api/functions/${id}`;
     await api(endpoint, { method: 'DELETE' });
-    toast(`Function '${name}' deleted`, 'info');
+    closeDeleteFunctionModal();
+    toast(`Function '${name}' deleted${force ? ' (forced)' : ''}`, 'info');
+    if (typeof closeFunctionEditor === 'function') {
+      closeFunctionEditor();
+    }
     await loadFunctionStats();
     await loadFunctionsList();
   } catch (err) {
+    if (err.status === 409 && !force) {
+      renderConflictModalState(id, name, err.message);
+      return;
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = force ? 'Force Delete Anyway' : 'Delete Function';
+    }
+    const body = document.getElementById('delete-function-modal-body');
+    if (body) {
+      const errBox = document.createElement('div');
+      errBox.style.cssText = 'background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 6px; padding: 0.75rem; font-size: 12px; color: #ef4444;';
+      errBox.textContent = err.message || 'Failed to delete function';
+      body.prepend(errBox);
+    }
     toast(err.message || 'Failed to delete function', 'error');
   }
+}
+
+function renderConflictModalState(id, name, conflictMessage) {
+  const safeId = typeof escapeHtml === 'function' ? escapeHtml(id) : id;
+  const safeName = typeof escapeHtml === 'function' ? escapeHtml(name) : name;
+  const safeMsg = typeof escapeHtml === 'function' ? escapeHtml(conflictMessage) : conflictMessage;
+
+  const modal = document.querySelector('#modal-root .modal');
+  if (!modal) return;
+
+  const header = modal.querySelector('.modal-header');
+  if (header) {
+    header.style.borderBottomColor = 'rgba(245, 158, 11, 0.3)';
+    header.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <span style="font-size: 18px;">⚠️</span>
+        <h2 class="modal-title warning" style="font-size: 16px;">Cannot Delete: Flow Dependencies</h2>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closeDeleteFunctionModal()" aria-label="Close">✕</button>
+    `;
+  }
+
+  const body = document.getElementById('delete-function-modal-body');
+  if (body) {
+    body.innerHTML = `
+      <div class="confirm-dialog-banner warning">
+        <div class="confirm-dialog-banner-title">Cannot Delete: Function in Use</div>
+        <div>${safeMsg}</div>
+      </div>
+      <div class="confirm-dialog-banner danger">
+        <strong>Warning:</strong> Force deleting function <strong style="font-family: var(--font-mono);">${safeName}</strong> will remove it immediately. Subsequent executions of referencing flows will fail during state execution.
+      </div>
+    `;
+  }
+
+  const footer = document.getElementById('delete-function-modal-footer');
+  if (footer) {
+    footer.innerHTML = `
+      <button type="button" class="btn btn-secondary" onclick="closeDeleteFunctionModal()">Cancel (Keep Function)</button>
+      <button type="button" class="btn btn-danger" id="btn-force-delete-function" data-fn-id="${safeId}">
+        Force Delete Anyway
+      </button>
+    `;
+    const forceBtn = document.getElementById('btn-force-delete-function');
+    if (forceBtn) {
+      forceBtn.addEventListener('click', () => confirmDeleteFunction(id, name, true));
+    }
+    setTimeout(() => {
+      document.getElementById('btn-force-delete-function')?.focus();
+    }, 50);
+  }
+}
+
+function deleteFunctionPrompt(id, name) {
+  openDeleteFunctionModal(id, name);
 }
 
 function copyFunctionEndpoint(path) {
@@ -696,17 +830,76 @@ async function viewLogPayload(logId) {
   `;
 }
 
-async function clearAllFunctionLogs() {
-  if (!confirm('Are you sure you want to clear execution logs? This cannot be undone.')) return;
+function openClearLogsModal() {
+  let modalRoot = document.getElementById('modal-root');
+  if (!modalRoot) {
+    modalRoot = document.createElement('div');
+    modalRoot.id = 'modal-root';
+    document.body.appendChild(modalRoot);
+  }
+
+  modalRoot.innerHTML = `
+    <div class="modal-backdrop" id="clear-logs-backdrop" onclick="if(event.target===this)closeClearLogsModal()">
+      <div class="modal confirm-dialog">
+        <div class="modal-header" style="border-bottom-color: rgba(239, 68, 68, 0.2);">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span style="font-size: 18px;">⚠️</span>
+            <h2 class="modal-title danger" style="font-size: 16px;">Clear Execution Logs</h2>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="closeClearLogsModal()" aria-label="Close">✕</button>
+        </div>
+        <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+          <p style="font-size: 13px; color: var(--text-main, #cbd5e1); line-height: 1.5; margin: 0;">
+            Are you sure you want to permanently clear all function invocation logs?
+          </p>
+          <div class="confirm-dialog-banner danger">
+            This will delete all historical logs, timestamps, status codes, and console logs. This action cannot be undone.
+          </div>
+        </div>
+        <div class="modal-footer" style="padding: 0.75rem 1.25rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeClearLogsModal()">Cancel</button>
+          <button type="button" class="btn btn-danger" id="btn-confirm-clear-logs" onclick="confirmClearAllLogs()">
+            Clear All Logs
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  setTimeout(() => {
+    document.getElementById('btn-confirm-clear-logs')?.focus();
+  }, 50);
+}
+
+function closeClearLogsModal() {
+  const modalRoot = document.getElementById('modal-root');
+  if (modalRoot) modalRoot.innerHTML = '';
+}
+
+async function confirmClearAllLogs() {
+  const btn = document.getElementById('btn-confirm-clear-logs');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Clearing...';
+  }
   try {
     const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
     const endpoint = slug && slug !== 'default' ? `/api/apps/${slug}/functions/logs` : '/api/functions/logs';
     await api(endpoint, { method: 'DELETE' });
+    closeClearLogsModal();
     toast('Execution logs cleared', 'info');
     await loadFunctionLogs();
   } catch (err) {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Clear All Logs';
+    }
     toast(err.message || 'Failed to clear logs', 'error');
   }
+}
+
+function clearAllFunctionLogs() {
+  openClearLogsModal();
 }
 
 function formatTimestamp(iso) {
@@ -748,6 +941,13 @@ if (typeof window !== 'undefined') {
   window.renderFunctionsTable = renderFunctionsTable;
   window.toggleFunctionEnabled = toggleFunctionEnabled;
   window.deleteFunctionPrompt = deleteFunctionPrompt;
+  window.openDeleteFunctionModal = openDeleteFunctionModal;
+  window.closeDeleteFunctionModal = closeDeleteFunctionModal;
+  window.confirmDeleteFunction = confirmDeleteFunction;
+  window.renderConflictModalState = renderConflictModalState;
+  window.openClearLogsModal = openClearLogsModal;
+  window.closeClearLogsModal = closeClearLogsModal;
+  window.confirmClearAllLogs = confirmClearAllLogs;
   window.copyFunctionEndpoint = copyFunctionEndpoint;
   window.openFunctionEditor = window.openFunctionEditor || openFunctionEditor;
   window.openCreateFunctionPage = window.openCreateFunctionPage || openCreateFunctionPage;

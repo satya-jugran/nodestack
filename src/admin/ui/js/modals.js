@@ -2281,45 +2281,56 @@
     // Delete Collection Modal
     function openDeleteCollectionModal(colName) {
       const col = state.collections.find(c => c.name === colName) || { name: colName };
+      const safeColName = typeof escapeHtml === 'function' ? escapeHtml(col.name) : col.name;
       const modal = document.getElementById('modal-root');
       modal.innerHTML = `
         <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
-          <div class="modal" style="max-width:440px;">
+          <div class="modal confirm-dialog" style="max-width:440px;">
             <div class="modal-header" style="border-bottom-color:rgba(239, 68, 68, 0.2);">
               <div style="display:flex; align-items:center; gap:0.5rem;">
                 <span style="font-size:18px;">⚠️</span>
-                <h2 class="modal-title" style="color:#ef4444; font-size:16px;">Delete Collection</h2>
+                <h2 class="modal-title danger" style="font-size:16px;">Delete Collection</h2>
               </div>
               <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
             </div>
             <div class="modal-body" style="padding:1.25rem; display:flex; flex-direction:column; gap:1rem;">
-              <p style="font-size:13px; color:#cbd5e1; line-height:1.5; margin:0;">
-                Are you sure you want to permanently delete the collection <strong style="color: var(--text-heading); font-family:var(--font-mono);">${col.name}</strong>?
+              <p style="font-size:13px; color:var(--text-main, #cbd5e1); line-height:1.5; margin:0;">
+                Are you sure you want to permanently delete the collection <strong style="color: var(--text-heading); font-family:var(--font-mono);">${safeColName}</strong>?
               </p>
-              <div style="background:rgba(239, 68, 68, 0.08); border:1px solid rgba(239, 68, 68, 0.25); border-radius:6px; padding:0.75rem; font-size:12px; color:#fca5a5; line-height:1.4;">
-                This will drop the SQLite table <strong style="font-family:var(--font-mono);">${col.name}</strong>, remove all schema definitions, and permanently erase all stored records and file assets.
+              <div class="confirm-dialog-banner danger">
+                This will drop the SQLite table <strong style="font-family:var(--font-mono);">${safeColName}</strong>, remove all schema definitions, and permanently erase all stored records and file assets.
               </div>
               <div class="form-group" style="margin:0;">
-                <label class="form-label" style="font-size:12px;">Type <strong>${col.name}</strong> to confirm:</label>
-                <input type="text" class="form-input" id="confirm-delete-col-input" placeholder="${col.name}" oninput="
-                  const btn = document.getElementById('btn-confirm-delete-col');
-                  if (btn) btn.disabled = (this.value.trim() !== '${col.name}');
-                " onkeydown="
-                  if (event.key === 'Enter' && this.value.trim() === '${col.name}') {
-                    submitDeleteCollection('${col.name}');
-                  }
-                " autofocus>
+                <label class="form-label" style="font-size:12px;">Type <strong>${safeColName}</strong> to confirm:</label>
+                <input type="text" class="form-input" id="confirm-delete-col-input" placeholder="${safeColName}" autofocus>
               </div>
             </div>
             <div class="modal-footer" style="padding:0.75rem 1.25rem;">
               <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-              <button class="btn btn-danger" id="btn-confirm-delete-col" disabled onclick="submitDeleteCollection('${col.name}')">
+              <button class="btn btn-danger" id="btn-confirm-delete-col" disabled>
                 Delete Permanently
               </button>
             </div>
           </div>
         </div>
       `;
+
+      const input = document.getElementById('confirm-delete-col-input');
+      const btn = document.getElementById('btn-confirm-delete-col');
+      if (input && btn) {
+        input.addEventListener('input', () => {
+          btn.disabled = (input.value.trim() !== col.name);
+        });
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && input.value.trim() === col.name) {
+            submitDeleteCollection(col.name);
+          }
+        });
+        btn.addEventListener('click', () => {
+          submitDeleteCollection(col.name);
+        });
+      }
+
       focusFirstModalField(modal);
     }
 

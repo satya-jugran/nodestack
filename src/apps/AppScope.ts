@@ -165,6 +165,7 @@ export class AppScope {
       this.eventBus,
       { id: app.id, slug: app.slug, name: app.name }
     );
+    this.functions.setFlowService(this.flows);
 
     this.templates = new TemplateService(
       this.db,

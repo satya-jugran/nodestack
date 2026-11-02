@@ -611,7 +611,19 @@
     }
 
     async function handlePruneAuditLogs() {
-      if (!confirm('Prune audit logs older than 90 days? Historical records older than 90 days will be removed.')) return;
+      const confirmed = typeof showConfirmDialog === 'function'
+        ? await showConfirmDialog({
+            title: 'Prune Audit Logs',
+            message: 'Prune audit logs older than 90 days? Historical records older than 90 days will be removed.',
+            warning: 'This action cannot be undone. Historical audit trail records older than 90 days will be permanently deleted.',
+            warningType: 'warning',
+            confirmText: 'Prune Logs',
+            cancelText: 'Cancel',
+            variant: 'warning',
+            icon: '⚠️',
+          })
+        : confirm('Prune audit logs older than 90 days? Historical records older than 90 days will be removed.');
+      if (!confirmed) return;
       try {
         const res = await api('/api/audit-logs/prune', {
           method: 'POST',
@@ -667,7 +679,19 @@
     }
 
     async function clearLogs() {
-      if (!confirm('Clear all logs?')) return;
+      const confirmed = typeof showConfirmDialog === 'function'
+        ? await showConfirmDialog({
+            title: 'Clear All Logs',
+            message: 'Are you sure you want to clear all request logs?',
+            warning: 'This action cannot be undone. All request and error logs will be permanently deleted.',
+            warningType: 'danger',
+            confirmText: 'Clear All Logs',
+            cancelText: 'Cancel',
+            variant: 'danger',
+            icon: '⚠️',
+          })
+        : confirm('Clear all logs?');
+      if (!confirmed) return;
       try {
         await api('/api/logs', { method: 'DELETE' });
         toast('Logs cleared', 'success');

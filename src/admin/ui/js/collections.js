@@ -137,7 +137,7 @@ function renderCollectionItemHtml(col) {
       <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
         <span class="collection-badge">${escapeHtml(col.type)}</span>
         ${!col.system ? `
-          <span class="col-del-btn" title="Delete collection" onclick="event.stopPropagation(); openDeleteCollectionModal('${escapeHtml(col.name)}')" style="cursor:pointer; opacity:0.4; font-size:11px; padding:2px 4px; border-radius:3px; transition:all 0.15s;" onmouseover="this.style.opacity='1'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.15)'" onmouseout="this.style.opacity='0.4'; this.style.color='inherit'; this.style.background='transparent'">
+          <span class="col-del-btn" title="Delete collection" data-col-name="${escapeHtml(col.name)}" onclick="event.stopPropagation(); openDeleteCollectionModal(this.getAttribute('data-col-name'))" style="cursor:pointer; opacity:0.4; font-size:11px; padding:2px 4px; border-radius:3px; transition:all 0.15s;" onmouseover="this.style.opacity='1'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.15)'" onmouseout="this.style.opacity='0.4'; this.style.color='inherit'; this.style.background='transparent'">
             ✕
           </span>
         ` : ''}

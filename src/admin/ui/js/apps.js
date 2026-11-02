@@ -91,7 +91,7 @@ function updateAppSwitcherUI() {
               type="button" 
               class="btn-delete-app" 
               title="Delete application '${escapeHtml(app.name)}'" 
-              onclick="event.stopPropagation(); promptDeleteApp('${escapeHtml(app.slug)}', '${escapeHtml(app.name)}')"
+              data-app-slug="${escapeHtml(app.slug)}" data-app-name="${escapeHtml(app.name)}" onclick="event.stopPropagation(); promptDeleteApp(this.getAttribute('data-app-slug'), this.getAttribute('data-app-name'))"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"></polyline>
@@ -408,13 +408,18 @@ function promptDeleteApp(slug, name) {
         </div>
         <div class="modal-footer" style="padding: 0.75rem 1.25rem;">
           <button type="button" class="btn btn-secondary" onclick="closeDeleteAppModal()">Cancel</button>
-          <button type="button" class="btn btn-danger" id="btn-confirm-delete-app" onclick="submitDeleteApp('${escapeHtml(slug)}', '${escapeHtml(name)}')">
+          <button type="button" class="btn btn-danger" id="btn-confirm-delete-app">
             Delete Application
           </button>
         </div>
       </div>
     </div>
   `;
+
+  const confirmBtn = document.getElementById('btn-confirm-delete-app');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', () => submitDeleteApp(slug, name));
+  }
 
   setTimeout(() => {
     document.getElementById('btn-confirm-delete-app')?.focus();

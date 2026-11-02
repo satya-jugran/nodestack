@@ -2307,3 +2307,190 @@ html.light .audit-diff-val-new {
   background: #dcfce7;
   color: #15803d;
 }
+
+/* ==========================================================================
+   Confirmation Dialogs & Action Modals (Dark & Light Theme High-Contrast)
+   ========================================================================== */
+
+.confirm-dialog {
+  max-width: 480px;
+  width: 95%;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.modal-title.danger {
+  color: #ef4444;
+}
+
+.modal-title.warning {
+  color: #f59e0b;
+}
+
+/* Callout Banners (Default / Dark Theme) */
+.confirm-dialog-banner {
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  font-size: 12.5px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.confirm-dialog-banner code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.confirm-dialog-banner.danger {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+.confirm-dialog-banner.danger code {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fecaca;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.confirm-dialog-banner.warning {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fde68a;
+}
+
+.confirm-dialog-banner.warning code {
+  background: rgba(245, 158, 11, 0.22);
+  color: #fef3c7;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.confirm-dialog-banner.info {
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #93c5fd;
+}
+
+.confirm-dialog-banner.info code {
+  background: rgba(59, 130, 246, 0.22);
+  color: #dbeafe;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.confirm-dialog-banner-title {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Primary Action Buttons in Dialogs */
+.confirm-dialog .btn-danger,
+.btn-danger-solid,
+#btn-confirm-delete-function,
+#btn-confirm-delete-flow,
+#btn-force-delete-function,
+#btn-confirm-clear-logs {
+  background-color: #dc2626 !important;
+  border-color: #dc2626 !important;
+  color: #ffffff !important;
+  font-weight: 600;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.confirm-dialog .btn-danger:hover,
+.btn-danger-solid:hover,
+#btn-confirm-delete-function:hover,
+#btn-confirm-delete-flow:hover,
+#btn-force-delete-function:hover,
+#btn-confirm-clear-logs:hover {
+  background-color: #b91c1c !important;
+  border-color: #b91c1c !important;
+  color: #ffffff !important;
+}
+
+.confirm-dialog .btn-danger:focus,
+.btn-danger-solid:focus,
+#btn-confirm-delete-function:focus,
+#btn-confirm-delete-flow:focus,
+#btn-force-delete-function:focus,
+#btn-confirm-clear-logs:focus {
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.35) !important;
+  outline: none;
+}
+
+.confirm-dialog .btn-warning,
+.btn-warning-solid {
+  background-color: #d97706 !important;
+  border-color: #d97706 !important;
+  color: #ffffff !important;
+  font-weight: 600;
+}
+
+.confirm-dialog .btn-warning:hover,
+.btn-warning-solid:hover {
+  background-color: #b45309 !important;
+  border-color: #b45309 !important;
+  color: #ffffff !important;
+}
+
+/* Light Theme Overrides for High Contrast & Readability */
+html.light .modal-title.danger {
+  color: #dc2626;
+}
+
+html.light .modal-title.warning {
+  color: #b45309;
+}
+
+html.light .confirm-dialog-banner.danger {
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+html.light .confirm-dialog-banner.danger code {
+  background-color: #fee2e2;
+  color: #7f1d1d;
+  border: 1px solid #fca5a5;
+}
+
+html.light .confirm-dialog-banner.warning {
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+
+html.light .confirm-dialog-banner.warning code {
+  background-color: #fef3c7;
+  color: #78350f;
+  border: 1px solid #fcd34d;
+}
+
+html.light .confirm-dialog-banner.info {
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+}
+
+html.light .confirm-dialog-banner.info code {
+  background-color: #dbeafe;
+  color: #1e3a8a;
+  border: 1px solid #93c5fd;
+}
+
+/* General Light Theme danger button contrast fix */
+html.light .btn-danger:not(.btn-solid):not(#btn-confirm-delete-function):not(#btn-confirm-delete-flow):not(#btn-force-delete-function):not(#btn-confirm-clear-logs) {
+  background-color: #fee2e2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+html.light .btn-danger:not(.btn-solid):not(#btn-confirm-delete-function):not(#btn-confirm-delete-flow):not(#btn-force-delete-function):not(#btn-confirm-clear-logs):hover {
+  background-color: #fecaca;
+  border-color: #f87171;
+  color: #991b1b;
+}
