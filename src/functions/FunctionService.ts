@@ -293,35 +293,41 @@ export class FunctionService {
     }
 
     // Direct SQLite fallback: query _flows table if it exists
-    try {
-      const tableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_flows'").get();
-      if (!tableExists) {
-        return [];
-      }
-      const rows = this.db.prepare('SELECT id, name, definition FROM _flows').all() as Array<{
-        id: string;
-        name: string;
-        definition: string;
-      }>;
-      const targetName = functionName ? functionName.trim() : '';
-      const targetId = functionId ? functionId.trim() : '';
-      const dependent: Array<{ id: string; name: string }> = [];
-
-      for (const row of rows) {
-        try {
-          const def = JSON.parse(row.definition);
-          const referenced = FlowValidator.extractReferencedFunctions(def);
-          if ((targetName && referenced.has(targetName)) || (targetId && referenced.has(targetId))) {
-            dependent.push({ id: row.id, name: row.name });
-          }
-        } catch {
-          // ignore corrupted flow row
-        }
-      }
-      return dependent;
-    } catch {
+    const tableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_flows'").get();
+    if (!tableExists) {
       return [];
     }
+    const rows = this.db.prepare('SELECT id, name, definition FROM _flows').all() as Array<{
+      id: string;
+      name: string;
+      definition: string;
+    }>;
+    const targetName = functionName ? functionName.trim() : '';
+    const targetId = functionId ? functionId.trim() : '';
+    const dependent: Array<{ id: string; name: string }> = [];
+
+    for (const row of rows) {
+      let def: any;
+      try {
+        def = typeof row.definition === 'string' ? JSON.parse(row.definition) : row.definition;
+      } catch (err: any) {
+        throw new AppError(
+          `Failed to inspect flow dependencies: malformed definition in flow '${row.name || row.id}'`,
+          500
+        );
+      }
+      if (!def || typeof def !== 'object' || Array.isArray(def)) {
+        throw new AppError(
+          `Failed to inspect flow dependencies: malformed definition in flow '${row.name || row.id}'`,
+          500
+        );
+      }
+      const referenced = FlowValidator.extractReferencedFunctions(def);
+      if ((targetName && referenced.has(targetName)) || (targetId && referenced.has(targetId))) {
+        dependent.push({ id: row.id, name: row.name });
+      }
+    }
+    return dependent;
   }
 
   public deleteFunction(id: string, actor?: any, options?: { force?: boolean }): boolean {

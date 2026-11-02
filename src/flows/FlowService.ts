@@ -195,7 +195,12 @@ export class FlowService {
     const targetId = functionId ? functionId.trim() : '';
 
     for (const flow of allFlows) {
-      if (!flow.definition) continue;
+      if (!flow.definition || typeof flow.definition !== 'object' || Array.isArray(flow.definition)) {
+        throw new AppError(
+          `Failed to inspect flow dependencies: malformed definition in flow '${flow.name || flow.id}'`,
+          500
+        );
+      }
       const referenced = FlowValidator.extractReferencedFunctions(flow.definition);
       if ((targetName && referenced.has(targetName)) || (targetId && referenced.has(targetId))) {
         matched.push(flow);

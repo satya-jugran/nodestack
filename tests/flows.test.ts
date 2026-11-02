@@ -2348,6 +2348,74 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         app.functions.deleteFunction(isolatedFn.id);
       }
     });
+
+    it('should fail closed and block function deletion when fallback encounters a malformed flow definition in _flows', async () => {
+      const fn = app.functions.createFunction({
+        name: 'fail-closed-check-fn',
+        code: 'export default async function() { return {}; }',
+        enabled: true,
+      });
+
+      // Insert a corrupted row in _flows
+      (app as any).db.prepare(`
+        INSERT INTO _flows (id, name, description, triggerType, enabled, definition, created, updated)
+        VALUES ('flow_corrupt_test', 'CorruptFlow', '', 'http', 1, 'INVALID_JSON_CORRUPT{', datetime('now'), datetime('now'))
+      `).run();
+
+      const originalFlowService = (app.functions as any).flowService;
+      (app.functions as any).flowService = undefined;
+
+      try {
+        // Attempting to delete function without force must fail closed (throwing AppError)
+        expect(() => {
+          app.functions.deleteFunction(fn.id);
+        }).toThrow("Failed to inspect flow dependencies: malformed definition in flow 'CorruptFlow'");
+
+        // Function must NOT be deleted
+        expect(app.functions.getFunctionById(fn.id)).not.toBeNull();
+
+        // With force: true, deletion succeeds
+        expect(app.functions.deleteFunction(fn.id, undefined, { force: true })).toBe(true);
+        expect(app.functions.getFunctionById(fn.id)).toBeNull();
+      } finally {
+        (app.functions as any).flowService = originalFlowService;
+        (app as any).db.prepare("DELETE FROM _flows WHERE id = 'flow_corrupt_test'").run();
+      }
+    });
+
+    it('should fail closed and block function deletion when fallback encounters a database read error on _flows', async () => {
+      const fn = app.functions.createFunction({
+        name: 'db-err-check-fn',
+        code: 'export default async function() { return {}; }',
+        enabled: true,
+      });
+
+      const originalFlowService = (app.functions as any).flowService;
+      (app.functions as any).flowService = undefined;
+
+      // Mock db.prepare to throw error when querying _flows
+      const originalPrepare = (app.functions as any).db.prepare.bind((app.functions as any).db);
+      (app.functions as any).db.prepare = (sql: string) => {
+        if (sql.includes('SELECT id, name, definition FROM _flows')) {
+          throw new Error('SQLite database disk I/O error');
+        }
+        return originalPrepare(sql);
+      };
+
+      try {
+        expect(() => {
+          app.functions.deleteFunction(fn.id);
+        }).toThrow('SQLite database disk I/O error');
+
+        // Function must NOT be deleted
+        expect(app.functions.getFunctionById(fn.id)).not.toBeNull();
+      } finally {
+        (app.functions as any).db.prepare = originalPrepare;
+        (app.functions as any).flowService = originalFlowService;
+        app.functions.deleteFunction(fn.id);
+      }
+    });
+
     it('should enforce referential integrity per app scope and allow force delete in tenant app', async () => {
       const tenantScope = await app.apps.create({
         name: 'Tenant CRM',
