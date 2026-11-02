@@ -74,6 +74,17 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Function Flows',
+      collapsed: false,
+      items: [
+        'flows/overview',
+        'flows/state-machine',
+        'flows/triggers-and-execution',
+        'flows/function-integration',
+      ],
+    },
+    {
+      type: 'category',
       label: 'TypeScript Server SDK',
       collapsed: true,
       items: [

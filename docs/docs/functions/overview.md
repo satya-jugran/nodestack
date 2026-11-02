@@ -186,3 +186,4 @@ export default async function(ctx) {
   };
 }
 ```
+\n---\n\n## Orchestrating Functions with Flows\n\nNeed to chain multiple functions together, evaluate conditional branches, handle retries, or run tasks in parallel?\n\nSee [**Function Flows (Workflow Orchestration)**](../flows/overview.md) for in-engine state machine orchestration with a visual drag-and-drop designer, declarative Code DSL, database event triggers, and built-in referential integrity protection.\n

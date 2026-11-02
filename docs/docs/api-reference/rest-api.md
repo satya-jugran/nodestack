@@ -5,7 +5,7 @@ title: REST API & OpenAPI Reference
 description: Complete REST endpoints reference and OpenAPI 3.0 specification
 ---
 
-REST API & OpenAPI Reference
+# REST API & OpenAPI Reference
 
 NodeStack dynamically generates an OpenAPI 3.0 specification and serves interactive documentation explorers.
 
@@ -99,13 +99,28 @@ GET /_/openapi.json
 | `POST` | `/api/functions` | Create a new serverless function (`name`, `code`, `authPolicy`, `timeoutMs`, etc.) (Superuser). |
 | `GET` | `/api/functions/:idOrName` | Retrieve details, configuration, and source code for a function. |
 | `PATCH` | `/api/functions/:id` | Update code, metadata, lifecycle hook triggers, limits, or env secrets (Superuser). |
-| `DELETE` | `/api/functions/:id` | Delete a serverless function and its execution history (Superuser). |
+| `DELETE` | `/api/functions/:id` | Delete a serverless function and execution logs. Returns `409 Conflict` if referenced by active flows unless `?force=true` is passed (Superuser). |
 | `ANY` | `/api/functions/:name/invoke` | Invoke a serverless function via HTTP (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`). |
 | `POST` | `/api/functions/:id/test` | Live test runner: execute function isolated in sandbox and inspect output (Superuser). |
 | `GET` | `/api/functions/logs` | Query paginated execution logs across all functions with status filter. |
 | `GET` | `/api/functions/:id/logs` | Query execution logs for a specific function. |
 | `DELETE` | `/api/functions/logs` | Clear execution history logs (Superuser). |
 | `ANY` | `/api/apps/:appId/functions/:name/invoke` | Invoke a serverless function scoped to a specific tenant application. |
+
+### Function Flows & State Machines
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/flows` | List all registered state machine flows (Superuser). |
+| `POST` | `/api/flows` | Create a new flow (`name`, `triggerType`, `eventTrigger`, `definition`) (Superuser). |
+| `GET` | `/api/flows/:id` | Retrieve flow details, triggers, and JSON state machine definition (Superuser). |
+| `PATCH` | `/api/flows/:id` | Update flow metadata, triggers, enabled state, or definition (Superuser). |
+| `DELETE` | `/api/flows/:id` | Delete a flow and its execution history (Superuser). |
+| `POST` | `/api/flows/:id/execute` | Execute a flow with an input payload (`:id` can be flow ID or unique name). |
+| `GET` | `/api/flows/executions` | List recent executions across all flows with optional status filter (Superuser). |
+| `GET` | `/api/flows/:id/executions` | Query execution history and step-level metrics for a specific flow (Superuser). |
+| `GET` | `/api/flows/executions/:executionId` | Inspect complete details and step logs for an individual execution (Superuser). |
+| `DELETE` | `/api/flows/:id/executions` | Clear execution history records for a specific flow (Superuser). |
+| Any | `/api/apps/:appId/flows/*` | Access flow management and execution endpoints scoped to a tenant application. |
 
 ### Applications & Multi-Tenancy
 | Method | Endpoint | Description |
