@@ -69,6 +69,7 @@ export class FlowEngine {
       executionOptions?: FlowExecutionOptions;
       onStepTransition?: (event: FlowStepTransitionEvent) => Promise<void> | void;
       resumeFrom?: FlowResumeOptions;
+      signal?: AbortSignal;
     } = {}
   ): Promise<FlowExecution> {
     const startedAt = options.resumeFrom?.startedAt || new Date().toISOString();
@@ -106,6 +107,7 @@ export class FlowEngine {
         executionId: undefined,
         onStepTransition: undefined,
         resumeFrom: undefined,
+        signal: options.signal,
         executionOptions: {
           ...options.executionOptions,
           executionId: undefined,
@@ -134,6 +136,12 @@ export class FlowEngine {
 
     try {
       while (currentStateName) {
+        if (options.signal?.aborted) {
+          const cancelErr = new AppError(options.signal.reason || `Flow '${flowName}' execution was cancelled`, 499);
+          (cancelErr as any).status = 'cancelled';
+          throw cancelErr;
+        }
+
         if (Date.now() > deadline) {
           throw new AppError(`Flow '${flowName}' execution timed out after ${timeoutMs}ms`, 408);
         }
@@ -160,6 +168,7 @@ export class FlowEngine {
           functionService: options.functionService,
           loopCounters,
           executeSubFlow: subFlowExecutor,
+          signal: options.signal,
         };
 
         const stepStartTime = Date.now();

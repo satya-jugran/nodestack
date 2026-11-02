@@ -175,7 +175,29 @@ export class WaitStateHandler implements IStateHandler<WaitState> {
   public async execute(state: WaitState, context: FlowStateContext): Promise<StateExecutionResult> {
     const seconds = Math.max(0, Math.min(state.seconds ?? 1, 60));
     if (seconds > 0) {
-      await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+      if (context.signal?.aborted) {
+        const cancelErr = new AppError('Wait state aborted', 499);
+        (cancelErr as any).status = 'cancelled';
+        throw cancelErr;
+      }
+      await new Promise<void>((resolve, reject) => {
+        let timer: any;
+        const onAbort = () => {
+          clearTimeout(timer);
+          const cancelErr = new AppError('Wait state aborted', 499);
+          (cancelErr as any).status = 'cancelled';
+          reject(cancelErr);
+        };
+        if (context.signal) {
+          context.signal.addEventListener('abort', onAbort, { once: true });
+        }
+        timer = setTimeout(() => {
+          if (context.signal) {
+            context.signal.removeEventListener('abort', onAbort);
+          }
+          resolve();
+        }, seconds * 1000);
+      });
     }
 
     return {

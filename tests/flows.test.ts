@@ -3513,6 +3513,61 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         db.prepare = originalPrepare;
       }
     });
+
+    it('should cancel active in-memory execution on abort and prevent subsequent writes from overwriting aborted state', async () => {
+      const flow = app.flows.createFlow({
+        name: 'ActiveAbortCancellationFlow',
+        definition: {
+          startAt: 'WaitStep',
+          states: {
+            WaitStep: {
+              type: 'Wait',
+              seconds: 5,
+              next: 'ShouldNeverRunAfterAbort',
+            },
+            ShouldNeverRunAfterAbort: {
+              type: 'Pass',
+              result: { reached: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId = FlowEngine.generateExecutionId();
+      const startTime = Date.now();
+
+      // Start the flow in the background
+      const runPromise = app.flows.executeFlow(flow.id, {}, undefined, { executionId: execId });
+
+      // Give it 50ms so it starts running the WaitStep
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Verify it is currently in 'running' state in DB
+      const beforeAbort = app.flows.getExecutionById(execId);
+      expect(beforeAbort).not.toBeNull();
+      expect(beforeAbort?.status).toBe('running');
+
+      // Abort the active running execution
+      const abortResult = app.flows.abortExecution(execId, 'Aborted mid-flight by test');
+      expect(abortResult.status).toBe('aborted');
+
+      // Wait for runPromise to settle
+      const runResult = await runPromise;
+      const elapsed = Date.now() - startTime;
+
+      // Must have cancelled immediately without waiting full 5 seconds
+      expect(elapsed).toBeLessThan(2000);
+
+      // Verify the final persisted state in SQLite was NOT overwritten with 'running' or 'succeeded'
+      const finalDbRecord = app.flows.getExecutionById(execId);
+      expect(finalDbRecord).not.toBeNull();
+      expect(finalDbRecord?.status).toBe('aborted');
+      expect(finalDbRecord?.error).toBe('Aborted mid-flight by test');
+
+      // 'ShouldNeverRunAfterAbort' must never have been reached in stepLogs
+      expect(finalDbRecord?.stepLogs.some((s) => s.step === 'ShouldNeverRunAfterAbort')).toBe(false);
+    });
   });
 
 });

@@ -27,6 +27,7 @@ export interface FlowServiceOptions {
 export class FlowService {
   private engine: FlowEngine;
   private recoveryStrategy: 'abort' | 'resume';
+  private activeAbortControllers = new Map<string, AbortController>();
 
   constructor(
     private db: DatabaseService,
@@ -350,6 +351,8 @@ export class FlowService {
     }
 
     const executionId = options.executionId || FlowService.generateExecutionId();
+    const abortController = new AbortController();
+    this.activeAbortControllers.set(executionId, abortController);
 
     const initialCheckpoint: FlowCheckpoint = {
       currentStateName: flow.definition.startAt,
@@ -380,6 +383,7 @@ export class FlowService {
         executionId,
         flowId: flow.id,
         executionOptions: options,
+        signal: abortController.signal,
         onStepTransition: async (event) => {
           this.persistCheckpoint(executionId, event);
         },
@@ -389,6 +393,9 @@ export class FlowService {
       return execution;
     } catch (err: any) {
       const existing = this.getExecutionById(executionId);
+      if (existing?.status === 'aborted') {
+        throw err;
+      }
       this.saveExecution({
         id: executionId,
         flowId: flow.id,
@@ -405,6 +412,8 @@ export class FlowService {
         checkpoint: existing?.checkpoint ?? null,
       });
       throw err;
+    } finally {
+      this.activeAbortControllers.delete(executionId);
     }
   }
 
@@ -412,13 +421,20 @@ export class FlowService {
    * Atomically persists the step logs and execution state after each transition.
    */
   public persistCheckpoint(executionId: string, event: FlowStepTransitionEvent): void {
+    const controller = this.activeAbortControllers.get(executionId);
+    if (controller?.signal.aborted) {
+      const cancelErr = new AppError('Execution has been aborted', 499);
+      (cancelErr as any).status = 'cancelled';
+      throw cancelErr;
+    }
+
     try {
       const isTerminal = event.status !== 'running';
       const finishedAt = isTerminal ? new Date().toISOString() : null;
       const error = event.status === 'failed' ? (event.stepLog?.error || 'Step execution failed') : null;
       const checkpoint = event.status === 'succeeded' ? null : event.checkpoint;
 
-      this.db.prepare(`
+      const updateResult = this.db.prepare(`
         UPDATE _flow_executions SET
           status = ?,
           stepLogs = ?,
@@ -427,7 +443,7 @@ export class FlowService {
           durationMs = ?,
           finishedAt = COALESCE(?, finishedAt),
           checkpoint = ?
-        WHERE id = ?
+        WHERE id = ? AND status = 'running'
       `).run(
         event.status,
         JSON.stringify(event.stepLogs),
@@ -438,7 +454,19 @@ export class FlowService {
         checkpoint ? JSON.stringify(checkpoint) : null,
         executionId
       );
+
+      if (updateResult.changes === 0) {
+        const current = this.db.prepare('SELECT status, error FROM _flow_executions WHERE id = ?').get(executionId) as any;
+        if (current && (current.status === 'aborted' || current.status === 'cancelled')) {
+          const cancelErr = new AppError(current.error || `Execution '${executionId}' was aborted`, 499);
+          (cancelErr as any).status = 'cancelled';
+          throw cancelErr;
+        }
+      }
     } catch (err: any) {
+      if ((err as any)?.status === 'cancelled' || (err as any)?.statusCode === 499) {
+        throw err;
+      }
       console.error(`[FlowService] Failed to persist checkpoint for execution '${executionId}': ${err.message}`);
       try {
         this.db.prepare("UPDATE _flow_executions SET checkpoint = NULL, error = ? WHERE id = ?").run(
@@ -454,6 +482,12 @@ export class FlowService {
    * Aborts an orphaned running flow gracefully with status: 'aborted'.
    */
   public abortExecution(executionId: string, reason: string = 'Execution aborted due to server restart'): FlowExecution {
+    const controller = this.activeAbortControllers.get(executionId);
+    if (controller) {
+      controller.abort(reason);
+      this.activeAbortControllers.delete(executionId);
+    }
+
     const exec = this.getExecutionById(executionId);
     if (!exec) {
       throw new NotFoundError(`Flow execution '${executionId}' not found`);
@@ -539,12 +573,16 @@ export class FlowService {
     // Ensure status is marked 'running' while resuming
     this.db.prepare("UPDATE _flow_executions SET status = 'running', finishedAt = NULL, error = NULL WHERE id = ?").run(executionId);
 
+    const abortController = new AbortController();
+    this.activeAbortControllers.set(executionId, abortController);
+
     try {
       const execution = await this.engine.execute(flow.name, flow.definition, exec.input, {
         actor: exec.actorId ? { id: exec.actorId } : undefined,
         functionService: this.functionService,
         executionId: exec.id,
         flowId: flow.id,
+        signal: abortController.signal,
         onStepTransition: async (event) => {
           this.persistCheckpoint(exec.id, event);
         },
@@ -563,6 +601,9 @@ export class FlowService {
       return execution;
     } catch (err: any) {
       const existing = this.getExecutionById(executionId);
+      if (existing?.status === 'aborted') {
+        throw err;
+      }
       const failedExec: FlowExecution = {
         id: exec.id,
         flowId: flow.id,
@@ -580,6 +621,8 @@ export class FlowService {
       };
       this.saveExecution(failedExec);
       throw err;
+    } finally {
+      this.activeAbortControllers.delete(executionId);
     }
   }
 
@@ -675,6 +718,13 @@ export class FlowService {
 
   private saveExecution(exec: FlowExecution): void {
     try {
+      if (exec.status !== 'aborted') {
+        const existing = this.db.prepare('SELECT status FROM _flow_executions WHERE id = ?').get(exec.id) as any;
+        if (existing && existing.status === 'aborted') {
+          return;
+        }
+      }
+
       this.db.prepare(`
         INSERT OR REPLACE INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, actorId, startedAt, finishedAt, checkpoint)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
