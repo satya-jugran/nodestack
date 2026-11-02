@@ -3063,6 +3063,22 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const batchItem = recoverBody.recovered.find((r: any) => r.id === orphanBatchId);
       expect(batchItem?.status).toBe('aborted');
 
+      // Test invalid recovery strategy validation (e.g. typos like 'resuem')
+      const invalidStrategyRes = await app.server.inject({
+        method: 'POST',
+        url: `/api/flows/executions/recover`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { strategy: 'resuem' },
+      });
+      expect(invalidStrategyRes.statusCode).toBe(400);
+      const invalidBody = JSON.parse(invalidStrategyRes.body);
+      expect(invalidBody.message).toMatch(/Invalid recovery strategy.*abort.*resume/i);
+
+      // Verify programmatic call also throws 400 AppError
+      await expect((app.flows as any).recoverOrphanedExecutions('resuem')).rejects.toThrowError(
+        /Invalid recovery strategy/i
+      );
+
       // 4. Test GET /api/flows/executions?status=aborted
       const listRes = await app.server.inject({
         method: 'GET',

@@ -267,6 +267,10 @@ export class FlowController extends BaseController {
     const service = this.getFlowsService(req);
     try {
       const strategy = req.body?.strategy;
+      if (strategy !== undefined && strategy !== 'abort' && strategy !== 'resume') {
+        this.error(reply, `Invalid recovery strategy '${strategy}'. Must be 'abort' or 'resume'.`, 400);
+        return;
+      }
       const recovered = await service.recoverOrphanedExecutions(strategy);
       this.ok(reply, { recovered, count: recovered.length });
     } catch (err: any) {

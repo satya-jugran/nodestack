@@ -736,6 +736,10 @@ export class FlowService {
    * Recovers orphaned running flows on startup (either fails gracefully with 'aborted' or resumes from checkpoint).
    */
   public async recoverOrphanedExecutions(strategy: 'abort' | 'resume' = this.recoveryStrategy): Promise<FlowExecution[]> {
+    if (strategy !== undefined && strategy !== 'abort' && strategy !== 'resume') {
+      throw new AppError(`Invalid recovery strategy '${strategy}'. Must be 'abort' or 'resume'.`, 400);
+    }
+
     try {
       this.db.prepare("UPDATE _flow_executions SET claimToken = NULL WHERE status = 'running'").run();
     } catch {}
