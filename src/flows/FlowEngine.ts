@@ -220,6 +220,7 @@ export class FlowEngine {
                 durationMs: stepDuration,
                 error: err.message || String(err),
                 timestamp: new Date().toISOString(),
+                nextState: caught.nextState,
               };
               stepLogs.push(stepLog);
 
@@ -291,6 +292,9 @@ export class FlowEngine {
         }
 
         const stepDurationMs = Date.now() - stepStartTime;
+        const isEnd = Boolean(stepResult.isEnd || !stepResult.nextState);
+        const nextState = isEnd ? undefined : stepResult.nextState;
+
         const stepLog: FlowStepLog = {
           step: currentStateName,
           type: state.type,
@@ -300,6 +304,7 @@ export class FlowEngine {
           durationMs: stepDurationMs,
           error: stepResult.error,
           timestamp: new Date().toISOString(),
+          nextState,
         };
         stepLogs.push(stepLog);
 
@@ -335,9 +340,6 @@ export class FlowEngine {
         }
 
         currentPayload = stepResult.payload;
-
-        const isEnd = Boolean(stepResult.isEnd || !stepResult.nextState);
-        const nextState = isEnd ? undefined : stepResult.nextState;
 
         if (options.onStepTransition) {
           const checkpoint: FlowCheckpoint = {

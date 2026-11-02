@@ -3725,6 +3725,157 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const row = db.prepare('SELECT claimToken FROM _flow_executions WHERE id = ?').get(foreignExecId) as any;
       expect(row.claimToken).toBe('foreign-process-uuid-token');
     });
+
+    it('should correctly recover legacy running execution at Choice state without treating it as completed', async () => {
+      app.functions.createFunction({
+        name: 'choice-branch-test-fn',
+        code: `
+          export default async function(context) {
+            return { branchRan: true, score: context.request?.body?.score };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 2000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      const flow = app.flows.createFlow({
+        name: 'LegacyChoiceRecoveryFlow',
+        definition: {
+          startAt: 'EvaluateChoice',
+          states: {
+            EvaluateChoice: {
+              type: 'Choice',
+              choices: [
+                {
+                  variable: '$.score',
+                  numericGreaterThan: 50,
+                  next: 'HighScoreBranch',
+                },
+              ],
+              default: 'LowScoreBranch',
+            },
+            HighScoreBranch: {
+              type: 'Task',
+              function: 'choice-branch-test-fn',
+              inputPath: '$',
+              end: true,
+            },
+            LowScoreBranch: {
+              type: 'Pass',
+              result: { low: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const legacyExecId = FlowEngine.generateExecutionId();
+      const db = (app.flows as any).db;
+
+      // Simulate legacy execution row: no checkpoint (null), last step logged was EvaluateChoice with score: 85
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        legacyExecId,
+        flow.id,
+        flow.name,
+        'running',
+        JSON.stringify({ score: 85 }),
+        JSON.stringify({ score: 85 }),
+        null,
+        50,
+        JSON.stringify([
+          {
+            step: 'EvaluateChoice',
+            type: 'Choice',
+            input: { score: 85 },
+            output: { score: 85 },
+            status: 'succeeded',
+            durationMs: 5,
+            timestamp: new Date().toISOString(),
+          },
+        ]),
+        new Date().toISOString(),
+        null // No checkpoint
+      );
+
+      // Resume execution: MUST NOT treat as completed; must run HighScoreBranch!
+      const resumed = await app.flows.resumeExecution(legacyExecId);
+      expect(resumed.status).toBe('succeeded');
+      expect(resumed.output.branchRan).toBe(true);
+      expect(resumed.output.score).toBe(85);
+      expect(resumed.stepLogs.length).toBe(2);
+      expect(resumed.stepLogs[0].step).toBe('EvaluateChoice');
+      expect(resumed.stepLogs[1].step).toBe('HighScoreBranch');
+    });
+
+    it('should abort legacy running row when next state cannot be reconstructed instead of marking succeeded', async () => {
+      const flow = app.flows.createFlow({
+        name: 'UnreconstructableLegacyFlow',
+        definition: {
+          startAt: 'StepA',
+          states: {
+            StepA: {
+              type: 'Pass',
+              result: { ok: true },
+              next: 'StepB',
+            },
+            StepB: {
+              type: 'Pass',
+              result: { finished: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const legacyInvalidExecId = FlowEngine.generateExecutionId();
+      const db = (app.flows as any).db;
+
+      // Simulate a legacy row where last logged step was 'NonExistentOrDeletedStep' which does not exist in flow
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        legacyInvalidExecId,
+        flow.id,
+        flow.name,
+        'running',
+        JSON.stringify({}),
+        null,
+        null,
+        10,
+        JSON.stringify([
+          {
+            step: 'NonExistentOrDeletedStep',
+            type: 'Pass',
+            input: {},
+            output: {},
+            status: 'succeeded',
+            durationMs: 5,
+            timestamp: new Date().toISOString(),
+          },
+        ]),
+        new Date().toISOString(),
+        null // No checkpoint
+      );
+
+      // Resuming must reject and mark row 'aborted'
+      await expect(app.flows.resumeExecution(legacyInvalidExecId)).rejects.toThrowError(
+        /Cannot reconstruct next state/i
+      );
+
+      const finalRecord = app.flows.getExecutionById(legacyInvalidExecId);
+      expect(finalRecord?.status).toBe('aborted');
+      expect(finalRecord?.error).toMatch(/no longer exists|Cannot reconstruct/i);
+    });
   });
 
 });

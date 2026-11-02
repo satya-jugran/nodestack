@@ -152,6 +152,7 @@ export interface FlowStepLog {
   durationMs: number;
   error?: string;
   timestamp: string;
+  nextState?: string;
 }
 
 export interface FlowCheckpoint {

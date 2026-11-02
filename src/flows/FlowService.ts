@@ -16,6 +16,7 @@ import {
   FlowStepTransitionEvent,
 } from './types';
 import { FlowValidator } from './FlowValidator';
+import { ChoiceEvaluator } from './runtime/ChoiceEvaluator';
 import { AppError, NotFoundError, ConflictError } from '../core/errors/AppError';
 
 export interface FlowServiceOptions {
@@ -613,11 +614,16 @@ export class FlowService {
         } else {
           const lastStep = exec.stepLogs[exec.stepLogs.length - 1];
           const lastState = flow.definition.states[lastStep.step];
+
           if (lastStep.status === 'failed') {
             nextStateName = lastStep.step;
             resumePayload = lastStep.input !== undefined ? lastStep.input : {};
-          } else if (!lastState || lastState.end || !lastState.next) {
-            // Flow already finished all steps
+          } else if (lastStep.nextState) {
+            // Use actual transition persisted in the step log
+            nextStateName = lastStep.nextState;
+            resumePayload = lastStep.output !== undefined ? lastStep.output : {};
+          } else if (lastState && (lastState.end || lastState.type === 'Succeed')) {
+            // Explicitly terminal state completed successfully
             const completed: FlowExecution = {
               ...exec,
               status: 'succeeded',
@@ -627,16 +633,44 @@ export class FlowService {
             };
             this.saveExecution(completed);
             return completed;
-          } else {
-            nextStateName = lastState.next;
+          } else if (lastState?.type === 'Choice') {
+            // Reconstruct dynamic branch from Choice state definition and payload
+            const payload = lastStep.output !== undefined ? lastStep.output : (lastStep.input ?? {});
+            const chosenNext = ChoiceEvaluator.findNextState(lastState.choices, lastState.default, payload);
+            if (chosenNext) {
+              nextStateName = chosenNext;
+              resumePayload = payload;
+            } else {
+              this.abortExecution(
+                executionId,
+                `Cannot reconstruct Choice branch for state '${lastStep.step}' (no matching choice and no default)`
+              );
+              throw new AppError(
+                `Cannot reconstruct Choice branch for state '${lastStep.step}' for execution '${executionId}'`,
+                400
+              );
+            }
+          } else if (lastState && typeof (lastState as any).next === 'string' && (lastState as any).next) {
+            // Static next transition
+            nextStateName = (lastState as any).next;
             resumePayload = lastStep.output !== undefined ? lastStep.output : {};
+          } else {
+            // Cannot reconstruct next state: abort rather than assuming completion
+            const reason = !lastState
+              ? `State '${lastStep.step}' no longer exists in flow definition`
+              : `Cannot reconstruct next state following '${lastStep.step}' (type '${lastState.type}')`;
+            this.abortExecution(executionId, reason);
+            throw new AppError(
+              `Cannot reconstruct next state following '${lastStep.step}' for execution '${executionId}': ${reason}`,
+              400
+            );
           }
         }
       }
 
-      if (!flow.definition.states[nextStateName]) {
-        this.abortExecution(executionId, `Checkpoint state '${nextStateName}' not found in flow definition`);
-        throw new AppError(`Checkpoint state '${nextStateName}' not found in flow definition`, 400);
+      if (!nextStateName || !flow.definition.states[nextStateName]) {
+        this.abortExecution(executionId, `Checkpoint state '${nextStateName || 'unknown'}' not found in flow definition`);
+        throw new AppError(`Checkpoint state '${nextStateName || 'unknown'}' not found in flow definition`, 400);
       }
 
       const abortController = new AbortController();
