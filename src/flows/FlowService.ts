@@ -439,7 +439,14 @@ export class FlowService {
         executionId
       );
     } catch (err: any) {
-      console.warn(`[FlowService] Failed to persist checkpoint for execution '${executionId}': ${err.message}`);
+      console.error(`[FlowService] Failed to persist checkpoint for execution '${executionId}': ${err.message}`);
+      try {
+        this.db.prepare("UPDATE _flow_executions SET checkpoint = NULL, error = ? WHERE id = ?").run(
+          `Checkpoint persistence failed: ${err.message}`,
+          executionId
+        );
+      } catch {}
+      throw new AppError(`Failed to persist checkpoint for execution '${executionId}': ${err.message}`, 500);
     }
   }
 

@@ -3439,6 +3439,80 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(resumed.stepLogs[1].status).toBe('succeeded');
       expect(resumed.stepLogs[2].step).toBe('ShouldNeverReach');
     });
+
+    it('should propagate checkpoint persistence failure and halt flow execution without stale checkpoint replay', async () => {
+      let stepTwoExecuted = false;
+
+      app.functions.createFunction({
+        name: 'checkpoint-test-step2-fn',
+        code: `
+          export default async function(context) {
+            return { executed: true };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 2000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      const flow = app.flows.createFlow({
+        name: 'CheckpointFailureHaltFlow',
+        definition: {
+          startAt: 'Step1',
+          states: {
+            Step1: {
+              type: 'Pass',
+              result: { step1Done: true },
+              next: 'Step2',
+            },
+            Step2: {
+              type: 'Task',
+              function: 'checkpoint-test-step2-fn',
+              inputPath: '$',
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId = FlowEngine.generateExecutionId();
+      const db = (app.flows as any).db;
+
+      // Intercept db.prepare to simulate error during UPDATE of _flow_executions in persistCheckpoint
+      const originalPrepare = db.prepare.bind(db);
+      let injectedFailure = false;
+      db.prepare = (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('UPDATE _flow_executions SET') && !injectedFailure) {
+          injectedFailure = true;
+          throw new Error('Disk I/O error or SQLite database locked');
+        }
+        return originalPrepare(sql);
+      };
+
+      try {
+        const result = await app.flows.executeFlow(flow.id, { test: 1 }, undefined, {
+          executionId: execId,
+        });
+
+        // Execution must fail because checkpoint persistence failed
+        expect(result.status).toBe('failed');
+        expect(result.error).toContain('Failed to persist checkpoint');
+
+        // Step 2 must NEVER have executed because flow was halted immediately on Step 1 checkpoint failure!
+        expect(result.stepLogs.length).toBe(1);
+        expect(result.stepLogs[0].step).toBe('Step1');
+
+        // Checkpoint must NOT be set (not safely recoverable)
+        expect(result.checkpoint).toBeNull();
+      } finally {
+        db.prepare = originalPrepare;
+      }
+    });
   });
 
 });

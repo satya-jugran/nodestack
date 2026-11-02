@@ -402,7 +402,7 @@ export class FlowEngine {
         actorId: typeof options.actor === 'string' ? options.actor : (options.actor?.id || options.actor?.email || null),
         startedAt,
         finishedAt: new Date().toISOString(),
-        checkpoint: currentStateName ? {
+        checkpoint: (currentStateName && !err?.message?.includes('Failed to persist checkpoint')) ? {
           currentStateName,
           currentPayload: lastStepInputSnapshot,
           stepCount,
