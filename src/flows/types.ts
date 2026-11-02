@@ -1,5 +1,5 @@
 export type FlowTriggerType = 'http' | 'event' | 'manual';
-export type FlowExecutionStatus = 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled';
+export type FlowExecutionStatus = 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled' | 'aborted';
 export type FlowStateType = 'Task' | 'Choice' | 'Map' | 'Loop' | 'Parallel' | 'Pass' | 'Wait' | 'Succeed' | 'Fail';
 
 export interface FlowRetryPolicy {
@@ -154,6 +154,14 @@ export interface FlowStepLog {
   timestamp: string;
 }
 
+export interface FlowCheckpoint {
+  currentStateName?: string | null;
+  currentPayload?: any;
+  stepCount?: number;
+  loopCounters?: Record<string, number>;
+  updatedAt: string;
+}
+
 export interface FlowExecution {
   id: string;
   flowId: string;
@@ -167,6 +175,32 @@ export interface FlowExecution {
   actorId?: string | null;
   startedAt: string;
   finishedAt?: string;
+  checkpoint?: FlowCheckpoint | null;
+}
+
+export interface FlowStepTransitionEvent {
+  executionId: string;
+  flowId?: string;
+  flowName: string;
+  step: string;
+  stepLog: FlowStepLog;
+  stepLogs: FlowStepLog[];
+  nextState?: string;
+  payload: any;
+  durationMs: number;
+  isEnd: boolean;
+  status: FlowExecutionStatus;
+  checkpoint: FlowCheckpoint;
+}
+
+export interface FlowResumeOptions {
+  stateName: string;
+  payload: any;
+  stepLogs?: FlowStepLog[];
+  loopCounters?: Map<string, number> | Record<string, number>;
+  stepCount?: number;
+  startedAt?: string;
+  durationMs?: number;
 }
 
 export interface FlowAsyncDispatchResponse {
@@ -182,4 +216,5 @@ export interface FlowExecutionOptions {
   timeoutMs?: number;
   maxRecursionDepth?: number;
   executionId?: string;
+  recoveryStrategy?: 'abort' | 'resume';
 }

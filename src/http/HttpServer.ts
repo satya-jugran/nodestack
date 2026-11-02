@@ -591,6 +591,15 @@ export class HttpServer {
       app.get('/api/apps/:appId/flows/executions/:executionId', (req: any, reply) =>
         this.flowController!.getExecution(req, reply)
       );
+      app.post('/api/apps/:appId/flows/executions/:executionId/resume', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.resumeExecution(req, reply)
+      );
+      app.post('/api/apps/:appId/flows/executions/:executionId/abort', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.abortExecution(req, reply)
+      );
+      app.post('/api/apps/:appId/flows/executions/recover', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.recoverExecutions(req, reply)
+      );
       app.delete('/api/apps/:appId/flows/:id/executions', { preHandler: requireAdmin }, (req: any, reply) =>
         this.flowController!.clearExecutions(req, reply)
       );
@@ -941,6 +950,15 @@ export class HttpServer {
       );
       app.get('/api/flows/executions/:executionId', (req: any, reply) =>
         this.flowController!.getExecution(req, reply)
+      );
+      app.post('/api/flows/executions/:executionId/resume', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.resumeExecution(req, reply)
+      );
+      app.post('/api/flows/executions/:executionId/abort', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.abortExecution(req, reply)
+      );
+      app.post('/api/flows/executions/recover', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.flowController!.recoverExecutions(req, reply)
       );
       app.delete('/api/flows/:id/executions', { preHandler: requireAdmin }, (req: any, reply) =>
         this.flowController!.clearExecutions(req, reply)

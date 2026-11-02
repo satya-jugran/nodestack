@@ -2761,4 +2761,319 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
   });
 
+  // ==========================================
+  // Step-by-Step Checkpointing (Crash Recovery)
+  // ==========================================
+  describe('Step-by-Step Checkpointing & Crash Recovery', () => {
+    it('should atomically persist step logs to SQLite after each state transition', async () => {
+      // Create a flow with Step1 (Task) -> Step2 (Wait 1s) -> Step3 (Task)
+      const flow = app.flows.createFlow({
+        name: 'CheckpointPipeline',
+        definition: {
+          startAt: 'Step1',
+          states: {
+            Step1: {
+              type: 'Task',
+              function: 'calculate-tax',
+              inputPath: '$.order',
+              resultPath: '$.calculation',
+              next: 'Step2_Wait',
+            },
+            Step2_Wait: {
+              type: 'Wait',
+              seconds: 1,
+              next: 'Step3',
+            },
+            Step3: {
+              type: 'Task',
+              function: 'apply-discount',
+              inputPath: '$',
+              resultPath: '$.discountResult',
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId = FlowEngine.generateExecutionId();
+      // Start flow in background
+      const execPromise = app.flows.executeFlow(flow.id, {
+        order: { amount: 100, discount: 10 },
+      }, undefined, { executionId: execId });
+
+      // Wait 300ms: Step 1 will have completed, and Step 2 (Wait) is actively running
+      await new Promise((r) => setTimeout(r, 300));
+
+      const intermediate = app.flows.getExecutionById(execId)!;
+      expect(intermediate).not.toBeNull();
+      expect(intermediate.status).toBe('running');
+      expect(intermediate.stepLogs.length).toBeGreaterThanOrEqual(1);
+      expect(intermediate.stepLogs[0].step).toBe('Step1');
+      expect(intermediate.stepLogs[0].status).toBe('succeeded');
+      expect(intermediate.output.calculation.tax).toBe(10);
+      expect(intermediate.checkpoint).not.toBeNull();
+      expect(intermediate.checkpoint?.currentStateName).toBe('Step2_Wait');
+
+      // Wait for complete execution to finish
+      const finalResult = await execPromise;
+      expect(finalResult.status).toBe('succeeded');
+      expect(finalResult.stepLogs.length).toBe(3);
+      expect(finalResult.output.discountResult.finalTotal).toBeCloseTo(100);
+    });
+
+    it('should fail orphaned running flows gracefully with status "aborted" on recovery', async () => {
+      // Simulate an orphaned flow that was left running when a crash/restart happened
+      const flow = app.flows.createFlow({
+        name: 'CrashOrphanFlow',
+        definition: {
+          startAt: 'InitialStep',
+          states: {
+            InitialStep: {
+              type: 'Pass',
+              result: { partialProgress: 'computed_chunk_1' },
+              next: 'LongRunningTask',
+            },
+            LongRunningTask: {
+              type: 'Wait',
+              seconds: 10,
+              next: 'FinalStep',
+            },
+            FinalStep: {
+              type: 'Pass',
+              result: { finished: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const orphanedId = 'exec_crash_orphan_99';
+      // Insert a simulated orphaned record directly into _flow_executions
+      const db = (app.flows as any).db;
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        orphanedId,
+        flow.id,
+        flow.name,
+        'running',
+        JSON.stringify({ inputVal: 42 }),
+        JSON.stringify({ partialProgress: 'computed_chunk_1' }),
+        null,
+        150,
+        JSON.stringify([
+          {
+            step: 'InitialStep',
+            type: 'Pass',
+            input: { inputVal: 42 },
+            output: { partialProgress: 'computed_chunk_1' },
+            status: 'succeeded',
+            durationMs: 15,
+            timestamp: new Date().toISOString(),
+          },
+        ]),
+        new Date().toISOString(),
+        JSON.stringify({
+          currentStateName: 'LongRunningTask',
+          currentPayload: { partialProgress: 'computed_chunk_1' },
+          stepCount: 1,
+          loopCounters: {},
+          updatedAt: new Date().toISOString(),
+        })
+      );
+
+      // Verify it is currently 'running'
+      const beforeRecovery = app.flows.getExecutionById(orphanedId)!;
+      expect(beforeRecovery.status).toBe('running');
+      expect(beforeRecovery.stepLogs.length).toBe(1);
+
+      // Trigger recovery with strategy 'abort'
+      const recovered = await app.flows.recoverOrphanedExecutions('abort');
+      const found = recovered.find((r) => r.id === orphanedId);
+      expect(found).toBeDefined();
+      expect(found!.status).toBe('aborted');
+      expect(found!.error).toContain('Execution aborted due to server restart');
+
+      // Verify the persisted state in DB
+      const afterRecovery = app.flows.getExecutionById(orphanedId)!;
+      expect(afterRecovery.status).toBe('aborted');
+      // Previous step logs and intermediate output must be preserved!
+      expect(afterRecovery.stepLogs.length).toBe(1);
+      expect(afterRecovery.stepLogs[0].step).toBe('InitialStep');
+      expect(afterRecovery.output.partialProgress).toBe('computed_chunk_1');
+      expect(afterRecovery.finishedAt).toBeDefined();
+    });
+
+    it('should resume orphaned running flows from the last completed checkpoint', async () => {
+      const flow = app.flows.createFlow({
+        name: 'ResumablePipelineFlow',
+        definition: {
+          startAt: 'Stage1',
+          states: {
+            Stage1: {
+              type: 'Task',
+              function: 'calculate-tax',
+              inputPath: '$.order',
+              resultPath: '$.tax',
+              next: 'Stage2',
+            },
+            Stage2: {
+              type: 'Task',
+              function: 'apply-discount',
+              inputPath: '$',
+              resultPath: '$.final',
+              next: 'Stage3',
+            },
+            Stage3: {
+              type: 'Pass',
+              result: { pipelineCompleted: true },
+              outputPath: '$.pipelineCompleted',
+              end: true,
+            },
+          },
+        },
+      });
+
+      const orphanId = 'exec_resumable_checkpoint_1';
+      const db = (app.flows as any).db;
+      // Simulate that Stage1 completed, and server crashed right before Stage2
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        orphanId,
+        flow.id,
+        flow.name,
+        'running',
+        JSON.stringify({ order: { amount: 300, discount: 30 } }),
+        JSON.stringify({ order: { amount: 300, discount: 30 }, tax: { tax: 30, totalWithTax: 330 } }),
+        null,
+        120,
+        JSON.stringify([
+          {
+            step: 'Stage1',
+            type: 'Task',
+            input: { order: { amount: 300, discount: 30 } },
+            output: { order: { amount: 300, discount: 30 }, tax: { tax: 30, totalWithTax: 330 } },
+            status: 'succeeded',
+            durationMs: 40,
+            timestamp: new Date().toISOString(),
+          },
+        ]),
+        new Date().toISOString(),
+        JSON.stringify({
+          currentStateName: 'Stage2',
+          currentPayload: { order: { amount: 300, discount: 30 }, tax: { tax: 30, totalWithTax: 330 } },
+          stepCount: 1,
+          loopCounters: {},
+          updatedAt: new Date().toISOString(),
+        })
+      );
+
+      // Resume execution from last checkpoint
+      const resumedResult = await app.flows.resumeExecution(orphanId);
+      expect(resumedResult.status).toBe('succeeded');
+      expect(resumedResult.output).toBe(true);
+      // stepLogs should include Stage1 (from before crash) + Stage2 + Stage3!
+      expect(resumedResult.stepLogs.length).toBe(3);
+      expect(resumedResult.stepLogs[0].step).toBe('Stage1');
+      expect(resumedResult.stepLogs[1].step).toBe('Stage2');
+      expect(resumedResult.stepLogs[2].step).toBe('Stage3');
+
+      // Check SQLite record
+      const dbRecord = app.flows.getExecutionById(orphanId)!;
+      expect(dbRecord.status).toBe('succeeded');
+      expect(dbRecord.stepLogs.length).toBe(3);
+      expect(dbRecord.finishedAt).toBeDefined();
+    });
+
+    it('should support REST API endpoints for resume, abort, and recover', async () => {
+      const flow = app.flows.createFlow({
+        name: 'RestRecoveryFlow',
+        definition: {
+          startAt: 'StepA',
+          states: {
+            StepA: {
+              type: 'Pass',
+              result: { stepA: true },
+              next: 'StepB',
+            },
+            StepB: {
+              type: 'Pass',
+              result: { stepB: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      // 1. Test POST /api/flows/executions/:id/abort
+      const execAbortId = 'exec_rest_abort_1';
+      const db = (app.flows as any).db;
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', '{}', 0, '[]', ?, ?)
+      `).run(execAbortId, flow.id, flow.name, new Date().toISOString(), JSON.stringify({ currentStateName: 'StepA', updatedAt: new Date().toISOString() }));
+
+      const abortRes = await app.server.inject({
+        method: 'POST',
+        url: `/api/flows/executions/${execAbortId}/abort`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { reason: 'Aborted via test' },
+      });
+      expect(abortRes.statusCode).toBe(200);
+      const abortBody = JSON.parse(abortRes.body);
+      expect(abortBody.status).toBe('aborted');
+      expect(abortBody.error).toBe('Aborted via test');
+
+      // 2. Test POST /api/flows/executions/:id/resume
+      const execResumeId = 'exec_rest_resume_1';
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', '{"stepA":true}', 0, '[]', ?, ?)
+      `).run(execResumeId, flow.id, flow.name, new Date().toISOString(), JSON.stringify({ currentStateName: 'StepB', currentPayload: { stepA: true }, updatedAt: new Date().toISOString() }));
+
+      const resumeRes = await app.server.inject({
+        method: 'POST',
+        url: `/api/flows/executions/${execResumeId}/resume`,
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(resumeRes.statusCode).toBe(200);
+      const resumeBody = JSON.parse(resumeRes.body);
+      expect(resumeBody.status).toBe('succeeded');
+      expect(resumeBody.stepLogs.length).toBeGreaterThanOrEqual(1);
+
+      // 3. Test POST /api/flows/executions/recover
+      const orphanBatchId = 'exec_orphan_batch_1';
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', '{}', 0, '[]', ?, ?)
+      `).run(orphanBatchId, flow.id, flow.name, new Date().toISOString(), JSON.stringify({ currentStateName: 'StepA', updatedAt: new Date().toISOString() }));
+
+      const recoverRes = await app.server.inject({
+        method: 'POST',
+        url: `/api/flows/executions/recover`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { strategy: 'abort' },
+      });
+      expect(recoverRes.statusCode).toBe(200);
+      const recoverBody = JSON.parse(recoverRes.body);
+      expect(recoverBody.count).toBeGreaterThanOrEqual(1);
+      const batchItem = recoverBody.recovered.find((r: any) => r.id === orphanBatchId);
+      expect(batchItem?.status).toBe('aborted');
+
+      // 4. Test GET /api/flows/executions?status=aborted
+      const listRes = await app.server.inject({
+        method: 'GET',
+        url: `/api/flows/executions?status=aborted`,
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(listRes.statusCode).toBe(200);
+      const listBody = JSON.parse(listRes.body);
+      expect(listBody.items.some((i: any) => i.id === execAbortId)).toBe(true);
+      expect(listBody.items.some((i: any) => i.id === orphanBatchId)).toBe(true);
+    });
+  });
+
 });

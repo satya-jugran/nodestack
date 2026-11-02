@@ -224,4 +224,57 @@ export class FlowController extends BaseController {
     service.clearExecutions(flowId);
     this.ok(reply, { success: true, message: 'Executions cleared' });
   }
+
+  public async resumeExecution(
+    req: FastifyRequest<{ Params: { executionId: string } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const service = this.getFlowsService(req);
+    try {
+      const execution = await service.resumeExecution(req.params.executionId);
+      this.ok(reply, execution);
+    } catch (err: any) {
+      if (err instanceof AppError) {
+        this.error(reply, err.message, err.statusCode);
+        return;
+      }
+      this.error(reply, err.message || 'Failed to resume execution', 400);
+    }
+  }
+
+  public async abortExecution(
+    req: FastifyRequest<{ Params: { executionId: string }; Body?: { reason?: string } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const service = this.getFlowsService(req);
+    try {
+      const reason = req.body?.reason || 'Execution aborted by admin';
+      const execution = service.abortExecution(req.params.executionId, reason);
+      this.ok(reply, execution);
+    } catch (err: any) {
+      if (err instanceof AppError) {
+        this.error(reply, err.message, err.statusCode);
+        return;
+      }
+      this.error(reply, err.message || 'Failed to abort execution', 400);
+    }
+  }
+
+  public async recoverExecutions(
+    req: FastifyRequest<{ Body?: { strategy?: 'abort' | 'resume' } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const service = this.getFlowsService(req);
+    try {
+      const strategy = req.body?.strategy;
+      const recovered = await service.recoverOrphanedExecutions(strategy);
+      this.ok(reply, { recovered, count: recovered.length });
+    } catch (err: any) {
+      if (err instanceof AppError) {
+        this.error(reply, err.message, err.statusCode);
+        return;
+      }
+      this.error(reply, err.message || 'Failed to recover executions', 500);
+    }
+  }
 }

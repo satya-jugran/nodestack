@@ -12,16 +12,21 @@ import {
   UpdateFlowDto,
   FlowExecution,
   FlowExecutionOptions,
+  FlowCheckpoint,
+  FlowStepTransitionEvent,
 } from './types';
 import { FlowValidator } from './FlowValidator';
 import { AppError, NotFoundError, ConflictError } from '../core/errors/AppError';
 
 export interface FlowServiceOptions {
   engine?: FlowEngine;
+  recoveryStrategy?: 'abort' | 'resume';
+  autoRecoverOnStartup?: boolean;
 }
 
 export class FlowService {
   private engine: FlowEngine;
+  private recoveryStrategy: 'abort' | 'resume';
 
   constructor(
     private db: DatabaseService,
@@ -31,8 +36,15 @@ export class FlowService {
     options: FlowServiceOptions = {}
   ) {
     this.engine = options.engine || new FlowEngine();
+    this.recoveryStrategy = options.recoveryStrategy || (process.env.FLOW_RECOVERY_STRATEGY as any) || 'abort';
     this.initTables();
     this.bindEvents();
+
+    if (options.autoRecoverOnStartup !== false) {
+      this.handleStartupRecovery().catch((err) => {
+        console.warn(`[FlowService] Startup recovery warning: ${err.message}`);
+      });
+    }
   }
 
   public static generateExecutionId(): string {
@@ -41,6 +53,10 @@ export class FlowService {
 
   public getEngine(): FlowEngine {
     return this.engine;
+  }
+
+  public getRecoveryStrategy(): 'abort' | 'resume' {
+    return this.recoveryStrategy;
   }
 
   public initTables(): void {
@@ -73,12 +89,19 @@ export class FlowService {
           stepLogs TEXT,
           actorId TEXT,
           startedAt TEXT NOT NULL,
-          finishedAt TEXT
+          finishedAt TEXT,
+          checkpoint TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_flowexec_flowId ON _flow_executions(flowId);
+        CREATE INDEX IF NOT EXISTS idx_flowexec_status ON _flow_executions(status);
         CREATE INDEX IF NOT EXISTS idx_flowexec_startedAt ON _flow_executions(startedAt DESC);
       `);
+
+      // Migration safeguard for existing tables
+      try {
+        this.db.exec('ALTER TABLE _flow_executions ADD COLUMN checkpoint TEXT');
+      } catch {}
     } catch (err: any) {
       console.warn(`[FlowService] initTables warning: ${err.message}`);
     }
@@ -308,7 +331,7 @@ export class FlowService {
   }
 
   // ==========================================
-  // Execution
+  // Execution & Step Checkpointing
   // ==========================================
 
   public async executeFlow(
@@ -328,7 +351,15 @@ export class FlowService {
 
     const executionId = options.executionId || FlowService.generateExecutionId();
 
-    // Persist initial 'running' record so callers can poll immediately
+    const initialCheckpoint: FlowCheckpoint = {
+      currentStateName: flow.definition.startAt,
+      currentPayload: input !== undefined ? input : {},
+      stepCount: 0,
+      loopCounters: {},
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Atomically persist initial 'running' record so callers can poll immediately
     this.saveExecution({
       id: executionId,
       flowId: flow.id,
@@ -339,35 +370,234 @@ export class FlowService {
       stepLogs: [],
       actorId: typeof actor === 'string' ? actor : (actor?.id || actor?.email || null),
       startedAt: new Date().toISOString(),
+      checkpoint: initialCheckpoint,
     });
 
     try {
       const execution = await this.engine.execute(flow.name, flow.definition, input, {
-      actor,
-      functionService: this.functionService,
-      executionId,
-      flowId: flow.id,
-      executionOptions: options,
-    });
+        actor,
+        functionService: this.functionService,
+        executionId,
+        flowId: flow.id,
+        executionOptions: options,
+        onStepTransition: async (event) => {
+          this.persistCheckpoint(executionId, event);
+        },
+      });
 
-    this.saveExecution(execution);
+      this.saveExecution(execution);
       return execution;
     } catch (err: any) {
+      const existing = this.getExecutionById(executionId);
       this.saveExecution({
         id: executionId,
         flowId: flow.id,
         flowName: flow.name,
         status: 'failed',
         input: input !== undefined ? input : null,
+        output: existing?.output ?? null,
         error: err.message || String(err),
-        durationMs: 0,
-        stepLogs: [],
+        durationMs: existing?.durationMs || 0,
+        stepLogs: existing?.stepLogs || [],
         actorId: typeof actor === 'string' ? actor : (actor?.id || actor?.email || null),
-        startedAt: new Date().toISOString(),
+        startedAt: existing?.startedAt || new Date().toISOString(),
         finishedAt: new Date().toISOString(),
+        checkpoint: null,
       });
       throw err;
     }
+  }
+
+  /**
+   * Atomically persists the step logs and execution state after each transition.
+   */
+  public persistCheckpoint(executionId: string, event: FlowStepTransitionEvent): void {
+    try {
+      this.db.prepare(`
+        UPDATE _flow_executions SET
+          stepLogs = ?,
+          output = ?,
+          durationMs = ?,
+          checkpoint = ?
+        WHERE id = ?
+      `).run(
+        JSON.stringify(event.stepLogs),
+        event.payload !== undefined ? JSON.stringify(event.payload) : null,
+        event.durationMs,
+        JSON.stringify(event.checkpoint),
+        executionId
+      );
+    } catch (err: any) {
+      console.warn(`[FlowService] Failed to persist checkpoint for execution '${executionId}': ${err.message}`);
+    }
+  }
+
+  /**
+   * Aborts an orphaned running flow gracefully with status: 'aborted'.
+   */
+  public abortExecution(executionId: string, reason: string = 'Execution aborted due to server restart'): FlowExecution {
+    const exec = this.getExecutionById(executionId);
+    if (!exec) {
+      throw new NotFoundError(`Flow execution '${executionId}' not found`);
+    }
+
+    if (exec.status !== 'running') {
+      return exec;
+    }
+
+    const aborted: FlowExecution = {
+      ...exec,
+      status: 'aborted',
+      error: reason,
+      finishedAt: new Date().toISOString(),
+      checkpoint: null,
+    };
+    this.saveExecution(aborted);
+    return aborted;
+  }
+
+  /**
+   * Resumes an interrupted or orphaned running flow from its last completed checkpoint.
+   */
+  public async resumeExecution(executionId: string): Promise<FlowExecution> {
+    const exec = this.getExecutionById(executionId);
+    if (!exec) {
+      throw new NotFoundError(`Flow execution '${executionId}' not found`);
+    }
+
+    if (exec.status !== 'running') {
+      throw new AppError(`Cannot resume flow execution '${executionId}' with status '${exec.status}'`, 400);
+    }
+
+    const flow = this.getFlowById(exec.flowId) || this.getFlowByName(exec.flowName);
+    if (!flow) {
+      this.abortExecution(executionId, `Flow '${exec.flowName}' no longer exists`);
+      throw new NotFoundError(`Flow '${exec.flowName}' no longer exists`);
+    }
+
+    if (!flow.enabled) {
+      this.abortExecution(executionId, `Flow '${flow.name}' is currently disabled`);
+      throw new AppError(`Flow '${flow.name}' is currently disabled`, 403);
+    }
+
+    let nextStateName: string | undefined = exec.checkpoint?.currentStateName ?? undefined;
+    let resumePayload = exec.checkpoint?.currentPayload !== undefined
+      ? exec.checkpoint.currentPayload
+      : (exec.output ?? exec.input ?? {});
+
+    // If checkpoint.currentStateName is not explicitly set, determine from stepLogs
+    if (!nextStateName) {
+      if (!exec.stepLogs || exec.stepLogs.length === 0) {
+        nextStateName = flow.definition.startAt;
+        resumePayload = exec.input !== undefined ? exec.input : {};
+      } else {
+        const lastStep = exec.stepLogs[exec.stepLogs.length - 1];
+        const lastState = flow.definition.states[lastStep.step];
+        if (!lastState || lastState.end || !lastState.next) {
+          // Flow already finished all steps
+          const completed: FlowExecution = {
+            ...exec,
+            status: 'succeeded',
+            finishedAt: new Date().toISOString(),
+            checkpoint: null,
+          };
+          this.saveExecution(completed);
+          return completed;
+        }
+        nextStateName = lastState.next;
+        resumePayload = lastStep.output !== undefined ? lastStep.output : {};
+      }
+    }
+
+    if (!flow.definition.states[nextStateName]) {
+      this.abortExecution(executionId, `Checkpoint state '${nextStateName}' not found in flow definition`);
+      throw new AppError(`Checkpoint state '${nextStateName}' not found in flow definition`, 400);
+    }
+
+    try {
+      const execution = await this.engine.execute(flow.name, flow.definition, exec.input, {
+        actor: exec.actorId ? { id: exec.actorId } : undefined,
+        functionService: this.functionService,
+        executionId: exec.id,
+        flowId: flow.id,
+        onStepTransition: async (event) => {
+          this.persistCheckpoint(exec.id, event);
+        },
+        resumeFrom: {
+          stateName: nextStateName,
+          payload: resumePayload,
+          stepLogs: exec.stepLogs || [],
+          loopCounters: exec.checkpoint?.loopCounters,
+          stepCount: exec.checkpoint?.stepCount || (exec.stepLogs || []).length,
+          startedAt: exec.startedAt,
+          durationMs: exec.durationMs,
+        },
+      });
+
+      this.saveExecution(execution);
+      return execution;
+    } catch (err: any) {
+      const existing = this.getExecutionById(executionId);
+      const failedExec: FlowExecution = {
+        id: exec.id,
+        flowId: flow.id,
+        flowName: flow.name,
+        status: 'failed',
+        input: exec.input,
+        output: existing?.output ?? resumePayload,
+        error: err.message || String(err),
+        durationMs: existing?.durationMs || exec.durationMs,
+        stepLogs: existing?.stepLogs || exec.stepLogs,
+        actorId: exec.actorId,
+        startedAt: exec.startedAt,
+        finishedAt: new Date().toISOString(),
+        checkpoint: null,
+      };
+      this.saveExecution(failedExec);
+      throw err;
+    }
+  }
+
+  /**
+   * Recovers orphaned running flows on startup (either fails gracefully with 'aborted' or resumes from checkpoint).
+   */
+  public async recoverOrphanedExecutions(strategy: 'abort' | 'resume' = this.recoveryStrategy): Promise<FlowExecution[]> {
+    const orphanedRows = this.db
+      .prepare("SELECT * FROM _flow_executions WHERE status = 'running'")
+      .all() as any[];
+
+    if (!orphanedRows || orphanedRows.length === 0) {
+      return [];
+    }
+
+    const recovered: FlowExecution[] = [];
+
+    for (const row of orphanedRows) {
+      const exec = this.mapRowToExecution(row);
+      try {
+        if (strategy === 'resume') {
+          const resumed = await this.resumeExecution(exec.id);
+          recovered.push(resumed);
+        } else {
+          const aborted = this.abortExecution(exec.id, 'Execution aborted due to server restart');
+          recovered.push(aborted);
+        }
+      } catch (err: any) {
+        console.warn(`[FlowService] Failed to recover orphaned execution '${exec.id}': ${err.message}`);
+        if (strategy === 'resume') {
+          try {
+            const aborted = this.abortExecution(exec.id, `Recovery failed: ${err.message}`);
+            recovered.push(aborted);
+          } catch {}
+        }
+      }
+    }
+
+    return recovered;
+  }
+
+  public async handleStartupRecovery(): Promise<FlowExecution[]> {
+    return this.recoverOrphanedExecutions(this.recoveryStrategy);
   }
 
   public getExecutions(options?: { flowId?: string; status?: string; page?: number; perPage?: number }): {
@@ -421,8 +651,8 @@ export class FlowService {
   private saveExecution(exec: FlowExecution): void {
     try {
       this.db.prepare(`
-        INSERT OR REPLACE INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, actorId, startedAt, finishedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, actorId, startedAt, finishedAt, checkpoint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         exec.id,
         exec.flowId,
@@ -435,7 +665,8 @@ export class FlowService {
         JSON.stringify(exec.stepLogs),
         exec.actorId,
         exec.startedAt,
-        exec.finishedAt || null
+        exec.finishedAt || null,
+        exec.checkpoint ? JSON.stringify(exec.checkpoint) : null
       );
     } catch (err: any) {
       console.warn(`[FlowService] Failed to persist execution log: ${err.message}`);
@@ -470,6 +701,7 @@ export class FlowService {
       actorId: row.actorId,
       startedAt: row.startedAt,
       finishedAt: row.finishedAt,
+      checkpoint: row.checkpoint ? JSON.parse(row.checkpoint) : null,
     };
   }
 }
