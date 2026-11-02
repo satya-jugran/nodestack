@@ -2410,6 +2410,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       });
       const win = dom.window as any;
       const doc = win.document;
+      win.openLoginModal = () => {};
 
       const requestedUrls: string[] = [];
       win.api = async (path: string, opts: any) => {
@@ -2462,6 +2463,62 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       ]);
       expect(toastedMsg).toContain("Function 'flow-task-fn' deleted (forced)");
       expect(toastedType).toBe('info');
+    });
+
+    it('should safely handle function deletion with quotes and tricky names without inline JS syntax breakout or XSS', async () => {
+      const htmlPath = path.resolve(__dirname, '../dist/admin/ui/index.html');
+      const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+
+      const dom = new JSDOM(htmlContent, {
+        runScripts: 'dangerously',
+        resources: 'usable',
+        url: 'http://localhost:8197/_/',
+      });
+      const win = dom.window as any;
+      const doc = win.document;
+      win.openLoginModal = () => {};
+
+      const requestedUrls: string[] = [];
+      win.api = async (path: string, opts: any) => {
+        requestedUrls.push(`${opts?.method || 'GET'} ${path}`);
+        if (opts?.method === 'DELETE' && !path.includes('force=true')) {
+          const err = new Error("Cannot delete function: referenced by 1 flow(s) ('FlowA')") as any;
+          err.status = 409;
+          throw err;
+        }
+        return { success: true };
+      };
+
+      const trickyFnName = 'O\'Connor\'s "Tax" <script>alert(1)</script>';
+      win.deleteFunctionPrompt('fn_tricky_99', trickyFnName);
+
+      const modalRoot = doc.getElementById('modal-root')!;
+      expect(modalRoot.innerHTML).toContain('Delete Function');
+      expect(modalRoot.innerHTML).toContain('O\'Connor\'s "Tax" &lt;script&gt;alert(1)&lt;/script&gt;');
+      expect(modalRoot.innerHTML).not.toContain('<script>alert(1)</script>');
+
+      const deleteBtn = doc.getElementById('btn-confirm-delete-function') as HTMLButtonElement;
+      expect(deleteBtn).not.toBeNull();
+      // Ensure no inline onclick handler
+      expect(deleteBtn.getAttribute('onclick')).toBeNull();
+
+      // Click delete button -> triggers listener -> encounters 409 conflict
+      deleteBtn.click();
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(modalRoot.innerHTML).toContain('Cannot Delete: Flow Dependencies');
+      const forceBtn = doc.getElementById('btn-force-delete-function') as HTMLButtonElement;
+      expect(forceBtn).not.toBeNull();
+      // Ensure no inline onclick handler on force delete button
+      expect(forceBtn.getAttribute('onclick')).toBeNull();
+
+      // Click force delete button -> triggers force delete listener
+      forceBtn.click();
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(modalRoot.innerHTML).toBe('');
+      expect(requestedUrls).toContain('DELETE /api/functions/fn_tricky_99');
+      expect(requestedUrls).toContain('DELETE /api/functions/fn_tricky_99?force=true');
     });
 
     it('should render HTML dialog modal for flow deletion and close on cancellation or completion', async () => {
