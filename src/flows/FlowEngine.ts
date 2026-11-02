@@ -97,6 +97,7 @@ export class FlowEngine {
     let currentPayload = options.resumeFrom?.payload !== undefined
       ? JSON.parse(JSON.stringify(options.resumeFrom.payload))
       : (input !== undefined ? JSON.parse(JSON.stringify(input)) : {});
+    let lastStepInputSnapshot: any = currentPayload !== undefined ? JSON.parse(JSON.stringify(currentPayload)) : undefined;
 
     const subFlowExecutor = async (states: Record<string, FlowState>, startAt: string, subInput: any): Promise<any> => {
       const remainingMs = Math.max(1, deadline - Date.now());
@@ -165,6 +166,7 @@ export class FlowEngine {
         const stepInputSnapshot = currentPayload !== undefined
           ? JSON.parse(JSON.stringify(currentPayload))
           : undefined;
+        lastStepInputSnapshot = stepInputSnapshot;
         let stepResult: StateExecutionResult;
 
         const remainingMs = Math.max(1, deadline - Date.now());
@@ -268,11 +270,11 @@ export class FlowEngine {
               step: currentStateName,
               stepLog: failedStepLog,
               stepLogs,
-              nextState: currentStateName,
+              nextState: undefined,
               payload: stepInputSnapshot,
               durationMs: baseDurationMs + (Date.now() - startTime),
-              isEnd: false,
-              status: 'running',
+              isEnd: true,
+              status: 'failed',
               checkpoint,
             });
           }
@@ -308,11 +310,11 @@ export class FlowEngine {
               step: currentStateName,
               stepLog,
               stepLogs,
-              nextState: currentStateName,
+              nextState: undefined,
               payload: stepInputSnapshot,
               durationMs: baseDurationMs + (Date.now() - startTime),
-              isEnd: false,
-              status: 'running',
+              isEnd: true,
+              status: 'failed',
               checkpoint,
             });
           }
@@ -400,7 +402,13 @@ export class FlowEngine {
         actorId: typeof options.actor === 'string' ? options.actor : (options.actor?.id || options.actor?.email || null),
         startedAt,
         finishedAt: new Date().toISOString(),
-        checkpoint: null,
+        checkpoint: currentStateName ? {
+          currentStateName,
+          currentPayload: lastStepInputSnapshot,
+          stepCount,
+          loopCounters: Object.fromEntries(loopCounters),
+          updatedAt: new Date().toISOString(),
+        } : null,
       };
     }
   }

@@ -3277,6 +3277,168 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(resumed.stepLogs[3].step).toBe('FinalSummary');
     });
 
+    it('should persist terminal failed status in persistCheckpoint and recognize terminal failed transition during resume', async () => {
+      app.functions.createFunction({
+        name: 'terminal-failure-task',
+        code: `
+          export default async function(context) {
+            throw new Error('Fatal database connection refused');
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 2000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      const flow = app.flows.createFlow({
+        name: 'TerminalFailureCheckpointFlow',
+        definition: {
+          startAt: 'StepOne',
+          states: {
+            StepOne: {
+              type: 'Pass',
+              result: { stepOneDone: true },
+              next: 'FailingStep',
+            },
+            FailingStep: {
+              type: 'Task',
+              function: 'terminal-failure-task',
+              inputPath: '$',
+              resultPath: '$.failResult',
+              next: 'ShouldNeverReach',
+            },
+            ShouldNeverReach: {
+              type: 'Pass',
+              result: { reached: true },
+              resultPath: '$.finalInfo',
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId = FlowEngine.generateExecutionId();
+      let capturedStatusDuringTransition: string | null = null;
+
+      // 1. Execute flow through executeFlow
+      const db = (app.flows as any).db;
+      const execResult = await app.flows.executeFlow(flow.id, { startParam: 123 }, undefined, {
+        executionId: execId,
+      });
+      expect(execResult.status).toBe('failed');
+      expect(execResult.error).toContain('Fatal database connection refused');
+
+      // 2. Verify that in SQLite, the row is recorded with status = 'failed' (NOT left as 'running')
+      const row = db.prepare('SELECT * FROM _flow_executions WHERE id = ?').get(execId);
+      expect(row).toBeDefined();
+      expect(row.status).toBe('failed');
+      expect(row.error).toContain('Fatal database connection refused');
+      expect(row.finishedAt).not.toBeNull();
+      const cp = JSON.parse(row.checkpoint);
+      expect(cp.currentStateName).toBe('FailingStep');
+
+      // 3. Test that persistCheckpoint directly updates SQLite row terminal status
+      const syntheticExecId = 'exec_synthetic_terminal_test';
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', '{}', NULL, 0, '[]', ?, ?)
+      `).run(syntheticExecId, flow.id, flow.name, new Date().toISOString(), JSON.stringify({ currentStateName: 'FailingStep' }));
+
+      // Trigger persistCheckpoint with terminal failed event
+      app.flows.persistCheckpoint(syntheticExecId, {
+        executionId: syntheticExecId,
+        flowId: flow.id,
+        flowName: flow.name,
+        step: 'FailingStep',
+        stepLog: {
+          step: 'FailingStep',
+          type: 'Task',
+          input: { startParam: 123 },
+          status: 'failed',
+          durationMs: 10,
+          error: 'Fatal database connection refused',
+          timestamp: new Date().toISOString(),
+        },
+        stepLogs: [
+          {
+            step: 'FailingStep',
+            type: 'Task',
+            input: { startParam: 123 },
+            status: 'failed',
+            durationMs: 10,
+            error: 'Fatal database connection refused',
+            timestamp: new Date().toISOString(),
+          },
+        ],
+        payload: { startParam: 123 },
+        durationMs: 10,
+        isEnd: true,
+        status: 'failed',
+        checkpoint: {
+          currentStateName: 'FailingStep',
+          currentPayload: { startParam: 123 },
+          updatedAt: new Date().toISOString(),
+        },
+      });
+
+      const syntheticRow = db.prepare('SELECT * FROM _flow_executions WHERE id = ?').get(syntheticExecId);
+      expect(syntheticRow.status).toBe('failed');
+      expect(syntheticRow.error).toContain('Fatal database connection refused');
+      expect(syntheticRow.finishedAt).not.toBeNull();
+
+      // 4. Verify recovery recognizes terminal failed transition even when checkpoint currentStateName is null
+      const orphanNullCpId = 'exec_orphan_null_cp_failed_step';
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', '{}', NULL, 10, ?, ?, ?)
+      `).run(
+        orphanNullCpId,
+        flow.id,
+        flow.name,
+        JSON.stringify([
+          {
+            step: 'FailingStep',
+            type: 'Task',
+            input: { startParam: 123 },
+            status: 'failed',
+            durationMs: 10,
+            error: 'Fatal database connection refused',
+            timestamp: new Date().toISOString(),
+          },
+        ]),
+        new Date().toISOString(),
+        JSON.stringify({ currentStateName: null, updatedAt: new Date().toISOString() })
+      );
+
+      // Fix the task function
+      const taskFn = app.functions.getFunctionByName('terminal-failure-task')!;
+      app.functions.updateFunction(taskFn.id, {
+        code: `
+          export default async function(context) {
+            return { fixed: true, received: context.request?.body?.startParam };
+          }
+        `,
+      });
+
+      // Resume: must retry FailingStep (and then proceed to ShouldNeverReach), NOT skip FailingStep!
+      const resumed = await app.flows.resumeExecution(orphanNullCpId);
+      expect(resumed.status).toBe('succeeded');
+      expect(resumed.output.finalInfo.reached).toBe(true);
+      expect(resumed.output.failResult.fixed).toBe(true);
+      expect(resumed.output.failResult.received).toBe(123);
+      // stepLogs must show the failed FailingStep + retried succeeded FailingStep + ShouldNeverReach
+      expect(resumed.stepLogs.length).toBe(3);
+      expect(resumed.stepLogs[0].step).toBe('FailingStep');
+      expect(resumed.stepLogs[0].status).toBe('failed');
+      expect(resumed.stepLogs[1].step).toBe('FailingStep');
+      expect(resumed.stepLogs[1].status).toBe('succeeded');
+      expect(resumed.stepLogs[2].step).toBe('ShouldNeverReach');
+    });
   });
 
 });

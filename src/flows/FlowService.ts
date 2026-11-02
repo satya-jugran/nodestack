@@ -402,7 +402,7 @@ export class FlowService {
         actorId: typeof actor === 'string' ? actor : (actor?.id || actor?.email || null),
         startedAt: existing?.startedAt || new Date().toISOString(),
         finishedAt: new Date().toISOString(),
-        checkpoint: null,
+        checkpoint: existing?.checkpoint ?? null,
       });
       throw err;
     }
@@ -413,18 +413,29 @@ export class FlowService {
    */
   public persistCheckpoint(executionId: string, event: FlowStepTransitionEvent): void {
     try {
+      const isTerminal = event.status !== 'running';
+      const finishedAt = isTerminal ? new Date().toISOString() : null;
+      const error = event.status === 'failed' ? (event.stepLog?.error || 'Step execution failed') : null;
+      const checkpoint = event.status === 'succeeded' ? null : event.checkpoint;
+
       this.db.prepare(`
         UPDATE _flow_executions SET
+          status = ?,
           stepLogs = ?,
           output = ?,
+          error = COALESCE(?, error),
           durationMs = ?,
+          finishedAt = COALESCE(?, finishedAt),
           checkpoint = ?
         WHERE id = ?
       `).run(
+        event.status,
         JSON.stringify(event.stepLogs),
         event.payload !== undefined ? JSON.stringify(event.payload) : null,
+        error,
         event.durationMs,
-        JSON.stringify(event.checkpoint),
+        finishedAt,
+        checkpoint ? JSON.stringify(checkpoint) : null,
         executionId
       );
     } catch (err: any) {
@@ -465,7 +476,7 @@ export class FlowService {
       throw new NotFoundError(`Flow execution '${executionId}' not found`);
     }
 
-    if (exec.status !== 'running') {
+    if (exec.status !== 'running' && exec.status !== 'failed') {
       throw new AppError(`Cannot resume flow execution '${executionId}' with status '${exec.status}'`, 400);
     }
 
@@ -518,6 +529,9 @@ export class FlowService {
       throw new AppError(`Checkpoint state '${nextStateName}' not found in flow definition`, 400);
     }
 
+    // Ensure status is marked 'running' while resuming
+    this.db.prepare("UPDATE _flow_executions SET status = 'running', finishedAt = NULL, error = NULL WHERE id = ?").run(executionId);
+
     try {
       const execution = await this.engine.execute(flow.name, flow.definition, exec.input, {
         actor: exec.actorId ? { id: exec.actorId } : undefined,
@@ -555,7 +569,7 @@ export class FlowService {
         actorId: exec.actorId,
         startedAt: exec.startedAt,
         finishedAt: new Date().toISOString(),
-        checkpoint: null,
+        checkpoint: existing?.checkpoint ?? null,
       };
       this.saveExecution(failedExec);
       throw err;
