@@ -3568,6 +3568,163 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       // 'ShouldNeverRunAfterAbort' must never have been reached in stepLogs
       expect(finalDbRecord?.stepLogs.some((s) => s.step === 'ShouldNeverRunAfterAbort')).toBe(false);
     });
+
+    it('should atomically claim execution and prevent racing resume requests from running duplicate tasks', async () => {
+      let sideEffectCount = 0;
+
+      app.functions.createFunction({
+        name: 'atomic-claim-side-effect-fn',
+        code: `
+          export default async function(context) {
+            return { executed: true };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 2000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      // Track executions by wrapping functionService
+      const originalExecute = (app.functions as any).executeFunction.bind(app.functions);
+      (app.functions as any).executeFunction = async (...args: any[]) => {
+        if (args[0] === 'atomic-claim-side-effect-fn') {
+          sideEffectCount++;
+          // Add a tiny delay to simulate real execution window
+          await new Promise((r) => setTimeout(r, 60));
+        }
+        return originalExecute(...args);
+      };
+
+      try {
+        const flow = app.flows.createFlow({
+          name: 'AtomicClaimResumeFlow',
+          definition: {
+            startAt: 'SideEffectTask',
+            states: {
+              SideEffectTask: {
+                type: 'Task',
+                function: 'atomic-claim-side-effect-fn',
+                end: true,
+              },
+            },
+          },
+        });
+
+        const raceExecId = FlowEngine.generateExecutionId();
+        const db = (app.flows as any).db;
+
+        db.prepare(`
+          INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          raceExecId,
+          flow.id,
+          flow.name,
+          'running',
+          JSON.stringify({ value: 42 }),
+          null,
+          null,
+          0,
+          JSON.stringify([]),
+          new Date().toISOString(),
+          JSON.stringify({
+            currentStateName: 'SideEffectTask',
+            currentPayload: { value: 42 },
+            stepCount: 0,
+            loopCounters: {},
+            updatedAt: new Date().toISOString(),
+          })
+        );
+
+        // Fire two racing resume requests concurrently
+        const [res1, res2] = await Promise.allSettled([
+          app.flows.resumeExecution(raceExecId),
+          app.flows.resumeExecution(raceExecId),
+        ]);
+
+        const fulfilled = [res1, res2].filter((r) => r.status === 'fulfilled');
+        const rejected = [res1, res2].filter((r) => r.status === 'rejected');
+
+        // Exactly one should succeed, and one should be rejected with 409 Conflict
+        expect(fulfilled.length).toBe(1);
+        expect(rejected.length).toBe(1);
+
+        const rejectedReason = (rejected[0] as PromiseRejectedResult).reason;
+        expect(rejectedReason.statusCode).toBe(409);
+        expect(rejectedReason.message).toMatch(/currently (running|being executed or resumed)|already claimed/i);
+
+        // Side effect must have executed exactly ONCE
+        expect(sideEffectCount).toBe(1);
+
+        // Successful execution must have status 'succeeded'
+        const successVal = (fulfilled[0] as PromiseFulfilledResult<any>).value;
+        expect(successVal.status).toBe('succeeded');
+
+        // DB record should be 'succeeded' and claimToken released (null)
+        const dbRecord = app.flows.getExecutionById(raceExecId);
+        expect(dbRecord?.status).toBe('succeeded');
+        expect(dbRecord?.claimToken).toBeNull();
+      } finally {
+        (app.functions as any).executeFunction = originalExecute;
+      }
+    });
+
+    it('should reject resume request with 409 Conflict when execution is claimed by another runner in DB', async () => {
+      const flow = app.flows.createFlow({
+        name: 'ForeignClaimResumeFlow',
+        definition: {
+          startAt: 'SimpleStep',
+          states: {
+            SimpleStep: {
+              type: 'Pass',
+              result: { done: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const foreignExecId = FlowEngine.generateExecutionId();
+      const db = (app.flows as any).db;
+
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint, claimToken)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        foreignExecId,
+        flow.id,
+        flow.name,
+        'running',
+        JSON.stringify({}),
+        null,
+        null,
+        0,
+        JSON.stringify([]),
+        new Date().toISOString(),
+        JSON.stringify({
+          currentStateName: 'SimpleStep',
+          currentPayload: {},
+          stepCount: 0,
+          loopCounters: {},
+          updatedAt: new Date().toISOString(),
+        }),
+        'foreign-process-uuid-token'
+      );
+
+      // Should be rejected because another runner holds the claim
+      await expect(app.flows.resumeExecution(foreignExecId)).rejects.toThrowError(
+        /already claimed by another runner/i
+      );
+
+      // Verify the claim was NOT overwritten
+      const row = db.prepare('SELECT claimToken FROM _flow_executions WHERE id = ?').get(foreignExecId) as any;
+      expect(row.claimToken).toBe('foreign-process-uuid-token');
+    });
   });
 
 });

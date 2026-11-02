@@ -176,6 +176,7 @@ export interface FlowExecution {
   startedAt: string;
   finishedAt?: string;
   checkpoint?: FlowCheckpoint | null;
+  claimToken?: string | null;
 }
 
 export interface FlowStepTransitionEvent {
