@@ -2507,6 +2507,47 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(deletedFlowUrl).toBe('/api/flows/flow_abc');
       expect(modalRoot.innerHTML).toBe('');
     });
+
+    it('should safely handle flow names with apostrophes, quotes and special characters without inline JS syntax breakout or XSS', async () => {
+      const htmlPath = path.resolve(__dirname, '../dist/admin/ui/index.html');
+      const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+
+      const dom = new JSDOM(htmlContent, {
+        runScripts: 'dangerously',
+        resources: 'usable',
+        url: 'http://localhost:8197/_/',
+      });
+      const win = dom.window as any;
+      const doc = win.document;
+
+      let deletedFlowUrl = '';
+      win.api = async (path: string, opts: any) => {
+        if (opts?.method === 'DELETE') {
+          deletedFlowUrl = path;
+        }
+        return { success: true };
+      };
+
+      const trickyName = 'User\'s "Tricky" <script>alert(1)</script>';
+      win.deleteFlowPrompt('flow_tricky', trickyName);
+
+      const modalRoot = doc.getElementById('modal-root')!;
+      expect(modalRoot.innerHTML).toContain('Delete Flow');
+      expect(modalRoot.innerHTML).toContain('User\'s "Tricky" &lt;script&gt;alert(1)&lt;/script&gt;');
+      expect(modalRoot.innerHTML).not.toContain('<script>alert(1)</script>');
+
+      const confirmBtn = doc.getElementById('btn-confirm-delete-flow') as HTMLButtonElement;
+      expect(confirmBtn).not.toBeNull();
+      // Ensure the button does not have inline onclick that decodes entities and causes string syntax breakout
+      expect(confirmBtn.getAttribute('onclick')).toBeNull();
+
+      // Clicking confirmBtn triggers the attached event listener safely
+      confirmBtn.click();
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(deletedFlowUrl).toBe('/api/flows/flow_tricky');
+      expect(modalRoot.innerHTML).toBe('');
+    });
   });
 
 });

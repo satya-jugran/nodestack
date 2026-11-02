@@ -404,13 +404,18 @@ function openDeleteFlowModal(flowId, name) {
         </div>
         <div class="modal-footer" style="padding: 0.75rem 1.25rem;">
           <button type="button" class="btn btn-secondary" onclick="closeDeleteFlowModal()">Cancel</button>
-          <button type="button" class="btn btn-danger" id="btn-confirm-delete-flow" onclick="confirmDeleteFlow('${safeId}', '${safeName}')">
+          <button type="button" class="btn btn-danger" id="btn-confirm-delete-flow" data-flow-id="${safeId}">
             Delete Flow
           </button>
         </div>
       </div>
     </div>
   `;
+
+  const confirmBtn = document.getElementById('btn-confirm-delete-flow');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', () => confirmDeleteFlow(flowId, name));
+  }
 
   setTimeout(() => {
     document.getElementById('btn-confirm-delete-flow')?.focus();

@@ -378,7 +378,7 @@ function renderFunctionsTable(functions) {
             <button class="btn btn-secondary btn-sm" onclick="toggleFunctionEnabled('${fn.id}', ${!isEnabled})" title="${isEnabled ? 'Disable function' : 'Enable function'}">
               ${isEnabled ? 'Disable' : 'Enable'}
             </button>
-            <button class="btn btn-secondary btn-sm" onclick="deleteFunctionPrompt('${fn.id}', '${escapeHtml(fn.name)}')" style="color: var(--accent-danger);" title="Delete function">
+            <button class="btn btn-secondary btn-sm" data-fn-id="${escapeHtml(fn.id)}" data-fn-name="${escapeHtml(fn.name)}" onclick="deleteFunctionPrompt(this.getAttribute('data-fn-id'), this.getAttribute('data-fn-name'))" style="color: var(--accent-danger);" title="Delete function">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
           </div>
@@ -458,13 +458,18 @@ function openDeleteFunctionModal(id, name) {
         </div>
         <div class="modal-footer" id="delete-function-modal-footer" style="padding: 0.75rem 1.25rem;">
           <button type="button" class="btn btn-secondary" onclick="closeDeleteFunctionModal()">Cancel</button>
-          <button type="button" class="btn btn-danger" id="btn-confirm-delete-function" onclick="confirmDeleteFunction('${safeId}', '${safeName}', false)">
+          <button type="button" class="btn btn-danger" id="btn-confirm-delete-function" data-fn-id="${safeId}">
             Delete Function
           </button>
         </div>
       </div>
     </div>
   `;
+
+  const deleteBtn = document.getElementById('btn-confirm-delete-function');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', () => confirmDeleteFunction(id, name, false));
+  }
 
   setTimeout(() => {
     document.getElementById('btn-confirm-delete-function')?.focus();
@@ -554,10 +559,14 @@ function renderConflictModalState(id, name, conflictMessage) {
   if (footer) {
     footer.innerHTML = `
       <button type="button" class="btn btn-secondary" onclick="closeDeleteFunctionModal()">Cancel (Keep Function)</button>
-      <button type="button" class="btn btn-danger" id="btn-force-delete-function" onclick="confirmDeleteFunction('${safeId}', '${safeName}', true)">
+      <button type="button" class="btn btn-danger" id="btn-force-delete-function" data-fn-id="${safeId}">
         Force Delete Anyway
       </button>
     `;
+    const forceBtn = document.getElementById('btn-force-delete-function');
+    if (forceBtn) {
+      forceBtn.addEventListener('click', () => confirmDeleteFunction(id, name, true));
+    }
     setTimeout(() => {
       document.getElementById('btn-force-delete-function')?.focus();
     }, 50);
