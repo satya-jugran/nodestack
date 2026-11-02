@@ -3892,6 +3892,96 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(finalRecord?.status).toBe('aborted');
       expect(finalRecord?.error).toMatch(/no longer exists|Cannot reconstruct/i);
     });
+
+    it('should preserve and reconstruct authorization context (isAdmin) on recovery for authPolicy: admin tasks', async () => {
+      // 1. Create a function that strictly requires admin authorization
+      app.functions.createFunction({
+        name: 'admin-auth-task-fn',
+        code: `
+          export default async function(context) {
+            return { executedWithAdmin: true, caller: context.request?.auth?.email };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'admin',
+        methods: ['POST'],
+        timeoutMs: 2000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      // 2. Create flow with Step1 (Pass) and Step2 (Admin Task)
+      const flow = app.flows.createFlow({
+        name: 'AdminAuthRecoveryFlow',
+        definition: {
+          startAt: 'Step1',
+          states: {
+            Step1: {
+              type: 'Pass',
+              result: { step1Done: true },
+              next: 'AdminTask',
+            },
+            AdminTask: {
+              type: 'Task',
+              function: 'admin-auth-task-fn',
+              inputPath: '$',
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId = FlowEngine.generateExecutionId();
+      const adminActor = { id: 'admin-uuid-123', email: 'admin@nodestack.test', isAdmin: true, role: 'admin' };
+      const db = (app.flows as any).db;
+
+      // Simulate a crashed execution where Step1 passed under adminActor, and server crashed right before AdminTask
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, actorId, actor, startedAt, checkpoint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        execId,
+        flow.id,
+        flow.name,
+        'running',
+        JSON.stringify({}),
+        JSON.stringify({ step1Done: true }),
+        null,
+        15,
+        JSON.stringify([
+          {
+            step: 'Step1',
+            type: 'Pass',
+            input: {},
+            output: { step1Done: true },
+            status: 'succeeded',
+            durationMs: 5,
+            timestamp: new Date().toISOString(),
+            nextState: 'AdminTask',
+          },
+        ]),
+        adminActor.id,
+        JSON.stringify(adminActor),
+        new Date().toISOString(),
+        JSON.stringify({
+          currentStateName: 'AdminTask',
+          currentPayload: { step1Done: true },
+          stepCount: 1,
+          loopCounters: {},
+          updatedAt: new Date().toISOString(),
+        })
+      );
+
+      // 3. Resume the execution: must retain admin authorization claims
+      const resumed = await app.flows.resumeExecution(execId);
+      expect(resumed.status).toBe('succeeded');
+      expect(resumed.output.executedWithAdmin).toBe(true);
+      expect(resumed.output.caller).toBe('admin@nodestack.test');
+      expect(resumed.actor?.isAdmin).toBe(true);
+      expect(resumed.actorId).toBe('admin-uuid-123');
+    });
   });
 
 });

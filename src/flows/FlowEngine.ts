@@ -387,6 +387,7 @@ export class FlowEngine {
         durationMs: totalDuration,
         stepLogs,
         actorId: typeof options.actor === 'string' ? options.actor : (options.actor?.id || options.actor?.email || null),
+        actor: typeof options.actor === 'object' && options.actor !== null ? options.actor : (options.actor ? { id: options.actor } : null),
         startedAt,
         finishedAt: new Date().toISOString(),
         checkpoint: null,
@@ -411,6 +412,7 @@ export class FlowEngine {
         durationMs: totalDuration,
         stepLogs,
         actorId: typeof options.actor === 'string' ? options.actor : (options.actor?.id || options.actor?.email || null),
+        actor: typeof options.actor === 'object' && options.actor !== null ? options.actor : (options.actor ? { id: options.actor } : null),
         startedAt,
         finishedAt: new Date().toISOString(),
         checkpoint: (currentStateName && !err?.message?.includes('Failed to persist checkpoint')) ? {

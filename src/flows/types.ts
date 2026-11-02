@@ -174,6 +174,7 @@ export interface FlowExecution {
   durationMs: number;
   stepLogs: FlowStepLog[];
   actorId?: string | null;
+  actor?: any | null;
   startedAt: string;
   finishedAt?: string;
   checkpoint?: FlowCheckpoint | null;

@@ -91,6 +91,7 @@ export class FlowService {
           durationMs INTEGER NOT NULL,
           stepLogs TEXT,
           actorId TEXT,
+          actor TEXT,
           startedAt TEXT NOT NULL,
           finishedAt TEXT,
           checkpoint TEXT,
@@ -108,6 +109,9 @@ export class FlowService {
       } catch {}
       try {
         this.db.exec('ALTER TABLE _flow_executions ADD COLUMN claimToken TEXT');
+      } catch {}
+      try {
+        this.db.exec('ALTER TABLE _flow_executions ADD COLUMN actor TEXT');
       } catch {}
     } catch (err: any) {
       console.warn(`[FlowService] initTables warning: ${err.message}`);
@@ -374,6 +378,17 @@ export class FlowService {
     const abortController = new AbortController();
     this.activeAbortControllers.set(executionId, abortController);
 
+    const authContext = typeof actor === 'object' && actor !== null
+      ? {
+          id: actor.id || actor.email || null,
+          email: actor.email,
+          isAdmin: Boolean(actor.isAdmin),
+          isApiKey: Boolean(actor.isApiKey),
+          role: actor.role,
+          collection: actor.collection,
+        }
+      : (typeof actor === 'string' ? { id: actor } : null);
+
     const initialCheckpoint: FlowCheckpoint = {
       currentStateName: flow.definition.startAt,
       currentPayload: input !== undefined ? input : {},
@@ -391,7 +406,8 @@ export class FlowService {
       input: input !== undefined ? input : null,
       durationMs: 0,
       stepLogs: [],
-      actorId: typeof actor === 'string' ? actor : (actor?.id || actor?.email || null),
+      actorId: authContext?.id || (typeof actor === 'string' ? actor : null),
+      actor: authContext,
       startedAt: new Date().toISOString(),
       checkpoint: initialCheckpoint,
       claimToken,
@@ -399,7 +415,7 @@ export class FlowService {
 
     try {
       const execution = await this.engine.execute(flow.name, flow.definition, input, {
-        actor,
+        actor: authContext || actor,
         functionService: this.functionService,
         executionId,
         flowId: flow.id,
@@ -427,7 +443,8 @@ export class FlowService {
         error: err.message || String(err),
         durationMs: existing?.durationMs || 0,
         stepLogs: existing?.stepLogs || [],
-        actorId: typeof actor === 'string' ? actor : (actor?.id || actor?.email || null),
+        actorId: authContext?.id || (typeof actor === 'string' ? actor : null),
+        actor: authContext,
         startedAt: existing?.startedAt || new Date().toISOString(),
         finishedAt: new Date().toISOString(),
         checkpoint: existing?.checkpoint ?? null,
@@ -676,9 +693,11 @@ export class FlowService {
       const abortController = new AbortController();
       this.activeAbortControllers.set(executionId, abortController);
 
+      const recoveryActor = exec.actor || (exec.actorId ? { id: exec.actorId } : undefined);
+
       try {
         const execution = await this.engine.execute(flow.name, flow.definition, exec.input, {
-          actor: exec.actorId ? { id: exec.actorId } : undefined,
+          actor: recoveryActor,
           functionService: this.functionService,
           executionId: exec.id,
           flowId: flow.id,
@@ -715,6 +734,7 @@ export class FlowService {
           durationMs: existing?.durationMs || exec.durationMs,
           stepLogs: existing?.stepLogs || exec.stepLogs,
           actorId: exec.actorId,
+          actor: exec.actor,
           startedAt: exec.startedAt,
           finishedAt: new Date().toISOString(),
           checkpoint: existing?.checkpoint ?? null,
@@ -843,8 +863,8 @@ export class FlowService {
       }
 
       this.db.prepare(`
-        INSERT OR REPLACE INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, actorId, startedAt, finishedAt, checkpoint, claimToken)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, actorId, actor, startedAt, finishedAt, checkpoint, claimToken)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         exec.id,
         exec.flowId,
@@ -856,6 +876,7 @@ export class FlowService {
         exec.durationMs,
         JSON.stringify(exec.stepLogs),
         exec.actorId,
+        exec.actor ? JSON.stringify(exec.actor) : null,
         exec.startedAt,
         exec.finishedAt || null,
         exec.checkpoint ? JSON.stringify(exec.checkpoint) : null,
@@ -892,6 +913,7 @@ export class FlowService {
       durationMs: row.durationMs,
       stepLogs: row.stepLogs ? JSON.parse(row.stepLogs) : [],
       actorId: row.actorId,
+      actor: row.actor ? JSON.parse(row.actor) : (row.actorId ? { id: row.actorId } : null),
       startedAt: row.startedAt,
       finishedAt: row.finishedAt,
       checkpoint: row.checkpoint ? JSON.parse(row.checkpoint) : null,
