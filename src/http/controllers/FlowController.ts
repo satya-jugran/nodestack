@@ -2,7 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { AppError } from '../../core/errors/AppError';
 import { FlowService } from '../../flows/FlowService';
-import { CreateFlowDto, UpdateFlowDto } from '../../flows/types';
+import { CreateFlowDto, UpdateFlowDto, FlowAsyncDispatchResponse } from '../../flows/types';
 
 export class FlowController extends BaseController {
   constructor(private flowService?: FlowService) {
@@ -135,15 +135,32 @@ export class FlowController extends BaseController {
 
     try {
       if (wait) {
-        const execution = await service.executeFlow(flow.id, req.body || {}, (req as any).auth, { wait: true });
+        const execution = await service.executeFlow(flow.id, req.body || {}, (req as any).auth, {
+          wait: true,
+          executionId: (req.body as any)?.executionId,
+        });
         this.ok(reply, execution);
       } else {
-        // Fire-and-forget execution
-        service.executeFlow(flow.id, req.body || {}, (req as any).auth).catch((err) => {
+        const executionId = (req.body as any)?.executionId || FlowService.generateExecutionId();
+        const appId = (req.params as any)?.appId;
+        const pollUrl = appId
+          ? `/api/apps/${appId}/flows/executions/${executionId}`
+          : `/api/flows/executions/${executionId}`;
+
+        // Fire-and-forget execution with pre-generated executionId
+        service.executeFlow(flow.id, req.body || {}, (req as any).auth, { executionId }).catch((err) => {
           console.error(`[FlowController] Background execution failed for flow '${flow.name}':`, err);
         });
 
-        this.ok(reply, { status: 'running', message: `Flow '${flow.name}' triggered in background` }, 202);
+        const response: FlowAsyncDispatchResponse = {
+          executionId,
+          flowId: flow.id,
+          flowName: flow.name,
+          status: 'running',
+          pollUrl,
+        };
+
+        this.ok(reply, response, 202);
       }
     } catch (err: any) {
       if (err instanceof AppError) {
@@ -185,6 +202,16 @@ export class FlowController extends BaseController {
       this.error(reply, 'Flow execution not found', 404);
       return;
     }
+
+    const flow = service.getFlowById(execution.flowId);
+    if (flow && flow.triggerType !== 'http') {
+      const auth = (req as any).auth;
+      if (!auth || !auth.isAdmin) {
+        this.error(reply, `Flow execution for '${execution.flowName}' requires admin credentials`, 403);
+        return;
+      }
+    }
+
     this.ok(reply, execution);
   }
 

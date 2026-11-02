@@ -35,6 +35,10 @@ export class FlowService {
     this.bindEvents();
   }
 
+  public static generateExecutionId(): string {
+    return FlowEngine.generateExecutionId();
+  }
+
   public getEngine(): FlowEngine {
     return this.engine;
   }
@@ -322,15 +326,48 @@ export class FlowService {
       throw new AppError(`Flow '${flow.name}' is currently disabled`, 403);
     }
 
-    const execution = await this.engine.execute(flow.name, flow.definition, input, {
+    const executionId = options.executionId || FlowService.generateExecutionId();
+
+    // Persist initial 'running' record so callers can poll immediately
+    this.saveExecution({
+      id: executionId,
+      flowId: flow.id,
+      flowName: flow.name,
+      status: 'running',
+      input: input !== undefined ? input : null,
+      durationMs: 0,
+      stepLogs: [],
+      actorId: typeof actor === 'string' ? actor : (actor?.id || actor?.email || null),
+      startedAt: new Date().toISOString(),
+    });
+
+    try {
+      const execution = await this.engine.execute(flow.name, flow.definition, input, {
       actor,
       functionService: this.functionService,
+      executionId,
       flowId: flow.id,
       executionOptions: options,
     });
 
     this.saveExecution(execution);
-    return execution;
+      return execution;
+    } catch (err: any) {
+      this.saveExecution({
+        id: executionId,
+        flowId: flow.id,
+        flowName: flow.name,
+        status: 'failed',
+        input: input !== undefined ? input : null,
+        error: err.message || String(err),
+        durationMs: 0,
+        stepLogs: [],
+        actorId: typeof actor === 'string' ? actor : (actor?.id || actor?.email || null),
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+      });
+      throw err;
+    }
   }
 
   public getExecutions(options?: { flowId?: string; status?: string; page?: number; perPage?: number }): {
@@ -384,7 +421,7 @@ export class FlowService {
   private saveExecution(exec: FlowExecution): void {
     try {
       this.db.prepare(`
-        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, actorId, startedAt, finishedAt)
+        INSERT OR REPLACE INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, actorId, startedAt, finishedAt)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         exec.id,

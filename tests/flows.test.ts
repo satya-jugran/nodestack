@@ -1326,6 +1326,92 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const histData = await histRes.json();
       expect(histData.items.length).toBeGreaterThan(0);
     });
+
+    it('should dispatch flow asynchronously with 202 Accepted, executionId, and pollUrl', async () => {
+      const flow = app.flows.getFlowByName('OrderFlow')!;
+      const asyncRes = await fetch(`http://localhost:8197/api/flows/${flow.id}/execute`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ customer: 'AsyncAlice' }),
+      });
+
+      expect(asyncRes.status).toBe(202);
+      const asyncData = await asyncRes.json();
+      expect(asyncData.status).toBe('running');
+      expect(asyncData.flowId).toBe(flow.id);
+      expect(asyncData.flowName).toBe(flow.name);
+      expect(typeof asyncData.executionId).toBe('string');
+      expect(asyncData.executionId).toMatch(/^exec_\d+_[a-z0-9]+$/);
+      expect(asyncData.pollUrl).toBe(`/api/flows/executions/${asyncData.executionId}`);
+
+      // Query the pollUrl
+      const pollRes = await fetch(`http://localhost:8197${asyncData.pollUrl}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(pollRes.status).toBe(200);
+      const pollData = await pollRes.json();
+      expect(pollData.id).toBe(asyncData.executionId);
+      expect(pollData.flowId).toBe(flow.id);
+      expect(['running', 'succeeded']).toContain(pollData.status);
+
+      // Wait for background execution to complete
+      let finished = false;
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const checkRes = await fetch(`http://localhost:8197${asyncData.pollUrl}`, {
+          headers: { Authorization: `Bearer ${adminToken}` },
+        });
+        const checkData = await checkRes.json();
+        if (checkData.status === 'succeeded') {
+          finished = true;
+          expect(checkData.output.step1.processed).toBe(true);
+          expect(checkData.output.customer).toBe('AsyncAlice');
+          break;
+        }
+      }
+      expect(finished).toBe(true);
+    });
+
+    it('should support client-provided executionId in asynchronous dispatch', async () => {
+      const flow = app.flows.getFlowByName('OrderFlow')!;
+      const customExecId = `exec_custom_${Date.now()}_test`;
+      const asyncRes = await fetch(`http://localhost:8197/api/flows/${flow.name}/execute`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ executionId: customExecId, customer: 'CustomBob' }),
+      });
+
+      expect(asyncRes.status).toBe(202);
+      const asyncData = await asyncRes.json();
+      expect(asyncData.status).toBe('running');
+      expect(asyncData.executionId).toBe(customExecId);
+      expect(asyncData.flowId).toBe(flow.id);
+      expect(asyncData.flowName).toBe(flow.name);
+      expect(asyncData.pollUrl).toBe(`/api/flows/executions/${customExecId}`);
+
+      // Wait for execution completion
+      let finished = false;
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const checkRes = await fetch(`http://localhost:8197${asyncData.pollUrl}`, {
+          headers: { Authorization: `Bearer ${adminToken}` },
+        });
+        const checkData = await checkRes.json();
+        if (checkData.status === 'succeeded') {
+          finished = true;
+          expect(checkData.id).toBe(customExecId);
+          expect(checkData.output.customer).toBe('CustomBob');
+          break;
+        }
+      }
+      expect(finished).toBe(true);
+    });
   });
 
   // ==========================================

@@ -37,6 +37,14 @@ export interface FlowExecution {
   finishedAt?: string;
 }
 
+export interface FlowAsyncDispatchResponse {
+  executionId: string;
+  flowId: string;
+  flowName: string;
+  status: 'running';
+  pollUrl: string;
+}
+
 export class FlowService extends BaseService {
   /**
    * Triggers or executes a Flow state machine by ID or name.

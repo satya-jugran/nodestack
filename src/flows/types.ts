@@ -169,8 +169,17 @@ export interface FlowExecution {
   finishedAt?: string;
 }
 
+export interface FlowAsyncDispatchResponse {
+  executionId: string;
+  flowId: string;
+  flowName: string;
+  status: 'running';
+  pollUrl: string;
+}
+
 export interface FlowExecutionOptions {
   wait?: boolean;
   timeoutMs?: number;
   maxRecursionDepth?: number;
+  executionId?: string;
 }

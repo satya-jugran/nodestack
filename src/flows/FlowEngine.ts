@@ -31,6 +31,10 @@ export class FlowEngine {
     this.registerDefaultHandlers();
   }
 
+  public static generateExecutionId(): string {
+    return `exec_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  }
+
   public registerHandler(type: FlowStateType, handler: IStateHandler<any>): void {
     this.handlers.set(type, handler);
   }
@@ -64,7 +68,7 @@ export class FlowEngine {
   ): Promise<FlowExecution> {
     const startedAt = new Date().toISOString();
     const startTime = Date.now();
-    const executionId = options.executionId || `exec_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const executionId = options.executionId || options.executionOptions?.executionId || FlowEngine.generateExecutionId();
     const stepLogs: FlowStepLog[] = [];
     const loopCounters = new Map<string, number>();
 
@@ -80,6 +84,7 @@ export class FlowEngine {
       const remainingMs = Math.max(1, deadline - Date.now());
       const subOptions = {
         ...options,
+        executionId: undefined,
         executionOptions: {
           ...options.executionOptions,
           timeoutMs: options.executionOptions?.timeoutMs

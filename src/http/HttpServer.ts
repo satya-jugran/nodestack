@@ -588,7 +588,7 @@ export class HttpServer {
       app.get('/api/apps/:appId/flows/:id/executions', { preHandler: requireAdmin }, (req: any, reply) =>
         this.flowController!.getExecutions(req, reply)
       );
-      app.get('/api/apps/:appId/flows/executions/:executionId', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.get('/api/apps/:appId/flows/executions/:executionId', (req: any, reply) =>
         this.flowController!.getExecution(req, reply)
       );
       app.delete('/api/apps/:appId/flows/:id/executions', { preHandler: requireAdmin }, (req: any, reply) =>
@@ -939,7 +939,7 @@ export class HttpServer {
       app.get('/api/flows/:id/executions', { preHandler: requireAdmin }, (req: any, reply) =>
         this.flowController!.getExecutions(req, reply)
       );
-      app.get('/api/flows/executions/:executionId', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.get('/api/flows/executions/:executionId', (req: any, reply) =>
         this.flowController!.getExecution(req, reply)
       );
       app.delete('/api/flows/:id/executions', { preHandler: requireAdmin }, (req: any, reply) =>
