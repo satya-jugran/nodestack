@@ -3074,6 +3074,80 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(listBody.items.some((i: any) => i.id === execAbortId)).toBe(true);
       expect(listBody.items.some((i: any) => i.id === orphanBatchId)).toBe(true);
     });
+
+    it('should isolate subFlowExecutor checkpoints and prevent child Map/Parallel steps from overwriting parent execution', async () => {
+      const parentFlow = app.flows.createFlow({
+        name: 'NestedMapCheckpointFlow',
+        definition: {
+          startAt: 'PreMap',
+          states: {
+            PreMap: {
+              type: 'Pass',
+              result: { items: [1, 2, 3] },
+              next: 'MapStateStep',
+            },
+            MapStateStep: {
+              type: 'Map',
+              itemsPath: '$.items',
+              iterator: {
+                startAt: 'IteratorTask',
+                states: {
+                  IteratorTask: {
+                    type: 'Pass',
+                    result: 'item_done',
+                    end: true,
+                  },
+                },
+              },
+              resultPath: '$.mapped',
+              next: 'PostMap',
+            },
+            PostMap: {
+              type: 'Pass',
+              result: { allDone: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const transitionEvents: any[] = [];
+      const execId = FlowEngine.generateExecutionId();
+
+      const engine = app.flows.getEngine();
+      const execution = await engine.execute(
+        parentFlow.name,
+        parentFlow.definition,
+        {},
+        {
+          executionId: execId,
+          flowId: parentFlow.id,
+          onStepTransition: (event) => {
+            transitionEvents.push({
+              step: event.step,
+              checkpointState: event.checkpoint.currentStateName,
+              stepLogsCount: event.stepLogs.length,
+            });
+          },
+        }
+      );
+
+      expect(execution.status).toBe('succeeded');
+      // Transitions must ONLY be recorded for parent steps (PreMap, MapStateStep, PostMap)
+      // Child steps like 'IteratorTask' must NOT invoke parent's onStepTransition
+      const transitionSteps = transitionEvents.map((e) => e.step);
+      expect(transitionSteps).toEqual(['PreMap', 'MapStateStep', 'PostMap']);
+      expect(transitionSteps).not.toContain('IteratorTask');
+
+      // Checkpoints must never contain child iterator state names
+      const checkpointStates = transitionEvents.map((e) => e.checkpointState);
+      expect(checkpointStates).toEqual(['MapStateStep', 'PostMap', null]);
+      expect(checkpointStates).not.toContain('IteratorTask');
+
+      // Parent execution stepLogs must contain only the 3 top-level steps
+      expect(execution.stepLogs.length).toBe(3);
+      expect(execution.stepLogs.map((s) => s.step)).toEqual(['PreMap', 'MapStateStep', 'PostMap']);
+    });
   });
 
 });

@@ -103,8 +103,11 @@ export class FlowEngine {
       const subOptions = {
         ...options,
         executionId: undefined,
+        onStepTransition: undefined,
+        resumeFrom: undefined,
         executionOptions: {
           ...options.executionOptions,
+          executionId: undefined,
           timeoutMs: options.executionOptions?.timeoutMs
             ? Math.min(options.executionOptions.timeoutMs, remainingMs)
             : remainingMs,
