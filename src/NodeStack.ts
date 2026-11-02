@@ -488,7 +488,7 @@ export class NodeStack {
   private printStartupBanner(address: string): void {
     const banner = `
 ${chalk.bold.cyan('  ╔═══════════════════════════════════════════════════════╗')}
-${chalk.bold.cyan('  ║')}  ${chalk.bold.white('NodeStack')} ${chalk.dim('— The TypeScript-Native Backend Stack')}    ${chalk.bold.cyan('║')}
+${chalk.bold.cyan('  ║')}  ${chalk.bold.white('NodeStack')} ${chalk.dim('— The TypeScript-Native Backend Stack')}      ${chalk.bold.cyan('║')}
 ${chalk.bold.cyan('  ╚═══════════════════════════════════════════════════════╝')}
 
   ${chalk.green('➜')}  ${chalk.bold('Server:')}     ${chalk.cyan(address)}

@@ -17,7 +17,7 @@ export interface FlowExecution {
   id: string;
   flowId: string;
   flowName: string;
-  status: 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled';
+  status: 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled' | 'aborted';
   input: any;
   output?: any;
   error?: string;
@@ -35,6 +35,13 @@ export interface FlowExecution {
   actorId?: string | null;
   startedAt: string;
   finishedAt?: string;
+  checkpoint?: {
+    currentStateName?: string | null;
+    currentPayload?: any;
+    stepCount?: number;
+    loopCounters?: Record<string, number>;
+    updatedAt: string;
+  } | null;
 }
 
 export interface FlowAsyncDispatchResponse {
@@ -117,6 +124,31 @@ export class FlowService extends BaseService {
     return this.send<FlowExecution>(
       `${appPrefix}/flows/executions/${encodeURIComponent(executionId)}`,
       { method: 'GET' }
+    );
+  }
+
+  /**
+   * Resumes an orphaned or interrupted running flow from its last completed checkpoint.
+   */
+  public async resumeExecution(executionId: string): Promise<FlowExecution> {
+    const appPrefix = this.client.appSlug ? `/api/apps/${encodeURIComponent(this.client.appSlug)}` : '/api';
+    return this.send<FlowExecution>(
+      `${appPrefix}/flows/executions/${encodeURIComponent(executionId)}/resume`,
+      { method: 'POST' }
+    );
+  }
+
+  /**
+   * Aborts an orphaned running flow gracefully with status: 'aborted'.
+   */
+  public async abortExecution(executionId: string, reason?: string): Promise<FlowExecution> {
+    const appPrefix = this.client.appSlug ? `/api/apps/${encodeURIComponent(this.client.appSlug)}` : '/api';
+    return this.send<FlowExecution>(
+      `${appPrefix}/flows/executions/${encodeURIComponent(executionId)}/abort`,
+      {
+        method: 'POST',
+        body: { reason },
+      }
     );
   }
 }

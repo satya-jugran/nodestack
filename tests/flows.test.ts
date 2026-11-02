@@ -2761,4 +2761,1227 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
   });
 
+  // ==========================================
+  // Step-by-Step Checkpointing (Crash Recovery)
+  // ==========================================
+  describe('Step-by-Step Checkpointing & Crash Recovery', () => {
+    it('should atomically persist step logs to SQLite after each state transition', async () => {
+      // Create a flow with Step1 (Task) -> Step2 (Wait 1s) -> Step3 (Task)
+      const flow = app.flows.createFlow({
+        name: 'CheckpointPipeline',
+        definition: {
+          startAt: 'Step1',
+          states: {
+            Step1: {
+              type: 'Task',
+              function: 'calculate-tax',
+              inputPath: '$.order',
+              resultPath: '$.calculation',
+              next: 'Step2_Wait',
+            },
+            Step2_Wait: {
+              type: 'Wait',
+              seconds: 1,
+              next: 'Step3',
+            },
+            Step3: {
+              type: 'Task',
+              function: 'apply-discount',
+              inputPath: '$',
+              resultPath: '$.discountResult',
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId = FlowEngine.generateExecutionId();
+      // Start flow in background
+      const execPromise = app.flows.executeFlow(flow.id, {
+        order: { amount: 100, discount: 10 },
+      }, undefined, { executionId: execId });
+
+      // Wait 300ms: Step 1 will have completed, and Step 2 (Wait) is actively running
+      await new Promise((r) => setTimeout(r, 300));
+
+      const intermediate = app.flows.getExecutionById(execId)!;
+      expect(intermediate).not.toBeNull();
+      expect(intermediate.status).toBe('running');
+      expect(intermediate.stepLogs.length).toBeGreaterThanOrEqual(1);
+      expect(intermediate.stepLogs[0].step).toBe('Step1');
+      expect(intermediate.stepLogs[0].status).toBe('succeeded');
+      expect(intermediate.output.calculation.tax).toBe(10);
+      expect(intermediate.checkpoint).not.toBeNull();
+      expect(intermediate.checkpoint?.currentStateName).toBe('Step2_Wait');
+
+      // Wait for complete execution to finish
+      const finalResult = await execPromise;
+      expect(finalResult.status).toBe('succeeded');
+      expect(finalResult.stepLogs.length).toBe(3);
+      expect(finalResult.output.discountResult.finalTotal).toBeCloseTo(100);
+    });
+
+    it('should fail orphaned running flows gracefully with status "aborted" on recovery', async () => {
+      // Simulate an orphaned flow that was left running when a crash/restart happened
+      const flow = app.flows.createFlow({
+        name: 'CrashOrphanFlow',
+        definition: {
+          startAt: 'InitialStep',
+          states: {
+            InitialStep: {
+              type: 'Pass',
+              result: { partialProgress: 'computed_chunk_1' },
+              next: 'LongRunningTask',
+            },
+            LongRunningTask: {
+              type: 'Wait',
+              seconds: 10,
+              next: 'FinalStep',
+            },
+            FinalStep: {
+              type: 'Pass',
+              result: { finished: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const orphanedId = 'exec_crash_orphan_99';
+      // Insert a simulated orphaned record directly into _flow_executions
+      const db = (app.flows as any).db;
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        orphanedId,
+        flow.id,
+        flow.name,
+        'running',
+        JSON.stringify({ inputVal: 42 }),
+        JSON.stringify({ partialProgress: 'computed_chunk_1' }),
+        null,
+        150,
+        JSON.stringify([
+          {
+            step: 'InitialStep',
+            type: 'Pass',
+            input: { inputVal: 42 },
+            output: { partialProgress: 'computed_chunk_1' },
+            status: 'succeeded',
+            durationMs: 15,
+            timestamp: new Date().toISOString(),
+          },
+        ]),
+        new Date().toISOString(),
+        JSON.stringify({
+          currentStateName: 'LongRunningTask',
+          currentPayload: { partialProgress: 'computed_chunk_1' },
+          stepCount: 1,
+          loopCounters: {},
+          updatedAt: new Date().toISOString(),
+        })
+      );
+
+      // Verify it is currently 'running'
+      const beforeRecovery = app.flows.getExecutionById(orphanedId)!;
+      expect(beforeRecovery.status).toBe('running');
+      expect(beforeRecovery.stepLogs.length).toBe(1);
+
+      // Trigger recovery with strategy 'abort'
+      const recovered = await app.flows.recoverOrphanedExecutions('abort');
+      const found = recovered.find((r) => r.id === orphanedId);
+      expect(found).toBeDefined();
+      expect(found!.status).toBe('aborted');
+      expect(found!.error).toContain('Execution aborted due to server restart');
+
+      // Verify the persisted state in DB
+      const afterRecovery = app.flows.getExecutionById(orphanedId)!;
+      expect(afterRecovery.status).toBe('aborted');
+      // Previous step logs and intermediate output must be preserved!
+      expect(afterRecovery.stepLogs.length).toBe(1);
+      expect(afterRecovery.stepLogs[0].step).toBe('InitialStep');
+      expect(afterRecovery.output.partialProgress).toBe('computed_chunk_1');
+      expect(afterRecovery.finishedAt).toBeDefined();
+    });
+
+    it('should resume orphaned running flows from the last completed checkpoint', async () => {
+      const flow = app.flows.createFlow({
+        name: 'ResumablePipelineFlow',
+        definition: {
+          startAt: 'Stage1',
+          states: {
+            Stage1: {
+              type: 'Task',
+              function: 'calculate-tax',
+              inputPath: '$.order',
+              resultPath: '$.tax',
+              next: 'Stage2',
+            },
+            Stage2: {
+              type: 'Task',
+              function: 'apply-discount',
+              inputPath: '$',
+              resultPath: '$.final',
+              next: 'Stage3',
+            },
+            Stage3: {
+              type: 'Pass',
+              result: { pipelineCompleted: true },
+              outputPath: '$.pipelineCompleted',
+              end: true,
+            },
+          },
+        },
+      });
+
+      const orphanId = 'exec_resumable_checkpoint_1';
+      const db = (app.flows as any).db;
+      // Simulate that Stage1 completed, and server crashed right before Stage2
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        orphanId,
+        flow.id,
+        flow.name,
+        'running',
+        JSON.stringify({ order: { amount: 300, discount: 30 } }),
+        JSON.stringify({ order: { amount: 300, discount: 30 }, tax: { tax: 30, totalWithTax: 330 } }),
+        null,
+        120,
+        JSON.stringify([
+          {
+            step: 'Stage1',
+            type: 'Task',
+            input: { order: { amount: 300, discount: 30 } },
+            output: { order: { amount: 300, discount: 30 }, tax: { tax: 30, totalWithTax: 330 } },
+            status: 'succeeded',
+            durationMs: 40,
+            timestamp: new Date().toISOString(),
+          },
+        ]),
+        new Date().toISOString(),
+        JSON.stringify({
+          currentStateName: 'Stage2',
+          currentPayload: { order: { amount: 300, discount: 30 }, tax: { tax: 30, totalWithTax: 330 } },
+          stepCount: 1,
+          loopCounters: {},
+          updatedAt: new Date().toISOString(),
+        })
+      );
+
+      // Resume execution from last checkpoint
+      const resumedResult = await app.flows.resumeExecution(orphanId);
+      expect(resumedResult.status).toBe('succeeded');
+      expect(resumedResult.output).toBe(true);
+      // stepLogs should include Stage1 (from before crash) + Stage2 + Stage3!
+      expect(resumedResult.stepLogs.length).toBe(3);
+      expect(resumedResult.stepLogs[0].step).toBe('Stage1');
+      expect(resumedResult.stepLogs[1].step).toBe('Stage2');
+      expect(resumedResult.stepLogs[2].step).toBe('Stage3');
+
+      // Check SQLite record
+      const dbRecord = app.flows.getExecutionById(orphanId)!;
+      expect(dbRecord.status).toBe('succeeded');
+      expect(dbRecord.stepLogs.length).toBe(3);
+      expect(dbRecord.finishedAt).toBeDefined();
+    });
+
+    it('should support REST API endpoints for resume, abort, and recover', async () => {
+      const flow = app.flows.createFlow({
+        name: 'RestRecoveryFlow',
+        definition: {
+          startAt: 'StepA',
+          states: {
+            StepA: {
+              type: 'Pass',
+              result: { stepA: true },
+              next: 'StepB',
+            },
+            StepB: {
+              type: 'Pass',
+              result: { stepB: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      // 1. Test POST /api/flows/executions/:id/abort
+      const execAbortId = 'exec_rest_abort_1';
+      const db = (app.flows as any).db;
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', '{}', 0, '[]', ?, ?)
+      `).run(execAbortId, flow.id, flow.name, new Date().toISOString(), JSON.stringify({ currentStateName: 'StepA', updatedAt: new Date().toISOString() }));
+
+      const abortRes = await app.server.inject({
+        method: 'POST',
+        url: `/api/flows/executions/${execAbortId}/abort`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { reason: 'Aborted via test' },
+      });
+      expect(abortRes.statusCode).toBe(200);
+      const abortBody = JSON.parse(abortRes.body);
+      expect(abortBody.status).toBe('aborted');
+      expect(abortBody.error).toBe('Aborted via test');
+
+      // 2. Test POST /api/flows/executions/:id/resume
+      const execResumeId = 'exec_rest_resume_1';
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', '{"stepA":true}', 0, '[]', ?, ?)
+      `).run(execResumeId, flow.id, flow.name, new Date().toISOString(), JSON.stringify({ currentStateName: 'StepB', currentPayload: { stepA: true }, updatedAt: new Date().toISOString() }));
+
+      const resumeRes = await app.server.inject({
+        method: 'POST',
+        url: `/api/flows/executions/${execResumeId}/resume`,
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(resumeRes.statusCode).toBe(200);
+      const resumeBody = JSON.parse(resumeRes.body);
+      expect(resumeBody.status).toBe('succeeded');
+      expect(resumeBody.stepLogs.length).toBeGreaterThanOrEqual(1);
+
+      // 3. Test POST /api/flows/executions/recover
+      const orphanBatchId = 'exec_orphan_batch_1';
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', '{}', 0, '[]', ?, ?)
+      `).run(orphanBatchId, flow.id, flow.name, new Date().toISOString(), JSON.stringify({ currentStateName: 'StepA', updatedAt: new Date().toISOString() }));
+
+      const recoverRes = await app.server.inject({
+        method: 'POST',
+        url: `/api/flows/executions/recover`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { strategy: 'abort' },
+      });
+      expect(recoverRes.statusCode).toBe(200);
+      const recoverBody = JSON.parse(recoverRes.body);
+      expect(recoverBody.count).toBeGreaterThanOrEqual(1);
+      const batchItem = recoverBody.recovered.find((r: any) => r.id === orphanBatchId);
+      expect(batchItem?.status).toBe('aborted');
+
+      // Test invalid recovery strategy validation (e.g. typos like 'resuem')
+      const invalidStrategyRes = await app.server.inject({
+        method: 'POST',
+        url: `/api/flows/executions/recover`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { strategy: 'resuem' },
+      });
+      expect(invalidStrategyRes.statusCode).toBe(400);
+      const invalidBody = JSON.parse(invalidStrategyRes.body);
+      expect(invalidBody.message).toMatch(/Invalid recovery strategy.*abort.*resume/i);
+
+      // Verify programmatic call also throws 400 AppError
+      await expect((app.flows as any).recoverOrphanedExecutions('resuem')).rejects.toThrowError(
+        /Invalid recovery strategy/i
+      );
+
+      // 4. Test GET /api/flows/executions?status=aborted
+      const listRes = await app.server.inject({
+        method: 'GET',
+        url: `/api/flows/executions?status=aborted`,
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(listRes.statusCode).toBe(200);
+      const listBody = JSON.parse(listRes.body);
+      expect(listBody.items.some((i: any) => i.id === execAbortId)).toBe(true);
+      expect(listBody.items.some((i: any) => i.id === orphanBatchId)).toBe(true);
+    });
+
+    it('should isolate subFlowExecutor checkpoints and prevent child Map/Parallel steps from overwriting parent execution', async () => {
+      const parentFlow = app.flows.createFlow({
+        name: 'NestedMapCheckpointFlow',
+        definition: {
+          startAt: 'PreMap',
+          states: {
+            PreMap: {
+              type: 'Pass',
+              result: { items: [1, 2, 3] },
+              next: 'MapStateStep',
+            },
+            MapStateStep: {
+              type: 'Map',
+              itemsPath: '$.items',
+              iterator: {
+                startAt: 'IteratorTask',
+                states: {
+                  IteratorTask: {
+                    type: 'Pass',
+                    result: 'item_done',
+                    end: true,
+                  },
+                },
+              },
+              resultPath: '$.mapped',
+              next: 'PostMap',
+            },
+            PostMap: {
+              type: 'Pass',
+              result: { allDone: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const transitionEvents: any[] = [];
+      const execId = FlowEngine.generateExecutionId();
+
+      const engine = app.flows.getEngine();
+      const execution = await engine.execute(
+        parentFlow.name,
+        parentFlow.definition,
+        {},
+        {
+          executionId: execId,
+          flowId: parentFlow.id,
+          onStepTransition: (event) => {
+            transitionEvents.push({
+              step: event.step,
+              checkpointState: event.checkpoint.currentStateName,
+              stepLogsCount: event.stepLogs.length,
+            });
+          },
+        }
+      );
+
+      expect(execution.status).toBe('succeeded');
+      // Transitions must ONLY be recorded for parent steps (PreMap, MapStateStep, PostMap)
+      // Child steps like 'IteratorTask' must NOT invoke parent's onStepTransition
+      const transitionSteps = transitionEvents.map((e) => e.step);
+      expect(transitionSteps).toEqual(['PreMap', 'MapStateStep', 'PostMap']);
+      expect(transitionSteps).not.toContain('IteratorTask');
+
+      // Checkpoints must never contain child iterator state names
+      const checkpointStates = transitionEvents.map((e) => e.checkpointState);
+      expect(checkpointStates).toEqual(['MapStateStep', 'PostMap', null]);
+      expect(checkpointStates).not.toContain('IteratorTask');
+
+      // Parent execution stepLogs must contain only the 3 top-level steps
+      expect(execution.stepLogs.length).toBe(3);
+      expect(execution.stepLogs.map((s) => s.step)).toEqual(['PreMap', 'MapStateStep', 'PostMap']);
+    });
+
+    it('should keep failed state and pre-step payload in checkpoint so recovery retries that state instead of skipping', async () => {
+      app.functions.createFunction({
+        name: 'flaky-network-task',
+        code: `
+          export default async function(context) {
+            const count = context.request?.body?.count || 0;
+            if (count === 1) {
+              throw new Error('Temporary 503 upstream gateway outage');
+            }
+            return {
+              recoveredSuccessfully: true,
+              receivedCount: count,
+            };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 2000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      const flow = app.flows.createFlow({
+        name: 'RetryableOutageFlow',
+        definition: {
+          startAt: 'InitialSetup',
+          states: {
+            InitialSetup: {
+              type: 'Pass',
+              result: { setupDone: true, count: 1 },
+              next: 'FlakyStep',
+            },
+            FlakyStep: {
+              type: 'Task',
+              function: 'flaky-network-task',
+              inputPath: '$',
+              resultPath: '$.flakyOutput',
+              next: 'FinalSummary',
+            },
+            FinalSummary: {
+              type: 'Pass',
+              result: { flowFinished: true },
+              resultPath: '$.summary',
+              outputPath: '$.flakyOutput',
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId = FlowEngine.generateExecutionId();
+      let capturedCheckpoint: any = null;
+
+      const engine = app.flows.getEngine();
+      const execution = await engine.execute(
+        flow.name,
+        flow.definition,
+        {},
+        {
+          executionId: execId,
+          flowId: flow.id,
+          functionService: app.functions,
+          onStepTransition: (event) => {
+            if (event.step === 'FlakyStep') {
+              capturedCheckpoint = event.checkpoint;
+            }
+          },
+        }
+      );
+
+      // Verify the step failed
+      expect(execution.status).toBe('failed');
+      expect(capturedCheckpoint).not.toBeNull();
+      // Checkpoint must point to 'FlakyStep' (the failed state), NOT null!
+      expect(capturedCheckpoint.currentStateName).toBe('FlakyStep');
+      // Checkpoint payload must be the pre-step input snapshot
+      expect(capturedCheckpoint.currentPayload.setupDone).toBe(true);
+      expect(capturedCheckpoint.currentPayload.count).toBe(1);
+
+      // Now simulate crash recovery: insert into DB as orphaned 'running' with this checkpoint
+      const db = (app.flows as any).db;
+      const crashedExecId = 'exec_crash_during_task_failure_1';
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', ?, ?, 50, ?, ?, ?)
+      `).run(
+        crashedExecId,
+        flow.id,
+        flow.name,
+        JSON.stringify(capturedCheckpoint.currentPayload),
+        null,
+        JSON.stringify(execution.stepLogs),
+        new Date().toISOString(),
+        JSON.stringify(capturedCheckpoint)
+      );
+
+      // Update function to succeed (simulating transient outage fixed)
+      const flakyFn = app.functions.getFunctionByName('flaky-network-task')!;
+      app.functions.updateFunction(flakyFn.id, {
+        code: `
+          export default async function(context) {
+            return {
+              recoveredSuccessfully: true,
+              receivedCount: context.request?.body?.count || 0,
+            };
+          }
+        `,
+      });
+
+      // Resume execution: it must retry 'FlakyStep' with its pre-step payload, NOT skip to 'FinalSummary'!
+      const resumed = await app.flows.resumeExecution(crashedExecId);
+      expect(resumed.status).toBe('succeeded');
+      expect(resumed.output.recoveredSuccessfully).toBe(true);
+      expect(resumed.output.receivedCount).toBe(1);
+
+      // Step logs should show: InitialSetup, failed FlakyStep, retried successful FlakyStep, FinalSummary
+      expect(resumed.stepLogs.length).toBe(4);
+      expect(resumed.stepLogs[0].step).toBe('InitialSetup');
+      expect(resumed.stepLogs[1].step).toBe('FlakyStep');
+      expect(resumed.stepLogs[1].status).toBe('failed');
+      expect(resumed.stepLogs[2].step).toBe('FlakyStep');
+      expect(resumed.stepLogs[2].status).toBe('succeeded');
+      expect(resumed.stepLogs[3].step).toBe('FinalSummary');
+    });
+
+    it('should persist terminal failed status in persistCheckpoint and recognize terminal failed transition during resume', async () => {
+      app.functions.createFunction({
+        name: 'terminal-failure-task',
+        code: `
+          export default async function(context) {
+            throw new Error('Fatal database connection refused');
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 2000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      const flow = app.flows.createFlow({
+        name: 'TerminalFailureCheckpointFlow',
+        definition: {
+          startAt: 'StepOne',
+          states: {
+            StepOne: {
+              type: 'Pass',
+              result: { stepOneDone: true },
+              next: 'FailingStep',
+            },
+            FailingStep: {
+              type: 'Task',
+              function: 'terminal-failure-task',
+              inputPath: '$',
+              resultPath: '$.failResult',
+              next: 'ShouldNeverReach',
+            },
+            ShouldNeverReach: {
+              type: 'Pass',
+              result: { reached: true },
+              resultPath: '$.finalInfo',
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId = FlowEngine.generateExecutionId();
+      let capturedStatusDuringTransition: string | null = null;
+
+      // 1. Execute flow through executeFlow
+      const db = (app.flows as any).db;
+      const execResult = await app.flows.executeFlow(flow.id, { startParam: 123 }, undefined, {
+        executionId: execId,
+      });
+      expect(execResult.status).toBe('failed');
+      expect(execResult.error).toContain('Fatal database connection refused');
+
+      // 2. Verify that in SQLite, the row is recorded with status = 'failed' (NOT left as 'running')
+      const row = db.prepare('SELECT * FROM _flow_executions WHERE id = ?').get(execId);
+      expect(row).toBeDefined();
+      expect(row.status).toBe('failed');
+      expect(row.error).toContain('Fatal database connection refused');
+      expect(row.finishedAt).not.toBeNull();
+      const cp = JSON.parse(row.checkpoint);
+      expect(cp.currentStateName).toBe('FailingStep');
+
+      // 3. Test that persistCheckpoint directly updates SQLite row terminal status
+      const syntheticExecId = 'exec_synthetic_terminal_test';
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', '{}', NULL, 0, '[]', ?, ?)
+      `).run(syntheticExecId, flow.id, flow.name, new Date().toISOString(), JSON.stringify({ currentStateName: 'FailingStep' }));
+
+      // Trigger persistCheckpoint with terminal failed event
+      app.flows.persistCheckpoint(syntheticExecId, {
+        executionId: syntheticExecId,
+        flowId: flow.id,
+        flowName: flow.name,
+        step: 'FailingStep',
+        stepLog: {
+          step: 'FailingStep',
+          type: 'Task',
+          input: { startParam: 123 },
+          status: 'failed',
+          durationMs: 10,
+          error: 'Fatal database connection refused',
+          timestamp: new Date().toISOString(),
+        },
+        stepLogs: [
+          {
+            step: 'FailingStep',
+            type: 'Task',
+            input: { startParam: 123 },
+            status: 'failed',
+            durationMs: 10,
+            error: 'Fatal database connection refused',
+            timestamp: new Date().toISOString(),
+          },
+        ],
+        payload: { startParam: 123 },
+        durationMs: 10,
+        isEnd: true,
+        status: 'failed',
+        checkpoint: {
+          currentStateName: 'FailingStep',
+          currentPayload: { startParam: 123 },
+          updatedAt: new Date().toISOString(),
+        },
+      });
+
+      const syntheticRow = db.prepare('SELECT * FROM _flow_executions WHERE id = ?').get(syntheticExecId);
+      expect(syntheticRow.status).toBe('failed');
+      expect(syntheticRow.error).toContain('Fatal database connection refused');
+      expect(syntheticRow.finishedAt).not.toBeNull();
+
+      // 4. Verify recovery recognizes terminal failed transition even when checkpoint currentStateName is null
+      const orphanNullCpId = 'exec_orphan_null_cp_failed_step';
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', '{}', NULL, 10, ?, ?, ?)
+      `).run(
+        orphanNullCpId,
+        flow.id,
+        flow.name,
+        JSON.stringify([
+          {
+            step: 'FailingStep',
+            type: 'Task',
+            input: { startParam: 123 },
+            status: 'failed',
+            durationMs: 10,
+            error: 'Fatal database connection refused',
+            timestamp: new Date().toISOString(),
+          },
+        ]),
+        new Date().toISOString(),
+        JSON.stringify({ currentStateName: null, updatedAt: new Date().toISOString() })
+      );
+
+      // Fix the task function
+      const taskFn = app.functions.getFunctionByName('terminal-failure-task')!;
+      app.functions.updateFunction(taskFn.id, {
+        code: `
+          export default async function(context) {
+            return { fixed: true, received: context.request?.body?.startParam };
+          }
+        `,
+      });
+
+      // Resume: must retry FailingStep (and then proceed to ShouldNeverReach), NOT skip FailingStep!
+      const resumed = await app.flows.resumeExecution(orphanNullCpId);
+      expect(resumed.status).toBe('succeeded');
+      expect(resumed.output.finalInfo.reached).toBe(true);
+      expect(resumed.output.failResult.fixed).toBe(true);
+      expect(resumed.output.failResult.received).toBe(123);
+      // stepLogs must show the failed FailingStep + retried succeeded FailingStep + ShouldNeverReach
+      expect(resumed.stepLogs.length).toBe(3);
+      expect(resumed.stepLogs[0].step).toBe('FailingStep');
+      expect(resumed.stepLogs[0].status).toBe('failed');
+      expect(resumed.stepLogs[1].step).toBe('FailingStep');
+      expect(resumed.stepLogs[1].status).toBe('succeeded');
+      expect(resumed.stepLogs[2].step).toBe('ShouldNeverReach');
+    });
+
+    it('should propagate checkpoint persistence failure and halt flow execution without stale checkpoint replay', async () => {
+      let stepTwoExecuted = false;
+
+      app.functions.createFunction({
+        name: 'checkpoint-test-step2-fn',
+        code: `
+          export default async function(context) {
+            return { executed: true };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 2000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      const flow = app.flows.createFlow({
+        name: 'CheckpointFailureHaltFlow',
+        definition: {
+          startAt: 'Step1',
+          states: {
+            Step1: {
+              type: 'Pass',
+              result: { step1Done: true },
+              next: 'Step2',
+            },
+            Step2: {
+              type: 'Task',
+              function: 'checkpoint-test-step2-fn',
+              inputPath: '$',
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId = FlowEngine.generateExecutionId();
+      const db = (app.flows as any).db;
+
+      // Intercept db.prepare to simulate error during UPDATE of _flow_executions in persistCheckpoint
+      const originalPrepare = db.prepare.bind(db);
+      let injectedFailure = false;
+      db.prepare = (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('UPDATE _flow_executions SET') && !injectedFailure) {
+          injectedFailure = true;
+          throw new Error('Disk I/O error or SQLite database locked');
+        }
+        return originalPrepare(sql);
+      };
+
+      try {
+        const result = await app.flows.executeFlow(flow.id, { test: 1 }, undefined, {
+          executionId: execId,
+        });
+
+        // Execution must fail because checkpoint persistence failed
+        expect(result.status).toBe('failed');
+        expect(result.error).toContain('Failed to persist checkpoint');
+
+        // Step 2 must NEVER have executed because flow was halted immediately on Step 1 checkpoint failure!
+        expect(result.stepLogs.length).toBe(1);
+        expect(result.stepLogs[0].step).toBe('Step1');
+
+        // Checkpoint must NOT be set (not safely recoverable)
+        expect(result.checkpoint).toBeNull();
+      } finally {
+        db.prepare = originalPrepare;
+      }
+    });
+
+    it('should cancel active in-memory execution on abort and prevent subsequent writes from overwriting aborted state', async () => {
+      const flow = app.flows.createFlow({
+        name: 'ActiveAbortCancellationFlow',
+        definition: {
+          startAt: 'WaitStep',
+          states: {
+            WaitStep: {
+              type: 'Wait',
+              seconds: 5,
+              next: 'ShouldNeverRunAfterAbort',
+            },
+            ShouldNeverRunAfterAbort: {
+              type: 'Pass',
+              result: { reached: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId = FlowEngine.generateExecutionId();
+      const startTime = Date.now();
+
+      // Start the flow in the background
+      const runPromise = app.flows.executeFlow(flow.id, {}, undefined, { executionId: execId });
+
+      // Give it 50ms so it starts running the WaitStep
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Verify it is currently in 'running' state in DB
+      const beforeAbort = app.flows.getExecutionById(execId);
+      expect(beforeAbort).not.toBeNull();
+      expect(beforeAbort?.status).toBe('running');
+
+      // Abort the active running execution
+      const abortResult = app.flows.abortExecution(execId, 'Aborted mid-flight by test');
+      expect(abortResult.status).toBe('aborted');
+
+      // Wait for runPromise to settle
+      const runResult = await runPromise;
+      const elapsed = Date.now() - startTime;
+
+      // Must have cancelled immediately without waiting full 5 seconds
+      expect(elapsed).toBeLessThan(2000);
+
+      // Verify the final persisted state in SQLite was NOT overwritten with 'running' or 'succeeded'
+      const finalDbRecord = app.flows.getExecutionById(execId);
+      expect(finalDbRecord).not.toBeNull();
+      expect(finalDbRecord?.status).toBe('aborted');
+      expect(finalDbRecord?.error).toBe('Aborted mid-flight by test');
+
+      // 'ShouldNeverRunAfterAbort' must never have been reached in stepLogs
+      expect(finalDbRecord?.stepLogs.some((s) => s.step === 'ShouldNeverRunAfterAbort')).toBe(false);
+    });
+
+    it('should atomically claim execution and prevent racing resume requests from running duplicate tasks', async () => {
+      let sideEffectCount = 0;
+
+      app.functions.createFunction({
+        name: 'atomic-claim-side-effect-fn',
+        code: `
+          export default async function(context) {
+            return { executed: true };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 2000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      // Track executions by wrapping functionService
+      const originalExecute = (app.functions as any).executeFunction.bind(app.functions);
+      (app.functions as any).executeFunction = async (...args: any[]) => {
+        if (args[0] === 'atomic-claim-side-effect-fn') {
+          sideEffectCount++;
+          // Add a tiny delay to simulate real execution window
+          await new Promise((r) => setTimeout(r, 60));
+        }
+        return originalExecute(...args);
+      };
+
+      try {
+        const flow = app.flows.createFlow({
+          name: 'AtomicClaimResumeFlow',
+          definition: {
+            startAt: 'SideEffectTask',
+            states: {
+              SideEffectTask: {
+                type: 'Task',
+                function: 'atomic-claim-side-effect-fn',
+                end: true,
+              },
+            },
+          },
+        });
+
+        const raceExecId = FlowEngine.generateExecutionId();
+        const db = (app.flows as any).db;
+
+        db.prepare(`
+          INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          raceExecId,
+          flow.id,
+          flow.name,
+          'running',
+          JSON.stringify({ value: 42 }),
+          null,
+          null,
+          0,
+          JSON.stringify([]),
+          new Date().toISOString(),
+          JSON.stringify({
+            currentStateName: 'SideEffectTask',
+            currentPayload: { value: 42 },
+            stepCount: 0,
+            loopCounters: {},
+            updatedAt: new Date().toISOString(),
+          })
+        );
+
+        // Fire two racing resume requests concurrently
+        const [res1, res2] = await Promise.allSettled([
+          app.flows.resumeExecution(raceExecId),
+          app.flows.resumeExecution(raceExecId),
+        ]);
+
+        const fulfilled = [res1, res2].filter((r) => r.status === 'fulfilled');
+        const rejected = [res1, res2].filter((r) => r.status === 'rejected');
+
+        // Exactly one should succeed, and one should be rejected with 409 Conflict
+        expect(fulfilled.length).toBe(1);
+        expect(rejected.length).toBe(1);
+
+        const rejectedReason = (rejected[0] as PromiseRejectedResult).reason;
+        expect(rejectedReason.statusCode).toBe(409);
+        expect(rejectedReason.message).toMatch(/currently (running|being executed or resumed)|already claimed/i);
+
+        // Side effect must have executed exactly ONCE
+        expect(sideEffectCount).toBe(1);
+
+        // Successful execution must have status 'succeeded'
+        const successVal = (fulfilled[0] as PromiseFulfilledResult<any>).value;
+        expect(successVal.status).toBe('succeeded');
+
+        // DB record should be 'succeeded' and claimToken released (null)
+        const dbRecord = app.flows.getExecutionById(raceExecId);
+        expect(dbRecord?.status).toBe('succeeded');
+        expect(dbRecord?.claimToken).toBeNull();
+      } finally {
+        (app.functions as any).executeFunction = originalExecute;
+      }
+    });
+
+    it('should reject resume request with 409 Conflict when execution is claimed by another runner in DB', async () => {
+      const flow = app.flows.createFlow({
+        name: 'ForeignClaimResumeFlow',
+        definition: {
+          startAt: 'SimpleStep',
+          states: {
+            SimpleStep: {
+              type: 'Pass',
+              result: { done: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const foreignExecId = FlowEngine.generateExecutionId();
+      const db = (app.flows as any).db;
+
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint, claimToken)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        foreignExecId,
+        flow.id,
+        flow.name,
+        'running',
+        JSON.stringify({}),
+        null,
+        null,
+        0,
+        JSON.stringify([]),
+        new Date().toISOString(),
+        JSON.stringify({
+          currentStateName: 'SimpleStep',
+          currentPayload: {},
+          stepCount: 0,
+          loopCounters: {},
+          updatedAt: new Date().toISOString(),
+        }),
+        'foreign-process-uuid-token'
+      );
+
+      // Should be rejected because another runner holds the claim
+      await expect(app.flows.resumeExecution(foreignExecId)).rejects.toThrowError(
+        /already claimed by another runner/i
+      );
+
+      // Verify the claim was NOT overwritten
+      const row = db.prepare('SELECT claimToken FROM _flow_executions WHERE id = ?').get(foreignExecId) as any;
+      expect(row.claimToken).toBe('foreign-process-uuid-token');
+    });
+
+    it('should correctly recover legacy running execution at Choice state without treating it as completed', async () => {
+      app.functions.createFunction({
+        name: 'choice-branch-test-fn',
+        code: `
+          export default async function(context) {
+            return { branchRan: true, score: context.request?.body?.score };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 2000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      const flow = app.flows.createFlow({
+        name: 'LegacyChoiceRecoveryFlow',
+        definition: {
+          startAt: 'EvaluateChoice',
+          states: {
+            EvaluateChoice: {
+              type: 'Choice',
+              choices: [
+                {
+                  variable: '$.score',
+                  numericGreaterThan: 50,
+                  next: 'HighScoreBranch',
+                },
+              ],
+              default: 'LowScoreBranch',
+            },
+            HighScoreBranch: {
+              type: 'Task',
+              function: 'choice-branch-test-fn',
+              inputPath: '$',
+              end: true,
+            },
+            LowScoreBranch: {
+              type: 'Pass',
+              result: { low: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const legacyExecId = FlowEngine.generateExecutionId();
+      const db = (app.flows as any).db;
+
+      // Simulate legacy execution row: no checkpoint (null), last step logged was EvaluateChoice with score: 85
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        legacyExecId,
+        flow.id,
+        flow.name,
+        'running',
+        JSON.stringify({ score: 85 }),
+        JSON.stringify({ score: 85 }),
+        null,
+        50,
+        JSON.stringify([
+          {
+            step: 'EvaluateChoice',
+            type: 'Choice',
+            input: { score: 85 },
+            output: { score: 85 },
+            status: 'succeeded',
+            durationMs: 5,
+            timestamp: new Date().toISOString(),
+          },
+        ]),
+        new Date().toISOString(),
+        null // No checkpoint
+      );
+
+      // Resume execution: MUST NOT treat as completed; must run HighScoreBranch!
+      const resumed = await app.flows.resumeExecution(legacyExecId);
+      expect(resumed.status).toBe('succeeded');
+      expect(resumed.output.branchRan).toBe(true);
+      expect(resumed.output.score).toBe(85);
+      expect(resumed.stepLogs.length).toBe(2);
+      expect(resumed.stepLogs[0].step).toBe('EvaluateChoice');
+      expect(resumed.stepLogs[1].step).toBe('HighScoreBranch');
+    });
+
+    it('should abort legacy running row when next state cannot be reconstructed instead of marking succeeded', async () => {
+      const flow = app.flows.createFlow({
+        name: 'UnreconstructableLegacyFlow',
+        definition: {
+          startAt: 'StepA',
+          states: {
+            StepA: {
+              type: 'Pass',
+              result: { ok: true },
+              next: 'StepB',
+            },
+            StepB: {
+              type: 'Pass',
+              result: { finished: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const legacyInvalidExecId = FlowEngine.generateExecutionId();
+      const db = (app.flows as any).db;
+
+      // Simulate a legacy row where last logged step was 'NonExistentOrDeletedStep' which does not exist in flow
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        legacyInvalidExecId,
+        flow.id,
+        flow.name,
+        'running',
+        JSON.stringify({}),
+        null,
+        null,
+        10,
+        JSON.stringify([
+          {
+            step: 'NonExistentOrDeletedStep',
+            type: 'Pass',
+            input: {},
+            output: {},
+            status: 'succeeded',
+            durationMs: 5,
+            timestamp: new Date().toISOString(),
+          },
+        ]),
+        new Date().toISOString(),
+        null // No checkpoint
+      );
+
+      // Resuming must reject and mark row 'aborted'
+      await expect(app.flows.resumeExecution(legacyInvalidExecId)).rejects.toThrowError(
+        /Cannot reconstruct next state/i
+      );
+
+      const finalRecord = app.flows.getExecutionById(legacyInvalidExecId);
+      expect(finalRecord?.status).toBe('aborted');
+      expect(finalRecord?.error).toMatch(/no longer exists|Cannot reconstruct/i);
+    });
+
+    it('should preserve and reconstruct authorization context (isAdmin) on recovery for authPolicy: admin tasks', async () => {
+      // 1. Create a function that strictly requires admin authorization
+      app.functions.createFunction({
+        name: 'admin-auth-task-fn',
+        code: `
+          export default async function(context) {
+            return { executedWithAdmin: true, caller: context.request?.auth?.email };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'admin',
+        methods: ['POST'],
+        timeoutMs: 2000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      // 2. Create flow with Step1 (Pass) and Step2 (Admin Task)
+      const flow = app.flows.createFlow({
+        name: 'AdminAuthRecoveryFlow',
+        definition: {
+          startAt: 'Step1',
+          states: {
+            Step1: {
+              type: 'Pass',
+              result: { step1Done: true },
+              next: 'AdminTask',
+            },
+            AdminTask: {
+              type: 'Task',
+              function: 'admin-auth-task-fn',
+              inputPath: '$',
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId = FlowEngine.generateExecutionId();
+      const adminActor = { id: 'admin-uuid-123', email: 'admin@nodestack.test', isAdmin: true, role: 'admin' };
+      const db = (app.flows as any).db;
+
+      // Simulate a crashed execution where Step1 passed under adminActor, and server crashed right before AdminTask
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, actorId, actor, startedAt, checkpoint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        execId,
+        flow.id,
+        flow.name,
+        'running',
+        JSON.stringify({}),
+        JSON.stringify({ step1Done: true }),
+        null,
+        15,
+        JSON.stringify([
+          {
+            step: 'Step1',
+            type: 'Pass',
+            input: {},
+            output: { step1Done: true },
+            status: 'succeeded',
+            durationMs: 5,
+            timestamp: new Date().toISOString(),
+            nextState: 'AdminTask',
+          },
+        ]),
+        adminActor.id,
+        JSON.stringify(adminActor),
+        new Date().toISOString(),
+        JSON.stringify({
+          currentStateName: 'AdminTask',
+          currentPayload: { step1Done: true },
+          stepCount: 1,
+          loopCounters: {},
+          updatedAt: new Date().toISOString(),
+        })
+      );
+
+      // 3. Resume the execution: must retain admin authorization claims
+      const resumed = await app.flows.resumeExecution(execId);
+      expect(resumed.status).toBe('succeeded');
+      expect(resumed.output.executedWithAdmin).toBe(true);
+      expect(resumed.output.caller).toBe('admin@nodestack.test');
+      expect(resumed.actor?.isAdmin).toBe(true);
+      expect(resumed.actorId).toBe('admin-uuid-123');
+    });
+  });
+
 });

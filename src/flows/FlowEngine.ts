@@ -7,6 +7,9 @@ import {
   FlowStateType,
   FlowRetryPolicy,
   FlowCatchPolicy,
+  FlowCheckpoint,
+  FlowStepTransitionEvent,
+  FlowResumeOptions,
 } from './types';
 import { IStateHandler, FlowStateContext, StateExecutionResult } from './runtime/IStateHandler';
 import {
@@ -52,7 +55,7 @@ export class FlowEngine {
   }
 
   /**
-   * Executes a complete flow definition from startAt to completion.
+   * Executes a complete flow definition from startAt (or resume checkpoint) to completion.
    */
   public async execute(
     flowName: string,
@@ -64,29 +67,50 @@ export class FlowEngine {
       executionId?: string;
       flowId?: string;
       executionOptions?: FlowExecutionOptions;
+      onStepTransition?: (event: FlowStepTransitionEvent) => Promise<void> | void;
+      resumeFrom?: FlowResumeOptions;
+      signal?: AbortSignal;
     } = {}
   ): Promise<FlowExecution> {
-    const startedAt = new Date().toISOString();
+    const startedAt = options.resumeFrom?.startedAt || new Date().toISOString();
     const startTime = Date.now();
+    const baseDurationMs = options.resumeFrom?.durationMs || 0;
     const executionId = options.executionId || options.executionOptions?.executionId || FlowEngine.generateExecutionId();
-    const stepLogs: FlowStepLog[] = [];
-    const loopCounters = new Map<string, number>();
+    const stepLogs: FlowStepLog[] = options.resumeFrom?.stepLogs ? [...options.resumeFrom.stepLogs] : [];
+
+    let loopCounters: Map<string, number>;
+    if (options.resumeFrom?.loopCounters) {
+      if (options.resumeFrom.loopCounters instanceof Map) {
+        loopCounters = new Map(options.resumeFrom.loopCounters);
+      } else {
+        loopCounters = new Map(Object.entries(options.resumeFrom.loopCounters));
+      }
+    } else {
+      loopCounters = new Map<string, number>();
+    }
 
     const timeoutMs = options.executionOptions?.timeoutMs || (definition.timeoutSeconds ? definition.timeoutSeconds * 1000 : 30000);
     const deadline = startTime + timeoutMs;
     const maxStepTransitions = 500;
-    let stepCount = 0;
+    let stepCount = options.resumeFrom?.stepCount || stepLogs.length;
 
-    let currentStateName: string | undefined = definition.startAt;
-    let currentPayload = input !== undefined ? JSON.parse(JSON.stringify(input)) : {};
+    let currentStateName: string | undefined = options.resumeFrom ? options.resumeFrom.stateName : definition.startAt;
+    let currentPayload = options.resumeFrom?.payload !== undefined
+      ? JSON.parse(JSON.stringify(options.resumeFrom.payload))
+      : (input !== undefined ? JSON.parse(JSON.stringify(input)) : {});
+    let lastStepInputSnapshot: any = currentPayload !== undefined ? JSON.parse(JSON.stringify(currentPayload)) : undefined;
 
     const subFlowExecutor = async (states: Record<string, FlowState>, startAt: string, subInput: any): Promise<any> => {
       const remainingMs = Math.max(1, deadline - Date.now());
       const subOptions = {
         ...options,
         executionId: undefined,
+        onStepTransition: undefined,
+        resumeFrom: undefined,
+        signal: options.signal,
         executionOptions: {
           ...options.executionOptions,
+          executionId: undefined,
           timeoutMs: options.executionOptions?.timeoutMs
             ? Math.min(options.executionOptions.timeoutMs, remainingMs)
             : remainingMs,
@@ -112,6 +136,12 @@ export class FlowEngine {
 
     try {
       while (currentStateName) {
+        if (options.signal?.aborted) {
+          const cancelErr = new AppError(options.signal.reason || `Flow '${flowName}' execution was cancelled`, 499);
+          (cancelErr as any).status = 'cancelled';
+          throw cancelErr;
+        }
+
         if (Date.now() > deadline) {
           throw new AppError(`Flow '${flowName}' execution timed out after ${timeoutMs}ms`, 408);
         }
@@ -138,10 +168,14 @@ export class FlowEngine {
           functionService: options.functionService,
           loopCounters,
           executeSubFlow: subFlowExecutor,
+          signal: options.signal,
         };
 
         const stepStartTime = Date.now();
-        const stepInputSnapshot = JSON.parse(JSON.stringify(currentPayload));
+        const stepInputSnapshot = currentPayload !== undefined
+          ? JSON.parse(JSON.stringify(currentPayload))
+          : undefined;
+        lastStepInputSnapshot = stepInputSnapshot;
         let stepResult: StateExecutionResult;
 
         const remainingMs = Math.max(1, deadline - Date.now());
@@ -176,24 +210,51 @@ export class FlowEngine {
           if (!isTimeout && !isCancelled) {
             const caught = this.tryCatchTransition(state, err, currentPayload);
             if (caught) {
-              stepLogs.push({
+              const stepDuration = Date.now() - stepStartTime;
+              const stepLog: FlowStepLog = {
                 step: currentStateName,
                 type: state.type,
                 input: stepInputSnapshot,
                 output: caught.payload,
                 status: 'failed',
-                durationMs: Date.now() - stepStartTime,
+                durationMs: stepDuration,
                 error: err.message || String(err),
                 timestamp: new Date().toISOString(),
-              });
+                nextState: caught.nextState,
+              };
+              stepLogs.push(stepLog);
 
               currentPayload = caught.payload;
               currentStateName = caught.nextState;
+
+              if (options.onStepTransition) {
+                const checkpoint: FlowCheckpoint = {
+                  currentStateName,
+                  currentPayload,
+                  stepCount,
+                  loopCounters: Object.fromEntries(loopCounters),
+                  updatedAt: new Date().toISOString(),
+                };
+                await options.onStepTransition({
+                  executionId,
+                  flowId: options.flowId,
+                  flowName,
+                  step: stepLog.step,
+                  stepLog,
+                  stepLogs,
+                  nextState: currentStateName,
+                  payload: currentPayload,
+                  durationMs: baseDurationMs + (Date.now() - startTime),
+                  isEnd: false,
+                  status: 'running',
+                  checkpoint,
+                });
+              }
               continue;
             }
           }
 
-          stepLogs.push({
+          const failedStepLog: FlowStepLog = {
             step: currentStateName,
             type: state.type,
             input: stepInputSnapshot,
@@ -201,23 +262,76 @@ export class FlowEngine {
             durationMs: Date.now() - stepStartTime,
             error: err.message || String(err),
             timestamp: new Date().toISOString(),
-          });
+          };
+          stepLogs.push(failedStepLog);
+
+          if (options.onStepTransition) {
+            const checkpoint: FlowCheckpoint = {
+              currentStateName,
+              currentPayload: stepInputSnapshot,
+              stepCount,
+              loopCounters: Object.fromEntries(loopCounters),
+              updatedAt: new Date().toISOString(),
+            };
+            await options.onStepTransition({
+              executionId,
+              flowId: options.flowId,
+              flowName,
+              step: currentStateName,
+              stepLog: failedStepLog,
+              stepLogs,
+              nextState: undefined,
+              payload: stepInputSnapshot,
+              durationMs: baseDurationMs + (Date.now() - startTime),
+              isEnd: true,
+              status: 'failed',
+              checkpoint,
+            });
+          }
           throw err;
         }
 
         const stepDurationMs = Date.now() - stepStartTime;
-        stepLogs.push({
+        const isEnd = Boolean(stepResult.isEnd || !stepResult.nextState);
+        const nextState = isEnd ? undefined : stepResult.nextState;
+
+        const stepLog: FlowStepLog = {
           step: currentStateName,
           type: state.type,
           input: stepInputSnapshot,
-          output: JSON.parse(JSON.stringify(stepResult.payload)),
+          output: stepResult.payload !== undefined ? JSON.parse(JSON.stringify(stepResult.payload)) : undefined,
           status: stepResult.status,
           durationMs: stepDurationMs,
           error: stepResult.error,
           timestamp: new Date().toISOString(),
-        });
+          nextState,
+        };
+        stepLogs.push(stepLog);
 
         if (stepResult.status === 'failed') {
+          if (options.onStepTransition) {
+            const checkpoint: FlowCheckpoint = {
+              currentStateName,
+              currentPayload: stepInputSnapshot,
+              stepCount,
+              loopCounters: Object.fromEntries(loopCounters),
+              updatedAt: new Date().toISOString(),
+            };
+            await options.onStepTransition({
+              executionId,
+              flowId: options.flowId,
+              flowName,
+              step: currentStateName,
+              stepLog,
+              stepLogs,
+              nextState: undefined,
+              payload: stepInputSnapshot,
+              durationMs: baseDurationMs + (Date.now() - startTime),
+              isEnd: true,
+              status: 'failed',
+              checkpoint,
+            });
+          }
           throw new Error(stepResult.error || `Step '${currentStateName}' failed`);
         }
 
@@ -227,7 +341,31 @@ export class FlowEngine {
 
         currentPayload = stepResult.payload;
 
-        if (stepResult.isEnd || !stepResult.nextState) {
+        if (options.onStepTransition) {
+          const checkpoint: FlowCheckpoint = {
+            currentStateName: nextState || null,
+            currentPayload,
+            stepCount,
+            loopCounters: Object.fromEntries(loopCounters),
+            updatedAt: new Date().toISOString(),
+          };
+          await options.onStepTransition({
+            executionId,
+            flowId: options.flowId,
+            flowName,
+            step: currentStateName,
+            stepLog,
+            stepLogs,
+            nextState,
+            payload: currentPayload,
+            durationMs: baseDurationMs + (Date.now() - startTime),
+            isEnd,
+            status: isEnd ? 'succeeded' : 'running',
+            checkpoint,
+          });
+        }
+
+        if (isEnd) {
           break;
         }
 
@@ -238,7 +376,7 @@ export class FlowEngine {
         throw new AppError(`Flow '${flowName}' execution timed out after ${timeoutMs}ms`, 408);
       }
 
-      const totalDuration = Date.now() - startTime;
+      const totalDuration = baseDurationMs + (Date.now() - startTime);
       return {
         id: executionId,
         flowId: options.flowId || 'inline',
@@ -249,8 +387,10 @@ export class FlowEngine {
         durationMs: totalDuration,
         stepLogs,
         actorId: typeof options.actor === 'string' ? options.actor : (options.actor?.id || options.actor?.email || null),
+        actor: typeof options.actor === 'object' && options.actor !== null ? options.actor : (options.actor ? { id: options.actor } : null),
         startedAt,
         finishedAt: new Date().toISOString(),
+        checkpoint: null,
       };
     } catch (err: any) {
       const isTimeout =
@@ -260,7 +400,7 @@ export class FlowEngine {
       const isCancelled =
         (err as any)?.status === 'cancelled' ||
         (err as any)?.statusCode === 499;
-      const totalDuration = Date.now() - startTime;
+      const totalDuration = baseDurationMs + (Date.now() - startTime);
       return {
         id: executionId,
         flowId: options.flowId || 'inline',
@@ -272,8 +412,16 @@ export class FlowEngine {
         durationMs: totalDuration,
         stepLogs,
         actorId: typeof options.actor === 'string' ? options.actor : (options.actor?.id || options.actor?.email || null),
+        actor: typeof options.actor === 'object' && options.actor !== null ? options.actor : (options.actor ? { id: options.actor } : null),
         startedAt,
         finishedAt: new Date().toISOString(),
+        checkpoint: (currentStateName && !err?.message?.includes('Failed to persist checkpoint')) ? {
+          currentStateName,
+          currentPayload: lastStepInputSnapshot,
+          stepCount,
+          loopCounters: Object.fromEntries(loopCounters),
+          updatedAt: new Date().toISOString(),
+        } : null,
       };
     }
   }

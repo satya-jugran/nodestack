@@ -9,6 +9,7 @@ export interface FlowStateContext {
   functionService?: FunctionService;
   loopCounters: Map<string, number>;
   executeSubFlow: (states: Record<string, FlowState>, startAt: string, input: any) => Promise<any>;
+  signal?: AbortSignal;
 }
 
 export interface StateExecutionResult {

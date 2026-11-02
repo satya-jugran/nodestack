@@ -285,7 +285,7 @@ function renderFlowExecutionsListHtml() {
         </thead>
         <tbody>
           ${executions.map(exec => {
-            const statusColor = exec.status === 'succeeded' ? 'var(--accent-success)' : exec.status === 'failed' ? 'var(--accent-danger)' : '#3b82f6';
+            const statusColor = exec.status === 'succeeded' ? 'var(--accent-success)' : exec.status === 'failed' ? 'var(--accent-danger)' : exec.status === 'aborted' ? 'var(--accent-warning, #f59e0b)' : '#3b82f6';
             const stepCount = (exec.stepLogs || []).length;
             return `
               <tr style="border-bottom: 1px solid var(--border-subtle);">
@@ -607,7 +607,7 @@ async function inspectExecutionDetail(executionId) {
     }
 
     const isSuccess = exec.status === 'succeeded';
-    const statusColor = isSuccess ? 'var(--accent-success)' : exec.status === 'failed' ? 'var(--accent-danger)' : '#3b82f6';
+    const statusColor = isSuccess ? 'var(--accent-success)' : exec.status === 'failed' ? 'var(--accent-danger)' : exec.status === 'aborted' ? 'var(--accent-warning, #f59e0b)' : '#3b82f6';
     const stepCount = (exec.stepLogs || []).length;
 
     root.innerHTML = `
