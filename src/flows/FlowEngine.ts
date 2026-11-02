@@ -162,7 +162,9 @@ export class FlowEngine {
         };
 
         const stepStartTime = Date.now();
-        const stepInputSnapshot = JSON.parse(JSON.stringify(currentPayload));
+        const stepInputSnapshot = currentPayload !== undefined
+          ? JSON.parse(JSON.stringify(currentPayload))
+          : undefined;
         let stepResult: StateExecutionResult;
 
         const remainingMs = Math.max(1, deadline - Date.now());
@@ -253,8 +255,8 @@ export class FlowEngine {
 
           if (options.onStepTransition) {
             const checkpoint: FlowCheckpoint = {
-              currentStateName: null,
-              currentPayload,
+              currentStateName,
+              currentPayload: stepInputSnapshot,
               stepCount,
               loopCounters: Object.fromEntries(loopCounters),
               updatedAt: new Date().toISOString(),
@@ -266,11 +268,11 @@ export class FlowEngine {
               step: currentStateName,
               stepLog: failedStepLog,
               stepLogs,
-              nextState: undefined,
-              payload: currentPayload,
+              nextState: currentStateName,
+              payload: stepInputSnapshot,
               durationMs: baseDurationMs + (Date.now() - startTime),
-              isEnd: true,
-              status: 'failed',
+              isEnd: false,
+              status: 'running',
               checkpoint,
             });
           }
@@ -282,7 +284,7 @@ export class FlowEngine {
           step: currentStateName,
           type: state.type,
           input: stepInputSnapshot,
-          output: JSON.parse(JSON.stringify(stepResult.payload)),
+          output: stepResult.payload !== undefined ? JSON.parse(JSON.stringify(stepResult.payload)) : undefined,
           status: stepResult.status,
           durationMs: stepDurationMs,
           error: stepResult.error,
@@ -293,8 +295,8 @@ export class FlowEngine {
         if (stepResult.status === 'failed') {
           if (options.onStepTransition) {
             const checkpoint: FlowCheckpoint = {
-              currentStateName: null,
-              currentPayload: stepResult.payload,
+              currentStateName,
+              currentPayload: stepInputSnapshot,
               stepCount,
               loopCounters: Object.fromEntries(loopCounters),
               updatedAt: new Date().toISOString(),
@@ -306,11 +308,11 @@ export class FlowEngine {
               step: currentStateName,
               stepLog,
               stepLogs,
-              nextState: undefined,
-              payload: stepResult.payload,
+              nextState: currentStateName,
+              payload: stepInputSnapshot,
               durationMs: baseDurationMs + (Date.now() - startTime),
-              isEnd: true,
-              status: 'failed',
+              isEnd: false,
+              status: 'running',
               checkpoint,
             });
           }

@@ -493,7 +493,10 @@ export class FlowService {
       } else {
         const lastStep = exec.stepLogs[exec.stepLogs.length - 1];
         const lastState = flow.definition.states[lastStep.step];
-        if (!lastState || lastState.end || !lastState.next) {
+        if (lastStep.status === 'failed') {
+          nextStateName = lastStep.step;
+          resumePayload = lastStep.input !== undefined ? lastStep.input : {};
+        } else if (!lastState || lastState.end || !lastState.next) {
           // Flow already finished all steps
           const completed: FlowExecution = {
             ...exec,
@@ -503,9 +506,10 @@ export class FlowService {
           };
           this.saveExecution(completed);
           return completed;
+        } else {
+          nextStateName = lastState.next;
+          resumePayload = lastStep.output !== undefined ? lastStep.output : {};
         }
-        nextStateName = lastState.next;
-        resumePayload = lastStep.output !== undefined ? lastStep.output : {};
       }
     }
 

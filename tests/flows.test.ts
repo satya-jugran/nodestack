@@ -3148,6 +3148,135 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(execution.stepLogs.length).toBe(3);
       expect(execution.stepLogs.map((s) => s.step)).toEqual(['PreMap', 'MapStateStep', 'PostMap']);
     });
+
+    it('should keep failed state and pre-step payload in checkpoint so recovery retries that state instead of skipping', async () => {
+      app.functions.createFunction({
+        name: 'flaky-network-task',
+        code: `
+          export default async function(context) {
+            const count = context.request?.body?.count || 0;
+            if (count === 1) {
+              throw new Error('Temporary 503 upstream gateway outage');
+            }
+            return {
+              recoveredSuccessfully: true,
+              receivedCount: count,
+            };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 2000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      const flow = app.flows.createFlow({
+        name: 'RetryableOutageFlow',
+        definition: {
+          startAt: 'InitialSetup',
+          states: {
+            InitialSetup: {
+              type: 'Pass',
+              result: { setupDone: true, count: 1 },
+              next: 'FlakyStep',
+            },
+            FlakyStep: {
+              type: 'Task',
+              function: 'flaky-network-task',
+              inputPath: '$',
+              resultPath: '$.flakyOutput',
+              next: 'FinalSummary',
+            },
+            FinalSummary: {
+              type: 'Pass',
+              result: { flowFinished: true },
+              resultPath: '$.summary',
+              outputPath: '$.flakyOutput',
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId = FlowEngine.generateExecutionId();
+      let capturedCheckpoint: any = null;
+
+      const engine = app.flows.getEngine();
+      const execution = await engine.execute(
+        flow.name,
+        flow.definition,
+        {},
+        {
+          executionId: execId,
+          flowId: flow.id,
+          functionService: app.functions,
+          onStepTransition: (event) => {
+            if (event.step === 'FlakyStep') {
+              capturedCheckpoint = event.checkpoint;
+            }
+          },
+        }
+      );
+
+      // Verify the step failed
+      expect(execution.status).toBe('failed');
+      expect(capturedCheckpoint).not.toBeNull();
+      // Checkpoint must point to 'FlakyStep' (the failed state), NOT null!
+      expect(capturedCheckpoint.currentStateName).toBe('FlakyStep');
+      // Checkpoint payload must be the pre-step input snapshot
+      expect(capturedCheckpoint.currentPayload.setupDone).toBe(true);
+      expect(capturedCheckpoint.currentPayload.count).toBe(1);
+
+      // Now simulate crash recovery: insert into DB as orphaned 'running' with this checkpoint
+      const db = (app.flows as any).db;
+      const crashedExecId = 'exec_crash_during_task_failure_1';
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', ?, ?, 50, ?, ?, ?)
+      `).run(
+        crashedExecId,
+        flow.id,
+        flow.name,
+        JSON.stringify(capturedCheckpoint.currentPayload),
+        null,
+        JSON.stringify(execution.stepLogs),
+        new Date().toISOString(),
+        JSON.stringify(capturedCheckpoint)
+      );
+
+      // Update function to succeed (simulating transient outage fixed)
+      const flakyFn = app.functions.getFunctionByName('flaky-network-task')!;
+      app.functions.updateFunction(flakyFn.id, {
+        code: `
+          export default async function(context) {
+            return {
+              recoveredSuccessfully: true,
+              receivedCount: context.request?.body?.count || 0,
+            };
+          }
+        `,
+      });
+
+      // Resume execution: it must retry 'FlakyStep' with its pre-step payload, NOT skip to 'FinalSummary'!
+      const resumed = await app.flows.resumeExecution(crashedExecId);
+      expect(resumed.status).toBe('succeeded');
+      expect(resumed.output.recoveredSuccessfully).toBe(true);
+      expect(resumed.output.receivedCount).toBe(1);
+
+      // Step logs should show: InitialSetup, failed FlakyStep, retried successful FlakyStep, FinalSummary
+      expect(resumed.stepLogs.length).toBe(4);
+      expect(resumed.stepLogs[0].step).toBe('InitialSetup');
+      expect(resumed.stepLogs[1].step).toBe('FlakyStep');
+      expect(resumed.stepLogs[1].status).toBe('failed');
+      expect(resumed.stepLogs[2].step).toBe('FlakyStep');
+      expect(resumed.stepLogs[2].status).toBe('succeeded');
+      expect(resumed.stepLogs[3].step).toBe('FinalSummary');
+    });
+
   });
 
 });
