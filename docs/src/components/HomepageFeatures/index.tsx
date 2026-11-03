@@ -19,11 +19,11 @@ const FeatureList: FeatureItem[] = [
     ),
   },
   {
-    title: 'Embedded Serverless Functions',
-    badge: 'v2.1',
+    title: 'Serverless Functions & Flows',
+    badge: 'v2.3.0',
     description: (
       <>
-        Isolated QuickJS-Wasm execution runtime with Anti-SSRF network firewalls, database lifecycle hooks, Context API, and Admin CodeMirror IDE workbench.
+        Visual state machine orchestration, declarative Code DSL, and QuickJS-Wasm serverless execution with sub-millisecond cold starts and live IDE workbench.
       </>
     ),
   },

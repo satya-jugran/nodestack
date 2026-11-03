@@ -31,7 +31,8 @@ NodeStack packages this entire backend architecture into a **single Node.js proc
 - **Application Snapshots & Checkpoints**: Atomic transactional state checkpoints, non-destructive rollbacks, and live schema drift detection.
 - **Themed Admin Portal**: Instant runtime switching between System, Light, and Dark modes with zero-flicker loading.
 - **Native SQLite FTS5 Full-Text Search**: High-performance BM25 relevance ranking, keyword prefix matching, and contextual snippet highlighting.
-- **Embedded Serverless Functions (v2.1)**: Run isolated JavaScript/TypeScript lambdas in WebAssembly with sub-millisecond cold starts, Anti-SSRF network firewalls, direct HTTP routes, database lifecycle hooks, and a dedicated CodeMirror IDE workbench.
+- **Embedded Serverless Functions**: Run isolated JavaScript/TypeScript lambdas in WebAssembly with sub-millisecond cold starts, Anti-SSRF network firewalls, direct HTTP routes, database lifecycle hooks, and a dedicated CodeMirror IDE workbench.
+- **Serverless Function Flows (v2.3.0)**: In-engine visual state machine workflow orchestration with drag-and-drop designer, declarative Code DSL, 9 state types, database lifecycle triggers, and referential integrity protection.
 - **Outbound Webhooks Subsystem**: Trigger-based HTTP dispatch with HMAC-SHA256 signature verification and automated retries.
 - **Immutable Audit Logging**: Field-level `{ old, new }` diff computation, actor attribution, sensitive field masking, and visual record timeline.
 - **Built-in Authentication & File Storage**: JWT tokens, bcrypt password hashing, auth collections (`users`), and multipart file uploads with MIME validation.

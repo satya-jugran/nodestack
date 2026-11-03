@@ -89,7 +89,7 @@ const config: Config = {
         {
           type: 'html',
           position: 'right',
-          value: '<span class="badge badge--info" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 9999px;">v2.1</span>',
+          value: '<span class="badge badge--info" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 9999px;">v2.3.0</span>',
         },
         {
           href: 'https://github.com/satya-jugran/nodestack',
@@ -113,8 +113,12 @@ const config: Config = {
               to: '/getting-started/quick-start',
             },
             {
-              label: 'Serverless Functions (v2.1)',
+              label: 'Serverless Functions',
               to: '/functions/overview',
+            },
+            {
+              label: 'Function Flows (v2.3.0)',
+              to: '/flows/overview',
             },
             {
               label: 'Multi-Application Platform',
