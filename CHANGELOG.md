@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.0] - 2026-11-03
+
+Release v2.3.0 introduces **Serverless Function Flows**—an embedded, high-performance workflow orchestration and state machine subsystem executing directly within the NodeStack engine without external dependencies; delivers a dedicated **Visual Flow Designer & Declarative Code DSL** with real-time two-way synchronization in the Admin Portal; adds **Referential Integrity Enforcement** between flows and serverless functions; upgrades `nodestack-client` with full flow execution support; and enhances Admin UI accessibility and light theme contrast across all confirmation dialogs.
+
+### Added
+
+#### 1. Serverless Function Flows Orchestration Engine
+* **Embedded QuickJS State Machine Engine (`FlowEngine.ts`, `FlowService.ts`)**:
+  * Implemented an in-engine workflow orchestrator executing state machines defined in a clean, JSON-compatible DSL.
+  * Sub-millisecond state transitions running in-process without AWS Step Functions, Temporal, or external cloud workers.
+  * **9 Supported State Types**:
+    * `Task`: Executes QuickJS WebAssembly serverless functions with parameter mapping, `elevated` database permissions, and `serviceRole` privileges.
+    * `Choice`: Conditional branching evaluating comparisons (`stringEquals`, `numericEquals`, `numericGreaterThan`, `numericLessThan`, `numericGreaterThanEquals`, `numericLessThanEquals`, `booleanEquals`, `isPresent`) and compound logic (`and`, `or`, `not`).
+    * `Map`: High-throughput array iteration with configurable `maxConcurrency` over dynamic item paths.
+    * `Parallel`: Concurrent multi-branch execution with synchronized output aggregation.
+    * `Loop`: Bounded while/until iterations with safety loop guards (`maxIterations`).
+    * `Pass`: Payload injection, shaping, and mock state testing.
+    * `Wait`: Configurable time delays before subsequent step dispatch.
+    * `Succeed` & `Fail`: Explicit terminal status nodes with error classification and cause reporting.
+  * **JSONPath Data Filtering & Mapping**:
+    * Granular state context transformations using `inputPath` (input extraction), `resultPath` (result injection), and `outputPath` (output shaping).
+  * **Declarative Error Handling & Retries**:
+    * Automatic retries with exponential backoff (`intervalSeconds`, `maxAttempts`, `backoffRate`, `errorEquals`).
+    * Structured `catch` blocks routing matching errors to dedicated fallback recovery states.
+
+#### 2. Dual-Mode Flow Designer (Visual Canvas & Code DSL)
+* **Interactive Visual Graph (`src/admin/ui/js/flows-designer.js`, `flows.css`)**:
+  * Interactive canvas with directional step connectors, state type color badges (`Task`, `Choice`, `Map`, `Parallel`, etc.), and step drag-and-drop reordering.
+  * State inspector for configuring target serverless functions, retry policies, catch handlers, wait times, and branching rules.
+* **Code DSL Editor (`src/admin/ui/js/flows.js`)**:
+  * Built-in CodeMirror JSON state machine editor with real-time schema validation and instantaneous two-way sync with the visual designer.
+* **Live Test Runner & Step Waterfall**:
+  * Dedicated runner to execute flows with custom test payloads and inspect step latency, duration waterfalls, input/output diffs, and execution logs.
+
+#### 3. Dual Triggering System & Observability
+* **Database Lifecycle Event Triggers**:
+  * Automatically dispatch flows on collection events: `<collection>:afterCreate`, `<collection>:afterUpdate`, `<collection>:afterDelete`, with full pre- and post-mutation record context.
+* **REST Execution API & Multi-Tenancy**:
+  * Added `/api/flows` endpoints for flow management and executions (`POST /api/flows/:id/execute`), fully isolated per tenant application (`/api/apps/:slug/flows`).
+* **Persistent Execution Audit Logs**:
+  * Stored in SQLite (`_flow_executions` table) with granular step-by-step logs (`stepLogs`), input snapshots, output payloads, actor identity, and duration metrics.
+
+#### 4. Function-Flow Referential Integrity Protection
+* **Fail-Closed Dependency Inspection (`FunctionService.deleteFunction`)**:
+  * Protects active production workflows by scanning all registered flows before deleting any serverless function.
+  * Rejects deletions with `HTTP 409 Conflict` and details all referencing flow names and IDs.
+  * Supports explicit override via `DELETE /api/functions/:id?force=true`.
+  * Warns users in the Admin UI with a high-contrast modal detailing dependent flows and requiring explicit confirmation before force-deletion.
+
+#### 5. First-Party Client SDK Support (`nodestack-client`)
+* **Typed Flow Service (`packages/client/src/services/FlowService.ts`)**:
+  * Added `client.flows.execute(flowIdOrName, input, options)` supporting synchronous and background dispatch.
+  * Added `client.flows.getList()`, `client.flows.getOne()`, and `client.flows.getExecutions()`.
+
+#### 6. Official Documentation
+* **Comprehensive Function Flows Guides**:
+  * Published [Function Flows Overview](docs/docs/flows/overview.md), [State Machine Specification](docs/docs/flows/state-machine.md), [Triggers & Observability](docs/docs/flows/triggers-and-execution.md), and [Serverless Function Integration](docs/docs/flows/function-integration.md).
+  * Added Function Flows to the documentation sidebar navigation (`docs/sidebars.ts`).
+  * Updated REST API Reference (`docs/docs/api-reference/rest-api.md`) with the complete `/api/flows` specification.
+
+### Changed
+* **Accessible Confirmation Dialogs (`src/admin/ui/js/state.js`, `main.css`)**:
+  * Replaced native browser `alert()` and `confirm()` dialogs across all Admin UI views (webhooks, functions, flows, snapshots, logs) with accessible, theme-aware HTML confirmation dialogs (`showConfirmDialog`).
+* **Light Theme High-Contrast Polish**:
+  * Enhanced WCAG AAA color contrast tokens in light mode for callout banners, error boxes, and danger action buttons.
+
+### Fixed
+* **Security & Inline JS Hardening**:
+  * Eliminated inline JavaScript handler string breakout vulnerabilities by binding click listeners dynamically with raw in-memory values instead of interpolated HTML attributes.
+* **Fail-Closed Integrity Error Handling**:
+  * Fixed flow dependency checks in `FunctionService` and `FlowService` to fail closed on malformed flow JSON or query failures instead of falling open.
+
+---
+
 ## [2.2.0] - 2026-10-30
 
 Release v2.2.0 delivers **Cross-Platform Standalone Binary Builds** using Node.js Single Executable Applications (SEA); introduces **1-Click Cloud & In-Browser Deployments** (Docker, Railway, and Dev Containers); publishes an in-depth **Feature & Architecture Comparison Matrix**; and hardens security, concurrency, session caching, and record processing across the core backend stack.

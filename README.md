@@ -5,7 +5,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-7.x-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D24.0-green.svg)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](https://github.com/satya-jugran/nodestack/releases)
+[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](https://github.com/satya-jugran/nodestack/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://img.shields.io/badge/docs-online-blue.svg)](https://satya-jugran.github.io/nodestack/)
 
@@ -43,6 +43,7 @@ NodeStack delivers an instant, complete backend stack in a **single Node.js proc
 * **Embedded Web Admin Dashboard**: A sleek, reactive dashboard served directly from `http://localhost:8090/_/` without needing an external web server.
 * **Native SQLite FTS5 Full-Text Search (v1.3)**: High-performance BM25 relevance scoring, prefix queries, and highlighted snippet excerpts without external search services.
 * **Embedded Serverless Functions (v2.1)**: Sandboxed QuickJS-Wasm JavaScript/TypeScript lambda execution with sub-millisecond cold starts, Anti-SSRF network firewalls, direct HTTP routes, database lifecycle hooks, and dedicated CodeMirror IDE workbench.
+* **Serverless Function Flows (v2.3)**: Visual state machine orchestration engine with drag-and-drop designer, declarative Code DSL, 9 state types (Task, Choice, Map, Parallel, Loop, Pass, Wait), database lifecycle event triggers, and function-flow referential integrity protection.
 * **Outbound Webhooks Engine (v1.3)**: Event-driven HTTP callbacks with HMAC-SHA256 signature verification and automated retries.
 * **Immutable Audit Logs (v1.3)**: Field-level `{ old, new }` diff computation, actor attribution, sensitive field masking, and visual record timeline.
 * **Built-in Auth & File Storage**: JWT tokens, bcrypt password hashing, auth collections (`users`), and multipart file uploads with MIME validation.
@@ -78,6 +79,7 @@ NodeStack delivers an instant, complete backend stack in a **single Node.js proc
 | **Realtime Scale & Presence** | Lightweight SSE Streams | Lightweight SSE Streams | **WebSockets + Presence (Phoenix Engine)** |
 | **Database-Level RLS Security** | Visual Rules + SQL expressions | Filter expressions | **PostgreSQL Native RLS (In-kernel)** |
 | **Embedded Serverless IDE** | **QuickJS-Wasm (Sub-ms cold starts & Web IDE)** | Basic JS (via Goja VM) | External Deno Edge Functions |
+| **Workflow Orchestration** | **Embedded Visual State Machines (Flows & DSL)** | None (Manual Go code) | None (External queues/temporal) |
 | **Application Snapshots & Rollback** | **Atomic checkpoints, drift detection & 1-click restore** | Manual ZIP file backups | Sequential SQL migrations only |
 | **Immutable Audit Trail** | **Field-level `{ old, new }` diffs & actor attribution** | HTTP access request logs only | Requires custom triggers or pgAudit |
 | **Live HTTP Type Safety** | **Live dynamic `GET /_/types.d.ts` endpoint** | Community CLI tools (`pocketbase-typegen`) | CLI typegen (`supabase gen types`) |
