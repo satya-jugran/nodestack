@@ -38,14 +38,14 @@ Building modern web and mobile apps often requires managing external database se
 NodeStack delivers an instant, complete backend stack in a **single Node.js process**:
 
 * **Zero-Compilation Embedded SQLite**: Powered natively by Node.js (`node:sqlite`). Zero C++ compilers, Python, or external database daemon installations required.
-* **Multi-Application Platform (v2.0)**: Host multiple completely isolated application tenants within a single process—with separate SQLite databases, file storage directories, auth collections, realtime SSE buses, and 1-click app deletion.
+* **Multi-Application Platform**: Host multiple completely isolated application tenants within a single process—with separate SQLite databases, file storage directories, auth collections, realtime SSE buses, and 1-click app deletion.
 * **Instant CRUD & Realtime SSE**: Automatically exposes REST endpoints and Server-Sent Events change streams for every collection.
 * **Embedded Web Admin Dashboard**: A sleek, reactive dashboard served directly from `http://localhost:8090/_/` without needing an external web server.
-* **Native SQLite FTS5 Full-Text Search (v1.3)**: High-performance BM25 relevance scoring, prefix queries, and highlighted snippet excerpts without external search services.
-* **Embedded Serverless Functions (v2.1)**: Sandboxed QuickJS-Wasm JavaScript/TypeScript lambda execution with sub-millisecond cold starts, Anti-SSRF network firewalls, direct HTTP routes, database lifecycle hooks, and dedicated CodeMirror IDE workbench.
+* **Native SQLite FTS5 Full-Text Search**: High-performance BM25 relevance scoring, prefix queries, and highlighted snippet excerpts without external search services.
+* **Embedded Serverless Functions**: Sandboxed QuickJS-Wasm JavaScript/TypeScript lambda execution with sub-millisecond cold starts, Anti-SSRF network firewalls, direct HTTP routes, database lifecycle hooks, and dedicated CodeMirror IDE workbench.
 * **Serverless Function Flows (v2.3)**: Visual state machine orchestration engine with drag-and-drop designer, declarative Code DSL, 9 state types (Task, Choice, Map, Parallel, Loop, Pass, Wait), database lifecycle event triggers, and function-flow referential integrity protection.
-* **Outbound Webhooks Engine (v1.3)**: Event-driven HTTP callbacks with HMAC-SHA256 signature verification and automated retries.
-* **Immutable Audit Logs (v1.3)**: Field-level `{ old, new }` diff computation, actor attribution, sensitive field masking, and visual record timeline.
+* **Outbound Webhooks Engine**: Event-driven HTTP callbacks with HMAC-SHA256 signature verification and automated retries.
+* **Immutable Audit Logs**: Field-level `{ old, new }` diff computation, actor attribution, sensitive field masking, and visual record timeline.
 * **Built-in Auth & File Storage**: JWT tokens, bcrypt password hashing, auth collections (`users`), and multipart file uploads with MIME validation.
 * **End-to-End Type Safety**: One-command type generation (`nodestack typegen`) and live HTTP type exports (`GET /_/types.d.ts`).
 * **First-Party Client SDK (`nodestack-client`)**: Lightweight (<10KB), zero-dependency TypeScript/JavaScript client for web apps, React, Next.js, React Native, Node.js, Bun, and Deno.
@@ -60,7 +60,7 @@ NodeStack delivers an instant, complete backend stack in a **single Node.js proc
 </p>
 
 <details>
-  <summary><strong>Click to expand accessible data table (17 Dimensions)</strong></summary>
+  <summary><strong>Click to expand accessible data table (18 Dimensions)</strong></summary>
 
 
 > **Legend**: Exactly **one bold cell per row** indicates the standout category leader for that specific dimension.
