@@ -27,9 +27,9 @@ export interface IQueueDriver {
     limit?: number
   ): Promise<QueueJob<T>[]>;
 
-  touch(jobId: string, extensionSeconds: number): Promise<boolean>;
-  complete(jobId: string, result?: any): Promise<boolean>;
-  fail(jobId: string, error: string, backoffDelayMs?: number): Promise<JobFailResult>;
+  touch(jobId: string, extensionSeconds: number, claimToken?: string | null): Promise<boolean>;
+  complete(jobId: string, result?: any, claimToken?: string | null): Promise<boolean>;
+  fail(jobId: string, error: string, backoffDelayMs?: number, claimToken?: string | null): Promise<JobFailResult>;
   cancel(jobId: string): Promise<boolean>;
   defer(jobId: string, delayMs: number, reason?: string): Promise<boolean>;
 

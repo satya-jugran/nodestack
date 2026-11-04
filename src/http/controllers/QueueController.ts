@@ -286,7 +286,7 @@ export class QueueController extends BaseController {
   }
 
   public async ackMessage(
-    req: FastifyRequest<{ Params: { name: string; id: string }; Body?: { result?: any } }>,
+    req: FastifyRequest<{ Params: { name: string; id: string }; Body?: { result?: any; claimToken?: string } }>,
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getQueueService(req);
@@ -298,9 +298,10 @@ export class QueueController extends BaseController {
       return;
     }
 
-    const completed = await service.complete(req.params.id, req.body?.result);
+    const claimToken = (req.body?.claimToken || (req.headers['x-claim-token'] as string) || (req.query as any)?.claimToken) as string | undefined;
+    const completed = await service.complete(req.params.id, req.body?.result, claimToken);
     if (!completed) {
-      this.error(reply, `Message '${req.params.id}' not found or already completed`, 404);
+      this.error(reply, `Message '${req.params.id}' not found, already completed, or claim token invalid`, 404);
       return;
     }
     const updated = await service.getJob(req.params.id);
@@ -308,7 +309,7 @@ export class QueueController extends BaseController {
   }
 
   public async nackMessage(
-    req: FastifyRequest<{ Params: { name: string; id: string }; Body?: { error?: string; backoffDelayMs?: number } }>,
+    req: FastifyRequest<{ Params: { name: string; id: string }; Body?: { error?: string; backoffDelayMs?: number; claimToken?: string } }>,
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getQueueService(req);
@@ -320,10 +321,11 @@ export class QueueController extends BaseController {
       return;
     }
 
+    const claimToken = (req.body?.claimToken || (req.headers['x-claim-token'] as string) || (req.query as any)?.claimToken) as string | undefined;
     const errMsg = req.body?.error || 'Message rejected (NACK) by consumer';
-    const result = await service.fail(req.params.id, errMsg, req.body?.backoffDelayMs);
+    const result = await service.fail(req.params.id, errMsg, req.body?.backoffDelayMs, claimToken);
     if (result.attempts === 0) {
-      this.error(reply, `Message '${req.params.id}' not found`, 404);
+      this.error(reply, `Message '${req.params.id}' not found or claim token invalid`, 404);
       return;
     }
     const updated = await service.getJob(req.params.id);
@@ -331,7 +333,7 @@ export class QueueController extends BaseController {
   }
 
   public async touchMessage(
-    req: FastifyRequest<{ Params: { name: string; id: string }; Body?: { extensionSeconds?: number } }>,
+    req: FastifyRequest<{ Params: { name: string; id: string }; Body?: { extensionSeconds?: number; claimToken?: string } }>,
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getQueueService(req);
@@ -343,10 +345,11 @@ export class QueueController extends BaseController {
       return;
     }
 
+    const claimToken = (req.body?.claimToken || (req.headers['x-claim-token'] as string) || (req.query as any)?.claimToken) as string | undefined;
     const ext = req.body?.extensionSeconds || 30;
-    const ok = await service.touch(req.params.id, ext);
+    const ok = await service.touch(req.params.id, ext, claimToken);
     if (!ok) {
-      this.error(reply, `Message '${req.params.id}' is not currently processing`, 404);
+      this.error(reply, `Message '${req.params.id}' is not currently processing or claim token invalid`, 404);
       return;
     }
     const updated = await service.getJob(req.params.id);

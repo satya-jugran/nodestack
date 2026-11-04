@@ -38,6 +38,7 @@ export interface QueueJob<T = any> {
   availableAt: string;
   claimedBy?: string | null;
   leaseExpiresAt?: string | null;
+  claimToken?: string | null;
   deduplicationId?: string | null;
   created: string;
   updated: string;

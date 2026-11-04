@@ -17,98 +17,73 @@ export class SqliteQueueDriver implements IQueueDriver {
   constructor(private db: DatabaseService) {}
 
   public async init(): Promise<void> {
-    if (this.initialized) return;
     try {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS _queues (
-          name TEXT PRIMARY KEY,
-          concurrency INTEGER NOT NULL DEFAULT 1,
-          visibilityTimeoutSeconds INTEGER NOT NULL DEFAULT 30,
-          maxAttempts INTEGER NOT NULL DEFAULT 3,
-          backoffDelayMs INTEGER NOT NULL DEFAULT 1000,
-          deadLetterQueue TEXT DEFAULT NULL,
-          targetFunction TEXT DEFAULT NULL,
-          isSystem INTEGER NOT NULL DEFAULT 0,
-          created TEXT NOT NULL,
-          updated TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS _queue_jobs (
-          id TEXT PRIMARY KEY,
-          queue TEXT NOT NULL,
-          groupKey TEXT DEFAULT NULL,
-          status TEXT NOT NULL DEFAULT 'queued',
-          payload TEXT,
-          result TEXT DEFAULT NULL,
-          error TEXT DEFAULT NULL,
-          attempts INTEGER NOT NULL DEFAULT 0,
-          maxAttempts INTEGER NOT NULL DEFAULT 3,
-          priority INTEGER NOT NULL DEFAULT 0,
-          availableAt TEXT NOT NULL,
-          claimedBy TEXT DEFAULT NULL,
-          leaseExpiresAt TEXT DEFAULT NULL,
-          deduplicationId TEXT DEFAULT NULL,
-          created TEXT NOT NULL,
-          updated TEXT NOT NULL,
-          finishedAt TEXT DEFAULT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_qjobs_poll ON _queue_jobs(queue, status, availableAt, priority DESC);
-        CREATE INDEX IF NOT EXISTS idx_qjobs_group ON _queue_jobs(groupKey, status);
-        CREATE INDEX IF NOT EXISTS idx_qjobs_cleanup ON _queue_jobs(status, finishedAt);
-        CREATE INDEX IF NOT EXISTS idx_qjobs_dedup ON _queue_jobs(queue, deduplicationId);
-      `);
+      this.createSchema();
       this.initialized = true;
     } catch (err: any) {
       console.warn(`[SqliteQueueDriver] init warning: ${err.message}`);
     }
   }
 
+  public invalidateInit(): void {
+    this.initialized = false;
+  }
+
   public async close(): Promise<void> {
     this.initialized = false;
   }
 
+  private createSchema(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS _queues (
+        name TEXT PRIMARY KEY,
+        concurrency INTEGER NOT NULL DEFAULT 1,
+        visibilityTimeoutSeconds INTEGER NOT NULL DEFAULT 30,
+        maxAttempts INTEGER NOT NULL DEFAULT 3,
+        backoffDelayMs INTEGER NOT NULL DEFAULT 1000,
+        deadLetterQueue TEXT DEFAULT NULL,
+        targetFunction TEXT DEFAULT NULL,
+        isSystem INTEGER NOT NULL DEFAULT 0,
+        created TEXT NOT NULL,
+        updated TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS _queue_jobs (
+        id TEXT PRIMARY KEY,
+        queue TEXT NOT NULL,
+        groupKey TEXT DEFAULT NULL,
+        status TEXT NOT NULL DEFAULT 'queued',
+        payload TEXT,
+        result TEXT DEFAULT NULL,
+        error TEXT DEFAULT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        maxAttempts INTEGER NOT NULL DEFAULT 3,
+        priority INTEGER NOT NULL DEFAULT 0,
+        availableAt TEXT NOT NULL,
+        claimedBy TEXT DEFAULT NULL,
+        leaseExpiresAt TEXT DEFAULT NULL,
+        claimToken TEXT DEFAULT NULL,
+        deduplicationId TEXT DEFAULT NULL,
+        created TEXT NOT NULL,
+        updated TEXT NOT NULL,
+        finishedAt TEXT DEFAULT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_qjobs_poll ON _queue_jobs(queue, status, availableAt, priority DESC);
+      CREATE INDEX IF NOT EXISTS idx_qjobs_group ON _queue_jobs(groupKey, status);
+      CREATE INDEX IF NOT EXISTS idx_qjobs_cleanup ON _queue_jobs(status, finishedAt);
+      CREATE INDEX IF NOT EXISTS idx_qjobs_dedup ON _queue_jobs(queue, deduplicationId);
+    `);
+
+    // Ensure claimToken column exists on pre-existing or upgraded tables
+    try {
+      this.db.exec(`ALTER TABLE _queue_jobs ADD COLUMN claimToken TEXT DEFAULT NULL;`);
+    } catch {}
+  }
+
   private ensureInit(): void {
     if (!this.initialized) {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS _queues (
-          name TEXT PRIMARY KEY,
-          concurrency INTEGER NOT NULL DEFAULT 1,
-          visibilityTimeoutSeconds INTEGER NOT NULL DEFAULT 30,
-          maxAttempts INTEGER NOT NULL DEFAULT 3,
-          backoffDelayMs INTEGER NOT NULL DEFAULT 1000,
-          deadLetterQueue TEXT DEFAULT NULL,
-          targetFunction TEXT DEFAULT NULL,
-          isSystem INTEGER NOT NULL DEFAULT 0,
-          created TEXT NOT NULL,
-          updated TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS _queue_jobs (
-          id TEXT PRIMARY KEY,
-          queue TEXT NOT NULL,
-          groupKey TEXT DEFAULT NULL,
-          status TEXT NOT NULL DEFAULT 'queued',
-          payload TEXT,
-          result TEXT DEFAULT NULL,
-          error TEXT DEFAULT NULL,
-          attempts INTEGER NOT NULL DEFAULT 0,
-          maxAttempts INTEGER NOT NULL DEFAULT 3,
-          priority INTEGER NOT NULL DEFAULT 0,
-          availableAt TEXT NOT NULL,
-          claimedBy TEXT DEFAULT NULL,
-          leaseExpiresAt TEXT DEFAULT NULL,
-          deduplicationId TEXT DEFAULT NULL,
-          created TEXT NOT NULL,
-          updated TEXT NOT NULL,
-          finishedAt TEXT DEFAULT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_qjobs_poll ON _queue_jobs(queue, status, availableAt, priority DESC);
-        CREATE INDEX IF NOT EXISTS idx_qjobs_group ON _queue_jobs(groupKey, status);
-        CREATE INDEX IF NOT EXISTS idx_qjobs_cleanup ON _queue_jobs(status, finishedAt);
-        CREATE INDEX IF NOT EXISTS idx_qjobs_dedup ON _queue_jobs(queue, deduplicationId);
-      `);
+      this.createSchema();
       this.initialized = true;
     }
   }
@@ -318,6 +293,7 @@ export class SqliteQueueDriver implements IQueueDriver {
         SET status = 'processing',
             claimedBy = ?,
             leaseExpiresAt = ?,
+            claimToken = ?,
             attempts = attempts + 1,
             updated = ?
         WHERE id = ? AND status = 'queued'
@@ -325,7 +301,8 @@ export class SqliteQueueDriver implements IQueueDriver {
       const selectStmt = this.db.prepare('SELECT * FROM _queue_jobs WHERE id = ?');
 
       for (const candidate of candidates) {
-        const res = updateStmt.run(claimedBy, leaseExpiresAt, now, candidate.id);
+        const claimToken = crypto.randomUUID();
+        const res = updateStmt.run(claimedBy, leaseExpiresAt, claimToken, now, candidate.id);
         if (Number(res.changes) > 0) {
           const row = selectStmt.get(candidate.id) as any;
           if (row) {
@@ -338,44 +315,65 @@ export class SqliteQueueDriver implements IQueueDriver {
     });
   }
 
-  public async touch(jobId: string, extensionSeconds: number): Promise<boolean> {
+  public async touch(jobId: string, extensionSeconds: number, claimToken?: string | null): Promise<boolean> {
     this.ensureInit();
     const now = new Date().toISOString();
     const leaseExpiresAt = new Date(Date.now() + extensionSeconds * 1000).toISOString();
 
-    const res = this.db.prepare(`
+    let sql = `
       UPDATE _queue_jobs
       SET leaseExpiresAt = ?, updated = ?
       WHERE id = ? AND status = 'processing'
-    `).run(leaseExpiresAt, now, jobId);
+    `;
+    const params: any[] = [leaseExpiresAt, now, jobId];
 
+    if (claimToken) {
+      sql += ` AND claimToken = ?`;
+      params.push(claimToken);
+    }
+
+    const res = this.db.prepare(sql).run(...params);
     return Number(res.changes) > 0;
   }
 
-  public async complete(jobId: string, result?: any): Promise<boolean> {
+  public async complete(jobId: string, result?: any, claimToken?: string | null): Promise<boolean> {
     this.ensureInit();
     const now = new Date().toISOString();
     const resultStr = result !== undefined ? JSON.stringify(result) : null;
 
-    const res = this.db.prepare(`
+    let sql = `
       UPDATE _queue_jobs
       SET status = 'completed',
           result = ?,
           error = NULL,
           claimedBy = NULL,
           leaseExpiresAt = NULL,
+          claimToken = NULL,
           updated = ?,
           finishedAt = ?
       WHERE id = ? AND status IN ('processing', 'queued')
-    `).run(resultStr, now, now, jobId);
+    `;
+    const params: any[] = [resultStr, now, now, jobId];
 
+    if (claimToken) {
+      sql += ` AND claimToken = ?`;
+      params.push(claimToken);
+    }
+
+    const res = this.db.prepare(sql).run(...params);
     return Number(res.changes) > 0;
   }
 
-  public async fail(jobId: string, error: string, backoffDelayMs?: number): Promise<JobFailResult> {
+  public async fail(jobId: string, error: string, backoffDelayMs?: number, claimToken?: string | null): Promise<JobFailResult> {
     this.ensureInit();
     return this.db.transaction(() => {
-      const row = this.db.prepare('SELECT * FROM _queue_jobs WHERE id = ?').get(jobId) as any;
+      let query = 'SELECT * FROM _queue_jobs WHERE id = ?';
+      const params: any[] = [jobId];
+      if (claimToken) {
+        query += ' AND claimToken = ?';
+        params.push(claimToken);
+      }
+      const row = this.db.prepare(query).get(...params) as any;
       if (!row) {
         return { retried: false, deadLettered: false, attempts: 0 };
       }
@@ -391,16 +389,27 @@ export class SqliteQueueDriver implements IQueueDriver {
         const delay = Math.max(0, baseBackoff * Math.pow(2, Math.max(0, attempts - 1)));
         const availableAt = new Date(Date.now() + delay).toISOString();
 
-        this.db.prepare(`
+        let updateSql = `
           UPDATE _queue_jobs
           SET status = 'queued',
               error = ?,
               claimedBy = NULL,
               leaseExpiresAt = NULL,
+              claimToken = NULL,
               availableAt = ?,
               updated = ?
           WHERE id = ?
-        `).run(error, availableAt, now, jobId);
+        `;
+        const updateParams: any[] = [error, availableAt, now, jobId];
+        if (claimToken) {
+          updateSql += ` AND claimToken = ?`;
+          updateParams.push(claimToken);
+        }
+
+        const res = this.db.prepare(updateSql).run(...updateParams);
+        if (Number(res.changes) === 0) {
+          return { retried: false, deadLettered: false, attempts: 0 };
+        }
 
         return { retried: true, deadLettered: false, attempts };
       }
@@ -408,16 +417,27 @@ export class SqliteQueueDriver implements IQueueDriver {
       // Max attempts reached -> mark as dead_letter (or failed if maxAttempts == 1 and no DLQ)
       const dlqName = qRow?.deadLetterQueue || null;
 
-      this.db.prepare(`
+      let dlqSql = `
         UPDATE _queue_jobs
         SET status = 'dead_letter',
             error = ?,
             claimedBy = NULL,
             leaseExpiresAt = NULL,
+            claimToken = NULL,
             updated = ?,
             finishedAt = ?
         WHERE id = ?
-      `).run(error, now, now, jobId);
+      `;
+      const dlqParams: any[] = [error, now, now, jobId];
+      if (claimToken) {
+        dlqSql += ` AND claimToken = ?`;
+        dlqParams.push(claimToken);
+      }
+
+      const res = this.db.prepare(dlqSql).run(...dlqParams);
+      if (Number(res.changes) === 0) {
+        return { retried: false, deadLettered: false, attempts: 0 };
+      }
 
       // If a separate deadLetterQueue is configured, also enqueue a copy into that DLQ
       if (dlqName && dlqName !== row.queue) {
@@ -462,6 +482,7 @@ export class SqliteQueueDriver implements IQueueDriver {
       SET status = 'queued',
           claimedBy = NULL,
           leaseExpiresAt = NULL,
+          claimToken = NULL,
           attempts = MAX(0, attempts - 1),
           error = ?,
           availableAt = ?,
@@ -540,6 +561,7 @@ export class SqliteQueueDriver implements IQueueDriver {
             SET status = 'queued',
                 claimedBy = NULL,
                 leaseExpiresAt = NULL,
+                claimToken = NULL,
                 error = COALESCE(error, 'Visibility timeout expired (orphaned lease reclaimed)'),
                 availableAt = ?,
                 updated = ?
@@ -552,6 +574,7 @@ export class SqliteQueueDriver implements IQueueDriver {
             SET status = 'dead_letter',
                 claimedBy = NULL,
                 leaseExpiresAt = NULL,
+                claimToken = NULL,
                 error = COALESCE(error, 'Max attempts exceeded after visibility timeout'),
                 updated = ?,
                 finishedAt = ?
@@ -754,6 +777,7 @@ export class SqliteQueueDriver implements IQueueDriver {
       availableAt: row.availableAt,
       claimedBy: row.claimedBy || null,
       leaseExpiresAt: row.leaseExpiresAt || null,
+      claimToken: row.claimToken || null,
       deduplicationId: row.deduplicationId || null,
       created: row.created,
       updated: row.updated,

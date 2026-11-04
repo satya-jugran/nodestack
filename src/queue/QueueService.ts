@@ -416,22 +416,22 @@ export class QueueService {
     return this.driver.claim<T>(queueName, claimedBy, visibilityTimeoutSeconds, limit);
   }
 
-  public async touch(jobId: string, extensionSeconds = 30): Promise<boolean> {
+  public async touch(jobId: string, extensionSeconds = 30, claimToken?: string | null): Promise<boolean> {
     if (!this.isDbAvailable()) return false;
-    return this.driver.touch(jobId, extensionSeconds);
+    return this.driver.touch(jobId, extensionSeconds, claimToken);
   }
 
-  public async complete(jobId: string, result?: any): Promise<boolean> {
+  public async complete(jobId: string, result?: any, claimToken?: string | null): Promise<boolean> {
     if (!this.isDbAvailable()) return false;
-    return this.driver.complete(jobId, result);
+    return this.driver.complete(jobId, result, claimToken);
   }
 
-  public async fail(jobId: string, error: string, backoffDelayMs?: number): Promise<JobFailResult> {
+  public async fail(jobId: string, error: string, backoffDelayMs?: number, claimToken?: string | null): Promise<JobFailResult> {
     if (!this.isDbAvailable()) {
       return { retried: false, deadLettered: false, attempts: 0 };
     }
     const job = await this.driver.getJob(jobId);
-    const res = await this.driver.fail(jobId, error, backoffDelayMs);
+    const res = await this.driver.fail(jobId, error, backoffDelayMs, claimToken);
     if (res.retried) {
       const updatedJob = await this.driver.getJob(jobId);
       if (updatedJob) {
@@ -583,7 +583,7 @@ export class QueueService {
       if (handler) {
         const result = await handler(job);
         if (!this.isDisposed && this.isDbAvailable()) {
-          await this.driver.complete(job.id, result);
+          await this.driver.complete(job.id, result, job.claimToken || undefined);
         }
       } else if (config?.targetFunction) {
         if (!this.functionService) {
@@ -593,7 +593,7 @@ export class QueueService {
         const fnResult = await this.functionService.executeQueueJob(
           config.targetFunction,
           job,
-          { id: `job:${job.id}`, isAdmin: true, queue: queueName }
+          { id: `job:${job.id}`, isAdmin: false, queue: queueName }
         );
 
         if (fnResult.status !== 'success' || fnResult.statusCode >= 400) {
@@ -610,7 +610,7 @@ export class QueueService {
         }
 
         if (!this.isDisposed && this.isDbAvailable()) {
-          await this.driver.complete(job.id, fnResult.body);
+          await this.driver.complete(job.id, fnResult.body, job.claimToken || undefined);
         }
       }
     } catch (err: any) {
@@ -631,7 +631,7 @@ export class QueueService {
           this.scheduleDelayedAt(Date.now() + deferDelayMs);
         } else {
           const errMsg = err?.message || String(err);
-          await this.fail(job.id, errMsg, config?.backoffDelayMs);
+          await this.fail(job.id, errMsg, config?.backoffDelayMs, job.claimToken || undefined);
         }
       }
     } finally {

@@ -176,6 +176,59 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(resetMainJob.status).toBe('queued');
       expect(resetMainJob.attempts).toBe(0);
     });
+
+    it('should return per-claim token and prevent late worker operations from overwriting subsequent claim attempts', async () => {
+      const q = 'claim-token-test-queue';
+      await app.queue.upsertQueue({ name: q, concurrency: 1, maxAttempts: 3 });
+
+      const job = await app.queue.send(q, { task: 'stale-worker-test' });
+
+      // Worker A claims the job with a 1-second visibility lease
+      const [claimA] = await app.queue.claim(q, 1, 1, 'worker_A');
+      expect(claimA.id).toBe(job.id);
+      expect(claimA.claimToken).toBeDefined();
+      expect(typeof claimA.claimToken).toBe('string');
+      const tokenA = claimA.claimToken!;
+
+      // Wait 1.1s for Worker A's lease to expire
+      await new Promise((r) => setTimeout(r, 1100));
+
+      // Reclaim expired lease
+      const reclaimed = await app.queue.reclaimOrphaned(q);
+      expect(reclaimed).toBe(1);
+
+      // Worker B claims the retried job
+      const [claimB] = await app.queue.claim(q, 30, 1, 'worker_B');
+      expect(claimB.id).toBe(job.id);
+      expect(claimB.claimToken).toBeDefined();
+      expect(claimB.claimToken).not.toBe(tokenA);
+      const tokenB = claimB.claimToken!;
+
+      // Worker A finishes late and tries to touch, fail, or complete Worker B's job attempt
+      const lateTouch = await app.queue.touch(job.id, 60, tokenA);
+      expect(lateTouch).toBe(false);
+
+      const lateFail = await app.queue.fail(job.id, 'Stale failure from Worker A', undefined, tokenA);
+      expect(lateFail.attempts).toBe(0);
+
+      const lateComplete = await app.queue.complete(job.id, { from: 'stale_worker_A' }, tokenA);
+      expect(lateComplete).toBe(false);
+
+      // Verify Worker B's claim is still intact and 'processing'
+      const activeJob = (await app.queue.getJob(job.id))!;
+      expect(activeJob.status).toBe('processing');
+      expect(activeJob.claimedBy).toBe('worker_B');
+      expect(activeJob.claimToken).toBe(tokenB);
+
+      // Worker B successfully completes its attempt
+      const validComplete = await app.queue.complete(job.id, { from: 'worker_B' }, tokenB);
+      expect(validComplete).toBe(true);
+
+      const completedJob = (await app.queue.getJob(job.id))!;
+      expect(completedJob.status).toBe('completed');
+      expect(completedJob.result).toEqual({ from: 'worker_B' });
+      expect(completedJob.claimToken).toBeNull();
+    });
   });
 
   describe('2. Direct O(1) Map Worker Registry & Concurrency Enforcement', () => {
@@ -331,6 +384,97 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       const fnDef = app.functions.getFunctionByName('queue-worker-fn')!;
       const logsRes = app.functions.getLogs(fnDef.id);
       expect(logsRes.items.some((l) => l.trigger === 'queue:bound-fn-queue' && l.status === 'success')).toBe(true);
+    });
+
+    it('should enforce RuleEngine collection access rules when targetFunction has elevated: false', async () => {
+      // Create a collection with admin-only createRule (null = admin only)
+      app.schema.createCollection({
+        name: 'admin_only_vault',
+        type: 'base',
+        schema: [
+          { id: 'f_key', name: 'secretKey', type: 'text', required: true },
+        ],
+        createRule: null, // Only admin can create
+        listRule: null,   // Only admin can read
+      });
+
+      // 1. Create a non-elevated worker function (elevated: false)
+      app.functions.createFunction({
+        name: 'non-elevated-worker-fn',
+        code: `
+          export default async function(core, context) {
+            const res = await core.sdk.collection('admin_only_vault').create({
+              secretKey: context.request.body.secretKey
+            });
+            return { success: true, id: res.id };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        elevated: false,
+      });
+
+      await app.queue.upsertQueue({
+        name: 'non-elevated-queue',
+        concurrency: 1,
+        maxAttempts: 1,
+        targetFunction: 'non-elevated-worker-fn',
+      });
+
+      const failedJob = await app.queue.send('non-elevated-queue', { secretKey: 'hacked_secret' });
+
+      // Poll until finished
+      let j = await app.queue.getJob(failedJob.id);
+      for (let i = 0; i < 40; i++) {
+        if (j?.status === 'completed' || j?.status === 'failed' || j?.status === 'dead_letter') break;
+        await new Promise((r) => setTimeout(r, 50));
+        j = await app.queue.getJob(failedJob.id);
+      }
+
+      // The non-elevated function threw error because it lacks admin privileges
+      expect(j?.status).toBe('dead_letter');
+      expect(j?.error).toMatch(/admin|forbidden|access|rule/i);
+
+      // Verify no records were inserted into admin_only_vault
+      const vaultCount = app.db.prepare('SELECT COUNT(*) as cnt FROM admin_only_vault').get() as { cnt: number };
+      expect(vaultCount.cnt).toBe(0);
+
+      // 2. Now test elevated: true function - it SHOULD succeed with service role
+      app.functions.createFunction({
+        name: 'elevated-worker-fn',
+        code: `
+          export default async function(core, context) {
+            const res = await core.sdk.collection('admin_only_vault').create({
+              secretKey: context.request.body.secretKey
+            });
+            return { success: true, id: res.id };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        elevated: true,
+      });
+
+      await app.queue.upsertQueue({
+        name: 'elevated-queue',
+        concurrency: 1,
+        maxAttempts: 1,
+        targetFunction: 'elevated-worker-fn',
+      });
+
+      const successJob = await app.queue.send('elevated-queue', { secretKey: 'legit_secret' });
+
+      j = await app.queue.getJob(successJob.id);
+      for (let i = 0; i < 40; i++) {
+        if (j?.status === 'completed' || j?.status === 'failed' || j?.status === 'dead_letter') break;
+        await new Promise((r) => setTimeout(r, 50));
+        j = await app.queue.getJob(successJob.id);
+      }
+
+      expect(j?.status).toBe('completed');
+      expect(j?.result?.success).toBe(true);
     });
 
     it('should block deleting a Serverless Function while a Queue is bound to it via targetFunction', () => {
@@ -726,6 +870,33 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       const events = deliveries.items.map((d: any) => d.event);
       expect(events).toContain('recovered.from.crash');
       expect(events).toContain('drained.on.boot');
+    });
+
+    it('should recreate missing queue tables and indexes on init() after database replacement (pre-queue snapshot restore)', async () => {
+      // Simulate database replacement by dropping the queue tables from SQLite
+      app.db.exec(`
+        DROP TABLE IF EXISTS _queue_jobs;
+        DROP TABLE IF EXISTS _queues;
+      `);
+
+      // Verify tables no longer exist
+      const checkTables = () => {
+        return app.db.prepare(`
+          SELECT count(*) as cnt FROM sqlite_master WHERE type='table' AND name IN ('_queues', '_queue_jobs')
+        `).get() as { cnt: number };
+      };
+      expect(checkTables().cnt).toBe(0);
+
+      // Re-run idempotent init() (e.g. called by queue.start() on snapshot restore)
+      await app.queue.getDriver().init();
+
+      // Tables and indexes must now exist
+      expect(checkTables().cnt).toBe(2);
+
+      // Operations continue to succeed
+      await app.queue.upsertQueue({ name: 'restored-schema-queue', concurrency: 1 });
+      const testJob = await app.queue.send('restored-schema-queue', { alive: true });
+      expect(testJob.id).toBeDefined();
     });
 
     it('should expose full CRUD, message enqueue/poll/ack/nack via REST API and return 403 for _system:* queues', async () => {

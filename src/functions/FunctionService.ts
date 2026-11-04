@@ -951,7 +951,7 @@ export class FunctionService {
         const limit = Math.max(1, Math.min(options?.limit ?? 1, 50));
         return await this.queueService.claim(queueName.trim(), visibility, limit, `fn_worker_${fn.id}`);
       },
-      complete: async (jobId: string, result?: any) => {
+      complete: async (jobId: string, result?: any, claimToken?: string) => {
         if (!this.queueService) {
           throw new Error('QueueService not available in function context');
         }
@@ -965,9 +965,9 @@ export class FunctionService {
         if (job.queue.startsWith('_system:')) {
           throw new Error('Cannot complete jobs belonging to reserved _system:* queues from user functions');
         }
-        return await this.queueService.complete(jobId, result);
+        return await this.queueService.complete(jobId, result, claimToken);
       },
-      fail: async (jobId: string, error?: string, options?: { backoffDelayMs?: number }) => {
+      fail: async (jobId: string, error?: string, options?: { backoffDelayMs?: number; claimToken?: string }) => {
         if (!this.queueService) {
           throw new Error('QueueService not available in function context');
         }
@@ -982,7 +982,23 @@ export class FunctionService {
           throw new Error('Cannot fail jobs belonging to reserved _system:* queues from user functions');
         }
         const errMsg = error || 'Failed by function worker';
-        return await this.queueService.fail(jobId, errMsg, options?.backoffDelayMs);
+        return await this.queueService.fail(jobId, errMsg, options?.backoffDelayMs, options?.claimToken);
+      },
+      touch: async (jobId: string, extensionSeconds?: number, claimToken?: string) => {
+        if (!this.queueService) {
+          throw new Error('QueueService not available in function context');
+        }
+        if (!jobId || typeof jobId !== 'string') {
+          throw new Error('Job ID is required to touch a queue job');
+        }
+        const job = await this.queueService.getJob(jobId);
+        if (!job) {
+          return false;
+        }
+        if (job.queue.startsWith('_system:')) {
+          throw new Error('Cannot touch jobs belonging to reserved _system:* queues from user functions');
+        }
+        return await this.queueService.touch(jobId, extensionSeconds ?? 30, claimToken);
       },
       getJob: async (jobId: string) => {
         if (!this.queueService) {

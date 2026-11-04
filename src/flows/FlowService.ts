@@ -994,7 +994,7 @@ export class FlowService {
           return;
         }
         const remainingSec = getRemainingBudgetSeconds();
-        void this.queueService!.touch(job.id, remainingSec).catch(() => {});
+        void this.queueService!.touch(job.id, remainingSec, job.claimToken).catch(() => {});
       }, 15000);
       if (typeof heartbeatTimer.unref === 'function') {
         heartbeatTimer.unref();
@@ -1018,7 +1018,7 @@ export class FlowService {
             this.persistCheckpoint(executionId, event, claimToken);
             if (this.queueService && !abortController.signal.aborted) {
               const remainingSec = getRemainingBudgetSeconds();
-              void this.queueService.touch(job.id, remainingSec).catch(() => {});
+              void this.queueService.touch(job.id, remainingSec, job.claimToken).catch(() => {});
             }
           },
         }
