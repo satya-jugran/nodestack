@@ -229,6 +229,67 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(completedJob.result).toEqual({ from: 'worker_B' });
       expect(completedJob.claimToken).toBeNull();
     });
+
+    it('should restrict fail() to processing jobs and prevent late or repeated NACKs from mutating completed or dead-lettered jobs', async () => {
+      const q = 'terminal-nack-test-queue';
+      const dlq = 'terminal-nack-dlq';
+      await app.queue.upsertQueue({ name: dlq, concurrency: 1 });
+      await app.queue.upsertQueue({ name: q, concurrency: 1, maxAttempts: 2, deadLetterQueue: dlq });
+
+      // 1. Completed job cannot be failed / NACKed
+      const job1 = await app.queue.send(q, { test: 'completed-nack-test' });
+      await app.queue.claim(q, 30, 1);
+      await app.queue.complete(job1.id, { done: true });
+
+      const verifiedCompleted = (await app.queue.getJob(job1.id))!;
+      expect(verifiedCompleted.status).toBe('completed');
+
+      // Attempting to fail the completed job (with or without claimToken) must be rejected
+      const failCompleted = await app.queue.fail(job1.id, 'Late failure on completed job');
+      expect(failCompleted.attempts).toBe(0);
+      expect(failCompleted.retried).toBe(false);
+      expect(failCompleted.deadLettered).toBe(false);
+
+      // Verify the job remains 'completed' and was NOT requeued
+      const stillCompleted = (await app.queue.getJob(job1.id))!;
+      expect(stillCompleted.status).toBe('completed');
+      expect(stillCompleted.error).toBeNull();
+
+      // 2. Dead-lettered job cannot be failed again to create duplicate DLQ copies
+      const job2 = await app.queue.send(q, { test: 'dlq-duplicate-nack-test' });
+      await app.queue.claim(q, 30, 1);
+      // Attempt 1 fails (0ms backoff) -> immediately claimable for retry
+      const res1 = await app.queue.fail(job2.id, 'Failure 1', 0);
+      expect(res1.retried).toBe(true);
+
+      const [claim2] = await app.queue.claim(q, 30, 1);
+      expect(claim2.id).toBe(job2.id);
+      expect(claim2.attempts).toBe(2);
+
+      // Attempt 2 fails -> exhausts maxAttempts -> moves to dead_letter
+      const res2 = await app.queue.fail(job2.id, 'Failure 2');
+      expect(res2.deadLettered).toBe(true);
+
+      const dlqJobsBefore = await app.queue.getJobs({ queue: dlq });
+      expect(dlqJobsBefore.items.length).toBe(1);
+
+      // Attempt a repeated / late NACK on the already dead-lettered job
+      const repeatFail = await app.queue.fail(job2.id, 'Repeated failure after DLQ');
+      expect(repeatFail.attempts).toBe(0);
+      expect(repeatFail.retried).toBe(false);
+      expect(repeatFail.deadLettered).toBe(false);
+
+      // Verify no duplicate copies were inserted into the DLQ
+      const dlqJobsAfter = await app.queue.getJobs({ queue: dlq });
+      expect(dlqJobsAfter.items.length).toBe(1);
+
+      // 3. Unclaimed 'queued' job cannot be failed
+      const job3 = await app.queue.send(q, { test: 'queued-nack-test' });
+      const failQueued = await app.queue.fail(job3.id, 'Nack without claiming');
+      expect(failQueued.attempts).toBe(0);
+      const stillQueued = (await app.queue.getJob(job3.id))!;
+      expect(stillQueued.status).toBe('queued');
+    });
   });
 
   describe('2. Direct O(1) Map Worker Registry & Concurrency Enforcement', () => {

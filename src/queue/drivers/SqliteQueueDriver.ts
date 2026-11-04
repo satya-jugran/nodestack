@@ -367,7 +367,7 @@ export class SqliteQueueDriver implements IQueueDriver {
   public async fail(jobId: string, error: string, backoffDelayMs?: number, claimToken?: string | null): Promise<JobFailResult> {
     this.ensureInit();
     return this.db.transaction(() => {
-      let query = 'SELECT * FROM _queue_jobs WHERE id = ?';
+      let query = "SELECT * FROM _queue_jobs WHERE id = ? AND status = 'processing'";
       const params: any[] = [jobId];
       if (claimToken) {
         query += ' AND claimToken = ?';
@@ -398,7 +398,7 @@ export class SqliteQueueDriver implements IQueueDriver {
               claimToken = NULL,
               availableAt = ?,
               updated = ?
-          WHERE id = ?
+          WHERE id = ? AND status = 'processing'
         `;
         const updateParams: any[] = [error, availableAt, now, jobId];
         if (claimToken) {
@@ -426,7 +426,7 @@ export class SqliteQueueDriver implements IQueueDriver {
             claimToken = NULL,
             updated = ?,
             finishedAt = ?
-        WHERE id = ?
+        WHERE id = ? AND status = 'processing'
       `;
       const dlqParams: any[] = [error, now, now, jobId];
       if (claimToken) {
