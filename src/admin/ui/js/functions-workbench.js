@@ -6,138 +6,168 @@
 // ==========================================
 
 const CTX_DOCS = [
-  // HTTP Request (ctx.request)
+  // HTTP Request (context.request)
   {
-    name: 'ctx.request.body',
+    name: 'context.request.body',
     type: 'any',
     cat: 'request',
     desc: 'Parsed JSON payload sent in HTTP POST/PATCH invocation',
-    snippet: 'const body = ctx.request?.body || {};\n'
+    snippet: 'const body = context.request?.body || {};\n'
   },
   {
-    name: 'ctx.request.query',
+    name: 'context.request.query',
     type: 'Record<string, any>',
     cat: 'request',
     desc: 'URL query string parameters (e.g. ?limit=10&status=active)',
-    snippet: 'const { limit, status } = ctx.request?.query || {};\n'
+    snippet: 'const { limit, status } = context.request?.query || {};\n'
   },
   {
-    name: 'ctx.request.auth',
+    name: 'context.request.auth',
     type: '{ id, role, email } | null',
     cat: 'request',
     desc: 'Authenticated caller identity, or null if public invocation',
-    snippet: 'if (!ctx.request?.auth) return { status: 401, body: { error: "Unauthorized" } };\n'
+    snippet: 'if (!context.request?.auth) return { status: 401, body: { error: "Unauthorized" } };\n'
   },
   {
-    name: 'ctx.request.headers',
+    name: 'context.request.headers',
     type: 'Record<string, string>',
     cat: 'request',
     desc: 'HTTP request headers map (lowercase header keys)',
-    snippet: 'const authHeader = ctx.request?.headers["authorization"];\n'
+    snippet: 'const authHeader = context.request?.headers["authorization"];\n'
   },
   {
-    name: 'ctx.request.method',
+    name: 'context.request.method',
     type: "'GET' | 'POST' | 'PATCH' | 'DELETE'",
     cat: 'request',
     desc: 'HTTP method used to invoke this function',
-    snippet: 'const method = ctx.request?.method;\n'
+    snippet: 'const method = context.request?.method;\n'
   },
 
-  // DB Lifecycle Event (ctx.event)
+  // DB Lifecycle Event (context.event)
   {
-    name: 'ctx.event.record',
+    name: 'context.event.record',
     type: 'Record<string, any>',
     cat: 'event',
     desc: 'Target database record being mutated during collection lifecycle hook',
-    snippet: 'const record = ctx.event?.record;\n'
+    snippet: 'const record = context.event?.record;\n'
   },
   {
-    name: 'ctx.event.collection',
+    name: 'context.event.collection',
     type: 'string',
     cat: 'event',
     desc: 'Target collection name triggering this lifecycle event',
-    snippet: 'const collection = ctx.event?.collection;\n'
+    snippet: 'const collection = context.event?.collection;\n'
   },
   {
-    name: 'ctx.event.action',
+    name: 'context.event.action',
     type: "'create' | 'update' | 'delete'",
     cat: 'event',
     desc: 'Collection mutation action triggering this hook',
-    snippet: 'const action = ctx.event?.action;\n'
+    snippet: 'const action = context.event?.action;\n'
   },
   {
-    name: 'ctx.event.isBefore',
+    name: 'context.event.isBefore',
     type: 'boolean',
     cat: 'event',
     desc: 'true for before-write hooks (can validate or cancel write), false for after-write',
-    snippet: 'if (ctx.event?.isBefore && !isValid) return { status: 400, body: { cancel: true, reason: "Validation failed" } };\n'
+    snippet: 'if (context.event?.isBefore && !isValid) return { status: 400, body: { cancel: true, reason: "Validation failed" } };\n'
   },
 
-  // Database CRUD (ctx.records)
+  // Database CRUD (core.sdk.collection)
   {
-    name: 'ctx.records.get(col, id)',
+    name: 'core.sdk.collection(col).get(id)',
     type: 'Promise<Record>',
     cat: 'records',
     desc: 'Fetch a single record by collection name and record ID',
-    snippet: 'const item = await ctx.records.get("products", id);\n'
+    snippet: 'const item = await core.sdk.collection("products").get(id);\n'
   },
   {
-    name: 'ctx.records.list(col, opts)',
+    name: 'core.sdk.collection(col).list(opts)',
     type: 'Promise<{ items, totalItems }>',
     cat: 'records',
     desc: 'Query records with filter, sort, page, and perPage options',
-    snippet: 'const { items, totalItems } = await ctx.records.list("orders", { filter: "status = \'paid\'", perPage: 20 });\n'
+    snippet: 'const { items, totalItems } = await core.sdk.collection("orders").list({ filter: "status = \'paid\'", perPage: 20 });\n'
   },
   {
-    name: 'ctx.records.create(col, data)',
+    name: 'core.sdk.collection(col).create(data)',
     type: 'Promise<Record>',
     cat: 'records',
     desc: 'Create and insert a new record into target collection',
-    snippet: 'const newRec = await ctx.records.create("audit_events", { event: "checkout", timestamp: new Date().toISOString() });\n'
+    snippet: 'const newRec = await core.sdk.collection("audit_events").create({ event: "checkout", timestamp: new Date().toISOString() });\n'
   },
   {
-    name: 'ctx.records.update(col, id, data)',
+    name: 'core.sdk.collection(col).update(id, data)',
     type: 'Promise<Record>',
     cat: 'records',
     desc: 'Update fields on an existing database record',
-    snippet: 'await ctx.records.update("products", productId, { inStock: false });\n'
+    snippet: 'await core.sdk.collection("products").update(productId, { inStock: false });\n'
   },
   {
-    name: 'ctx.records.delete(col, id)',
+    name: 'core.sdk.collection(col).delete(id)',
     type: 'Promise<boolean>',
     cat: 'records',
     desc: 'Delete a record from database by collection name and ID',
-    snippet: 'await ctx.records.delete("temp_tokens", tokenId);\n'
+    snippet: 'await core.sdk.collection("temp_tokens").delete(tokenId);\n'
   },
 
-  // Outbound Network, Secrets & Logging
+  // Queues (core.sdk.queue)
   {
-    name: 'ctx.fetch(url, options)',
-    type: 'Promise<{ ok, status, json(), text() }>',
-    cat: 'utils',
-    desc: 'SSRF-guarded outbound HTTP request to third-party APIs',
-    snippet: 'const res = await ctx.fetch("https://api.example.com/data", { method: "POST" });\nconst data = await res.json();\n'
+    name: 'core.sdk.queue(name).send(payload, opts)',
+    type: 'Promise<QueueJob>',
+    cat: 'queue',
+    desc: 'Enqueue a job/message into a generic queue',
+    snippet: 'await core.sdk.queue("notifications").send({ to: "user@example.com", text: "Welcome!" });\n'
   },
   {
-    name: 'ctx.env',
+    name: 'core.sdk.queue(name).claim(opts)',
+    type: 'Promise<QueueJob[]>',
+    cat: 'queue',
+    desc: 'Claim one or more pending jobs from a queue with lease lock',
+    snippet: 'const jobs = await core.sdk.queue("notifications").claim({ limit: 1, visibilityTimeoutSeconds: 30 });\n'
+  },
+  {
+    name: 'core.sdk.queue(name).complete(jobId, result)',
+    type: 'Promise<boolean>',
+    cat: 'queue',
+    desc: 'Acknowledge and mark a claimed job as completed',
+    snippet: 'await core.sdk.queue("notifications").complete(job.id, { sent: true });\n'
+  },
+  {
+    name: 'core.sdk.queue(name).fail(jobId, error)',
+    type: 'Promise<boolean>',
+    cat: 'queue',
+    desc: 'Reject a job with error details and trigger retry/backoff',
+    snippet: 'await core.sdk.queue("notifications").fail(job.id, "SMTP timeout");\n'
+  },
+
+  // Outbound Network, Observability & Environment
+  {
+    name: 'core.network.http.fetch(url, options)',
+    type: 'Promise<{ ok, status, json(), text() }>',
+    cat: 'utils',
+    desc: 'SSRF-guarded outbound HTTP request (also available as global fetch)',
+    snippet: 'const res = await core.network.http.fetch("https://api.example.com/data", { method: "POST" });\nconst data = await res.json();\n'
+  },
+  {
+    name: 'core.observability.log(...args)',
+    type: '(...args: any[]) => void',
+    cat: 'utils',
+    desc: 'Structured execution logging captured in Execution Logs (also console.log)',
+    snippet: 'core.observability.log("Processing execution step", { step: 1, time: Date.now() });\n'
+  },
+  {
+    name: 'context.env',
     type: 'Record<string, string>',
     cat: 'utils',
     desc: 'Environment variables and secrets defined in the JSON configuration below',
-    snippet: 'const secretKey = ctx.env.MY_API_KEY;\n'
+    snippet: 'const secretKey = context.env.MY_API_KEY;\n'
   },
   {
-    name: 'ctx.log(...args)',
-    type: '(...args: any[]) => void',
-    cat: 'utils',
-    desc: 'Structured execution logging captured in the function Execution Logs tab',
-    snippet: 'ctx.log("Processing execution step", { step: 1, time: Date.now() });\n'
-  },
-  {
-    name: 'ctx.app',
+    name: 'context.app',
     type: '{ id, slug, name }',
     cat: 'utils',
     desc: 'Current tenant application identification and slug',
-    snippet: 'const { id, slug } = ctx.app;\n'
+    snippet: 'const { id, slug } = context.app;\n'
   }
 ];
 
@@ -587,12 +617,12 @@ function renderWorkbenchCodePane(fn) {
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="font-weight: 600; font-size: 13px; color: var(--text-heading);">Function Handler Source</span>
-            <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">export default async function(ctx) { ... }</span>
+            <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">export default async function(core, context) { ... }</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button type="button" class="btn btn-secondary btn-sm" id="btn-toolbar-toggle-ctx" onclick="toggleWorkbenchCtxRef()" style="font-size: 11px; display: flex; align-items: center; gap: 6px; padding: 3px 9px; background: ${functionsState.isCtxRefExpanded ? 'var(--accent-primary)' : 'var(--bg-card-hover)'}; color: ${functionsState.isCtxRefExpanded ? '#fff' : 'var(--text-main)'};" title="Toggle Context Reference Panel">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-              <span>Context API (ctx)</span>
+              <span>API Reference (core, context)</span>
             </button>
             <span style="font-size: 11px; color: var(--text-muted);">Templates:</span>
             <select class="input" style="font-size: 11px; padding: 2px 8px;" onchange="applyStarterRecipe(this.value)">
@@ -613,11 +643,11 @@ function renderWorkbenchCodePane(fn) {
           <div id="workbench-ctx-header" onclick="toggleWorkbenchCtxRef()" style="display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; background: var(--bg-card); cursor: pointer; user-select: none; border-bottom: ${functionsState.isCtxRefExpanded ? '1px solid var(--border-subtle)' : 'none'}; font-size: 12px;">
             <div style="display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text-heading);">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-primary);"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-              <span>Context Reference (<code>ctx</code>)</span>
-              <span style="font-size: 11px; color: var(--text-muted); font-weight: normal;">— 1-click snippet insert for request, events, CRUD & network</span>
+              <span>Platform Reference (<code>core, context</code>)</span>
+              <span style="font-size: 11px; color: var(--text-muted); font-weight: normal;">— 1-click snippet insert for SDK, queue, request, events & network</span>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="badge" style="background: var(--bg-card-hover); color: var(--text-muted); font-size: 10px;">18 items</span>
+              <span class="badge" style="background: var(--bg-card-hover); color: var(--text-muted); font-size: 10px;">22 items</span>
               <button type="button" class="btn btn-secondary btn-sm" id="btn-toggle-workbench-ctx" onclick="event.stopPropagation(); toggleWorkbenchCtxRef();" style="font-size: 11px; padding: 2px 9px;">
                 ${functionsState.isCtxRefExpanded ? 'Hide Reference ▴' : 'Show Reference ▾'}
               </button>
@@ -627,14 +657,15 @@ function renderWorkbenchCodePane(fn) {
           <div id="workbench-ctx-content" style="display: ${functionsState.isCtxRefExpanded ? 'flex' : 'none'}; flex-direction: column; gap: 10px; padding: 12px 14px; background: var(--bg-card);">
             <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
               <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
-                <button type="button" class="ctx-cat-btn active" data-cat="all" onclick="filterCtxCategory('all')" style="font-size: 11px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--accent-primary); color: #fff; cursor: pointer; font-weight: 500;">All (18)</button>
-                <button type="button" class="ctx-cat-btn" data-cat="request" onclick="filterCtxCategory('request')" style="font-size: 11px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--bg-card); color: var(--text-muted); cursor: pointer; font-weight: 500;">HTTP (ctx.request)</button>
-                <button type="button" class="ctx-cat-btn" data-cat="event" onclick="filterCtxCategory('event')" style="font-size: 11px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--bg-card); color: var(--text-muted); cursor: pointer; font-weight: 500;">DB Events (ctx.event)</button>
-                <button type="button" class="ctx-cat-btn" data-cat="records" onclick="filterCtxCategory('records')" style="font-size: 11px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--bg-card); color: var(--text-muted); cursor: pointer; font-weight: 500;">Database CRUD (ctx.records)</button>
-                <button type="button" class="ctx-cat-btn" data-cat="utils" onclick="filterCtxCategory('utils')" style="font-size: 11px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--bg-card); color: var(--text-muted); cursor: pointer; font-weight: 500;">Fetch, Env & Logs</button>
+                <button type="button" class="ctx-cat-btn active" data-cat="all" onclick="filterCtxCategory('all')" style="font-size: 11px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--accent-primary); color: #fff; cursor: pointer; font-weight: 500;">All (22)</button>
+                <button type="button" class="ctx-cat-btn" data-cat="request" onclick="filterCtxCategory('request')" style="font-size: 11px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--bg-card); color: var(--text-muted); cursor: pointer; font-weight: 500;">HTTP (context.request)</button>
+                <button type="button" class="ctx-cat-btn" data-cat="event" onclick="filterCtxCategory('event')" style="font-size: 11px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--bg-card); color: var(--text-muted); cursor: pointer; font-weight: 500;">DB Events (context.event)</button>
+                <button type="button" class="ctx-cat-btn" data-cat="records" onclick="filterCtxCategory('records')" style="font-size: 11px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--bg-card); color: var(--text-muted); cursor: pointer; font-weight: 500;">Collections (core.sdk)</button>
+                <button type="button" class="ctx-cat-btn" data-cat="queue" onclick="filterCtxCategory('queue')" style="font-size: 11px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--bg-card); color: var(--text-muted); cursor: pointer; font-weight: 500;">Queues (core.sdk)</button>
+                <button type="button" class="ctx-cat-btn" data-cat="utils" onclick="filterCtxCategory('utils')" style="font-size: 11px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--bg-card); color: var(--text-muted); cursor: pointer; font-weight: 500;">Network & Obs</button>
               </div>
               <div style="flex: 1; max-width: 260px; min-width: 180px;">
-                <input type="text" id="ctx-search-input" class="input" placeholder="Search ctx variables..." oninput="filterCtxSearch(this.value)" style="width: 100%; font-size: 11px; padding: 4px 8px;">
+                <input type="text" id="ctx-search-input" class="input" placeholder="Search core & context APIs..." oninput="filterCtxSearch(this.value)" style="width: 100%; font-size: 11px; padding: 4px 8px;">
               </div>
             </div>
 
@@ -734,11 +765,11 @@ function renderWorkbenchConfigPane(fn, isNew, allowedDomainsString, envString) {
 
         <div class="card" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem;">
           <div style="font-weight: 600; font-size: 13px; color: var(--text-heading); border-bottom: 1px solid var(--border-subtle); padding-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
-            <span>Environment Secrets (<code>ctx.env</code>)</span>
+            <span>Environment Secrets (<code>context.env</code>)</span>
             <span style="font-size: 11px; color: var(--text-muted); font-weight: normal;">JSON Object</span>
           </div>
           <textarea id="fn-editor-env" style="width: 100%; height: 95px; font-family: monospace; font-size: 12px; padding: 8px; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-card-hover); color: var(--text-main);" placeholder='{ "STRIPE_SECRET": "sk_test_..." }'>${escapeHtml(envString)}</textarea>
-          <span style="font-size: 11px; color: var(--text-muted);">Encrypted in database and injected at runtime into <code>ctx.env</code>. Isolated from system <code>process.env</code>.</span>
+          <span style="font-size: 11px; color: var(--text-muted);">Encrypted in database and injected at runtime into <code>context.env</code>. Isolated from system <code>process.env</code>.</span>
         </div>
       </div>
     </div>

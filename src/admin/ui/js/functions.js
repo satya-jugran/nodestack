@@ -39,22 +39,22 @@ if (typeof window !== 'undefined') {
 
 const STARTER_RECIPES = {
   starter: `// Serverless Function Starter
-export default async function(ctx) {
-  ctx.log("Invoked function in app:", ctx.app.slug);
-  const name = ctx.request.body?.name || "World";
+export default async function(core, context) {
+  core.observability.log("Invoked function in app:", context.app.slug);
+  const name = context.request?.body?.name || "World";
   return {
     status: 200,
     body: { message: "Hello, " + name + "!" }
   };
 }`,
   discount: `// Calculate cart discount with RuleEngine access rules preserved
-export default async function(ctx) {
-  const { cartTotal, couponCode } = ctx.request.body || {};
+export default async function(core, context) {
+  const { cartTotal, couponCode } = context.request?.body || {};
   let discountRate = 0;
 
   if (couponCode === "SAVE20") {
     discountRate = 0.20;
-  } else if (couponCode === "VIP50" && ctx.request.auth) {
+  } else if (couponCode === "VIP50" && context.request?.auth) {
     discountRate = 0.50;
   }
 
@@ -72,9 +72,9 @@ export default async function(ctx) {
   };
 }`,
   hook: `// Lifecycle Hook: validate and enrich records before creation
-export default async function(ctx) {
-  if (ctx.event && ctx.event.record) {
-    const record = ctx.event.record;
+export default async function(core, context) {
+  if (context.event && context.event.record) {
+    const record = context.event.record;
     
     // 1. Validation guardrail
     if (record.amount !== undefined && record.amount < 0) {
@@ -92,9 +92,9 @@ export default async function(ctx) {
   return { status: 200 };
 }`,
   fetch: `// Outbound HTTP Integration with SSRF Guardrails
-export default async function(ctx) {
+export default async function(core, context) {
   // Guarded fetch rejects private IPs, loopback, and cloud metadata
-  const res = await ctx.fetch('https://httpbin.org/json');
+  const res = await core.network.http.fetch('https://httpbin.org/json');
   const data = await res.json();
   
   return {

@@ -17,7 +17,7 @@ export interface FlowExecution {
   id: string;
   flowId: string;
   flowName: string;
-  status: 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled' | 'aborted';
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled' | 'aborted';
   input: any;
   output?: any;
   error?: string;
@@ -48,7 +48,7 @@ export interface FlowAsyncDispatchResponse {
   executionId: string;
   flowId: string;
   flowName: string;
-  status: 'running';
+  status: 'queued' | 'running';
   pollUrl: string;
 }
 
@@ -130,11 +130,17 @@ export class FlowService extends BaseService {
   /**
    * Resumes an orphaned or interrupted running flow from its last completed checkpoint.
    */
-  public async resumeExecution(executionId: string): Promise<FlowExecution> {
+  public async resumeExecution(
+    executionId: string,
+    options?: { wait?: boolean; timeoutMs?: number }
+  ): Promise<FlowExecution> {
     const appPrefix = this.client.appSlug ? `/api/apps/${encodeURIComponent(this.client.appSlug)}` : '/api';
     return this.send<FlowExecution>(
       `${appPrefix}/flows/executions/${encodeURIComponent(executionId)}/resume`,
-      { method: 'POST' }
+      {
+        method: 'POST',
+        query: options,
+      }
     );
   }
 

@@ -165,6 +165,12 @@ export { AppRegistry } from './apps/AppRegistry';
 export { AppScope } from './apps/AppScope';
 export * from './apps/models/App';
 
+// Generic Queue Processor ("NodeStack Queues")
+export { QueueService, QueueServiceOptions } from './queue/QueueService';
+export { IQueueDriver } from './queue/drivers/IQueueDriver';
+export { SqliteQueueDriver } from './queue/drivers/SqliteQueueDriver';
+export { QueueController } from './http/controllers/QueueController';
+export * from './queue/types';
 
 // Functions Flow ("Functions Flow Manager & Engine")
 export { FlowService, FlowServiceOptions } from './flows/FlowService';

@@ -393,5 +393,58 @@ describe('Multi-Application & MVP SDK Support', () => {
       expect(lastMethod).toBe('DELETE');
       expect(deleted).toBe(true);
     });
+
+    it('should operate on queues via client.queue(name) (send, claim, complete, fail, getJob)', async () => {
+      let lastMethod = '';
+      let lastUrl = '';
+      let lastBody = null;
+
+      const mockFetch = vi.fn().mockImplementation(async (url, opts) => {
+        lastUrl = url;
+        lastMethod = opts.method;
+        lastBody = opts.body ? JSON.parse(opts.body) : null;
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({ success: true, id: 'job_123', status: 'completed' }),
+        };
+      });
+
+      const client = new NodeStackClient('http://127.0.0.1:8090', { fetch: mockFetch as any });
+      const q = client.queue('email-notifications');
+
+      // 1. send
+      await q.send({ to: 'alice@example.com' }, { delaySeconds: 10, priority: 5 });
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/messages');
+      expect(lastMethod).toBe('POST');
+      expect(lastBody).toEqual({
+        payload: { to: 'alice@example.com' },
+        delaySeconds: 10,
+        priority: 5,
+      });
+
+      // 2. claim
+      await q.claim({ visibilityTimeoutSeconds: 30, limit: 1 });
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/messages?limit=1&visibilityTimeoutSeconds=30');
+      expect(lastMethod).toBe('GET');
+
+      // 3. complete
+      await q.complete('job_123', { delivered: true });
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/jobs/job_123/ack');
+      expect(lastMethod).toBe('POST');
+      expect(lastBody).toEqual({ result: { delivered: true } });
+
+      // 4. fail
+      await q.fail('job_123', 'SMTP connection timeout');
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/jobs/job_123/nack');
+      expect(lastMethod).toBe('POST');
+      expect(lastBody).toEqual({ error: 'SMTP connection timeout' });
+
+      // 5. getJob
+      await q.getJob('job_123');
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/jobs/job_123');
+      expect(lastMethod).toBe('GET');
+    });
   });
 });

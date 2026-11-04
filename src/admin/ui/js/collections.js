@@ -383,6 +383,13 @@ function updateBreadcrumbs() {
     } else {
       crumbs.push({ label: 'Flows', active: true });
     }
+  } else if (state.activeNav === 'queues') {
+    if (typeof queuesState !== 'undefined' && queuesState.subTab === 'jobs') {
+      crumbs.push({ label: 'Queues', clickable: true, action: () => { if (typeof switchQueuesTab === 'function') switchQueuesTab('queues'); } });
+      crumbs.push({ label: 'Job Inspector', active: true });
+    } else {
+      crumbs.push({ label: 'Queues', active: true });
+    }
   } else if (state.activeNav === 'home') {
     crumbs.push({ label: 'Overview', active: true });
   } else if (state.activeNav === 'analytics') {

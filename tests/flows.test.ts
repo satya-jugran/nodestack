@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { JSDOM } from 'jsdom';
@@ -47,7 +47,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     app.functions.createFunction({
       name: 'calculate-tax',
       code: `
-        export default async function(context) {
+        export default async function(core, context) {
           const amount = context.request?.body?.amount || 0;
           return {
             tax: amount * 0.1,
@@ -68,7 +68,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     app.functions.createFunction({
       name: 'apply-discount',
       code: `
-        export default async function(context) {
+        export default async function(core, context) {
           const total = context.request?.body?.calculation?.totalWithTax || context.request?.body?.totalWithTax || 0;
           const discount = context.request?.body?.order?.discount || context.request?.body?.discount || 0;
           return {
@@ -89,7 +89,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     app.functions.createFunction({
       name: 'square-item',
       code: `
-        export default async function(context) {
+        export default async function(core, context) {
           const num = context.request?.body?.value || 0;
           return {
             squared: num * num
@@ -109,7 +109,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     app.functions.createFunction({
       name: 'failing-task',
       code: `
-        export default async function(context) {
+        export default async function(core, context) {
           throw new Error('PlannedFunctionFailure');
         }
       `,
@@ -3169,7 +3169,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.functions.createFunction({
         name: 'flaky-network-task',
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             const count = context.request?.body?.count || 0;
             if (count === 1) {
               throw new Error('Temporary 503 upstream gateway outage');
@@ -3268,7 +3268,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const flakyFn = app.functions.getFunctionByName('flaky-network-task')!;
       app.functions.updateFunction(flakyFn.id, {
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             return {
               recoveredSuccessfully: true,
               receivedCount: context.request?.body?.count || 0,
@@ -3297,7 +3297,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.functions.createFunction({
         name: 'terminal-failure-task',
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             throw new Error('Fatal database connection refused');
           }
         `,
@@ -3435,7 +3435,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const taskFn = app.functions.getFunctionByName('terminal-failure-task')!;
       app.functions.updateFunction(taskFn.id, {
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             return { fixed: true, received: context.request?.body?.startParam };
           }
         `,
@@ -3462,7 +3462,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.functions.createFunction({
         name: 'checkpoint-test-step2-fn',
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             return { executed: true };
           }
         `,
@@ -3591,7 +3591,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.functions.createFunction({
         name: 'atomic-claim-side-effect-fn',
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             return { executed: true };
           }
         `,
@@ -3746,7 +3746,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.functions.createFunction({
         name: 'choice-branch-test-fn',
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             return { branchRan: true, score: context.request?.body?.score };
           }
         `,
@@ -3898,7 +3898,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.functions.createFunction({
         name: 'admin-auth-task-fn',
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             return { executedWithAdmin: true, caller: context.request?.auth?.email };
           }
         `,
@@ -3981,6 +3981,825 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(resumed.output.caller).toBe('admin@nodestack.test');
       expect(resumed.actor?.isAdmin).toBe(true);
       expect(resumed.actorId).toBe('admin-uuid-123');
+    });
+  });
+
+  // ==========================================
+  // Flow Concurrency Throttling (maxConcurrentExecutions)
+  // ==========================================
+  describe('Flow Concurrency Throttling (maxConcurrentExecutions & Per-Flow System Queues)', () => {
+    it('should validate maxConcurrentExecutions on flow create and update', async () => {
+      expect(() =>
+        app.flows.createFlow({
+          name: 'InvalidConcurrencyZero',
+          maxConcurrentExecutions: 0,
+          definition: {
+            startAt: 'Step1',
+            states: { Step1: { type: 'Pass', end: true } },
+          },
+        })
+      ).toThrowError(/maxConcurrentExecutions/i);
+
+      expect(() =>
+        app.flows.createFlow({
+          name: 'InvalidConcurrencyFloat',
+          maxConcurrentExecutions: 2.5,
+          definition: {
+            startAt: 'Step1',
+            states: { Step1: { type: 'Pass', end: true } },
+          },
+        })
+      ).toThrowError(/maxConcurrentExecutions/i);
+
+      const validFlow = app.flows.createFlow({
+        name: 'ValidThrottledFlow',
+        maxConcurrentExecutions: 3,
+        definition: {
+          startAt: 'Step1',
+          states: { Step1: { type: 'Pass', end: true } },
+        },
+      });
+      expect(validFlow.maxConcurrentExecutions).toBe(3);
+
+      // Give async queue upsert a brief moment to settle
+      await new Promise((r) => setTimeout(r, 20));
+      const sysQueue = await app.queue.getQueue(`_system:flow:${validFlow.id}`);
+      expect(sysQueue).not.toBeNull();
+      expect(sysQueue?.concurrency).toBe(3);
+      expect(sysQueue?.isSystem).toBe(true);
+
+      const unbounded = app.flows.updateFlow(validFlow.id, {
+        maxConcurrentExecutions: null,
+      });
+      expect(unbounded.maxConcurrentExecutions).toBeNull();
+      await new Promise((r) => setTimeout(r, 20));
+      const deletedSysQueue = await app.queue.getQueue(`_system:flow:${validFlow.id}`);
+      expect(deletedSysQueue).toBeNull();
+
+      app.flows.deleteFlow(validFlow.id);
+    });
+
+    it('should drain pending queued executions when maxConcurrentExecutions is removed instead of stranding them', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'DrainOnConcurrencyRemovalFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Work',
+          states: {
+            Work: {
+              type: 'Wait',
+              seconds: 1,
+              end: true,
+            },
+          },
+        },
+      });
+
+      // Dispatch 3 executions with wait=false
+      const exec1 = await app.flows.executeFlow(throttledFlow.id, { item: 1 }, undefined, { wait: false });
+      const exec2 = await app.flows.executeFlow(throttledFlow.id, { item: 2 }, undefined, { wait: false });
+      const exec3 = await app.flows.executeFlow(throttledFlow.id, { item: 3 }, undefined, { wait: false });
+
+      expect(['queued', 'running']).toContain(exec1.status);
+      expect(exec2.status).toBe('queued');
+      expect(exec3.status).toBe('queued');
+
+      // Now remove maxConcurrentExecutions while exec2 and exec3 are still queued
+      app.flows.updateFlow(throttledFlow.id, {
+        maxConcurrentExecutions: null,
+      });
+
+      // Poll until all executions complete under the new unlimited setting
+      await vi.waitFor(async () => {
+        const e1 = app.flows.getExecutionById(exec1.id);
+        const e2 = app.flows.getExecutionById(exec2.id);
+        const e3 = app.flows.getExecutionById(exec3.id);
+        expect(e1?.status).toBe('succeeded');
+        expect(e2?.status).toBe('succeeded');
+        expect(e3?.status).toBe('succeeded');
+      }, { timeout: 4000, interval: 50 });
+
+      // After draining, the system queue should be cleaned up automatically
+      await vi.waitFor(async () => {
+        const q = await app.queue.getQueue(`_system:flow:${throttledFlow.id}`);
+        expect(q).toBeNull();
+      }, { timeout: 4000, interval: 50 });
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
+    it('should acquire system queue slot when resuming a failed execution on a throttled flow (maxConcurrentExecutions = 1)', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'ResumeThrottledFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Work',
+          states: {
+            Work: {
+              type: 'Wait',
+              seconds: 1,
+              end: true,
+            },
+          },
+        },
+      });
+
+      // Prepare a failed execution in SQLite for this flow
+      const failedExecId = 'exec_failed_to_resume_1';
+      const db = (app.flows as any).db;
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'failed', '{"test":true}', null, 100, '[]', ?, ?)
+      `).run(
+        failedExecId,
+        throttledFlow.id,
+        throttledFlow.name,
+        new Date().toISOString(),
+        JSON.stringify({ currentStateName: 'Work', currentPayload: { test: true }, updatedAt: new Date().toISOString() })
+      );
+
+      // Start an execution currently occupying the only concurrency slot (maxConcurrentExecutions = 1)
+      const runningExec = await app.flows.executeFlow(throttledFlow.id, { item: 'active' }, undefined, { wait: false });
+      expect(['queued', 'running']).toContain(runningExec.status);
+
+      // Call resumeExecution with wait = false; it must NOT run immediately outside the queue
+      const resumedExec = await app.flows.resumeExecution(failedExecId, { wait: false });
+      expect(resumedExec.status).toBe('queued');
+
+      // Verify that while runningExec is active, countRunningExecutions never exceeds 1
+      const runningCount = app.flows.countRunningExecutions(throttledFlow.id);
+      expect(runningCount).toBeLessThanOrEqual(1);
+
+      // Verify that resumedExec has an active job in the system queue
+      const queueJob = await app.queue.getJob(resumedExec.jobId!);
+      expect(queueJob).toBeDefined();
+      expect(queueJob?.queue).toBe(`_system:flow:${throttledFlow.id}`);
+
+      // Wait until both executions finish in sequence
+      await vi.waitFor(async () => {
+        const r1 = app.flows.getExecutionById(runningExec.id);
+        const r2 = app.flows.getExecutionById(failedExecId);
+        expect(r1?.status).toBe('succeeded');
+        expect(r2?.status).toBe('succeeded');
+      }, { timeout: 4000, interval: 50 });
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
+    it('should route orphaned executions through queue admission when recovering with strategy resume on a throttled flow', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'RecoverThrottledFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Step1',
+          states: {
+            Step1: {
+              type: 'Pass',
+              result: { step1Done: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const orphanId = 'exec_orphan_throttled_1';
+      const db = (app.flows as any).db;
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', '{}', 0, '[]', ?, ?)
+      `).run(
+        orphanId,
+        throttledFlow.id,
+        throttledFlow.name,
+        new Date().toISOString(),
+        JSON.stringify({ currentStateName: 'Step1', currentPayload: {}, updatedAt: new Date().toISOString() })
+      );
+
+      // Recover with strategy 'resume'
+      const recovered = await app.flows.recoverOrphanedExecutions('resume');
+      const found = recovered.find((r) => r.id === orphanId);
+      expect(found).toBeDefined();
+      expect(found!.status).toBe('queued');
+
+      // Poll until the queue worker executes and completes the resumed execution
+      await vi.waitFor(async () => {
+        const item = app.flows.getExecutionById(orphanId);
+        expect(item?.status).toBe('succeeded');
+      }, { timeout: 4000, interval: 50 });
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
+    it('should atomically reserve admission before yielding so concurrent executeFlow calls with identical executionId reject cleanly without overwriting waiters or failing queue unique constraints', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'ConcurrentIdFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Work',
+          states: {
+            Work: {
+              type: 'Wait',
+              seconds: 0.5,
+              end: true,
+            },
+          },
+        },
+      });
+
+      const sharedExecutionId = `exec_shared_${Date.now()}`;
+
+      // Fire two concurrent executeFlow() calls with wait=true and the EXACT same executionId
+      const [res1, res2] = await Promise.allSettled([
+        app.flows.executeFlow(throttledFlow.id, { call: 1 }, undefined, {
+          executionId: sharedExecutionId,
+          wait: true,
+        }),
+        app.flows.executeFlow(throttledFlow.id, { call: 2 }, undefined, {
+          executionId: sharedExecutionId,
+          wait: true,
+        }),
+      ]);
+
+      const fulfilled = [res1, res2].filter((r) => r.status === 'fulfilled');
+      const rejected = [res1, res2].filter((r) => r.status === 'rejected');
+
+      // Exactly one must succeed, and one must be rejected with 409 Conflict
+      expect(fulfilled.length).toBe(1);
+      expect(rejected.length).toBe(1);
+
+      // Verify successful execution completed properly without waiter loss or timing out
+      const successResult = (fulfilled[0] as PromiseFulfilledResult<any>).value;
+      expect(successResult.status).toBe('succeeded');
+      expect(successResult.id).toBe(sharedExecutionId);
+
+      // Verify rejected execution gave 409 Conflict (not a SQLite unique constraint error or 408 timeout)
+      const errorResult = (rejected[0] as PromiseRejectedResult).reason;
+      expect(errorResult.statusCode).toBe(409);
+      expect(errorResult.message).toMatch(/already running|currently running/i);
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
+    it('should reject executeFlow with 409 Conflict if supplied executionId already exists (e.g. completed)', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'CompletedIdReuseFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Done',
+          states: {
+            Done: {
+              type: 'Pass',
+              result: { done: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const fixedExecutionId = `exec_completed_${Date.now()}`;
+
+      // First execution completes normally
+      const exec1 = await app.flows.executeFlow(throttledFlow.id, {}, undefined, {
+        executionId: fixedExecutionId,
+        wait: true,
+      });
+      expect(exec1.status).toBe('succeeded');
+
+      // Attempting to reuse the same executionId must be rejected with 409 Conflict rather than overwriting
+      await expect(
+        app.flows.executeFlow(throttledFlow.id, {}, undefined, {
+          executionId: fixedExecutionId,
+          wait: true,
+        })
+      ).rejects.toThrowError(/already exists/i);
+
+      // Verify original succeeded record was NOT overwritten or corrupted
+      const check = app.flows.getExecutionById(fixedExecutionId);
+      expect(check?.status).toBe('succeeded');
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
+    it('should clean up waiter/timer and mark execution failed on queue dispatch failure without unhandled rejections', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'DispatchFailureCleanupFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Work',
+          states: {
+            Work: {
+              type: 'Wait',
+              seconds: 0.1,
+              end: true,
+            },
+          },
+        },
+      });
+
+      const testExecId = `exec_dispatch_fail_${Date.now()}`;
+      const queueService = (app.flows as any).queueService;
+      const originalSend = queueService.send.bind(queueService);
+
+      // Simulate queue dispatch failure (e.g. database error, constraint failure, etc.)
+      queueService.send = vi.fn().mockRejectedValueOnce(new Error('Simulated queue driver failure'));
+
+      let dispatchError: any;
+      try {
+        await app.flows.executeFlow(throttledFlow.id, {}, undefined, {
+          executionId: testExecId,
+          wait: true,
+          timeoutMs: 100, // Short timeout to verify timer does NOT fire
+        });
+      } catch (err: any) {
+        dispatchError = err;
+      }
+
+      expect(dispatchError).toBeDefined();
+      expect(dispatchError.message).toContain('Simulated queue driver failure');
+
+      // Waiter must have been cleaned up immediately from Map
+      const waiters = (app.flows as any).executionWaiters;
+      expect(waiters.has(testExecId)).toBe(false);
+
+      // Execution in DB must NOT be stranded as 'queued'; it should be marked as 'failed'
+      const record = app.flows.getExecutionById(testExecId);
+      expect(record?.status).toBe('failed');
+      expect(record?.error).toContain('Dispatch failed');
+
+      // Restore original send method
+      queueService.send = originalSend;
+
+      // Wait beyond the 100ms timeout to ensure no unhandled promise rejection or orphaned timer fires
+      await new Promise((r) => setTimeout(r, 200));
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
+    it('should renew lease for remaining execution budget and maintain heartbeat so long steps (Pass -> Wait) do not lose their lease or concurrency slot', async () => {
+      const longBudgetFlow = app.flows.createFlow({
+        name: 'LongBudgetLeaseFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'FastPass',
+          timeoutSeconds: 300,
+          states: {
+            FastPass: {
+              type: 'Pass',
+              next: 'HoldStep',
+            },
+            HoldStep: {
+              type: 'Wait',
+              seconds: 0.4,
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId1 = `exec_long_budget_${Date.now()}`;
+      const exec1Promise = app.flows.executeFlow(longBudgetFlow.id, { step: 1 }, undefined, {
+        executionId: execId1,
+        wait: true,
+      });
+
+      // Wait 80ms for FastPass to complete and HoldStep to be active
+      await new Promise((r) => setTimeout(r, 80));
+
+      const exec1 = app.flows.getExecutionById(execId1);
+      expect(exec1).not.toBeNull();
+      expect(exec1?.status).toBe('running');
+      expect(exec1?.jobId).toBeDefined();
+
+      const job = await app.queue.getJob(exec1!.jobId!);
+      expect(job).not.toBeNull();
+      expect(job?.status).toBe('processing');
+
+      // The lease must retain the remaining ~300+ second execution budget rather than being truncated to 60s
+      const leaseExpiry = new Date(job!.leaseExpiresAt!).getTime();
+      const minExpectedLeaseExpiry = Date.now() + 250000; // at least 250s in the future
+      expect(leaseExpiry).toBeGreaterThan(minExpectedLeaseExpiry);
+
+      // Concurrency check: another execution dispatched while HoldStep is running must stay queued
+      const exec2 = await app.flows.executeFlow(longBudgetFlow.id, { step: 2 }, undefined, { wait: false });
+      expect(exec2.status).toBe('queued');
+
+      // Wait for exec1 to complete
+      const res1 = await exec1Promise;
+      expect(res1.status).toBe('succeeded');
+
+      // Wait for queued exec2 to be claimed and complete
+      await vi.waitFor(async () => {
+        const check2 = app.flows.getExecutionById(exec2.id);
+        expect(check2?.status).toBe('succeeded');
+      }, { timeout: 3000, interval: 50 });
+
+      app.flows.deleteFlow(longBudgetFlow.id);
+    });
+
+    it('should reconcile non-queued job states on startup and restore claimable job when execution is queued', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'CrashReconciliationFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Work',
+          states: {
+            Work: {
+              type: 'Pass',
+              result: { crashRecovered: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const queueName = `_system:flow:${throttledFlow.id}`;
+      const executionId = `exec_crashed_sim_${Date.now()}`;
+      const jobId = `job_${executionId}`;
+      const db = (app.flows as any).db;
+      const now = new Date().toISOString();
+
+      // 1. Simulate process crashing right after QueueService claimed the job but BEFORE execution became 'running':
+      // Execution is still 'queued', while QueueJob is in 'processing' with attempts=1
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, durationMs, stepLogs, queuedAt, startedAt, jobId)
+        VALUES (?, ?, ?, 'queued', '{}', 0, '[]', ?, ?, ?)
+      `).run(executionId, throttledFlow.id, throttledFlow.name, now, now, jobId);
+
+      db.prepare(`
+        INSERT INTO _queue_jobs (id, queue, groupKey, status, payload, attempts, maxAttempts, claimedBy, leaseExpiresAt, availableAt, created, updated)
+        VALUES (?, ?, ?, 'processing', ?, 1, 1, 'dead_worker_pid', ?, ?, ?, ?)
+      `).run(
+        jobId,
+        queueName,
+        throttledFlow.id,
+        JSON.stringify({ executionId, flowId: throttledFlow.id, input: {} }),
+        new Date(Date.now() + 60000).toISOString(),
+        now,
+        now,
+        now
+      );
+
+      // Verify simulated pre-conditions
+      const preExec = app.flows.getExecutionById(executionId);
+      expect(preExec?.status).toBe('queued');
+      const preJob = await app.queue.getJob(jobId);
+      expect(preJob?.status).toBe('processing');
+
+      // 2. Run startup reconciliation
+      await app.flows.recoverOrphanedExecutions();
+
+      // 3. Worker must have been woken, claimed the restored job, and executed the flow to 'succeeded'
+      await vi.waitFor(async () => {
+        const postExec = app.flows.getExecutionById(executionId);
+        expect(postExec?.status).toBe('succeeded');
+        expect(postExec?.output).toEqual({ crashRecovered: true });
+      }, { timeout: 4000, interval: 50 });
+
+      // Verify the queue job reached 'completed' rather than being dead-lettered
+      const postJob = await app.queue.getJob(jobId);
+      expect(postJob?.status).toBe('completed');
+
+      // 4. Test second case: an execution whose job became 'dead_letter' before startup reconciliation
+      const deadExecId = `exec_dead_letter_sim_${Date.now()}`;
+      const deadJobId = `job_${deadExecId}`;
+
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, durationMs, stepLogs, queuedAt, startedAt, jobId)
+        VALUES (?, ?, ?, 'queued', '{}', 0, '[]', ?, ?, ?)
+      `).run(deadExecId, throttledFlow.id, throttledFlow.name, now, now, deadJobId);
+
+      db.prepare(`
+        INSERT INTO _queue_jobs (id, queue, groupKey, status, payload, attempts, maxAttempts, claimedBy, leaseExpiresAt, availableAt, created, updated)
+        VALUES (?, ?, ?, 'dead_letter', ?, 1, 1, NULL, NULL, ?, ?, ?)
+      `).run(
+        deadJobId,
+        queueName,
+        throttledFlow.id,
+        JSON.stringify({ executionId: deadExecId, flowId: throttledFlow.id, input: {} }),
+        now,
+        now,
+        now
+      );
+
+      // Run startup reconciliation again
+      await app.flows.recoverOrphanedExecutions();
+
+      // Must be restored from dead_letter and successfully executed
+      await vi.waitFor(async () => {
+        const recoveredDeadExec = app.flows.getExecutionById(deadExecId);
+        expect(recoveredDeadExec?.status).toBe('succeeded');
+      }, { timeout: 4000, interval: 50 });
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
+    it('should throttle bulk database event triggers (e.g. 12 concurrent events with maxConcurrentExecutions = 2) and execute all in FIFO without dropping', async () => {
+      app.schema.createCollection({
+        name: 'bulk_throttle_items',
+        type: 'base',
+        schema: [
+          { id: 'f_seq', name: 'seq', type: 'number', required: true },
+        ],
+      });
+
+      const throttledFlow = app.flows.createFlow({
+        name: 'BulkEventThrottledFlow',
+        enabled: true,
+        triggerType: 'event',
+        eventTrigger: 'bulk_throttle_items:create',
+        maxConcurrentExecutions: 2,
+        definition: {
+          startAt: 'SlowWork',
+          states: {
+            SlowWork: {
+              type: 'Wait',
+              seconds: 0.08,
+              next: 'Finish',
+            },
+            Finish: {
+              type: 'Pass',
+              result: { processed: true },
+              resultPath: '$.done',
+              end: true,
+            },
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      const totalItems = 12;
+      for (let i = 1; i <= totalItems; i++) {
+        await app.records.create('bulk_throttle_items', { seq: i }, { isAdmin: true });
+      }
+
+      await new Promise((r) => setTimeout(r, 20));
+      const midExecs = app.flows.getExecutions({ flowId: throttledFlow.id, perPage: 50, page: 1 });
+      const runningMid = midExecs.items.filter((e) => e.status === 'running');
+      const queuedMid = midExecs.items.filter((e) => e.status === 'queued');
+
+      expect(runningMid.length).toBeLessThanOrEqual(2);
+      expect(queuedMid.length).toBeGreaterThanOrEqual(4);
+
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const current = app.flows.getExecutions({ flowId: throttledFlow.id, perPage: 50, page: 1 });
+        const completedCount = current.items.filter((e) => e.status === 'succeeded').length;
+        const activeCount = current.items.filter((e) => e.status === 'running').length;
+        expect(activeCount).toBeLessThanOrEqual(2);
+        if (completedCount === totalItems) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+
+      const finalExecs = app.flows.getExecutions({ flowId: throttledFlow.id, perPage: 50, page: 1 });
+      expect(finalExecs.items.length).toBe(totalItems);
+      expect(finalExecs.items.every((e) => e.status === 'succeeded')).toBe(true);
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
+    it('should isolate per-flow queues so a backlogged Flow A (maxConcurrentExecutions=1) never blocks Flow B', async () => {
+      const flowA = app.flows.createFlow({
+        name: 'SlowIsolatedFlowA',
+        enabled: true,
+        triggerType: 'http',
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'WaitStep',
+          states: {
+            WaitStep: {
+              type: 'Wait',
+              seconds: 0.4,
+              end: true,
+            },
+          },
+        },
+      });
+
+      const flowB = app.flows.createFlow({
+        name: 'FastIsolatedFlowB',
+        enabled: true,
+        triggerType: 'http',
+        maxConcurrentExecutions: 5,
+        definition: {
+          startAt: 'QuickPass',
+          states: {
+            QuickPass: {
+              type: 'Pass',
+              result: { fast: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      const pA1 = app.flows.executeFlow(flowA.id, { run: 1 }, undefined, { wait: false });
+      const pA2 = app.flows.executeFlow(flowA.id, { run: 2 }, undefined, { wait: false });
+      const pA3 = app.flows.executeFlow(flowA.id, { run: 3 }, undefined, { wait: false });
+      await Promise.all([pA1, pA2, pA3]);
+
+      const startB = Date.now();
+      const resB = await app.flows.executeFlow(flowB.id, { check: 'isolation' }, undefined, { wait: true });
+      const elapsedB = Date.now() - startB;
+
+      expect(resB.status).toBe('succeeded');
+      expect(resB.output).toEqual({ fast: true });
+      expect(elapsedB).toBeLessThan(300);
+
+      await new Promise((r) => setTimeout(r, 1300));
+      app.flows.deleteFlow(flowA.id);
+      app.flows.deleteFlow(flowB.id);
+    });
+
+    it('should support HTTP wait=false (202 Accepted with status: queued), wait=true (blocks until slot finishes), and 408 Request Timeout when timeoutMs expires in queue', async () => {
+      const httpFlow = app.flows.createFlow({
+        name: 'HttpThrottledFlow',
+        enabled: true,
+        triggerType: 'http',
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'HoldSlot',
+          states: {
+            HoldSlot: {
+              type: 'Wait',
+              seconds: 0.35,
+              next: 'Done',
+            },
+            Done: {
+              type: 'Pass',
+              result: { completedViaQueue: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      const headers = {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json',
+      };
+
+      const res1 = await fetch(`http://127.0.0.1:8197/api/flows/${httpFlow.id}/execute?wait=false`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ first: true }),
+      });
+      expect(res1.status).toBe(202);
+      const body1 = await res1.json();
+      expect(['queued', 'running']).toContain(body1.status);
+      expect(body1.executionId).toBeDefined();
+
+      const res2 = await fetch(`http://127.0.0.1:8197/api/flows/${httpFlow.id}/execute?wait=false`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ second: true }),
+      });
+      expect(res2.status).toBe(202);
+      const body2 = await res2.json();
+      expect(body2.status).toBe('queued');
+
+      const resTimeout = await fetch(
+        `http://127.0.0.1:8197/api/flows/${httpFlow.id}/execute?wait=true&timeoutMs=80`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ third: 'will-timeout' }),
+        }
+      );
+      expect(resTimeout.status).toBe(408);
+
+      const resSync = await fetch(
+        `http://127.0.0.1:8197/api/flows/${httpFlow.id}/execute?wait=true&timeoutMs=5000`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ fourth: 'waits-and-succeeds' }),
+        }
+      );
+      expect(resSync.status).toBe(200);
+      const syncExec = await resSync.json();
+      expect(syncExec.status).toBe('succeeded');
+      expect(syncExec.output).toEqual({ completedViaQueue: true });
+
+      app.flows.deleteFlow(httpFlow.id);
+    });
+
+    it('should cancel the underlying queue job and prevent execution when abortExecution() is called on a queued flow execution', async () => {
+      const abortFlow = app.flows.createFlow({
+        name: 'AbortQueuedFlow',
+        enabled: true,
+        triggerType: 'http',
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'SlowStep',
+          states: {
+            SlowStep: {
+              type: 'Wait',
+              seconds: 0.4,
+              end: true,
+            },
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      await app.flows.executeFlow(abortFlow.id, { seq: 1 }, undefined, { wait: false });
+      const exec2 = await app.flows.executeFlow(abortFlow.id, { seq: 2 }, undefined, { wait: false });
+      expect(exec2.status).toBe('queued');
+      expect(exec2.jobId).toBeDefined();
+
+      const aborted = app.flows.abortExecution(exec2.id);
+      expect(aborted.status).toBe('aborted');
+
+      await new Promise((r) => setTimeout(r, 20));
+      const cancelledJob = await app.queue.getJob(exec2.jobId!);
+      expect(cancelledJob).toBeNull();
+
+      await new Promise((r) => setTimeout(r, 550));
+      const exec2After = app.flows.getExecutionById(exec2.id)!;
+      expect(exec2After.status).toBe('aborted');
+      expect(exec2After.stepLogs.length).toBe(0);
+
+      app.flows.deleteFlow(abortFlow.id);
+    });
+
+    it('should render maxConcurrentExecutions controls in Admin UI (Create Flow modal, Flow cards, Designer toolbar, and Execution status filter)', async () => {
+      const htmlPath = path.resolve(__dirname, '../dist/admin/ui/index.html');
+      const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+
+      const dom = new JSDOM(htmlContent, {
+        runScripts: 'dangerously',
+        resources: 'usable',
+        url: 'http://localhost:8197/_/',
+      });
+      const win = dom.window as any;
+      const doc = win.document as Document;
+
+      win.fetch = (url: string, opts?: any) => {
+        const fullUrl = url.startsWith('http') ? url : `http://localhost:8197${url}`;
+        return globalThis.fetch(fullUrl, {
+          ...opts,
+          headers: { ...opts?.headers, Authorization: `Bearer ${adminToken}` },
+        });
+      };
+      win.alert = () => {};
+      win.confirm = () => true;
+
+      await new Promise((r) => setTimeout(r, 150));
+
+      // 1. Create Flow Modal has #new-flow-concurrency
+      win.openCreateFlowModal();
+      const concurrencyModalInput = doc.getElementById('new-flow-concurrency') as HTMLInputElement;
+      expect(concurrencyModalInput).not.toBeNull();
+      expect(concurrencyModalInput.getAttribute('min')).toBe('1');
+      win.closeFlowModal();
+
+      // 2. Flow card shows Concurrency badge
+      win.flowsState.currentView = 'list';
+      win.flowsState.subTab = 'flows';
+      win.flowsState.flows = [
+        {
+          id: 'flow_ui_conc',
+          name: 'ThrottledUiFlow',
+          description: 'UI test',
+          enabled: true,
+          triggerType: 'event',
+          eventTrigger: 'orders:create',
+          maxConcurrentExecutions: 4,
+          definition: { startAt: 'S1', states: { S1: { type: 'Pass', end: true } } },
+        },
+      ];
+      await win.renderFlowsView();
+      const container = doc.getElementById('page-view-flows')!;
+      expect(container.innerHTML).toContain('Concurrency:');
+      expect(container.innerHTML).toContain('4');
+
+      // 3. Designer toolbar has #flow-edit-concurrency input
+      win.designerState.activeFlow = win.flowsState.flows[0];
+      win.renderFlowDesignerWorkbench(win.designerState.activeFlow);
+      const editConcInput = doc.getElementById('flow-edit-concurrency') as HTMLInputElement;
+      expect(editConcInput).not.toBeNull();
+      expect(editConcInput.value).toBe('4');
+
+      // 4. Execution History tab has #flows-status-filter including 'queued'
+      win.flowsState.currentView = 'list';
+      win.flowsState.subTab = 'executions';
+      await win.renderFlowsView();
+      const statusFilter = doc.getElementById('flows-status-filter') as HTMLSelectElement;
+      expect(statusFilter).not.toBeNull();
+      expect(statusFilter.innerHTML).toContain('value="queued"');
     });
   });
 

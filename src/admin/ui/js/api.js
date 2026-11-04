@@ -216,6 +216,9 @@
       if (typeof loadFlows === 'function') {
         loadFlows();
       }
+      if (typeof loadQueueStats === 'function') {
+        loadQueueStats();
+      }
       try {
         const pRes = await fetch('/api/plugins');
         if (pRes.ok) {
@@ -304,6 +307,7 @@
         if (typeof loadWebhookStats === 'function') loadWebhookStats();
         if (typeof loadFunctionStats === 'function') loadFunctionStats();
         if (typeof loadFlows === 'function') loadFlows();
+        if (typeof loadQueueStats === 'function') loadQueueStats();
         initRealtime();
         if (typeof parseUrlAndNavigate === 'function') {
           await parseUrlAndNavigate(false);
@@ -377,6 +381,7 @@
         if (typeof loadWebhookStats === 'function') loadWebhookStats();
         if (typeof loadFunctionStats === 'function') loadFunctionStats();
         if (typeof loadFlows === 'function') loadFlows();
+        if (typeof loadQueueStats === 'function') loadQueueStats();
         initRealtime();
         if (typeof parseUrlAndNavigate === 'function') {
           await parseUrlAndNavigate(false);

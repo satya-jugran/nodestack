@@ -245,6 +245,11 @@ export class AppManager {
     this.appCache.set(appModel.slug, scope);
     this.appCache.set(appModel.id, scope);
 
+    // Start queue for this app scope as part of its lifecycle (including lazily opened scopes)
+    void scope.queue.start().catch((err: any) => {
+      console.warn(`[AppManager] Failed to start queue for app '${appModel.slug}': ${err.message}`);
+    });
+
     for (const handler of this.onScopeInitHandlers) {
       try {
         handler(scope);
@@ -259,6 +264,7 @@ export class AppManager {
   public async create(dto: CreateAppDto): Promise<AppScope> {
     const appModel = this.registry.createApp(dto);
     const scope = this.get(appModel.slug);
+    await scope.queue.start();
 
     if (dto.template && dto.template.trim()) {
       try {
@@ -308,6 +314,18 @@ export class AppManager {
         // ignore locked cleanup
       }
     }
+  }
+
+  public async closeAllAsync(): Promise<void> {
+    const closed = new Set<AppScope>();
+    for (const scope of this.appCache.values()) {
+      if (!closed.has(scope)) {
+        await scope.closeAsync();
+        closed.add(scope);
+      }
+    }
+    this.appCache.clear();
+    this.registry.close();
   }
 
   public closeAll(): void {

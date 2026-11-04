@@ -1,6 +1,6 @@
 import { getQuickJS, shouldInterruptAfterDeadline, QuickJSWASMModule } from 'quickjs-emscripten';
 import { IFunctionRuntime, RuntimeExecutionOptions } from './IFunctionRuntime';
-import { FunctionContext, FunctionExecutionResult } from '../types';
+import { FunctionHostServices, FunctionExecutionResult } from '../types';
 
 export class QuickJsWasmRuntime implements IFunctionRuntime {
   public readonly name = 'QuickJS-Wasm';
@@ -21,7 +21,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
 
   public async execute(
     code: string,
-    context: FunctionContext,
+    hostServices: FunctionHostServices,
     options: RuntimeExecutionOptions
   ): Promise<FunctionExecutionResult> {
     await this.init();
@@ -38,7 +38,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
         capturedLogs.push(msg.length > 500 ? msg.slice(0, 500) + '...' : msg);
       }
       try {
-        context.log(msg);
+        hostServices.observability.log(msg);
       } catch {}
     };
 
@@ -87,17 +87,45 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
               let result: any = null;
 
               if (callType === 'records.get') {
-                result = await context.records.get(payload.collection, payload.id);
+                result = await hostServices.sdk.records.get(payload.collection, payload.id);
               } else if (callType === 'records.list') {
-                result = await context.records.list(payload.collection, payload.options);
+                result = await hostServices.sdk.records.list(payload.collection, payload.options);
               } else if (callType === 'records.create') {
-                result = await context.records.create(payload.collection, payload.data);
+                result = await hostServices.sdk.records.create(payload.collection, payload.data);
               } else if (callType === 'records.update') {
-                result = await context.records.update(payload.collection, payload.id, payload.data);
+                result = await hostServices.sdk.records.update(payload.collection, payload.id, payload.data);
               } else if (callType === 'records.delete') {
-                result = await context.records.delete(payload.collection, payload.id);
+                result = await hostServices.sdk.records.delete(payload.collection, payload.id);
+              } else if (callType === 'queue.send') {
+                if (!hostServices.sdk.queue) {
+                  throw new Error('QueueService not available in function context');
+                }
+                result = await hostServices.sdk.queue.send(payload.queue, payload.payload, payload.options);
+              } else if (callType === 'queue.claim') {
+                if (!hostServices.sdk.queue) {
+                  throw new Error('QueueService not available in function context');
+                }
+                result = await hostServices.sdk.queue.claim(payload.queue, payload.options);
+              } else if (callType === 'queue.complete') {
+                if (!hostServices.sdk.queue) {
+                  throw new Error('QueueService not available in function context');
+                }
+                result = await hostServices.sdk.queue.complete(payload.jobId, payload.result);
+              } else if (callType === 'queue.fail') {
+                if (!hostServices.sdk.queue) {
+                  throw new Error('QueueService not available in function context');
+                }
+                result = await hostServices.sdk.queue.fail(payload.jobId, payload.error, payload.options);
+              } else if (callType === 'queue.getJob') {
+                if (!hostServices.sdk.queue) {
+                  throw new Error('QueueService not available in function context');
+                }
+                result = await hostServices.sdk.queue.getJob(payload.jobId);
+              } else if (callType === 'metric') {
+                hostServices.observability.metric?.(payload.name, payload.value, payload.tags);
+                result = { ok: true };
               } else if (callType === 'fetch') {
-                const response = await context.fetch(payload.url, payload.init);
+                const response = await hostServices.network.fetch(payload.url, payload.init);
                 let responseBody: any = null;
                 const contentType = response.headers['content-type'] || '';
                 if (contentType.includes('application/json')) {
@@ -152,8 +180,8 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
 
       // 4. Inject guest bridge runtime and context object
       const safeContextPayload = {
-        app: context.app || { id: 'default', slug: 'default' },
-        request: context.request || {
+        app: hostServices.context.app || { id: 'default', slug: 'default' },
+        request: hostServices.context.request || {
           method: 'POST',
           path: '/api/functions',
           query: {},
@@ -161,8 +189,9 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
           body: {},
           auth: null,
         },
-        event: context.event || null,
-        env: context.env || {},
+        event: hostServices.context.event || null,
+        env: hostServices.context.env || {},
+        auth: hostServices.context.auth || null,
       };
 
       const bridgeSetupCode = `
@@ -185,6 +214,71 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
             });
           }
 
+          function hostHttpFetch(url, init) {
+            return hostCall('fetch', { url: url, init: init }).then(function(res) {
+              return {
+                ok: res.ok,
+                status: res.status,
+                statusText: res.statusText,
+                headers: res.headers,
+                json: function() { return Promise.resolve(res.data); },
+                text: function() { return Promise.resolve(typeof res.data === 'string' ? res.data : JSON.stringify(res.data)); }
+              };
+            });
+          }
+
+          function emitLog(args) {
+            __raw_host_invoke(0, 'log', JSON.stringify(args));
+          }
+
+          globalThis.core = {
+            version: '2.3.0',
+            sdk: {
+              collection: function(colName) {
+                return {
+                  get: function(id, opts) { return hostCall('records.get', { collection: colName, id: id, options: opts }); },
+                  list: function(opts) { return hostCall('records.list', { collection: colName, options: opts }); },
+                  create: function(data, opts) { return hostCall('records.create', { collection: colName, data: data, options: opts }); },
+                  update: function(id, data, opts) { return hostCall('records.update', { collection: colName, id: id, data: data, options: opts }); },
+                  delete: function(id, opts) { return hostCall('records.delete', { collection: colName, id: id, options: opts }); }
+                };
+              },
+              queue: function(queueName) {
+                return {
+                  send: function(payload, opts) {
+                    return hostCall('queue.send', { queue: queueName, payload: payload, options: opts });
+                  },
+                  claim: function(opts) {
+                    return hostCall('queue.claim', { queue: queueName, options: opts });
+                  },
+                  complete: function(jobId, result) {
+                    return hostCall('queue.complete', { jobId: jobId, result: result });
+                  },
+                  fail: function(jobId, error, opts) {
+                    return hostCall('queue.fail', { jobId: jobId, error: error, options: opts });
+                  },
+                  getJob: function(jobId) {
+                    return hostCall('queue.getJob', { jobId: jobId });
+                  }
+                };
+              }
+            },
+            network: {
+              http: {
+                fetch: function(url, init) { return hostHttpFetch(url, init); },
+                get: function(url, opts) { return hostHttpFetch(url, Object.assign({}, opts, { method: 'GET' })); },
+                post: function(url, body, opts) { return hostHttpFetch(url, Object.assign({}, opts, { method: 'POST', body: JSON.stringify(body) })); }
+              }
+            },
+            observability: {
+              log: function() { emitLog(Array.prototype.slice.call(arguments)); },
+              info: function() { emitLog(Array.prototype.slice.call(arguments)); },
+              warn: function() { emitLog(Array.prototype.slice.call(arguments)); },
+              error: function() { emitLog(Array.prototype.slice.call(arguments)); },
+              metric: function(name, value, tags) { hostCall('metric', { name: name, value: value, tags: tags }); }
+            }
+          };
+
           var initialCtx = ${JSON.stringify(safeContextPayload)};
 
           globalThis.ctx = {
@@ -192,37 +286,26 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
             request: initialCtx.request,
             event: initialCtx.event,
             env: initialCtx.env,
-            log: function() {
-              var args = Array.prototype.slice.call(arguments);
-              __raw_host_invoke(0, 'log', JSON.stringify(args));
-            },
-            fetch: function(url, init) {
-              return hostCall('fetch', { url: url, init: init }).then(function(res) {
-                return {
-                  ok: res.ok,
-                  status: res.status,
-                  statusText: res.statusText,
-                  headers: res.headers,
-                  json: function() { return Promise.resolve(res.data); },
-                  text: function() { return Promise.resolve(typeof res.data === 'string' ? res.data : JSON.stringify(res.data)); }
-                };
-              });
-            },
-            records: {
-              get: function(col, id) { return hostCall('records.get', { collection: col, id: id }); },
-              list: function(col, opts) { return hostCall('records.list', { collection: col, options: opts }); },
-              create: function(col, data) { return hostCall('records.create', { collection: col, data: data }); },
-              update: function(col, id, data) { return hostCall('records.update', { collection: col, id: id, data: data }); },
-              delete: function(col, id) { return hostCall('records.delete', { collection: col, id: id }); }
-            }
+            auth: initialCtx.auth
           };
 
-          // Override console.log / warn / error to route to ctx.log
+          // Backward compatibility for legacy 1-parameter functions (ctx):
+          // delegate context fields on core so ctx.app, ctx.request, etc. resolve seamlessly
+          Object.defineProperties(globalThis.core, {
+            app: { get: function() { return globalThis.ctx.app; }, enumerable: true },
+            request: { get: function() { return globalThis.ctx.request; }, enumerable: true },
+            event: { get: function() { return globalThis.ctx.event; }, enumerable: true },
+            env: { get: function() { return globalThis.ctx.env; }, enumerable: true },
+            auth: { get: function() { return globalThis.ctx.auth; }, enumerable: true }
+          });
+
+          // JavaScript standard globals delegate to core subsystems
+          globalThis.fetch = globalThis.core.network.http.fetch;
           globalThis.console = {
-            log: globalThis.ctx.log,
-            warn: globalThis.ctx.log,
-            error: globalThis.ctx.log,
-            info: globalThis.ctx.log
+            log: globalThis.core.observability.log,
+            info: globalThis.core.observability.info,
+            warn: globalThis.core.observability.warn,
+            error: globalThis.core.observability.error
           };
         })();
       `;
@@ -385,9 +468,9 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
   /**
    * Normalizes user code into an immediately executed async function.
    * Handles:
-   *  - `export default async function(ctx) { ... }`
-   *  - `module.exports = async function(ctx) { ... }`
-   *  - `async function(ctx) { ... }` or arrow function `async (ctx) => { ... }`
+   *  - `export default async function(core, context) { ... }`
+   *  - `module.exports = async function(core, context) { ... }`
+   *  - `async function(core, context) { ... }` or arrow function `async (core, context) => { ... }`
    *  - Direct statements `return { hello: "world" }`
    */
   private prepareUserCode(rawCode: string): string {
@@ -421,13 +504,13 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
         ${code}
 
         if (typeof __fn === 'function') {
-          return await __fn(globalThis.ctx);
+          return await __fn(globalThis.core, globalThis.ctx);
         } else if (__fn !== null && typeof __fn !== 'undefined') {
           return __fn;
         } else if (typeof module.exports === 'function') {
-          return await module.exports(globalThis.ctx);
+          return await module.exports(globalThis.core, globalThis.ctx);
         } else if (module.exports && typeof module.exports.default === 'function') {
-          return await module.exports.default(globalThis.ctx);
+          return await module.exports.default(globalThis.core, globalThis.ctx);
         } else if (Object.keys(module.exports).length > 0) {
           return module.exports;
         }

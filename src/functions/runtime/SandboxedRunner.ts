@@ -1,6 +1,6 @@
 import { IFunctionRuntime, RuntimeExecutionOptions } from './IFunctionRuntime';
 import { QuickJsWasmRuntime } from './QuickJsWasmRuntime';
-import { FunctionContext, FunctionExecutionResult } from '../types';
+import { FunctionHostServices, FunctionExecutionResult } from '../types';
 
 export class SandboxedRunner {
   private runtime: IFunctionRuntime;
@@ -39,7 +39,7 @@ export class SandboxedRunner {
    */
   public async execute(
     code: string,
-    context: FunctionContext,
+    hostServices: FunctionHostServices,
     options: Partial<RuntimeExecutionOptions> = {}
   ): Promise<FunctionExecutionResult> {
     const safeOptions: RuntimeExecutionOptions = {
@@ -48,7 +48,7 @@ export class SandboxedRunner {
     };
 
     try {
-      return await this.runtime.execute(code, context, safeOptions);
+      return await this.runtime.execute(code, hostServices, safeOptions);
     } catch (fatalError: any) {
       return {
         status: 'error',

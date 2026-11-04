@@ -396,8 +396,8 @@ describe('Audit Log & Change History System', () => {
       win.loadLogs.mockClear();
       win.loadAuditLogs.mockClear();
 
-      // Case 3: Re-navigate to logs when audit subtab is already active
-      win.selectNav('logs');
+      // Case 3: Re-navigate to logs when audit subtab is already active (e.g., via router with pushState=false)
+      win.selectNav('logs', false);
       expect(win.loadAuditLogs).toHaveBeenCalledTimes(1);
       expect(win.loadLogs).toHaveBeenCalledTimes(0);
     }, 15000);

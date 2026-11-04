@@ -9,6 +9,7 @@ let flowsState = {
   functions: [], // loaded from /api/functions for dropdowns
   filter: {
     search: '',
+    status: 'all',
   },
   activeFlowForEdit: null,
 };
@@ -52,7 +53,10 @@ async function loadFlows() {
 async function loadFlowExecutions(flowId = '') {
   try {
     const base = getFlowsApiBase();
-    const url = flowId ? `${base}/${flowId}/executions` : `${base}/executions`;
+    const statusParam = flowsState.filter?.status && flowsState.filter.status !== 'all'
+      ? `?status=${encodeURIComponent(flowsState.filter.status)}`
+      : '';
+    const url = flowId ? `${base}/${flowId}/executions${statusParam}` : `${base}/executions${statusParam}`;
     const res = await api(url);
     flowsState.executions = res?.items || (Array.isArray(res) ? res : []);
     return flowsState.executions;
@@ -158,6 +162,22 @@ async function renderFlowsView() {
           </button>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
+          ${flowsState.subTab === 'executions' ? `
+            <select
+              id="flows-status-filter"
+              class="flow-field-select"
+              style="width: 145px; font-size: 0.8rem;"
+              onchange="handleFlowExecutionsStatusFilter(this.value)"
+            >
+              <option value="all" ${(flowsState.filter.status || 'all') === 'all' ? 'selected' : ''}>All Statuses</option>
+              <option value="queued" ${flowsState.filter.status === 'queued' ? 'selected' : ''}>Queued</option>
+              <option value="running" ${flowsState.filter.status === 'running' ? 'selected' : ''}>Running</option>
+              <option value="succeeded" ${flowsState.filter.status === 'succeeded' ? 'selected' : ''}>Succeeded</option>
+              <option value="failed" ${flowsState.filter.status === 'failed' ? 'selected' : ''}>Failed</option>
+              <option value="aborted" ${flowsState.filter.status === 'aborted' ? 'selected' : ''}>Aborted</option>
+              <option value="timeout" ${flowsState.filter.status === 'timeout' ? 'selected' : ''}>Timeout</option>
+            </select>
+          ` : ''}
           <input
             type="text"
             id="flows-search-input"
@@ -228,10 +248,12 @@ function renderFlowsListHtml() {
               </span>
             </div>
 
-            <div style="display: flex; align-items: center; gap: 0.75rem; margin: 0.75rem 0; font-size: 0.75rem; color: var(--text-muted);">
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin: 0.75rem 0; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap;">
               <span><strong>Trigger:</strong> <code style="color: var(--accent-primary);">${formatFlowTriggerLabel(flow)}</code></span>
               <span>•</span>
               <span><strong>Steps:</strong> ${stateCount} states</span>
+              <span>•</span>
+              <span><strong>Concurrency:</strong> ${flow.maxConcurrentExecutions ? escapeHtml(String(flow.maxConcurrentExecutions)) : 'Unlimited'}</span>
             </div>
 
             <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border-subtle); padding-top: 0.75rem; margin-top: auto;">
@@ -285,7 +307,7 @@ function renderFlowExecutionsListHtml() {
         </thead>
         <tbody>
           ${executions.map(exec => {
-            const statusColor = exec.status === 'succeeded' ? 'var(--accent-success)' : exec.status === 'failed' ? 'var(--accent-danger)' : exec.status === 'aborted' ? 'var(--accent-warning, #f59e0b)' : '#3b82f6';
+            const statusColor = exec.status === 'succeeded' ? 'var(--accent-success)' : exec.status === 'failed' ? 'var(--accent-danger)' : (exec.status === 'aborted' || exec.status === 'queued') ? 'var(--accent-warning, #f59e0b)' : '#3b82f6';
             const stepCount = (exec.stepLogs || []).length;
             return `
               <tr style="border-bottom: 1px solid var(--border-subtle);">
@@ -356,6 +378,15 @@ function handleFlowsSearch(val) {
   const content = document.getElementById('flows-subtab-content');
   if (content && flowsState.subTab === 'flows') {
     content.innerHTML = renderFlowsListHtml();
+  }
+}
+
+async function handleFlowExecutionsStatusFilter(status) {
+  flowsState.filter.status = status || 'all';
+  await loadFlowExecutions();
+  const content = document.getElementById('flows-subtab-content');
+  if (content && flowsState.subTab === 'executions') {
+    content.innerHTML = renderFlowExecutionsListHtml();
   }
 }
 
@@ -505,6 +536,17 @@ function openCreateFlowModal() {
                 placeholder="collection:action (e.g. orders:create, users:*)"
               />
             </div>
+            <div class="form-group">
+              <label class="form-label" for="new-flow-concurrency">Max Concurrent Executions (Optional)</label>
+              <input
+                type="number"
+                id="new-flow-concurrency"
+                class="form-input"
+                min="1"
+                step="1"
+                placeholder="Unlimited (default)"
+              />
+            </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="closeFlowModal()">Cancel</button>
@@ -532,12 +574,15 @@ async function handleCreateFlowSubmit(e) {
   const descInput = document.getElementById('new-flow-desc');
   const triggerInput = document.getElementById('new-flow-trigger');
   const eventInput = document.getElementById('new-flow-event');
+  const concurrencyInput = document.getElementById('new-flow-concurrency');
 
   const name = nameInput ? nameInput.value.trim() : '';
   if (!name) return;
 
   const triggerType = triggerInput ? triggerInput.value : 'http';
   const eventTrigger = triggerType === 'event' && eventInput ? eventInput.value.trim() : null;
+  const rawConcurrency = concurrencyInput ? concurrencyInput.value.trim() : '';
+  const maxConcurrentExecutions = rawConcurrency !== '' ? parseInt(rawConcurrency, 10) : null;
 
   const initialFlow = {
     name,
@@ -545,6 +590,7 @@ async function handleCreateFlowSubmit(e) {
     enabled: true,
     triggerType,
     eventTrigger,
+    maxConcurrentExecutions,
     definition: {
       startAt: 'FirstStep',
       states: {
@@ -607,7 +653,7 @@ async function inspectExecutionDetail(executionId) {
     }
 
     const isSuccess = exec.status === 'succeeded';
-    const statusColor = isSuccess ? 'var(--accent-success)' : exec.status === 'failed' ? 'var(--accent-danger)' : exec.status === 'aborted' ? 'var(--accent-warning, #f59e0b)' : '#3b82f6';
+    const statusColor = isSuccess ? 'var(--accent-success)' : exec.status === 'failed' ? 'var(--accent-danger)' : (exec.status === 'aborted' || exec.status === 'queued') ? 'var(--accent-warning, #f59e0b)' : '#3b82f6';
     const stepCount = (exec.stepLogs || []).length;
 
     root.innerHTML = `
@@ -809,6 +855,7 @@ if (typeof window !== 'undefined') {
   window.refreshFlowsView = refreshFlowsView;
   window.switchFlowsTab = switchFlowsTab;
   window.handleFlowsSearch = handleFlowsSearch;
+  window.handleFlowExecutionsStatusFilter = handleFlowExecutionsStatusFilter;
   window.toggleFlowStatus = toggleFlowStatus;
   window.deleteFlowPrompt = deleteFlowPrompt;
   window.openDeleteFlowModal = openDeleteFlowModal;

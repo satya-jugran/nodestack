@@ -1,5 +1,7 @@
+import { QueueJob, EnqueueJobDto, JobFailResult } from '../queue/types';
+
 export type FunctionAuthPolicy = 'public' | 'auth' | 'admin' | 'apiKey';
-export type FunctionTriggerType = 'http' | 'hook' | 'cron';
+export type FunctionTriggerType = 'http' | 'hook' | 'cron' | 'queue';
 
 export interface FunctionConfig {
   id: string;
@@ -63,21 +65,35 @@ export interface FunctionEventContext {
   isBefore?: boolean;
 }
 
-export interface FunctionContext {
-  app: {
-    id: string;
-    slug: string;
-    name?: string;
-  };
-  request?: FunctionRequestContext;
-  event?: FunctionEventContext;
-  records: {
-    get(collection: string, id: string): Promise<Record<string, any>>;
-    list(collection: string, options?: FunctionRecordQueryOptions): Promise<FunctionListResult>;
-    create(collection: string, data: Record<string, any>): Promise<Record<string, any>>;
-    update(collection: string, id: string, data: Record<string, any>): Promise<Record<string, any>>;
-    delete(collection: string, id: string): Promise<boolean>;
-  };
+export interface FunctionRecordsBridge {
+  get(collection: string, id: string): Promise<Record<string, any> | null>;
+  list(collection: string, options?: FunctionRecordQueryOptions): Promise<FunctionListResult>;
+  create(collection: string, data: Record<string, any>): Promise<Record<string, any>>;
+  update(collection: string, id: string, data: Record<string, any>): Promise<Record<string, any>>;
+  delete(collection: string, id: string): Promise<boolean>;
+}
+
+export interface FunctionQueueBridge {
+  send<T = any>(
+    queueName: string,
+    payload: T,
+    options?: Omit<EnqueueJobDto<T>, 'queue' | 'payload'>
+  ): Promise<QueueJob<T>>;
+  claim<T = any>(
+    queueName: string,
+    options?: { visibilityTimeoutSeconds?: number; limit?: number }
+  ): Promise<QueueJob<T>[]>;
+  complete(jobId: string, result?: any): Promise<boolean>;
+  fail(jobId: string, error?: string, options?: { backoffDelayMs?: number }): Promise<JobFailResult>;
+  getJob<T = any>(jobId: string): Promise<QueueJob<T> | null>;
+}
+
+export interface FunctionSdkBridges {
+  records: FunctionRecordsBridge;
+  queue?: FunctionQueueBridge;
+}
+
+export interface FunctionNetworkBridge {
   fetch(url: string, init?: any): Promise<{
     ok: boolean;
     status: number;
@@ -86,9 +102,36 @@ export interface FunctionContext {
     json: () => Promise<any>;
     text: () => Promise<string>;
   }>;
-  env: Record<string, string>;
-  log(...args: any[]): void;
 }
+
+export interface FunctionObservabilityBridge {
+  log(...args: any[]): void;
+  metric?(name: string, value: number, tags?: Record<string, string>): void;
+}
+
+export interface FunctionContextData {
+  app: {
+    id: string;
+    slug: string;
+    name?: string;
+  };
+  request?: FunctionRequestContext;
+  event?: FunctionEventContext;
+  env: Record<string, string>;
+  auth?: any;
+}
+
+export interface FunctionHostServices {
+  sdk: FunctionSdkBridges;
+  network: FunctionNetworkBridge;
+  observability: FunctionObservabilityBridge;
+  context: FunctionContextData;
+}
+
+/**
+ * Type alias for backward compatibility across internal imports
+ */
+export type FunctionContext = FunctionHostServices;
 
 export interface FunctionExecutionResult {
   status: 'success' | 'error' | 'timeout';
