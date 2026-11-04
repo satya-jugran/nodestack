@@ -557,6 +557,42 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       // Clean up the temporary system job and queue so it doesn't affect subsequent tests
       await app.queue.cancel(systemJob.id);
       await app.queue.deleteQueue('_system:flow:tamper_test');
+
+      // Test that untyped options in core.sdk.queue cannot override queue name to target reserved system queues
+      app.functions.createFunction({
+        name: 'options-override-tamper-fn',
+        code: `
+          export default async function(core, context) {
+            return await core.sdk.queue('ordinary-producer-queue').send(
+              { hello: 'world' },
+              { queue: '_system:flow:evil_override' }
+            );
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 3000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      const overrideRes = await app.functions.executeFunction('options-override-tamper-fn', {
+        method: 'POST',
+        path: '/api/functions/options-override-tamper-fn',
+        headers: {},
+        query: {},
+        body: {},
+      });
+      expect(overrideRes.statusCode).toBe(500);
+      expect(JSON.stringify(overrideRes.error || overrideRes.body)).toMatch(/reserved _system:\* queues/i);
+
+      // Verify that direct QueueService.send also applies options first so queue cannot be overwritten
+      const directJob = await app.queue.send('ordinary-producer-queue', { direct: true }, { queue: '_system:flow:direct_evil' } as any);
+      expect(directJob.queue).toBe('ordinary-producer-queue');
+      await app.queue.cancel(directJob.id);
     });
   });
 
@@ -601,8 +637,11 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
         await app.records.delete('webhook_deliveries', item.id, { isAdmin: true });
       }
 
-      // Directly insert a 'processing' job (simulating a server crash mid-execution with lease 5 mins in the future)
-      // and a 'queued' job into SQLite without calling QueueService.send()
+      // Directly insert:
+      // 1. An expired 'processing' job (simulating an orphaned job from a crashed node whose lease expired)
+      // 2. An active 'processing' job with a valid future lease (simulating an external HTTP worker or second node)
+      // 3. A 'queued' job on disk
+      const expiredLease = new Date(Date.now() - 5000).toISOString();
       const futureLease = new Date(Date.now() + 300000).toISOString();
       const nowIso = new Date().toISOString();
       app.db
@@ -617,6 +656,24 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
           'job_crashed_midflight',
           'crash-restart-queue',
           JSON.stringify({ eventName: 'recovered.from.crash' }),
+          nowIso,
+          expiredLease,
+          nowIso,
+          nowIso
+        );
+
+      app.db
+        .prepare(`
+          INSERT INTO _queue_jobs (
+            id, queue, groupKey, status, payload, result, error,
+            attempts, maxAttempts, priority, availableAt, claimedBy,
+            leaseExpiresAt, deduplicationId, created, updated, finishedAt
+          ) VALUES (?, ?, NULL, 'processing', ?, NULL, NULL, 1, 3, 0, ?, 'active_external_worker', ?, NULL, ?, ?, NULL)
+        `)
+        .run(
+          'job_active_external_consumer',
+          'crash-restart-queue',
+          JSON.stringify({ eventName: 'still.running.externally' }),
           nowIso,
           futureLease,
           nowIso,
@@ -643,7 +700,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       // Simulate server restart by calling app.queue.start()
       await app.queue.start();
 
-      // Poll until both jobs complete
+      // Poll until the expired and pending jobs complete
       for (let i = 0; i < 40; i++) {
         const j1 = await app.queue.getJob('job_crashed_midflight');
         const j2 = await app.queue.getJob('job_pending_on_disk');
@@ -656,6 +713,14 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(finalJ1?.status).toBe('completed');
       expect(finalJ1?.attempts).toBe(2); // Reclaimed from attempt 1 and completed on attempt 2
       expect(finalJ2?.status).toBe('completed');
+
+      // The job with a valid future lease must NOT have been reclaimed on startup
+      const activeJob = await app.queue.getJob('job_active_external_consumer');
+      expect(activeJob?.status).toBe('processing');
+      expect(activeJob?.claimedBy).toBe('active_external_worker');
+      expect(activeJob?.attempts).toBe(1); // Not incremented or requeued
+
+      await app.queue.cancel('job_active_external_consumer');
 
       const deliveries = await app.records.getList('webhook_deliveries', {}, { isAdmin: true });
       const events = deliveries.items.map((d: any) => d.event);
@@ -785,7 +850,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(jobData.status).toBe('completed');
 
       // 8. List jobs via GET /api/queues/jobs with and without includeSystem
-      await (app.queue as any).driver.send({
+      const sysJob = await (app.queue as any).driver.send({
         queue: '_system:flow:test',
         payload: { internal: true },
       });
@@ -802,6 +867,72 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       const systemJobs = await systemJobsRes.json();
       expect(systemJobs.items.some((j: any) => j.queue === '_system:flow:test')).toBe(true);
       expect(systemJobs.total).toBe(defaultJobs.total + 1);
+
+      // 9. Cross-Queue Isolation & System Queue Mutation Guard:
+      // An ordinary queue URL cannot ACK, NACK, touch, or inspect a job from another/system queue
+      const crossAckRes = await fetch(`${baseUrl}/api/queues/rest-api-queue/messages/${sysJob.id}/ack`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ result: { evil: true } }),
+      });
+      expect(crossAckRes.status).toBe(404);
+
+      const crossNackRes = await fetch(`${baseUrl}/api/queues/rest-api-queue/messages/${sysJob.id}/nack`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ error: 'evil nack' }),
+      });
+      expect(crossNackRes.status).toBe(404);
+
+      const crossTouchRes = await fetch(`${baseUrl}/api/queues/rest-api-queue/messages/${sysJob.id}/touch`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ extensionSeconds: 60 }),
+      });
+      expect(crossTouchRes.status).toBe(404);
+
+      const crossGetRes = await fetch(`${baseUrl}/api/queues/rest-api-queue/messages/${sysJob.id}`, {
+        method: 'GET',
+        headers,
+      });
+      expect(crossGetRes.status).toBe(404);
+
+      // Direct operations on reserved _system:* queues via REST API must return 403 Forbidden
+      const sysTouchRes = await fetch(`${baseUrl}/api/queues/_system:flow:test/messages/${sysJob.id}/touch`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({}),
+      });
+      expect(sysTouchRes.status).toBe(403);
+
+      const sysAckRes = await fetch(`${baseUrl}/api/queues/_system:flow:test/messages/${sysJob.id}/ack`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({}),
+      });
+      expect(sysAckRes.status).toBe(403);
+
+      const sysNackRes = await fetch(`${baseUrl}/api/queues/_system:flow:test/messages/${sysJob.id}/nack`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({}),
+      });
+      expect(sysNackRes.status).toBe(403);
+
+      const sysRetryDlqRes = await fetch(`${baseUrl}/api/queues/_system:flow:test/dlq/retry`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({}),
+      });
+      expect(sysRetryDlqRes.status).toBe(403);
+
+      const sysGetRes = await fetch(`${baseUrl}/api/queues/_system:flow:test/messages/${sysJob.id}`, {
+        method: 'GET',
+        headers,
+      });
+      expect(sysGetRes.status).toBe(403);
+
+      await (app.queue as any).driver.cancel(sysJob.id);
     });
 
     it('should render the Queues Manager in Admin UI (nav-queues, create/configure queue modal, send message modal, and job inspector)', async () => {

@@ -275,6 +275,8 @@ export class QueueController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getQueueService(req);
+    this.assertNotSystemQueue(req.params.name);
+
     const job = await service.getJob(req.params.id);
     if (!job || job.queue !== req.params.name) {
       this.error(reply, `Message '${req.params.id}' not found in queue '${req.params.name}'`, 404);
@@ -289,6 +291,12 @@ export class QueueController extends BaseController {
   ): Promise<void> {
     const service = this.getQueueService(req);
     this.assertNotSystemQueue(req.params.name);
+
+    const job = await service.getJob(req.params.id);
+    if (!job || job.queue !== req.params.name) {
+      this.error(reply, `Message '${req.params.id}' not found in queue '${req.params.name}'`, 404);
+      return;
+    }
 
     const completed = await service.complete(req.params.id, req.body?.result);
     if (!completed) {
@@ -306,6 +314,12 @@ export class QueueController extends BaseController {
     const service = this.getQueueService(req);
     this.assertNotSystemQueue(req.params.name);
 
+    const job = await service.getJob(req.params.id);
+    if (!job || job.queue !== req.params.name) {
+      this.error(reply, `Message '${req.params.id}' not found in queue '${req.params.name}'`, 404);
+      return;
+    }
+
     const errMsg = req.body?.error || 'Message rejected (NACK) by consumer';
     const result = await service.fail(req.params.id, errMsg, req.body?.backoffDelayMs);
     if (result.attempts === 0) {
@@ -321,6 +335,14 @@ export class QueueController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getQueueService(req);
+    this.assertNotSystemQueue(req.params.name);
+
+    const job = await service.getJob(req.params.id);
+    if (!job || job.queue !== req.params.name) {
+      this.error(reply, `Message '${req.params.id}' not found in queue '${req.params.name}'`, 404);
+      return;
+    }
+
     const ext = req.body?.extensionSeconds || 30;
     const ok = await service.touch(req.params.id, ext);
     if (!ok) {
@@ -336,6 +358,8 @@ export class QueueController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getQueueService(req);
+    this.assertNotSystemQueue(req.params.name);
+
     const limit = req.body?.limit || 100;
     const retriedCount = await service.retryDeadLetterJobs(req.params.name, limit);
     this.ok(reply, { success: true, retriedCount });

@@ -114,13 +114,13 @@ export class QueueService {
     await this.driver.init();
 
     if (this.isDbAvailable()) {
-      // 1. Immediately reclaim any orphaned 'processing' jobs left behind by a crash/restart
+      // 1. Immediately reclaim any expired orphaned 'processing' jobs left behind by a crash/restart
       // (excluding _system:flow:* jobs which FlowService recovers via step checkpoints)
       try {
         const allQueues = await this.driver.getAllQueues(true);
         for (const q of allQueues) {
           if (!q.name.startsWith('_system:flow:')) {
-            await this.driver.reclaimOrphaned(q.name, true);
+            await this.driver.reclaimOrphaned(q.name, false);
           }
         }
       } catch {}
@@ -345,9 +345,9 @@ export class QueueService {
     const dto: EnqueueJobDto<T> =
       typeof queueOrJob === 'string'
         ? {
+            ...options,
             queue: queueOrJob,
             payload: payload as T,
-            ...options,
           }
         : queueOrJob;
 

@@ -932,6 +932,9 @@ export class FunctionService {
         if (queueName.trim().startsWith('_system:')) {
           throw new Error('Cannot enqueue messages into reserved _system:* queues from user functions');
         }
+        if (options && typeof options === 'object' && typeof options.queue === 'string' && options.queue.trim().startsWith('_system:')) {
+          throw new Error('Cannot enqueue messages into reserved _system:* queues from user functions');
+        }
         return await this.queueService.send(queueName.trim(), payload, options);
       },
       claim: async (queueName: string, options?: { visibilityTimeoutSeconds?: number; limit?: number }) => {
