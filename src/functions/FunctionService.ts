@@ -205,7 +205,7 @@ export class FunctionService {
       id,
       cleanName,
       dto.description || '',
-      dto.code || 'export default async function(ctx) {\n  return { status: 200, body: { message: "Hello from " + ctx.app.slug } };\n}',
+      dto.code || 'export default async function(core, context) {\n  return { status: 200, body: { message: "Hello from " + context.app.slug } };\n}',
       dto.enabled === false ? 0 : 1,
       dto.authPolicy || 'public',
       methods,

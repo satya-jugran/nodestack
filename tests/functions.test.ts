@@ -197,6 +197,59 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(body.total).toBe(120);
     });
 
+    it('should execute function created without code using the default (core, context) fallback handler', async () => {
+      // Create a function with no code passed
+      const fn = app.functions.createFunction({
+        name: 'default-fallback-fn',
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST', 'GET'],
+      });
+
+      expect(fn.code).toContain('export default async function(core, context)');
+      expect(fn.code).toContain('context.app.slug');
+
+      const res = await app.server.inject({
+        method: 'POST',
+        url: '/api/functions/default-fallback-fn/invoke',
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.message).toBe('Hello from default');
+    });
+
+    it('should support backward compatibility for legacy 1-arg function(ctx) handlers', async () => {
+      app.functions.createFunction({
+        name: 'legacy-ctx-fn',
+        code: `
+          export default async function(ctx) {
+            return {
+              status: 200,
+              body: {
+                appSlug: ctx.app.slug,
+                fromBody: ctx.request.body.name,
+              }
+            };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+      });
+
+      const res = await app.server.inject({
+        method: 'POST',
+        url: '/api/functions/legacy-ctx-fn/invoke',
+        payload: { name: 'LegacyUser' },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.appSlug).toBe('default');
+      expect(body.fromBody).toBe('LegacyUser');
+    });
+
     it('should isolate host environment and prevent access to process, fs, require', async () => {
       const fn = app.functions.createFunction({
         name: 'security-escape-attempt',

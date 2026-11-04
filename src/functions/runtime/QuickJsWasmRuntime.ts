@@ -289,6 +289,16 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
             auth: initialCtx.auth
           };
 
+          // Backward compatibility for legacy 1-parameter functions (ctx):
+          // delegate context fields on core so ctx.app, ctx.request, etc. resolve seamlessly
+          Object.defineProperties(globalThis.core, {
+            app: { get: function() { return globalThis.ctx.app; }, enumerable: true },
+            request: { get: function() { return globalThis.ctx.request; }, enumerable: true },
+            event: { get: function() { return globalThis.ctx.event; }, enumerable: true },
+            env: { get: function() { return globalThis.ctx.env; }, enumerable: true },
+            auth: { get: function() { return globalThis.ctx.auth; }, enumerable: true }
+          });
+
           // JavaScript standard globals delegate to core subsystems
           globalThis.fetch = globalThis.core.network.http.fetch;
           globalThis.console = {
@@ -458,9 +468,9 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
   /**
    * Normalizes user code into an immediately executed async function.
    * Handles:
-   *  - `export default async function(ctx) { ... }`
-   *  - `module.exports = async function(ctx) { ... }`
-   *  - `async function(ctx) { ... }` or arrow function `async (ctx) => { ... }`
+   *  - `export default async function(core, context) { ... }`
+   *  - `module.exports = async function(core, context) { ... }`
+   *  - `async function(core, context) { ... }` or arrow function `async (core, context) => { ... }`
    *  - Direct statements `return { hello: "world" }`
    */
   private prepareUserCode(rawCode: string): string {
