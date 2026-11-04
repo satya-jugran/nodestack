@@ -130,11 +130,17 @@ export class FlowService extends BaseService {
   /**
    * Resumes an orphaned or interrupted running flow from its last completed checkpoint.
    */
-  public async resumeExecution(executionId: string): Promise<FlowExecution> {
+  public async resumeExecution(
+    executionId: string,
+    options?: { wait?: boolean; timeoutMs?: number }
+  ): Promise<FlowExecution> {
     const appPrefix = this.client.appSlug ? `/api/apps/${encodeURIComponent(this.client.appSlug)}` : '/api';
     return this.send<FlowExecution>(
       `${appPrefix}/flows/executions/${encodeURIComponent(executionId)}/resume`,
-      { method: 'POST' }
+      {
+        method: 'POST',
+        query: options,
+      }
     );
   }
 

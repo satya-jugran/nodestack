@@ -233,12 +233,16 @@ export class FlowController extends BaseController {
   }
 
   public async resumeExecution(
-    req: FastifyRequest<{ Params: { executionId: string } }>,
+    req: FastifyRequest<{ Params: { executionId: string }; Querystring?: { wait?: string; timeoutMs?: string } }>,
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getFlowsService(req);
     try {
-      const execution = await service.resumeExecution(req.params.executionId);
+      const waitParam = (req.query as any)?.wait;
+      const wait = waitParam === 'false' ? false : true;
+      const timeoutMsParam = (req.query as any)?.timeoutMs;
+      const timeoutMs = timeoutMsParam ? parseInt(timeoutMsParam, 10) : undefined;
+      const execution = await service.resumeExecution(req.params.executionId, { wait, timeoutMs });
       this.ok(reply, execution);
     } catch (err: any) {
       if (err instanceof AppError) {

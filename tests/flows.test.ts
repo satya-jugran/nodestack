@@ -4089,6 +4089,110 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.flows.deleteFlow(throttledFlow.id);
     });
 
+    it('should acquire system queue slot when resuming a failed execution on a throttled flow (maxConcurrentExecutions = 1)', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'ResumeThrottledFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Work',
+          states: {
+            Work: {
+              type: 'Wait',
+              seconds: 1,
+              end: true,
+            },
+          },
+        },
+      });
+
+      // Prepare a failed execution in SQLite for this flow
+      const failedExecId = 'exec_failed_to_resume_1';
+      const db = (app.flows as any).db;
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'failed', '{"test":true}', null, 100, '[]', ?, ?)
+      `).run(
+        failedExecId,
+        throttledFlow.id,
+        throttledFlow.name,
+        new Date().toISOString(),
+        JSON.stringify({ currentStateName: 'Work', currentPayload: { test: true }, updatedAt: new Date().toISOString() })
+      );
+
+      // Start an execution currently occupying the only concurrency slot (maxConcurrentExecutions = 1)
+      const runningExec = await app.flows.executeFlow(throttledFlow.id, { item: 'active' }, undefined, { wait: false });
+      expect(['queued', 'running']).toContain(runningExec.status);
+
+      // Call resumeExecution with wait = false; it must NOT run immediately outside the queue
+      const resumedExec = await app.flows.resumeExecution(failedExecId, { wait: false });
+      expect(resumedExec.status).toBe('queued');
+
+      // Verify that while runningExec is active, countRunningExecutions never exceeds 1
+      const runningCount = app.flows.countRunningExecutions(throttledFlow.id);
+      expect(runningCount).toBeLessThanOrEqual(1);
+
+      // Verify that resumedExec has an active job in the system queue
+      const queueJob = await app.queue.getJob(resumedExec.jobId!);
+      expect(queueJob).toBeDefined();
+      expect(queueJob?.queue).toBe(`_system:flow:${throttledFlow.id}`);
+
+      // Wait until both executions finish in sequence
+      await vi.waitFor(async () => {
+        const r1 = app.flows.getExecutionById(runningExec.id);
+        const r2 = app.flows.getExecutionById(failedExecId);
+        expect(r1?.status).toBe('succeeded');
+        expect(r2?.status).toBe('succeeded');
+      }, { timeout: 4000, interval: 50 });
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
+    it('should route orphaned executions through queue admission when recovering with strategy resume on a throttled flow', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'RecoverThrottledFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Step1',
+          states: {
+            Step1: {
+              type: 'Pass',
+              result: { step1Done: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const orphanId = 'exec_orphan_throttled_1';
+      const db = (app.flows as any).db;
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
+        VALUES (?, ?, ?, 'running', '{}', '{}', 0, '[]', ?, ?)
+      `).run(
+        orphanId,
+        throttledFlow.id,
+        throttledFlow.name,
+        new Date().toISOString(),
+        JSON.stringify({ currentStateName: 'Step1', currentPayload: {}, updatedAt: new Date().toISOString() })
+      );
+
+      // Recover with strategy 'resume'
+      const recovered = await app.flows.recoverOrphanedExecutions('resume');
+      const found = recovered.find((r) => r.id === orphanId);
+      expect(found).toBeDefined();
+      expect(found!.status).toBe('queued');
+
+      // Poll until the queue worker executes and completes the resumed execution
+      await vi.waitFor(async () => {
+        const item = app.flows.getExecutionById(orphanId);
+        expect(item?.status).toBe('succeeded');
+      }, { timeout: 4000, interval: 50 });
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
     it('should throttle bulk database event triggers (e.g. 12 concurrent events with maxConcurrentExecutions = 2) and execute all in FIFO without dropping', async () => {
       app.schema.createCollection({
         name: 'bulk_throttle_items',

@@ -16,6 +16,7 @@ import {
   FlowExecutionOptions,
   FlowCheckpoint,
   FlowStepTransitionEvent,
+  FlowResumeOptions,
 } from './types';
 import { FlowValidator } from './FlowValidator';
 import { ChoiceEvaluator } from './runtime/ChoiceEvaluator';
@@ -321,6 +322,21 @@ export class FlowService {
     }
 
     try {
+      const isResume = Boolean(
+        (exec.checkpoint && ((exec.checkpoint.stepCount ?? 0) > 0 || exec.checkpoint.currentStateName !== flow.definition.startAt)) ||
+        (exec.stepLogs && exec.stepLogs.length > 0)
+      );
+      let resumeFrom: FlowResumeOptions | undefined;
+      if (isResume) {
+        const resumeInfo = this.resolveResumeState(exec, flow);
+        if ('completed' in resumeInfo) {
+          this.saveExecution(resumeInfo.completed);
+          this.settleWaiter(exec.id, resumeInfo.completed);
+          return;
+        }
+        resumeFrom = resumeInfo.resumeFrom;
+      }
+
       const execution = await this.engine.execute(flow.name, flow.definition, exec.input, {
         actor: exec.actor || (exec.actorId ? { id: exec.actorId } : null),
         functionService: this.functionService,
@@ -328,6 +344,7 @@ export class FlowService {
         flowId: flow.id,
         executionOptions: {},
         signal: abortController.signal,
+        resumeFrom,
         onStepTransition: async (event) => {
           this.persistCheckpoint(exec.id, event, claimToken);
         },
@@ -886,7 +903,7 @@ export class FlowService {
     const claimUpdate = this.db.prepare(`
       UPDATE _flow_executions
       SET status = 'running',
-          startedAt = ?,
+          startedAt = COALESCE(startedAt, ?),
           claimToken = ?
       WHERE id = ? AND status = 'queued'
     `).run(startedAt, claimToken, executionId);
@@ -897,21 +914,46 @@ export class FlowService {
       return this.getExecutionById(executionId);
     }
 
+    const isResume = Boolean(payload.isResume);
+    const resumeRequired = Boolean(
+      isResume ||
+      (existing.checkpoint && ((existing.checkpoint.stepCount ?? 0) > 0 || existing.checkpoint.currentStateName !== flow.definition.startAt)) ||
+      (existing.stepLogs && existing.stepLogs.length > 0)
+    );
+    let resumeFrom: FlowResumeOptions | undefined;
+    let resumePayload: any;
+    if (resumeRequired) {
+      const resumeInfo = this.resolveResumeState(existing, flow);
+      if ('completed' in resumeInfo) {
+        this.saveExecution(resumeInfo.completed);
+        this.settleWaiter(executionId, resumeInfo.completed);
+        return resumeInfo.completed;
+      }
+      resumeFrom = resumeInfo.resumeFrom;
+      resumePayload = resumeInfo.resumePayload;
+    }
+
     try {
-      const execution = await this.engine.execute(flow.name, flow.definition, input, {
-        actor: authContext || actor,
-        functionService: this.functionService,
-        executionId,
-        flowId: flow.id,
-        executionOptions: executionOptions || {},
-        signal: abortController.signal,
-        onStepTransition: async (event) => {
-          this.persistCheckpoint(executionId, event, claimToken);
-          if (this.queueService) {
-            void this.queueService.touch(job.id, 60).catch(() => {});
-          }
-        },
-      });
+      const execution = await this.engine.execute(
+        flow.name,
+        flow.definition,
+        resumeRequired ? (existing.input !== undefined ? existing.input : input) : input,
+        {
+          actor: authContext || actor,
+          functionService: this.functionService,
+          executionId,
+          flowId: flow.id,
+          executionOptions: executionOptions || {},
+          signal: abortController.signal,
+          resumeFrom,
+          onStepTransition: async (event) => {
+            this.persistCheckpoint(executionId, event, claimToken);
+            if (this.queueService) {
+              void this.queueService.touch(job.id, 60).catch(() => {});
+            }
+          },
+        }
+      );
 
       const finalExecution: FlowExecution = {
         ...execution,
@@ -933,11 +975,11 @@ export class FlowService {
         flowId: flow.id,
         flowName: flow.name,
         status: 'failed',
-        input: input !== undefined ? input : null,
-        output: current?.output ?? null,
+        input: input !== undefined ? input : (existing.input ?? null),
+        output: current?.output ?? (resumeRequired ? resumePayload : null),
         error: err.message || String(err),
-        durationMs: current?.durationMs || 0,
-        stepLogs: current?.stepLogs || [],
+        durationMs: current?.durationMs || (resumeRequired ? existing.durationMs : 0),
+        stepLogs: current?.stepLogs || (resumeRequired ? existing.stepLogs : []),
         actorId: existing.actorId,
         actor: authContext,
         queuedAt: existing.queuedAt ?? null,
@@ -1120,19 +1162,245 @@ export class FlowService {
   }
 
   /**
-   * Resumes an interrupted or orphaned running flow from its last completed checkpoint.
+   * Resolves the next state, payload, and checkpoint options when resuming an execution.
    */
-  public async resumeExecution(executionId: string): Promise<FlowExecution> {
+  private resolveResumeState(
+    exec: FlowExecution,
+    flow: FlowConfig
+  ): { completed: FlowExecution } | { resumeFrom: FlowResumeOptions; nextStateName: string; resumePayload: any } {
+    let nextStateName: string | undefined = exec.checkpoint?.currentStateName ?? undefined;
+    let resumePayload =
+      exec.checkpoint?.currentPayload !== undefined
+        ? exec.checkpoint.currentPayload
+        : (exec.output ?? exec.input ?? {});
+
+    // If checkpoint.currentStateName is not explicitly set, determine from stepLogs
+    if (!nextStateName) {
+      if (!exec.stepLogs || exec.stepLogs.length === 0) {
+        nextStateName = flow.definition.startAt;
+        resumePayload = exec.input !== undefined ? exec.input : {};
+      } else {
+        const lastStep = exec.stepLogs[exec.stepLogs.length - 1];
+        const lastState = flow.definition.states[lastStep.step];
+
+        if (lastStep.status === 'failed') {
+          nextStateName = lastStep.step;
+          resumePayload = lastStep.input !== undefined ? lastStep.input : {};
+        } else if (lastStep.nextState) {
+          // Use actual transition persisted in the step log
+          nextStateName = lastStep.nextState;
+          resumePayload = lastStep.output !== undefined ? lastStep.output : {};
+        } else if (lastState && (lastState.end || lastState.type === 'Succeed')) {
+          // Explicitly terminal state completed successfully
+          const completed: FlowExecution = {
+            ...exec,
+            status: 'succeeded',
+            finishedAt: new Date().toISOString(),
+            checkpoint: null,
+            claimToken: null,
+          };
+          return { completed };
+        } else if (lastState?.type === 'Choice') {
+          // Reconstruct dynamic branch from Choice state definition and payload
+          const payload = lastStep.output !== undefined ? lastStep.output : (lastStep.input ?? {});
+          const chosenNext = ChoiceEvaluator.findNextState(lastState.choices, lastState.default, payload);
+          if (chosenNext) {
+            nextStateName = chosenNext;
+            resumePayload = payload;
+          } else {
+            this.abortExecution(
+              exec.id,
+              `Cannot reconstruct Choice branch for state '${lastStep.step}' (no matching choice and no default)`
+            );
+            throw new AppError(
+              `Cannot reconstruct Choice branch for state '${lastStep.step}' for execution '${exec.id}'`,
+              400
+            );
+          }
+        } else if (lastState && typeof (lastState as any).next === 'string' && (lastState as any).next) {
+          // Static next transition
+          nextStateName = (lastState as any).next;
+          resumePayload = lastStep.output !== undefined ? lastStep.output : {};
+        } else {
+          // Cannot reconstruct next state: abort rather than assuming completion
+          const reason = !lastState
+            ? `State '${lastStep.step}' no longer exists in flow definition`
+            : `Cannot reconstruct next state following '${lastStep.step}' (type '${lastState.type}')`;
+          this.abortExecution(exec.id, reason);
+          throw new AppError(
+            `Cannot reconstruct next state following '${lastStep.step}' for execution '${exec.id}': ${reason}`,
+            400
+          );
+        }
+      }
+    }
+
+    if (!nextStateName || !flow.definition.states[nextStateName]) {
+      this.abortExecution(exec.id, `Checkpoint state '${nextStateName || 'unknown'}' not found in flow definition`);
+      throw new AppError(`Checkpoint state '${nextStateName || 'unknown'}' not found in flow definition`, 400);
+    }
+
+    return {
+      resumeFrom: {
+        stateName: nextStateName,
+        payload: resumePayload,
+        stepLogs: exec.stepLogs || [],
+        loopCounters: exec.checkpoint?.loopCounters,
+        stepCount: exec.checkpoint?.stepCount || (exec.stepLogs || []).length,
+        startedAt: exec.startedAt,
+        durationMs: exec.durationMs,
+      },
+      nextStateName,
+      resumePayload,
+    };
+  }
+
+  /**
+   * Resumes an interrupted or orphaned running flow from its last completed checkpoint.
+   * If the flow has maxConcurrentExecutions >= 1 and QueueService is configured,
+   * routes the resumption through the flow's system queue to acquire a concurrency slot.
+   */
+  public async resumeExecution(
+    executionId: string,
+    options: FlowExecutionOptions = {}
+  ): Promise<FlowExecution> {
     if (this.activeExecutionClaims.has(executionId)) {
       throw new ConflictError(`Flow execution '${executionId}' is currently being executed or resumed`);
     }
-    this.activeExecutionClaims.add(executionId);
 
+    const exec = this.getExecutionById(executionId);
+    if (!exec) {
+      throw new NotFoundError(`Flow execution '${executionId}' not found`);
+    }
+    if (exec.claimToken) {
+      throw new ConflictError(`Flow execution '${executionId}' is already claimed by another runner`);
+    }
+    if (exec.status !== 'running' && exec.status !== 'failed') {
+      throw new AppError(`Cannot resume flow execution '${executionId}' with status '${exec.status}'`, 400);
+    }
+
+    const flow = this.getFlowById(exec.flowId) || this.getFlowByName(exec.flowName);
+    if (!flow) {
+      this.abortExecution(executionId, `Flow '${exec.flowName}' no longer exists`);
+      throw new NotFoundError(`Flow '${exec.flowName}' no longer exists`);
+    }
+
+    if (!flow.enabled) {
+      this.abortExecution(executionId, `Flow '${flow.name}' is currently disabled`);
+      throw new AppError(`Flow '${flow.name}' is currently disabled`, 403);
+    }
+
+    const resumeInfo = this.resolveResumeState(exec, flow);
+    if ('completed' in resumeInfo) {
+      this.saveExecution(resumeInfo.completed);
+      return resumeInfo.completed;
+    }
+
+    // Throttled flow path: route through system queue to acquire a concurrency slot
+    if (flow.maxConcurrentExecutions && flow.maxConcurrentExecutions >= 1 && this.queueService) {
+      const queueName = FlowService.getFlowQueueName(flow.id);
+      const existingQueue = await this.queueService.getQueue(queueName);
+      if (!existingQueue || existingQueue.concurrency !== flow.maxConcurrentExecutions) {
+        const visibilityTimeoutSeconds = Math.max(60, (flow.definition?.timeoutSeconds || 300) + 30);
+        await this.queueService.upsertQueue({
+          name: queueName,
+          concurrency: flow.maxConcurrentExecutions,
+          visibilityTimeoutSeconds,
+          maxAttempts: 1,
+          backoffDelayMs: 0,
+          isSystem: true,
+        });
+      }
+
+      if (exec.jobId) {
+        try {
+          await this.queueService.cancel(exec.jobId);
+        } catch {}
+      }
+
+      const jobId = `job_${executionId}_resume_${Date.now()}`;
+      const now = new Date().toISOString();
+      const shouldWait = options.wait !== false;
+
+      // Atomically claim and transition to 'queued'
+      const queueClaimResult = this.db.prepare(`
+        UPDATE _flow_executions
+        SET status = 'queued',
+            claimToken = NULL,
+            error = NULL,
+            finishedAt = NULL,
+            jobId = ?,
+            queuedAt = ?
+        WHERE id = ?
+          AND (status = 'running' OR status = 'failed')
+          AND (claimToken IS NULL OR claimToken = '')
+      `).run(jobId, now, executionId);
+
+      if (queueClaimResult.changes === 0) {
+        const current = this.getExecutionById(executionId);
+        if (current?.claimToken) {
+          throw new ConflictError(`Flow execution '${executionId}' is already claimed by another runner`);
+        }
+        if (current?.status === 'queued') {
+          throw new ConflictError(`Flow execution '${executionId}' is currently being executed or resumed`);
+        }
+        throw new ConflictError(`Could not claim flow execution '${executionId}'`);
+      }
+
+      let waitPromise: Promise<FlowExecution> | null = null;
+      if (shouldWait) {
+        const timeoutMs =
+          options.timeoutMs || (flow.definition.timeoutSeconds ? flow.definition.timeoutSeconds * 1000 : 30000);
+
+        waitPromise = new Promise<FlowExecution>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            this.executionWaiters.delete(executionId);
+            try {
+              this.abortExecution(
+                executionId,
+                `Flow '${flow.name}' execution timed out after ${timeoutMs}ms`
+              );
+            } catch {}
+            const timeoutErr = new AppError(
+              `Flow '${flow.name}' execution timed out after ${timeoutMs}ms`,
+              408
+            );
+            (timeoutErr as any).status = 'timeout';
+            reject(timeoutErr);
+          }, timeoutMs);
+
+          this.executionWaiters.set(executionId, { resolve, reject, timer });
+        });
+      }
+
+      await this.queueService.send({
+        id: jobId,
+        queue: queueName,
+        groupKey: flow.id,
+        maxAttempts: 1,
+        payload: {
+          executionId,
+          flowId: flow.id,
+          input: exec.input,
+          actor: exec.actor || (exec.actorId ? { id: exec.actorId } : null),
+          isResume: true,
+          executionOptions: options,
+        },
+      });
+
+      if (!shouldWait) {
+        return this.getExecutionById(executionId)!;
+      }
+
+      return await waitPromise!;
+    }
+
+    // Unconstrained flow path (no queue / unlimited concurrency)
+    this.activeExecutionClaims.add(executionId);
     const claimToken = crypto.randomUUID();
     let claimed = false;
 
     try {
-      // Atomic claim in DB: only claim if status is 'running' or 'failed', and not already claimed
       const claimResult = this.db.prepare(`
         UPDATE _flow_executions
         SET claimToken = ?, status = 'running', finishedAt = NULL, error = NULL
@@ -1142,170 +1410,89 @@ export class FlowService {
       `).run(claimToken, executionId);
 
       if (claimResult.changes === 0) {
-        const existing = this.getExecutionById(executionId);
-        if (!existing) {
-          throw new NotFoundError(`Flow execution '${executionId}' not found`);
-        }
-        if (existing.claimToken) {
+        const current = this.getExecutionById(executionId);
+        if (current?.claimToken) {
           throw new ConflictError(`Flow execution '${executionId}' is already claimed by another runner`);
         }
-        if (existing.status !== 'running' && existing.status !== 'failed') {
-          throw new AppError(`Cannot resume flow execution '${executionId}' with status '${existing.status}'`, 400);
+        if (current?.status !== 'running' && current?.status !== 'failed') {
+          throw new AppError(`Cannot resume flow execution '${executionId}' with status '${current?.status}'`, 400);
         }
         throw new ConflictError(`Could not claim flow execution '${executionId}'`);
       }
       claimed = true;
 
-      const exec = this.getExecutionById(executionId)!;
-      const flow = this.getFlowById(exec.flowId) || this.getFlowByName(exec.flowName);
-      if (!flow) {
-        this.abortExecution(executionId, `Flow '${exec.flowName}' no longer exists`);
-        throw new NotFoundError(`Flow '${exec.flowName}' no longer exists`);
-      }
-
-      if (!flow.enabled) {
-        this.abortExecution(executionId, `Flow '${flow.name}' is currently disabled`);
-        throw new AppError(`Flow '${flow.name}' is currently disabled`, 403);
-      }
-
-      let nextStateName: string | undefined = exec.checkpoint?.currentStateName ?? undefined;
-      let resumePayload = exec.checkpoint?.currentPayload !== undefined
-        ? exec.checkpoint.currentPayload
-        : (exec.output ?? exec.input ?? {});
-
-      // If checkpoint.currentStateName is not explicitly set, determine from stepLogs
-      if (!nextStateName) {
-        if (!exec.stepLogs || exec.stepLogs.length === 0) {
-          nextStateName = flow.definition.startAt;
-          resumePayload = exec.input !== undefined ? exec.input : {};
-        } else {
-          const lastStep = exec.stepLogs[exec.stepLogs.length - 1];
-          const lastState = flow.definition.states[lastStep.step];
-
-          if (lastStep.status === 'failed') {
-            nextStateName = lastStep.step;
-            resumePayload = lastStep.input !== undefined ? lastStep.input : {};
-          } else if (lastStep.nextState) {
-            // Use actual transition persisted in the step log
-            nextStateName = lastStep.nextState;
-            resumePayload = lastStep.output !== undefined ? lastStep.output : {};
-          } else if (lastState && (lastState.end || lastState.type === 'Succeed')) {
-            // Explicitly terminal state completed successfully
-            const completed: FlowExecution = {
-              ...exec,
-              status: 'succeeded',
-              finishedAt: new Date().toISOString(),
-              checkpoint: null,
-              claimToken: null,
-            };
-            this.saveExecution(completed);
-            return completed;
-          } else if (lastState?.type === 'Choice') {
-            // Reconstruct dynamic branch from Choice state definition and payload
-            const payload = lastStep.output !== undefined ? lastStep.output : (lastStep.input ?? {});
-            const chosenNext = ChoiceEvaluator.findNextState(lastState.choices, lastState.default, payload);
-            if (chosenNext) {
-              nextStateName = chosenNext;
-              resumePayload = payload;
-            } else {
-              this.abortExecution(
-                executionId,
-                `Cannot reconstruct Choice branch for state '${lastStep.step}' (no matching choice and no default)`
-              );
-              throw new AppError(
-                `Cannot reconstruct Choice branch for state '${lastStep.step}' for execution '${executionId}'`,
-                400
-              );
-            }
-          } else if (lastState && typeof (lastState as any).next === 'string' && (lastState as any).next) {
-            // Static next transition
-            nextStateName = (lastState as any).next;
-            resumePayload = lastStep.output !== undefined ? lastStep.output : {};
-          } else {
-            // Cannot reconstruct next state: abort rather than assuming completion
-            const reason = !lastState
-              ? `State '${lastStep.step}' no longer exists in flow definition`
-              : `Cannot reconstruct next state following '${lastStep.step}' (type '${lastState.type}')`;
-            this.abortExecution(executionId, reason);
-            throw new AppError(
-              `Cannot reconstruct next state following '${lastStep.step}' for execution '${executionId}': ${reason}`,
-              400
-            );
-          }
-        }
-      }
-
-      if (!nextStateName || !flow.definition.states[nextStateName]) {
-        this.abortExecution(executionId, `Checkpoint state '${nextStateName || 'unknown'}' not found in flow definition`);
-        throw new AppError(`Checkpoint state '${nextStateName || 'unknown'}' not found in flow definition`, 400);
-      }
-
       const abortController = new AbortController();
       this.activeAbortControllers.set(executionId, abortController);
-
       const recoveryActor = exec.actor || (exec.actorId ? { id: exec.actorId } : undefined);
+      const shouldWait = options.wait !== false;
 
-      try {
-        const execution = await this.engine.execute(flow.name, flow.definition, exec.input, {
-          actor: recoveryActor,
-          functionService: this.functionService,
-          executionId: exec.id,
-          flowId: flow.id,
-          signal: abortController.signal,
-          onStepTransition: async (event) => {
-            this.persistCheckpoint(exec.id, event, claimToken);
-          },
-          resumeFrom: {
-            stateName: nextStateName,
-            payload: resumePayload,
-            stepLogs: exec.stepLogs || [],
-            loopCounters: exec.checkpoint?.loopCounters,
-            stepCount: exec.checkpoint?.stepCount || (exec.stepLogs || []).length,
+      const runPromise = (async (): Promise<FlowExecution> => {
+        try {
+          const execution = await this.engine.execute(flow.name, flow.definition, exec.input, {
+            actor: recoveryActor,
+            functionService: this.functionService,
+            executionId: exec.id,
+            flowId: flow.id,
+            executionOptions: options,
+            signal: abortController.signal,
+            onStepTransition: async (event) => {
+              this.persistCheckpoint(exec.id, event, claimToken);
+            },
+            resumeFrom: resumeInfo.resumeFrom,
+          });
+
+          const mergedExecution: FlowExecution = {
+            ...execution,
+            queuedAt: exec.queuedAt ?? null,
+            jobId: exec.jobId ?? null,
+          };
+          this.saveExecution(mergedExecution);
+          return mergedExecution;
+        } catch (err: any) {
+          const existing = this.getExecutionById(executionId);
+          if (existing?.status === 'aborted') {
+            throw err;
+          }
+          const failedExec: FlowExecution = {
+            id: exec.id,
+            flowId: flow.id,
+            flowName: flow.name,
+            status: 'failed',
+            input: exec.input,
+            output: existing?.output ?? resumeInfo.resumePayload,
+            error: err.message || String(err),
+            durationMs: existing?.durationMs || exec.durationMs,
+            stepLogs: existing?.stepLogs || exec.stepLogs,
+            actorId: exec.actorId,
+            actor: exec.actor,
+            queuedAt: exec.queuedAt ?? null,
+            jobId: exec.jobId ?? null,
             startedAt: exec.startedAt,
-            durationMs: exec.durationMs,
-          },
-        });
-
-        const mergedExecution: FlowExecution = {
-          ...execution,
-          queuedAt: exec.queuedAt ?? null,
-          jobId: exec.jobId ?? null,
-        };
-        this.saveExecution(mergedExecution);
-        return mergedExecution;
-      } catch (err: any) {
-        const existing = this.getExecutionById(executionId);
-        if (existing?.status === 'aborted') {
+            finishedAt: new Date().toISOString(),
+            checkpoint: existing?.checkpoint ?? null,
+            claimToken: null,
+          };
+          this.saveExecution(failedExec);
           throw err;
+        } finally {
+          this.releaseClaim(executionId, claimToken);
+          this.activeExecutionClaims.delete(executionId);
+          this.activeAbortControllers.delete(executionId);
         }
-        const failedExec: FlowExecution = {
-          id: exec.id,
-          flowId: flow.id,
-          flowName: flow.name,
-          status: 'failed',
-          input: exec.input,
-          output: existing?.output ?? resumePayload,
-          error: err.message || String(err),
-          durationMs: existing?.durationMs || exec.durationMs,
-          stepLogs: existing?.stepLogs || exec.stepLogs,
-          actorId: exec.actorId,
-          actor: exec.actor,
-          queuedAt: exec.queuedAt ?? null,
-          jobId: exec.jobId ?? null,
-          startedAt: exec.startedAt,
-          finishedAt: new Date().toISOString(),
-          checkpoint: existing?.checkpoint ?? null,
-          claimToken: null,
-        };
-        this.saveExecution(failedExec);
-        throw err;
+      })();
+
+      if (!shouldWait) {
+        runPromise.catch((err) => {
+          console.error(`[FlowService] Background resumed execution failed for flow '${flow.name}':`, err);
+        });
+        return this.getExecutionById(executionId)!;
       }
+
+      return await runPromise;
     } finally {
-      if (claimed) {
-        this.releaseClaim(executionId, claimToken);
+      if (!claimed) {
+        this.activeExecutionClaims.delete(executionId);
       }
-      this.activeExecutionClaims.delete(executionId);
-      this.activeAbortControllers.delete(executionId);
     }
   }
 
@@ -1340,7 +1527,12 @@ export class FlowService {
 
         try {
           if (strategy === 'resume') {
-            const resumed = await this.resumeExecution(exec.id);
+            const flow = this.getFlowById(exec.flowId) || this.getFlowByName(exec.flowName);
+            const isThrottled = Boolean(
+              flow?.maxConcurrentExecutions && flow.maxConcurrentExecutions >= 1 && this.queueService
+            );
+            // Route through admission mechanism: throttled flows queue without blocking startup; unconstrained flows execute
+            const resumed = await this.resumeExecution(exec.id, isThrottled ? { wait: false } : undefined);
             recovered.push(resumed);
           } else {
             const aborted = this.abortExecution(exec.id, 'Execution aborted due to server restart');
@@ -1381,6 +1573,10 @@ export class FlowService {
         const existingJob = await this.queueService.getJob(jobId);
 
         if (!existingJob) {
+          const isResume = Boolean(
+            (exec.checkpoint && ((exec.checkpoint.stepCount ?? 0) > 0 || exec.checkpoint.currentStateName !== flow.definition.startAt)) ||
+            (exec.stepLogs && exec.stepLogs.length > 0)
+          );
           await this.queueService.send({
             id: jobId,
             queue: queueName,
@@ -1391,6 +1587,7 @@ export class FlowService {
               flowId: flow.id,
               input: exec.input,
               actor: exec.actor || (exec.actorId ? { id: exec.actorId } : null),
+              isResume,
             },
           });
         } else {
