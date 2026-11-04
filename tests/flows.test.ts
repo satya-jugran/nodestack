@@ -4244,6 +4244,103 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.flows.deleteFlow(throttledFlow.id);
     });
 
+    it('should reject executeFlow with 409 Conflict if supplied executionId already exists (e.g. completed)', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'CompletedIdReuseFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Done',
+          states: {
+            Done: {
+              type: 'Pass',
+              result: { done: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const fixedExecutionId = `exec_completed_${Date.now()}`;
+
+      // First execution completes normally
+      const exec1 = await app.flows.executeFlow(throttledFlow.id, {}, undefined, {
+        executionId: fixedExecutionId,
+        wait: true,
+      });
+      expect(exec1.status).toBe('succeeded');
+
+      // Attempting to reuse the same executionId must be rejected with 409 Conflict rather than overwriting
+      await expect(
+        app.flows.executeFlow(throttledFlow.id, {}, undefined, {
+          executionId: fixedExecutionId,
+          wait: true,
+        })
+      ).rejects.toThrowError(/already exists/i);
+
+      // Verify original succeeded record was NOT overwritten or corrupted
+      const check = app.flows.getExecutionById(fixedExecutionId);
+      expect(check?.status).toBe('succeeded');
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
+    it('should clean up waiter/timer and mark execution failed on queue dispatch failure without unhandled rejections', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'DispatchFailureCleanupFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Work',
+          states: {
+            Work: {
+              type: 'Wait',
+              seconds: 0.1,
+              end: true,
+            },
+          },
+        },
+      });
+
+      const testExecId = `exec_dispatch_fail_${Date.now()}`;
+      const queueService = (app.flows as any).queueService;
+      const originalSend = queueService.send.bind(queueService);
+
+      // Simulate queue dispatch failure (e.g. database error, constraint failure, etc.)
+      queueService.send = vi.fn().mockRejectedValueOnce(new Error('Simulated queue driver failure'));
+
+      let dispatchError: any;
+      try {
+        await app.flows.executeFlow(throttledFlow.id, {}, undefined, {
+          executionId: testExecId,
+          wait: true,
+          timeoutMs: 100, // Short timeout to verify timer does NOT fire
+        });
+      } catch (err: any) {
+        dispatchError = err;
+      }
+
+      expect(dispatchError).toBeDefined();
+      expect(dispatchError.message).toContain('Simulated queue driver failure');
+
+      // Waiter must have been cleaned up immediately from Map
+      const waiters = (app.flows as any).executionWaiters;
+      expect(waiters.has(testExecId)).toBe(false);
+
+      // Execution in DB must NOT be stranded as 'queued'; it should be marked as 'failed'
+      const record = app.flows.getExecutionById(testExecId);
+      expect(record?.status).toBe('failed');
+      expect(record?.error).toContain('Dispatch failed');
+
+      // Restore original send method
+      queueService.send = originalSend;
+
+      // Wait beyond the 100ms timeout to ensure no unhandled promise rejection or orphaned timer fires
+      await new Promise((r) => setTimeout(r, 200));
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
     it('should throttle bulk database event triggers (e.g. 12 concurrent events with maxConcurrentExecutions = 2) and execute all in FIFO without dropping', async () => {
       app.schema.createCollection({
         name: 'bulk_throttle_items',

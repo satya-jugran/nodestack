@@ -670,8 +670,11 @@ export class FlowService {
 
     if (options.executionId) {
       const existing = this.getExecutionById(options.executionId);
-      if (existing && (existing.status === 'running' || existing.status === 'queued' || existing.claimToken)) {
-        throw new ConflictError(`Flow execution '${options.executionId}' is already running`);
+      if (existing) {
+        if (existing.status === 'running' || existing.status === 'queued' || existing.claimToken) {
+          throw new ConflictError(`Flow execution '${options.executionId}' is currently running`);
+        }
+        throw new ConflictError(`Flow execution '${options.executionId}' already exists`);
       }
     }
 
@@ -719,17 +722,21 @@ export class FlowService {
         claimToken: null,
       };
 
+      const previousRecord = options.executionId ? this.getExecutionById(options.executionId) : null;
+
       // Persist queued execution immediately before yielding, atomically reserving executionId in DB
       this.saveExecution(queuedExec);
 
       let waitPromise: Promise<FlowExecution> | null = null;
+      let waiterTimer: NodeJS.Timeout | undefined;
+
       if (shouldWait) {
         const timeoutMs =
           options.timeoutMs || (flow.definition.timeoutSeconds ? flow.definition.timeoutSeconds * 1000 : 30000);
 
         waitPromise = new Promise<FlowExecution>((resolve, reject) => {
-          const timer = setTimeout(() => {
-            this.executionWaiters.delete(executionId);
+          waiterTimer = setTimeout(() => {
+            this.cleanupWaiter(executionId);
             try {
               this.abortExecution(
                 executionId,
@@ -744,8 +751,11 @@ export class FlowService {
             reject(timeoutErr);
           }, timeoutMs);
 
-          this.executionWaiters.set(executionId, { resolve, reject, timer });
+          this.executionWaiters.set(executionId, { resolve, reject, timer: waiterTimer });
         });
+
+        // Prevent unhandled promise rejection if waitPromise is unobserved or dispatch fails
+        waitPromise.catch(() => {});
       }
 
       try {
@@ -777,11 +787,20 @@ export class FlowService {
           },
         });
       } catch (err: any) {
-        this.executionWaiters.delete(executionId);
+        this.cleanupWaiter(executionId);
         try {
-          this.db
-            .prepare("DELETE FROM _flow_executions WHERE id = ? AND status = 'queued' AND claimToken IS NULL")
-            .run(executionId);
+          if (previousRecord) {
+            this.saveExecution(previousRecord);
+          } else {
+            const failedExec: FlowExecution = {
+              ...queuedExec,
+              status: 'failed',
+              error: `Dispatch failed: ${err.message || String(err)}`,
+              finishedAt: new Date().toISOString(),
+              claimToken: null,
+            };
+            this.saveExecution(failedExec);
+          }
         } catch {}
         throw err;
       } finally {
@@ -1045,6 +1064,15 @@ export class FlowService {
     } catch {
       // ignore
     }
+  }
+
+  private cleanupWaiter(executionId: string): void {
+    const waiter = this.executionWaiters.get(executionId);
+    if (!waiter) return;
+    if (waiter.timer) {
+      clearTimeout(waiter.timer);
+    }
+    this.executionWaiters.delete(executionId);
   }
 
   private settleWaiter(executionId: string, execution?: FlowExecution, error?: any): void {
@@ -1351,13 +1379,15 @@ export class FlowService {
       }
 
       let waitPromise: Promise<FlowExecution> | null = null;
+      let waiterTimer: NodeJS.Timeout | undefined;
+
       if (shouldWait) {
         const timeoutMs =
           options.timeoutMs || (flow.definition.timeoutSeconds ? flow.definition.timeoutSeconds * 1000 : 30000);
 
         waitPromise = new Promise<FlowExecution>((resolve, reject) => {
-          const timer = setTimeout(() => {
-            this.executionWaiters.delete(executionId);
+          waiterTimer = setTimeout(() => {
+            this.cleanupWaiter(executionId);
             try {
               this.abortExecution(
                 executionId,
@@ -1372,8 +1402,11 @@ export class FlowService {
             reject(timeoutErr);
           }, timeoutMs);
 
-          this.executionWaiters.set(executionId, { resolve, reject, timer });
+          this.executionWaiters.set(executionId, { resolve, reject, timer: waiterTimer });
         });
+
+        // Prevent unhandled promise rejection if waitPromise is unobserved or dispatch fails
+        waitPromise.catch(() => {});
       }
 
       try {
@@ -1412,7 +1445,10 @@ export class FlowService {
           },
         });
       } catch (err: any) {
-        this.executionWaiters.delete(executionId);
+        this.cleanupWaiter(executionId);
+        try {
+          this.saveExecution(exec);
+        } catch {}
         throw err;
       } finally {
         this.pendingExecutionAdmissions.delete(executionId);
