@@ -4403,6 +4403,104 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.flows.deleteFlow(longBudgetFlow.id);
     });
 
+    it('should reconcile non-queued job states on startup and restore claimable job when execution is queued', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'CrashReconciliationFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Work',
+          states: {
+            Work: {
+              type: 'Pass',
+              result: { crashRecovered: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      const queueName = `_system:flow:${throttledFlow.id}`;
+      const executionId = `exec_crashed_sim_${Date.now()}`;
+      const jobId = `job_${executionId}`;
+      const db = (app.flows as any).db;
+      const now = new Date().toISOString();
+
+      // 1. Simulate process crashing right after QueueService claimed the job but BEFORE execution became 'running':
+      // Execution is still 'queued', while QueueJob is in 'processing' with attempts=1
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, durationMs, stepLogs, queuedAt, startedAt, jobId)
+        VALUES (?, ?, ?, 'queued', '{}', 0, '[]', ?, ?, ?)
+      `).run(executionId, throttledFlow.id, throttledFlow.name, now, now, jobId);
+
+      db.prepare(`
+        INSERT INTO _queue_jobs (id, queue, groupKey, status, payload, attempts, maxAttempts, claimedBy, leaseExpiresAt, availableAt, created, updated)
+        VALUES (?, ?, ?, 'processing', ?, 1, 1, 'dead_worker_pid', ?, ?, ?, ?)
+      `).run(
+        jobId,
+        queueName,
+        throttledFlow.id,
+        JSON.stringify({ executionId, flowId: throttledFlow.id, input: {} }),
+        new Date(Date.now() + 60000).toISOString(),
+        now,
+        now,
+        now
+      );
+
+      // Verify simulated pre-conditions
+      const preExec = app.flows.getExecutionById(executionId);
+      expect(preExec?.status).toBe('queued');
+      const preJob = await app.queue.getJob(jobId);
+      expect(preJob?.status).toBe('processing');
+
+      // 2. Run startup reconciliation
+      await app.flows.recoverOrphanedExecutions();
+
+      // 3. Worker must have been woken, claimed the restored job, and executed the flow to 'succeeded'
+      await vi.waitFor(async () => {
+        const postExec = app.flows.getExecutionById(executionId);
+        expect(postExec?.status).toBe('succeeded');
+        expect(postExec?.output).toEqual({ crashRecovered: true });
+      }, { timeout: 4000, interval: 50 });
+
+      // Verify the queue job reached 'completed' rather than being dead-lettered
+      const postJob = await app.queue.getJob(jobId);
+      expect(postJob?.status).toBe('completed');
+
+      // 4. Test second case: an execution whose job became 'dead_letter' before startup reconciliation
+      const deadExecId = `exec_dead_letter_sim_${Date.now()}`;
+      const deadJobId = `job_${deadExecId}`;
+
+      db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, input, durationMs, stepLogs, queuedAt, startedAt, jobId)
+        VALUES (?, ?, ?, 'queued', '{}', 0, '[]', ?, ?, ?)
+      `).run(deadExecId, throttledFlow.id, throttledFlow.name, now, now, deadJobId);
+
+      db.prepare(`
+        INSERT INTO _queue_jobs (id, queue, groupKey, status, payload, attempts, maxAttempts, claimedBy, leaseExpiresAt, availableAt, created, updated)
+        VALUES (?, ?, ?, 'dead_letter', ?, 1, 1, NULL, NULL, ?, ?, ?)
+      `).run(
+        deadJobId,
+        queueName,
+        throttledFlow.id,
+        JSON.stringify({ executionId: deadExecId, flowId: throttledFlow.id, input: {} }),
+        now,
+        now,
+        now
+      );
+
+      // Run startup reconciliation again
+      await app.flows.recoverOrphanedExecutions();
+
+      // Must be restored from dead_letter and successfully executed
+      await vi.waitFor(async () => {
+        const recoveredDeadExec = app.flows.getExecutionById(deadExecId);
+        expect(recoveredDeadExec?.status).toBe('succeeded');
+      }, { timeout: 4000, interval: 50 });
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
     it('should throttle bulk database event triggers (e.g. 12 concurrent events with maxConcurrentExecutions = 2) and execute all in FIFO without dropping', async () => {
       app.schema.createCollection({
         name: 'bulk_throttle_items',

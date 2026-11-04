@@ -1610,7 +1610,7 @@ export class FlowService {
     }
 
     try {
-      this.db.prepare("UPDATE _flow_executions SET claimToken = NULL WHERE status = 'running'").run();
+      this.db.prepare("UPDATE _flow_executions SET claimToken = NULL WHERE status IN ('running', 'queued')").run();
     } catch {}
 
     const orphanedRows = this.db
@@ -1674,26 +1674,71 @@ export class FlowService {
         this.syncFlowQueue(flow);
         const queueName = FlowService.getFlowQueueName(flow.id);
         const jobId = exec.jobId || `job_${exec.id}`;
+        if (!exec.jobId) {
+          try {
+            this.db.prepare("UPDATE _flow_executions SET jobId = ? WHERE id = ?").run(jobId, exec.id);
+          } catch {}
+        }
         const existingJob = await this.queueService.getJob(jobId);
 
+        const isResume = Boolean(
+          (exec.checkpoint && ((exec.checkpoint.stepCount ?? 0) > 0 || exec.checkpoint.currentStateName !== flow.definition.startAt)) ||
+          (exec.stepLogs && exec.stepLogs.length > 0)
+        );
+
+        const jobPayload = {
+          executionId: exec.id,
+          flowId: flow.id,
+          input: exec.input,
+          actor: exec.actor || (exec.actorId ? { id: exec.actorId } : null),
+          isResume,
+        };
+
         if (!existingJob) {
-          const isResume = Boolean(
-            (exec.checkpoint && ((exec.checkpoint.stepCount ?? 0) > 0 || exec.checkpoint.currentStateName !== flow.definition.startAt)) ||
-            (exec.stepLogs && exec.stepLogs.length > 0)
-          );
           await this.queueService.send({
             id: jobId,
             queue: queueName,
             groupKey: flow.id,
             maxAttempts: 1,
-            payload: {
-              executionId: exec.id,
-              flowId: flow.id,
-              input: exec.input,
-              actor: exec.actor || (exec.actorId ? { id: exec.actorId } : null),
-              isResume,
-            },
+            payload: jobPayload,
           });
+        } else if (existingJob.status !== 'queued') {
+          // The execution has not started (still queued), but the job in the queue is non-queued
+          // (e.g. process crashed while 'processing' before execution reached running, or job timed out to 'dead_letter' / 'failed').
+          // Restore the job to a claimable 'queued' state with attempts reset so it can be processed.
+          const now = new Date().toISOString();
+          let restored = false;
+          try {
+            const res = this.db.prepare(`
+              UPDATE _queue_jobs
+              SET status = 'queued',
+                  claimedBy = NULL,
+                  leaseExpiresAt = NULL,
+                  attempts = 0,
+                  error = NULL,
+                  finishedAt = NULL,
+                  availableAt = ?,
+                  updated = ?,
+                  payload = ?
+              WHERE id = ?
+            `).run(now, now, JSON.stringify(jobPayload), jobId);
+            restored = Number(res.changes) > 0;
+          } catch {}
+
+          if (!restored) {
+            try {
+              await this.queueService.cancel(jobId);
+            } catch {}
+            await this.queueService.send({
+              id: jobId,
+              queue: queueName,
+              groupKey: flow.id,
+              maxAttempts: 1,
+              payload: jobPayload,
+            });
+          } else {
+            this.queueService.wakeWorker(queueName);
+          }
         } else {
           this.queueService.wakeWorker(queueName);
         }
