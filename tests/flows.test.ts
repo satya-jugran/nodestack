@@ -4193,6 +4193,57 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.flows.deleteFlow(throttledFlow.id);
     });
 
+    it('should atomically reserve admission before yielding so concurrent executeFlow calls with identical executionId reject cleanly without overwriting waiters or failing queue unique constraints', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'ConcurrentIdFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Work',
+          states: {
+            Work: {
+              type: 'Wait',
+              seconds: 0.5,
+              end: true,
+            },
+          },
+        },
+      });
+
+      const sharedExecutionId = `exec_shared_${Date.now()}`;
+
+      // Fire two concurrent executeFlow() calls with wait=true and the EXACT same executionId
+      const [res1, res2] = await Promise.allSettled([
+        app.flows.executeFlow(throttledFlow.id, { call: 1 }, undefined, {
+          executionId: sharedExecutionId,
+          wait: true,
+        }),
+        app.flows.executeFlow(throttledFlow.id, { call: 2 }, undefined, {
+          executionId: sharedExecutionId,
+          wait: true,
+        }),
+      ]);
+
+      const fulfilled = [res1, res2].filter((r) => r.status === 'fulfilled');
+      const rejected = [res1, res2].filter((r) => r.status === 'rejected');
+
+      // Exactly one must succeed, and one must be rejected with 409 Conflict
+      expect(fulfilled.length).toBe(1);
+      expect(rejected.length).toBe(1);
+
+      // Verify successful execution completed properly without waiter loss or timing out
+      const successResult = (fulfilled[0] as PromiseFulfilledResult<any>).value;
+      expect(successResult.status).toBe('succeeded');
+      expect(successResult.id).toBe(sharedExecutionId);
+
+      // Verify rejected execution gave 409 Conflict (not a SQLite unique constraint error or 408 timeout)
+      const errorResult = (rejected[0] as PromiseRejectedResult).reason;
+      expect(errorResult.statusCode).toBe(409);
+      expect(errorResult.message).toMatch(/already running|currently running/i);
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
     it('should throttle bulk database event triggers (e.g. 12 concurrent events with maxConcurrentExecutions = 2) and execute all in FIFO without dropping', async () => {
       app.schema.createCollection({
         name: 'bulk_throttle_items',
