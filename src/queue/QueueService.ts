@@ -11,7 +11,7 @@ import {
   GetJobsOptions,
 } from './types';
 import { ConfigService } from '../core/config/ConfigService';
-import { FunctionService } from '../functions/FunctionService';
+import { FunctionService, FunctionConcurrencyLimitError } from '../functions/FunctionService';
 import { DatabaseService } from '../database/DatabaseService';
 import { AppError } from '../core/errors/AppError';
 
@@ -456,6 +456,11 @@ export class QueueService {
     return this.driver.cancel(jobId);
   }
 
+  public async defer(jobId: string, delayMs = 250, reason?: string): Promise<boolean> {
+    if (!this.isDbAvailable()) return false;
+    return this.driver.defer(jobId, delayMs, reason);
+  }
+
   public async retryDeadLetterJobs(queueName: string, limit = 100): Promise<number> {
     const count = await this.driver.retryDeadLetterJobs(queueName, limit);
     if (count > 0) {
@@ -527,9 +532,25 @@ export class QueueService {
       const concurrency = config?.concurrency && config.concurrency > 0 ? config.concurrency : 25;
       const visibilityTimeout = config?.visibilityTimeoutSeconds ?? 30;
 
+      // Coordinate claiming with available serverless function capacity
+      let effectiveLimit = concurrency;
+      if (hasTargetFunction && this.functionService) {
+        const availableFunctionCapacity = Math.max(
+          0,
+          this.functionService.getMaxConcurrent() - this.functionService.getActiveExecutions()
+        );
+        effectiveLimit = Math.min(concurrency, availableFunctionCapacity);
+      }
+
+      if (effectiveLimit <= 0) {
+        // Function capacity is temporarily saturated; schedule re-check in 100ms
+        this.scheduleDelayedAt(Date.now() + 100);
+        return;
+      }
+
       // Driver atomically checks active 'processing' count in SQLite against concurrency limit
-      // and claims up to `concurrency` available slots in a single transaction
-      const claimed = await this.driver.claim(queueName, this.workerId, visibilityTimeout, concurrency);
+      // and claims up to `effectiveLimit` available slots in a single transaction
+      const claimed = await this.driver.claim(queueName, this.workerId, visibilityTimeout, effectiveLimit);
       if (!claimed || claimed.length === 0) {
         void this.scheduleNextDelayedWake(queueName);
         return;
@@ -581,7 +602,11 @@ export class QueueService {
             (typeof fnResult.body === 'object' && fnResult.body?.error
               ? String(fnResult.body.error)
               : `Function '${config.targetFunction}' failed with status ${fnResult.statusCode}`);
-          throw new Error(errMsg);
+          const err: any = new Error(errMsg);
+          if (fnResult.statusCode === 429) {
+            err.statusCode = 429;
+          }
+          throw err;
         }
 
         if (!this.isDisposed && this.isDbAvailable()) {
@@ -590,8 +615,24 @@ export class QueueService {
       }
     } catch (err: any) {
       if (!this.isDisposed && this.isDbAvailable()) {
-        const errMsg = err?.message || String(err);
-        await this.fail(job.id, errMsg, config?.backoffDelayMs);
+        const isCapacityLimit =
+          (err as any)?.statusCode === 429 ||
+          err instanceof FunctionConcurrencyLimitError ||
+          /concurrency limit reached/i.test(err?.message || '');
+
+        if (isCapacityLimit) {
+          // Defer capacity-rejected jobs without incrementing their execution-attempt budget
+          const deferDelayMs = Math.max(50, Math.min(config?.backoffDelayMs ?? 200, 200));
+          await this.driver.defer(
+            job.id,
+            deferDelayMs,
+            err.message || 'Serverless function concurrency limit reached (deferred)'
+          );
+          this.scheduleDelayedAt(Date.now() + deferDelayMs);
+        } else {
+          const errMsg = err?.message || String(err);
+          await this.fail(job.id, errMsg, config?.backoffDelayMs);
+        }
       }
     } finally {
       // As soon as this job finishes and frees its 'processing' row in SQLite, wake the queue to claim next

@@ -24,6 +24,12 @@ export const ALLOWED_AUTH_POLICIES: readonly FunctionAuthPolicy[] = ['public', '
 import { AppError, NotFoundError, ForbiddenError, UnauthorizedError, ValidationError, ConflictError } from '../core/errors/AppError';
 import { FlowValidator } from '../flows/FlowValidator';
 
+export class FunctionConcurrencyLimitError extends AppError {
+  constructor(message = 'Serverless function concurrency limit reached. Please retry shortly.') {
+    super(message, 429);
+  }
+}
+
 export interface FunctionServiceOptions {
   runner?: SandboxedRunner;
   maxConcurrent?: number;
@@ -64,6 +70,10 @@ export class FunctionService {
 
   public getMaxConcurrent(): number {
     return this.maxConcurrent;
+  }
+
+  public getAvailableCapacity(): number {
+    return Math.max(0, this.maxConcurrent - this.activeExecutions);
   }
 
   public getMaxRecursionDepth(): number {
@@ -442,7 +452,7 @@ export class FunctionService {
 
     // Concurrency throttle check
     if (this.activeExecutions >= this.maxConcurrent) {
-      throw new AppError('Serverless function concurrency limit reached. Please retry shortly.', 429);
+      throw new FunctionConcurrencyLimitError();
     }
 
     const parentStore = this.executionStorage.getStore();
@@ -489,6 +499,9 @@ export class FunctionService {
       return result;
     } finally {
       this.activeExecutions = Math.max(0, this.activeExecutions - 1);
+      if (this.queueService && typeof this.queueService.wakeAllWorkers === 'function') {
+        this.queueService.wakeAllWorkers();
+      }
     }
   }
 
@@ -510,7 +523,7 @@ export class FunctionService {
     }
 
     if (this.activeExecutions >= this.maxConcurrent) {
-      throw new AppError('Serverless function concurrency limit reached. Please retry shortly.', 429);
+      throw new FunctionConcurrencyLimitError();
     }
 
     const requestCtx: FunctionRequestContext = {
@@ -565,6 +578,9 @@ export class FunctionService {
       return result;
     } finally {
       this.activeExecutions = Math.max(0, this.activeExecutions - 1);
+      if (this.queueService && typeof this.queueService.wakeAllWorkers === 'function') {
+        this.queueService.wakeAllWorkers();
+      }
     }
   }
 
@@ -602,6 +618,9 @@ export class FunctionService {
       });
     } finally {
       this.activeExecutions = Math.max(0, this.activeExecutions - 1);
+      if (this.queueService && typeof this.queueService.wakeAllWorkers === 'function') {
+        this.queueService.wakeAllWorkers();
+      }
     }
 
     this.recordLog({

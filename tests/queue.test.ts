@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { JSDOM } from 'jsdom';
@@ -338,6 +338,80 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(() => app.functions.deleteFunction(fnDef.id)).toThrowError(
         /bound as targetFunction by 1 queue/i
       );
+    });
+
+    it('should coordinate claiming with available function capacity and defer capacity-rejected jobs without consuming execution attempts', async () => {
+      const originalMaxConcurrent = app.functions.getMaxConcurrent();
+      // Set function capacity to 2
+      (app.functions as any).maxConcurrent = 2;
+
+      app.functions.createFunction({
+        name: 'capacity-worker-fn',
+        code: `
+          export default async function(core, context) {
+            const start = Date.now();
+            while (Date.now() - start < 80) {}
+            return { processed: true, item: context.request.body.item };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 3000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: true,
+        env: {},
+      });
+
+      // Create queue with high concurrency (10) relative to function capacity (2) and strict maxAttempts = 1
+      await app.queue.upsertQueue({
+        name: 'capacity-coordinated-queue',
+        concurrency: 10,
+        maxAttempts: 1,
+        targetFunction: 'capacity-worker-fn',
+      });
+
+      // Enqueue 5 jobs
+      const jobs = await Promise.all([
+        app.queue.send('capacity-coordinated-queue', { item: 1 }),
+        app.queue.send('capacity-coordinated-queue', { item: 2 }),
+        app.queue.send('capacity-coordinated-queue', { item: 3 }),
+        app.queue.send('capacity-coordinated-queue', { item: 4 }),
+        app.queue.send('capacity-coordinated-queue', { item: 5 }),
+      ]);
+
+      // All 5 jobs must succeed despite maxAttempts = 1 (no jobs prematurely dead-lettered by 429)
+      await vi.waitFor(async () => {
+        const statuses = await Promise.all(jobs.map((j) => app.queue.getJob(j.id)));
+        const allCompleted = statuses.every((s) => s?.status === 'completed');
+        expect(allCompleted).toBe(true);
+      }, { timeout: 6000, interval: 50 });
+
+      // Verify each completed job consumed at most 1 attempt
+      const completedJobs = await Promise.all(jobs.map((j) => app.queue.getJob(j.id)));
+      for (const cj of completedJobs) {
+        expect(cj?.status).toBe('completed');
+        expect(cj?.attempts).toBe(1);
+      }
+
+      // Verify deferral behavior directly rolls back attempt count
+      const testJob = await app.queue.send('capacity-coordinated-queue', { item: 'defer-test' });
+      const [claimed] = await app.queue.claim('capacity-coordinated-queue', 30, 1);
+      expect(claimed.id).toBe(testJob.id);
+      expect(claimed.attempts).toBe(1);
+
+      // Deferring the job rolls back attempts from 1 to 0 and returns status to queued
+      const deferred = await app.queue.defer(testJob.id, 50, 'Capacity limit reached');
+      expect(deferred).toBe(true);
+
+      const afterDefer = (await app.queue.getJob(testJob.id))!;
+      expect(afterDefer.status).toBe('queued');
+      expect(afterDefer.attempts).toBe(0);
+      expect(afterDefer.error).toContain('Capacity limit reached');
+
+      // Restore original function capacity
+      (app.functions as any).maxConcurrent = originalMaxConcurrent;
     });
 
     it('should allow Serverless Functions inside QuickJS-Wasm to enqueue and inspect jobs via core.sdk.queue', async () => {

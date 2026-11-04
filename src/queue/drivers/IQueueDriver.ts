@@ -31,6 +31,7 @@ export interface IQueueDriver {
   complete(jobId: string, result?: any): Promise<boolean>;
   fail(jobId: string, error: string, backoffDelayMs?: number): Promise<JobFailResult>;
   cancel(jobId: string): Promise<boolean>;
+  defer(jobId: string, delayMs: number, reason?: string): Promise<boolean>;
 
   retryDeadLetterJobs(queueName: string, limit?: number): Promise<number>;
   reclaimOrphaned(queueName?: string, forceAll?: boolean): Promise<number>;

@@ -452,6 +452,26 @@ export class SqliteQueueDriver implements IQueueDriver {
     return Number(res.changes) > 0;
   }
 
+  public async defer(jobId: string, delayMs: number, reason?: string): Promise<boolean> {
+    this.ensureInit();
+    const now = new Date().toISOString();
+    const availableAt = new Date(Date.now() + Math.max(0, delayMs)).toISOString();
+
+    const res = this.db.prepare(`
+      UPDATE _queue_jobs
+      SET status = 'queued',
+          claimedBy = NULL,
+          leaseExpiresAt = NULL,
+          attempts = MAX(0, attempts - 1),
+          error = ?,
+          availableAt = ?,
+          updated = ?
+      WHERE id = ? AND status = 'processing'
+    `).run(reason || null, availableAt, now, jobId);
+
+    return Number(res.changes) > 0;
+  }
+
   public async retryDeadLetterJobs(queueName: string, limit = 100): Promise<number> {
     this.ensureInit();
     const safeLimit = Math.max(1, Math.floor(limit));
