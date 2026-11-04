@@ -47,7 +47,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     app.functions.createFunction({
       name: 'calculate-tax',
       code: `
-        export default async function(context) {
+        export default async function(core, context) {
           const amount = context.request?.body?.amount || 0;
           return {
             tax: amount * 0.1,
@@ -68,7 +68,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     app.functions.createFunction({
       name: 'apply-discount',
       code: `
-        export default async function(context) {
+        export default async function(core, context) {
           const total = context.request?.body?.calculation?.totalWithTax || context.request?.body?.totalWithTax || 0;
           const discount = context.request?.body?.order?.discount || context.request?.body?.discount || 0;
           return {
@@ -89,7 +89,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     app.functions.createFunction({
       name: 'square-item',
       code: `
-        export default async function(context) {
+        export default async function(core, context) {
           const num = context.request?.body?.value || 0;
           return {
             squared: num * num
@@ -109,7 +109,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     app.functions.createFunction({
       name: 'failing-task',
       code: `
-        export default async function(context) {
+        export default async function(core, context) {
           throw new Error('PlannedFunctionFailure');
         }
       `,
@@ -3169,7 +3169,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.functions.createFunction({
         name: 'flaky-network-task',
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             const count = context.request?.body?.count || 0;
             if (count === 1) {
               throw new Error('Temporary 503 upstream gateway outage');
@@ -3268,7 +3268,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const flakyFn = app.functions.getFunctionByName('flaky-network-task')!;
       app.functions.updateFunction(flakyFn.id, {
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             return {
               recoveredSuccessfully: true,
               receivedCount: context.request?.body?.count || 0,
@@ -3297,7 +3297,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.functions.createFunction({
         name: 'terminal-failure-task',
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             throw new Error('Fatal database connection refused');
           }
         `,
@@ -3435,7 +3435,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const taskFn = app.functions.getFunctionByName('terminal-failure-task')!;
       app.functions.updateFunction(taskFn.id, {
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             return { fixed: true, received: context.request?.body?.startParam };
           }
         `,
@@ -3462,7 +3462,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.functions.createFunction({
         name: 'checkpoint-test-step2-fn',
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             return { executed: true };
           }
         `,
@@ -3591,7 +3591,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.functions.createFunction({
         name: 'atomic-claim-side-effect-fn',
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             return { executed: true };
           }
         `,
@@ -3746,7 +3746,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.functions.createFunction({
         name: 'choice-branch-test-fn',
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             return { branchRan: true, score: context.request?.body?.score };
           }
         `,
@@ -3898,7 +3898,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.functions.createFunction({
         name: 'admin-auth-task-fn',
         code: `
-          export default async function(context) {
+          export default async function(core, context) {
             return { executedWithAdmin: true, caller: context.request?.auth?.email };
           }
         `,
@@ -3981,6 +3981,363 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(resumed.output.caller).toBe('admin@nodestack.test');
       expect(resumed.actor?.isAdmin).toBe(true);
       expect(resumed.actorId).toBe('admin-uuid-123');
+    });
+  });
+
+  // ==========================================
+  // Flow Concurrency Throttling (maxConcurrentExecutions)
+  // ==========================================
+  describe('Flow Concurrency Throttling (maxConcurrentExecutions & Per-Flow System Queues)', () => {
+    it('should validate maxConcurrentExecutions on flow create and update', async () => {
+      expect(() =>
+        app.flows.createFlow({
+          name: 'InvalidConcurrencyZero',
+          maxConcurrentExecutions: 0,
+          definition: {
+            startAt: 'Step1',
+            states: { Step1: { type: 'Pass', end: true } },
+          },
+        })
+      ).toThrowError(/maxConcurrentExecutions/i);
+
+      expect(() =>
+        app.flows.createFlow({
+          name: 'InvalidConcurrencyFloat',
+          maxConcurrentExecutions: 2.5,
+          definition: {
+            startAt: 'Step1',
+            states: { Step1: { type: 'Pass', end: true } },
+          },
+        })
+      ).toThrowError(/maxConcurrentExecutions/i);
+
+      const validFlow = app.flows.createFlow({
+        name: 'ValidThrottledFlow',
+        maxConcurrentExecutions: 3,
+        definition: {
+          startAt: 'Step1',
+          states: { Step1: { type: 'Pass', end: true } },
+        },
+      });
+      expect(validFlow.maxConcurrentExecutions).toBe(3);
+
+      // Give async queue upsert a brief moment to settle
+      await new Promise((r) => setTimeout(r, 20));
+      const sysQueue = await app.queue.getQueue(`_system:flow:${validFlow.id}`);
+      expect(sysQueue).not.toBeNull();
+      expect(sysQueue?.concurrency).toBe(3);
+      expect(sysQueue?.isSystem).toBe(true);
+
+      const unbounded = app.flows.updateFlow(validFlow.id, {
+        maxConcurrentExecutions: null,
+      });
+      expect(unbounded.maxConcurrentExecutions).toBeNull();
+      await new Promise((r) => setTimeout(r, 20));
+      const deletedSysQueue = await app.queue.getQueue(`_system:flow:${validFlow.id}`);
+      expect(deletedSysQueue).toBeNull();
+
+      app.flows.deleteFlow(validFlow.id);
+    });
+
+    it('should throttle bulk database event triggers (e.g. 12 concurrent events with maxConcurrentExecutions = 2) and execute all in FIFO without dropping', async () => {
+      app.schema.createCollection({
+        name: 'bulk_throttle_items',
+        type: 'base',
+        schema: [
+          { id: 'f_seq', name: 'seq', type: 'number', required: true },
+        ],
+      });
+
+      const throttledFlow = app.flows.createFlow({
+        name: 'BulkEventThrottledFlow',
+        enabled: true,
+        triggerType: 'event',
+        eventTrigger: 'bulk_throttle_items:create',
+        maxConcurrentExecutions: 2,
+        definition: {
+          startAt: 'SlowWork',
+          states: {
+            SlowWork: {
+              type: 'Wait',
+              seconds: 0.08,
+              next: 'Finish',
+            },
+            Finish: {
+              type: 'Pass',
+              result: { processed: true },
+              resultPath: '$.done',
+              end: true,
+            },
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      const totalItems = 12;
+      for (let i = 1; i <= totalItems; i++) {
+        await app.records.create('bulk_throttle_items', { seq: i }, { isAdmin: true });
+      }
+
+      await new Promise((r) => setTimeout(r, 20));
+      const midExecs = app.flows.getExecutions({ flowId: throttledFlow.id, perPage: 50, page: 1 });
+      const runningMid = midExecs.items.filter((e) => e.status === 'running');
+      const queuedMid = midExecs.items.filter((e) => e.status === 'queued');
+
+      expect(runningMid.length).toBeLessThanOrEqual(2);
+      expect(queuedMid.length).toBeGreaterThanOrEqual(4);
+
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const current = app.flows.getExecutions({ flowId: throttledFlow.id, perPage: 50, page: 1 });
+        const completedCount = current.items.filter((e) => e.status === 'succeeded').length;
+        const activeCount = current.items.filter((e) => e.status === 'running').length;
+        expect(activeCount).toBeLessThanOrEqual(2);
+        if (completedCount === totalItems) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+
+      const finalExecs = app.flows.getExecutions({ flowId: throttledFlow.id, perPage: 50, page: 1 });
+      expect(finalExecs.items.length).toBe(totalItems);
+      expect(finalExecs.items.every((e) => e.status === 'succeeded')).toBe(true);
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
+    it('should isolate per-flow queues so a backlogged Flow A (maxConcurrentExecutions=1) never blocks Flow B', async () => {
+      const flowA = app.flows.createFlow({
+        name: 'SlowIsolatedFlowA',
+        enabled: true,
+        triggerType: 'http',
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'WaitStep',
+          states: {
+            WaitStep: {
+              type: 'Wait',
+              seconds: 0.4,
+              end: true,
+            },
+          },
+        },
+      });
+
+      const flowB = app.flows.createFlow({
+        name: 'FastIsolatedFlowB',
+        enabled: true,
+        triggerType: 'http',
+        maxConcurrentExecutions: 5,
+        definition: {
+          startAt: 'QuickPass',
+          states: {
+            QuickPass: {
+              type: 'Pass',
+              result: { fast: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      const pA1 = app.flows.executeFlow(flowA.id, { run: 1 }, undefined, { wait: false });
+      const pA2 = app.flows.executeFlow(flowA.id, { run: 2 }, undefined, { wait: false });
+      const pA3 = app.flows.executeFlow(flowA.id, { run: 3 }, undefined, { wait: false });
+      await Promise.all([pA1, pA2, pA3]);
+
+      const startB = Date.now();
+      const resB = await app.flows.executeFlow(flowB.id, { check: 'isolation' }, undefined, { wait: true });
+      const elapsedB = Date.now() - startB;
+
+      expect(resB.status).toBe('succeeded');
+      expect(resB.output).toEqual({ fast: true });
+      expect(elapsedB).toBeLessThan(300);
+
+      await new Promise((r) => setTimeout(r, 1300));
+      app.flows.deleteFlow(flowA.id);
+      app.flows.deleteFlow(flowB.id);
+    });
+
+    it('should support HTTP wait=false (202 Accepted with status: queued), wait=true (blocks until slot finishes), and 408 Request Timeout when timeoutMs expires in queue', async () => {
+      const httpFlow = app.flows.createFlow({
+        name: 'HttpThrottledFlow',
+        enabled: true,
+        triggerType: 'http',
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'HoldSlot',
+          states: {
+            HoldSlot: {
+              type: 'Wait',
+              seconds: 0.35,
+              next: 'Done',
+            },
+            Done: {
+              type: 'Pass',
+              result: { completedViaQueue: true },
+              end: true,
+            },
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      const headers = {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json',
+      };
+
+      const res1 = await fetch(`http://127.0.0.1:8197/api/flows/${httpFlow.id}/execute?wait=false`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ first: true }),
+      });
+      expect(res1.status).toBe(202);
+      const body1 = await res1.json();
+      expect(['queued', 'running']).toContain(body1.status);
+      expect(body1.executionId).toBeDefined();
+
+      const res2 = await fetch(`http://127.0.0.1:8197/api/flows/${httpFlow.id}/execute?wait=false`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ second: true }),
+      });
+      expect(res2.status).toBe(202);
+      const body2 = await res2.json();
+      expect(body2.status).toBe('queued');
+
+      const resTimeout = await fetch(
+        `http://127.0.0.1:8197/api/flows/${httpFlow.id}/execute?wait=true&timeoutMs=80`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ third: 'will-timeout' }),
+        }
+      );
+      expect(resTimeout.status).toBe(408);
+
+      const resSync = await fetch(
+        `http://127.0.0.1:8197/api/flows/${httpFlow.id}/execute?wait=true&timeoutMs=5000`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ fourth: 'waits-and-succeeds' }),
+        }
+      );
+      expect(resSync.status).toBe(200);
+      const syncExec = await resSync.json();
+      expect(syncExec.status).toBe('succeeded');
+      expect(syncExec.output).toEqual({ completedViaQueue: true });
+
+      app.flows.deleteFlow(httpFlow.id);
+    });
+
+    it('should cancel the underlying queue job and prevent execution when abortExecution() is called on a queued flow execution', async () => {
+      const abortFlow = app.flows.createFlow({
+        name: 'AbortQueuedFlow',
+        enabled: true,
+        triggerType: 'http',
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'SlowStep',
+          states: {
+            SlowStep: {
+              type: 'Wait',
+              seconds: 0.4,
+              end: true,
+            },
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      await app.flows.executeFlow(abortFlow.id, { seq: 1 }, undefined, { wait: false });
+      const exec2 = await app.flows.executeFlow(abortFlow.id, { seq: 2 }, undefined, { wait: false });
+      expect(exec2.status).toBe('queued');
+      expect(exec2.jobId).toBeDefined();
+
+      const aborted = app.flows.abortExecution(exec2.id);
+      expect(aborted.status).toBe('aborted');
+
+      await new Promise((r) => setTimeout(r, 20));
+      const cancelledJob = await app.queue.getJob(exec2.jobId!);
+      expect(cancelledJob).toBeNull();
+
+      await new Promise((r) => setTimeout(r, 550));
+      const exec2After = app.flows.getExecutionById(exec2.id)!;
+      expect(exec2After.status).toBe('aborted');
+      expect(exec2After.stepLogs.length).toBe(0);
+
+      app.flows.deleteFlow(abortFlow.id);
+    });
+
+    it('should render maxConcurrentExecutions controls in Admin UI (Create Flow modal, Flow cards, Designer toolbar, and Execution status filter)', async () => {
+      const htmlPath = path.resolve(__dirname, '../dist/admin/ui/index.html');
+      const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+
+      const dom = new JSDOM(htmlContent, {
+        runScripts: 'dangerously',
+        resources: 'usable',
+        url: 'http://localhost:8197/_/',
+      });
+      const win = dom.window as any;
+      const doc = win.document as Document;
+
+      win.fetch = (url: string, opts?: any) => {
+        const fullUrl = url.startsWith('http') ? url : `http://localhost:8197${url}`;
+        return globalThis.fetch(fullUrl, {
+          ...opts,
+          headers: { ...opts?.headers, Authorization: `Bearer ${adminToken}` },
+        });
+      };
+      win.alert = () => {};
+      win.confirm = () => true;
+
+      await new Promise((r) => setTimeout(r, 150));
+
+      // 1. Create Flow Modal has #new-flow-concurrency
+      win.openCreateFlowModal();
+      const concurrencyModalInput = doc.getElementById('new-flow-concurrency') as HTMLInputElement;
+      expect(concurrencyModalInput).not.toBeNull();
+      expect(concurrencyModalInput.getAttribute('min')).toBe('1');
+      win.closeFlowModal();
+
+      // 2. Flow card shows Concurrency badge
+      win.flowsState.currentView = 'list';
+      win.flowsState.subTab = 'flows';
+      win.flowsState.flows = [
+        {
+          id: 'flow_ui_conc',
+          name: 'ThrottledUiFlow',
+          description: 'UI test',
+          enabled: true,
+          triggerType: 'event',
+          eventTrigger: 'orders:create',
+          maxConcurrentExecutions: 4,
+          definition: { startAt: 'S1', states: { S1: { type: 'Pass', end: true } } },
+        },
+      ];
+      await win.renderFlowsView();
+      const container = doc.getElementById('page-view-flows')!;
+      expect(container.innerHTML).toContain('Concurrency:');
+      expect(container.innerHTML).toContain('4');
+
+      // 3. Designer toolbar has #flow-edit-concurrency input
+      win.designerState.activeFlow = win.flowsState.flows[0];
+      win.renderFlowDesignerWorkbench(win.designerState.activeFlow);
+      const editConcInput = doc.getElementById('flow-edit-concurrency') as HTMLInputElement;
+      expect(editConcInput).not.toBeNull();
+      expect(editConcInput.value).toBe('4');
+
+      // 4. Execution History tab has #flows-status-filter including 'queued'
+      win.flowsState.currentView = 'list';
+      win.flowsState.subTab = 'executions';
+      await win.renderFlowsView();
+      const statusFilter = doc.getElementById('flows-status-filter') as HTMLSelectElement;
+      expect(statusFilter).not.toBeNull();
+      expect(statusFilter.innerHTML).toContain('value="queued"');
     });
   });
 

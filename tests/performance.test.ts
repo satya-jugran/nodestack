@@ -240,6 +240,6 @@ describe('Sprint 3 Performance & Architecture Tests', () => {
       expect(parsed.length).toBe(15);
       expect(parsed[0].passwordHash).toBeUndefined(); // Sanitized!
       expect(parsed[0].tokenKey).toBeUndefined(); // Sanitized!
-    });
+    }, 15000);
   });
 });

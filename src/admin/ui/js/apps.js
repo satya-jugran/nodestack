@@ -181,6 +181,12 @@ async function selectApp(slugOrId) {
     if (typeof renderFlowsView === 'function' && state.activeNav === 'flows') {
       renderFlowsView();
     }
+    if (typeof loadQueueStats === 'function') {
+      await loadQueueStats();
+    }
+    if (typeof renderQueuesView === 'function' && state.activeNav === 'queues') {
+      renderQueuesView();
+    }
 
     // Refresh plugin catalog and nav items for the switched app
     try {

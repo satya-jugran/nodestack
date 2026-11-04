@@ -103,7 +103,7 @@ export class FlowController extends BaseController {
   // ==========================================
 
   public async executeFlow(
-    req: FastifyRequest<{ Params: { id: string }; Querystring: { wait?: string }; Body: any }>,
+    req: FastifyRequest<{ Params: { id: string }; Querystring: { wait?: string; timeoutMs?: string }; Body: any }>,
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getFlowsService(req);
@@ -132,11 +132,15 @@ export class FlowController extends BaseController {
     }
 
     const wait = req.query.wait === 'true' || req.query.wait === '1';
+    const timeoutMs = req.query.timeoutMs
+      ? parseInt(req.query.timeoutMs, 10)
+      : (req.body as any)?.timeoutMs;
 
     try {
       if (wait) {
         const execution = await service.executeFlow(flow.id, req.body || {}, (req as any).auth, {
           wait: true,
+          timeoutMs: typeof timeoutMs === 'number' && !isNaN(timeoutMs) ? timeoutMs : undefined,
           executionId: (req.body as any)?.executionId,
         });
         this.ok(reply, execution);
@@ -147,16 +151,19 @@ export class FlowController extends BaseController {
           ? `/api/apps/${appId}/flows/executions/${executionId}`
           : `/api/flows/executions/${executionId}`;
 
-        // Fire-and-forget execution with pre-generated executionId
-        service.executeFlow(flow.id, req.body || {}, (req as any).auth, { executionId }).catch((err) => {
-          console.error(`[FlowController] Background execution failed for flow '${flow.name}':`, err);
+        const dispatched = await service.executeFlow(flow.id, req.body || {}, (req as any).auth, {
+          wait: false,
+          executionId,
         });
+
+        const dispatchStatus: 'queued' | 'running' =
+          dispatched.status === 'queued' ? 'queued' : 'running';
 
         const response: FlowAsyncDispatchResponse = {
           executionId,
           flowId: flow.id,
           flowName: flow.name,
-          status: 'running',
+          status: dispatchStatus,
           pollUrl,
         };
 

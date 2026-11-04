@@ -120,6 +120,13 @@ async function parseUrlAndNavigate(initial = false) {
       }
     }
   } else if (root === 'functions') {
+    if (typeof functionsState !== 'undefined') {
+      functionsState.subTab = (parts[1] === 'logs') ? 'logs' : 'functions';
+      if (parts.length < 2 || parts[1] === 'logs') {
+        functionsState.currentView = 'list';
+        functionsState.activeFunctionForEdit = null;
+      }
+    }
     await selectNav('functions', false);
     if (parts.length >= 2 && parts[1] && parts[1] !== 'logs') {
       if (typeof openFunctionEditor === 'function') {
@@ -131,6 +138,18 @@ async function parseUrlAndNavigate(initial = false) {
       if (typeof switchFunctionsTab === 'function') switchFunctionsTab('functions', false);
     }
   } else if (root === 'flows') {
+    if (typeof flowsState !== 'undefined') {
+      flowsState.subTab = (parts[1] === 'executions') ? 'executions' : 'flows';
+      if (parts.length < 2 || parts[1] === 'executions') {
+        flowsState.currentView = 'list';
+        flowsState.activeFlowForEdit = null;
+        if (typeof designerState !== 'undefined') {
+          designerState.activeFlow = null;
+          designerState.latestExecution = null;
+          designerState.isTestDrawerOpen = false;
+        }
+      }
+    }
     await selectNav('flows', false);
     if (parts.length >= 2 && parts[1]) {
       if (parts[1] === 'executions') {
@@ -145,7 +164,20 @@ async function parseUrlAndNavigate(initial = false) {
         switchFlowsTab('flows', false);
       }
     }
+  } else if (root === 'queues') {
+    if (typeof queuesState !== 'undefined') {
+      queuesState.subTab = (parts[1] === 'jobs') ? 'jobs' : 'queues';
+    }
+    await selectNav('queues', false);
+    if (parts[1] === 'jobs') {
+      if (typeof switchQueuesTab === 'function') switchQueuesTab('jobs', false);
+    } else {
+      if (typeof switchQueuesTab === 'function') switchQueuesTab('queues', false);
+    }
   } else if (root === 'webhooks') {
+    if (typeof webhooksState !== 'undefined') {
+      webhooksState.subTab = (parts[1] === 'deliveries') ? 'deliveries' : 'webhooks';
+    }
     await selectNav('webhooks', false);
     if (parts[1] === 'deliveries') {
       if (typeof switchWebhooksTab === 'function') switchWebhooksTab('deliveries', false);
@@ -163,6 +195,9 @@ async function parseUrlAndNavigate(initial = false) {
   } else if (root === 'snapshots') {
     await selectNav('snapshots', false);
   } else if (root === 'logs') {
+    if (typeof auditState !== 'undefined') {
+      auditState.subTab = (parts[1] === 'audit') ? 'audit' : 'traffic';
+    }
     await selectNav('logs', false);
     if (parts[1] === 'audit') {
       if (typeof switchLogsSubTab === 'function') switchLogsSubTab('audit', false);
@@ -191,6 +226,8 @@ function initRouter() {
     if (typeof closeFunctionModal === 'function') closeFunctionModal();
     if (typeof closeFlowModal === 'function') closeFlowModal();
     if (typeof closeFlowExecutionDrawer === 'function') closeFlowExecutionDrawer();
+    if (typeof closeQueueModal === 'function') closeQueueModal();
+    if (typeof closeQueueDrawer === 'function') closeQueueDrawer();
     if (typeof closeCommandPalette === 'function') closeCommandPalette();
 
     await parseUrlAndNavigate(false);
@@ -199,7 +236,7 @@ function initRouter() {
 
 
 function showPageView(viewName) {
-  const views = ['home', 'collections', 'plugins', 'webhooks', 'functions', 'flows', 'analytics', 'snapshots', 'logs'];
+  const views = ['home', 'collections', 'plugins', 'webhooks', 'functions', 'flows', 'queues', 'analytics', 'snapshots', 'logs'];
   for (const v of views) {
     const el = document.getElementById('page-view-' + v);
     if (el) {
@@ -213,7 +250,7 @@ function showPageView(viewName) {
 }
 
 function clearSidebarNavActive() {
-  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-functions', 'nav-flows', 'nav-analytics', 'nav-snapshots', 'nav-logs'];
+  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-functions', 'nav-flows', 'nav-queues', 'nav-analytics', 'nav-snapshots', 'nav-logs'];
   for (const id of navIds) {
     document.getElementById(id)?.classList.remove('active');
   }
@@ -239,6 +276,19 @@ async function selectNav(nav, pushState = true) {
     colActions.innerHTML = '';
   }
 
+  if (pushState) {
+    if (typeof closeModal === 'function') closeModal();
+    if (typeof closeRecordDrawer === 'function') closeRecordDrawer();
+    if (typeof closeWebhookModal === 'function') closeWebhookModal();
+    if (typeof closeWebhookDrawer === 'function') closeWebhookDrawer();
+    if (typeof closeFunctionModal === 'function') closeFunctionModal();
+    if (typeof closeFlowModal === 'function') closeFlowModal();
+    if (typeof closeFlowExecutionDrawer === 'function') closeFlowExecutionDrawer();
+    if (typeof closeQueueModal === 'function') closeQueueModal();
+    if (typeof closeQueueDrawer === 'function') closeQueueDrawer();
+    if (typeof closeCommandPalette === 'function') closeCommandPalette();
+  }
+
   if (nav === 'home') {
     state.activeCollection = null;
     if (typeof renderCollectionsList === 'function') renderCollectionsList();
@@ -251,6 +301,7 @@ async function selectNav(nav, pushState = true) {
     if (typeof renderHomeView === 'function') renderHomeView();
   } else if (nav === 'collections') {
     state.activeCollection = null;
+    state.collectionTab = 'records';
     if (typeof renderCollectionsList === 'function') renderCollectionsList();
     showPageView('collections');
     document.getElementById('collection-tabs').style.display = 'none';
@@ -284,6 +335,9 @@ async function selectNav(nav, pushState = true) {
     if (typeof renderPluginsHubView === 'function') renderPluginsHubView();
   } else if (nav === 'webhooks') {
     state.activeCollection = null;
+    if (pushState && typeof webhooksState !== 'undefined') {
+      webhooksState.subTab = 'webhooks';
+    }
     if (typeof renderCollectionsList === 'function') renderCollectionsList();
     showPageView('webhooks');
     document.getElementById('collection-tabs').style.display = 'none';
@@ -295,6 +349,14 @@ async function selectNav(nav, pushState = true) {
     if (typeof renderWebhooksView === 'function') renderWebhooksView();
   } else if (nav === 'functions') {
     state.activeCollection = null;
+    if (pushState) {
+      if (typeof functionsState !== 'undefined') {
+        functionsState.subTab = 'functions';
+        functionsState.currentView = 'list';
+        functionsState.activeFunctionForEdit = null;
+      }
+      if (typeof closeFunctionEditor === 'function') closeFunctionEditor(false);
+    }
     if (typeof renderCollectionsList === 'function') renderCollectionsList();
     showPageView('functions');
     document.getElementById('collection-tabs').style.display = 'none';
@@ -306,6 +368,19 @@ async function selectNav(nav, pushState = true) {
     if (typeof renderFunctionsView === 'function') renderFunctionsView();
   } else if (nav === 'flows') {
     state.activeCollection = null;
+    if (pushState) {
+      if (typeof flowsState !== 'undefined') {
+        flowsState.subTab = 'flows';
+        flowsState.currentView = 'list';
+        flowsState.activeFlowForEdit = null;
+      }
+      if (typeof designerState !== 'undefined') {
+        designerState.activeFlow = null;
+        designerState.latestExecution = null;
+        designerState.isTestDrawerOpen = false;
+      }
+      if (typeof closeFlowDesigner === 'function') closeFlowDesigner(false);
+    }
     if (typeof renderCollectionsList === 'function') renderCollectionsList();
     showPageView('flows');
     document.getElementById('collection-tabs').style.display = 'none';
@@ -316,6 +391,20 @@ async function selectNav(nav, pushState = true) {
     document.getElementById('view-actions').innerHTML = '';
     if (typeof renderFlowsView === 'function') renderFlowsView();
     if (typeof loadFlows === 'function') loadFlows().then(() => { if (typeof renderFlowsView === 'function') renderFlowsView(); });
+  } else if (nav === 'queues') {
+    state.activeCollection = null;
+    if (pushState && typeof queuesState !== 'undefined') {
+      queuesState.subTab = 'queues';
+    }
+    if (typeof renderCollectionsList === 'function') renderCollectionsList();
+    showPageView('queues');
+    document.getElementById('collection-tabs').style.display = 'none';
+    document.getElementById('view-badge').style.display = 'none';
+    document.getElementById('nav-queues')?.classList.add('active');
+    document.getElementById('view-title').textContent = 'Queues Manager';
+    document.getElementById('view-title').style.display = 'none';
+    document.getElementById('view-actions').innerHTML = '';
+    if (typeof renderQueuesView === 'function') renderQueuesView();
   } else if (nav === 'analytics') {
     state.activeCollection = null;
     if (typeof renderCollectionsList === 'function') renderCollectionsList();
@@ -346,6 +435,9 @@ async function selectNav(nav, pushState = true) {
     if (typeof renderSnapshotsView === 'function') renderSnapshotsView();
   } else if (nav === 'logs') {
     state.activeCollection = null;
+    if (pushState && typeof auditState !== 'undefined') {
+      auditState.subTab = 'traffic';
+    }
     if (typeof renderCollectionsList === 'function') renderCollectionsList();
     showPageView('logs');
     document.getElementById('collection-tabs').style.display = 'none';
@@ -377,26 +469,19 @@ async function selectNav(nav, pushState = true) {
     } else if (nav === 'collections') {
       updateUrl('/_/collections');
     } else if (nav === 'webhooks') {
-      const sub = (typeof webhooksState !== 'undefined' && webhooksState.subTab === 'deliveries') ? '/deliveries' : '';
-      updateUrl('/_/webhooks' + sub);
+      updateUrl('/_/webhooks');
     } else if (nav === 'functions') {
-      const sub = (typeof functionsState !== 'undefined' && functionsState.currentView === 'editor' && functionsState.activeFunctionForEdit)
-        ? '/' + (functionsState.activeFunctionForEdit.isNew ? 'new' : encodeURIComponent(functionsState.activeFunctionForEdit.name || functionsState.activeFunctionForEdit.id))
-        : (typeof functionsState !== 'undefined' && functionsState.subTab === 'logs') ? '/logs' : '';
-      updateUrl('/_/functions' + sub);
+      updateUrl('/_/functions');
     } else if (nav === 'flows') {
-      const activeFlow = (typeof flowsState !== 'undefined' && flowsState.activeFlowForEdit) || (typeof designerState !== 'undefined' && designerState.activeFlow);
-      const sub = (typeof flowsState !== 'undefined' && flowsState.currentView === 'designer' && activeFlow)
-        ? '/' + encodeURIComponent(activeFlow.name || activeFlow.id)
-        : (typeof flowsState !== 'undefined' && flowsState.subTab === 'executions') ? '/executions' : '';
-      updateUrl('/_/flows' + sub);
+      updateUrl('/_/flows');
+    } else if (nav === 'queues') {
+      updateUrl('/_/queues');
     } else if (nav === 'analytics') {
       updateUrl('/_/analytics');
     } else if (nav === 'snapshots') {
       updateUrl('/_/snapshots');
     } else if (nav === 'logs') {
-      const sub = (typeof auditState !== 'undefined' && auditState.subTab === 'audit') ? '/audit' : '';
-      updateUrl('/_/logs' + sub);
+      updateUrl('/_/logs');
     } else if (nav === 'plugins') {
       updateUrl('/_/plugins');
     } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === nav || (nav === 'resend' && p.id === 'resend-email'))) {
@@ -449,6 +534,9 @@ window.addEventListener('keydown', (e) => {
       if (typeof closeFlowExecutionDrawer === 'function') {
         closeFlowExecutionDrawer();
       }
+      if (typeof closeQueueDrawer === 'function') {
+        closeQueueDrawer();
+      }
       return;
     }
     const modalRoot = document.getElementById('modal-root');
@@ -463,6 +551,9 @@ window.addEventListener('keydown', (e) => {
       }
       if (typeof closeFlowModal === 'function') {
         closeFlowModal();
+      }
+      if (typeof closeQueueModal === 'function') {
+        closeQueueModal();
       }
       return;
     }

@@ -21,6 +21,7 @@ import { AuditLogController } from './controllers/AuditLogController';
 import { WebhookController } from './controllers/WebhookController';
 import { FunctionController } from './controllers/FunctionController';
 import { FlowController } from './controllers/FlowController';
+import { QueueController } from './controllers/QueueController';
 import { AppController } from './controllers/AppController';
 import { AppResolutionMiddleware } from './middleware/AppResolutionMiddleware';
 import { ApiKeyController } from './controllers/ApiKeyController';
@@ -37,6 +38,7 @@ export class HttpServer {
   private apiKeyController?: ApiKeyController;
   private functionController?: FunctionController;
   private flowController?: FlowController;
+  private queueController?: QueueController;
   private dynamicRouteHandler?: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>;
   private dynamicRouteMatcher?: (method: string, path: string) => any;
 
@@ -50,6 +52,10 @@ export class HttpServer {
 
   public setFlowController(controller: FlowController): void {
     this.flowController = controller;
+  }
+
+  public setQueueController(controller: QueueController): void {
+    this.queueController = controller;
   }
 
   public setDynamicRouteHandler(handler: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>): void {
@@ -86,7 +92,8 @@ export class HttpServer {
     private appResolutionMiddleware?: AppResolutionMiddleware,
     apiKeyController?: ApiKeyController,
     functionController?: FunctionController,
-    flowController?: FlowController
+    flowController?: FlowController,
+    queueController?: QueueController
   ) {
     this.maintenanceGate = maintenanceGate;
     if (apiKeyController) {
@@ -97,6 +104,9 @@ export class HttpServer {
     }
     if (flowController) {
       this.flowController = flowController;
+    }
+    if (queueController) {
+      this.queueController = queueController;
     }
 
     let analyticsController: AnalyticsController | undefined;
@@ -605,6 +615,70 @@ export class HttpServer {
       );
     }
 
+    if (this.queueController) {
+      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
+      app.get('/api/apps/:appId/queues', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getQueues(req, reply)
+      );
+      app.post('/api/apps/:appId/queues', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.upsertQueue(req, reply)
+      );
+      app.get('/api/apps/:appId/queues/stats', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getStats(req, reply)
+      );
+      app.get('/api/apps/:appId/queues/jobs', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getAllJobs(req, reply)
+      );
+      app.get('/api/apps/:appId/queues/jobs/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getJobById(req, reply)
+      );
+      app.post('/api/apps/:appId/queues/cleanup', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.cleanupQueues(req, reply)
+      );
+      app.get('/api/apps/:appId/queues/:name', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getQueue(req, reply)
+      );
+      app.delete('/api/apps/:appId/queues/:name', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.deleteQueue(req, reply)
+      );
+      app.post('/api/apps/:appId/queues/:name/messages', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.sendMessage(req, reply)
+      );
+      app.get('/api/apps/:appId/queues/:name/messages', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getMessages(req, reply)
+      );
+      app.get('/api/apps/:appId/queues/:name/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getMessage(req, reply)
+      );
+      app.get('/api/apps/:appId/queues/:name/jobs/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getMessage(req, reply)
+      );
+      app.post('/api/apps/:appId/queues/:name/messages/:id/ack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.ackMessage(req, reply)
+      );
+      app.post('/api/apps/:appId/queues/:name/jobs/:id/ack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.ackMessage(req, reply)
+      );
+      app.post('/api/apps/:appId/queues/:name/messages/:id/nack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.nackMessage(req, reply)
+      );
+      app.post('/api/apps/:appId/queues/:name/jobs/:id/nack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.nackMessage(req, reply)
+      );
+      app.post('/api/apps/:appId/queues/:name/messages/:id/touch', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.touchMessage(req, reply)
+      );
+      app.post('/api/apps/:appId/queues/:name/jobs/:id/touch', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.touchMessage(req, reply)
+      );
+      app.post('/api/apps/:appId/queues/:name/dlq/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.retryDlq(req, reply)
+      );
+      app.delete('/api/apps/:appId/queues/:name/purge', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.purgeQueue(req, reply)
+      );
+    }
+
     app.get('/api/apps/:appId/realtime', (req, reply) => this.realtimeController.connect(req, reply));
     app.post('/api/apps/:appId/realtime', (req, reply) => this.realtimeController.setSubscriptions(req, reply));
 
@@ -619,7 +693,6 @@ export class HttpServer {
         this.templateController!.applyParam(req, reply)
       );
     }
-
 
     // 1. Health & Settings
     app.get('/api/health', (req, reply) => this.healthController.getHealth(req, reply));
@@ -703,7 +776,6 @@ export class HttpServer {
     }
 
     // 3.8 Demo State Management ("Reset to Demo State")
-
     if (this.snapshotController) {
       const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
       const requireAdmin = this.authMiddleware.requireAdmin();
@@ -783,7 +855,7 @@ export class HttpServer {
     app.get('/api/logs', { preHandler: requireAdmin }, (req: any, reply) =>
       this.logController.getLogs(req, reply)
     );
-    app.delete('/api/logs', { preHandler: requireAdmin }, (req, reply) =>
+    app.delete('/api/logs', { preHandler: requireAdmin }, (req: any, reply) =>
       this.logController.clearLogs(req, reply)
     );
     app.get('/api/apps/:appId/logs', { preHandler: requireAdmin }, (req: any, reply) =>
@@ -965,6 +1037,70 @@ export class HttpServer {
       );
     }
 
+    // 7.8 Generic Queue Processor ("NodeStack Queues")
+    if (this.queueController) {
+      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
+      app.get('/api/queues', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getQueues(req, reply)
+      );
+      app.post('/api/queues', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.upsertQueue(req, reply)
+      );
+      app.get('/api/queues/stats', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getStats(req, reply)
+      );
+      app.get('/api/queues/jobs', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getAllJobs(req, reply)
+      );
+      app.get('/api/queues/jobs/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getJobById(req, reply)
+      );
+      app.post('/api/queues/cleanup', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.cleanupQueues(req, reply)
+      );
+      app.get('/api/queues/:name', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getQueue(req, reply)
+      );
+      app.delete('/api/queues/:name', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.deleteQueue(req, reply)
+      );
+      app.post('/api/queues/:name/messages', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.sendMessage(req, reply)
+      );
+      app.get('/api/queues/:name/messages', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getMessages(req, reply)
+      );
+      app.get('/api/queues/:name/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getMessage(req, reply)
+      );
+      app.get('/api/queues/:name/jobs/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getMessage(req, reply)
+      );
+      app.post('/api/queues/:name/messages/:id/ack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.ackMessage(req, reply)
+      );
+      app.post('/api/queues/:name/jobs/:id/ack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.ackMessage(req, reply)
+      );
+      app.post('/api/queues/:name/messages/:id/nack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.nackMessage(req, reply)
+      );
+      app.post('/api/queues/:name/jobs/:id/nack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.nackMessage(req, reply)
+      );
+      app.post('/api/queues/:name/messages/:id/touch', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.touchMessage(req, reply)
+      );
+      app.post('/api/queues/:name/jobs/:id/touch', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.touchMessage(req, reply)
+      );
+      app.post('/api/queues/:name/dlq/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.retryDlq(req, reply)
+      );
+      app.delete('/api/queues/:name/purge', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.purgeQueue(req, reply)
+      );
+    }
 
     // 8. Analytics & Metrics (Admin only)
     if (this.analyticsController) {
@@ -1006,7 +1142,7 @@ export class HttpServer {
     return this.app.listen({ port, host });
   }
 
-  public async close(): Promise<void> {
+  public async close(): Promise<string | void> {
     await this.app.close();
   }
 

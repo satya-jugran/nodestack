@@ -47,6 +47,8 @@ import { FunctionService } from './functions/FunctionService';
 import { FunctionController } from './http/controllers/FunctionController';
 import { FlowService } from './flows/FlowService';
 import { FlowController } from './http/controllers/FlowController';
+import { QueueService } from './queue/QueueService';
+import { QueueController } from './http/controllers/QueueController';
 import { AppRegistry } from './apps/AppRegistry';
 import { AppManager, DatabaseDriverFactory } from './apps/AppManager';
 import { AppScope } from './apps/AppScope';
@@ -105,6 +107,8 @@ export class NodeStack {
   public readonly webhooks: WebhookService;
   public readonly functions: FunctionService;
   public readonly functionController: FunctionController;
+  public readonly queue: QueueService;
+  public readonly queueController: QueueController;
   public readonly flows: FlowService;
   public readonly flowController: FlowController;
   public readonly registry: AppRegistry;
@@ -260,6 +264,13 @@ export class NodeStack {
     this.functionController = new FunctionController(this.functions);
     this.container.bindInstance(TOKENS.FunctionController, this.functionController);
 
+    // 17.75 Generic Queue Processor ("NodeStack Queues")
+    this.queue = this.defaultApp.queue;
+    this.container.bindInstance(TOKENS.QueueService, this.queue);
+
+    this.queueController = new QueueController(this.queue);
+    this.container.bindInstance(TOKENS.QueueController, this.queueController);
+
     // 17.8 Functions Flow ("Functions Flow Manager & Engine")
     this.flows = this.defaultApp.flows;
     this.container.bindInstance(TOKENS.FlowService, this.flows);
@@ -299,7 +310,8 @@ export class NodeStack {
       this.appResolution,
       this.apiKeyController,
       this.functionController,
-      this.flowController
+      this.flowController,
+      this.queueController
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
 
@@ -452,6 +464,9 @@ export class NodeStack {
     // 1.1 Ensure built-in demo app is initialized
     await this.apps.ensureDemoAppInitialized();
 
+    // 1.2 Start QueueService on default app
+    await this.queue.start();
+
     const serveContext: ServeEventContext = {
       server: this.server.app,
       port,
@@ -471,6 +486,7 @@ export class NodeStack {
 
   public async stop(): Promise<void> {
     await this.pluginManager.dispose();
+    await this.queue.dispose();
     this.realtime.dispose();
     await this.server.close();
     this.apps.closeAll();
@@ -479,6 +495,7 @@ export class NodeStack {
 
   public close(): void {
     try {
+      void this.queue.dispose();
       this.apps.closeAll();
     } catch {
       // ignore

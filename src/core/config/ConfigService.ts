@@ -17,6 +17,7 @@ export interface NodeStackConfigOptions {
   mockError?: number | string;
   mockJitter?: number;
   mockErrorMessage?: string;
+  queueJobRetentionDays?: number;
 }
 
 // Deprecated alias for backwards compatibility
@@ -40,6 +41,7 @@ export class ConfigService {
   public readonly mockError?: number | string;
   public readonly mockJitter?: number;
   public readonly mockErrorMessage?: string;
+  public readonly queueJobRetentionDays: number;
 
   constructor(options: NodeStackConfigOptions = {}) {
     loadEnvFile();
@@ -48,6 +50,14 @@ export class ConfigService {
     this.host = options.host || process.env.NODESTACK_HOST || process.env.NODEBASE_HOST || '0.0.0.0';
     this.appName = options.appName || 'NodeStack';
     this.dev = options.dev ?? process.env.NODE_ENV !== 'production';
+
+    const envRetention = process.env.QUEUE_JOB_RETENTION_DAYS || process.env.NODESTACK_QUEUE_RETENTION_DAYS;
+    this.queueJobRetentionDays =
+      options.queueJobRetentionDays !== undefined
+        ? Math.max(0, options.queueJobRetentionDays)
+        : envRetention !== undefined && !isNaN(parseInt(envRetention, 10))
+          ? Math.max(0, parseInt(envRetention, 10))
+          : 7;
 
     // Chaos simulation feature flag (enabled by default in dev, gated in production)
     const envChaos = process.env.NODESTACK_CHAOS_ENABLED || process.env.NODESTACK_ENABLE_CHAOS;

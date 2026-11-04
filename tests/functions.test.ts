@@ -4,7 +4,7 @@ import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
 import { SsrfGuard, SsrfGuardError } from '../src/functions/security/SsrfGuard';
 import { IFunctionRuntime, RuntimeExecutionOptions } from '../src/functions/runtime/IFunctionRuntime';
-import { FunctionContext, FunctionExecutionResult } from '../src/functions/types';
+import { FunctionHostServices, FunctionExecutionResult } from '../src/functions/types';
 
 describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
   const testDir = path.resolve(__dirname, '../.test_functions_nodestack_data');
@@ -163,8 +163,8 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const fn = app.functions.createFunction({
         name: 'calculate-tax',
         code: `
-          export default async function(ctx) {
-            const amount = ctx.request.body.amount || 0;
+          export default async function(core, context) {
+            const amount = context.request.body.amount || 0;
             const tax = amount * 0.2;
             return {
               status: 200,
@@ -201,7 +201,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const fn = app.functions.createFunction({
         name: 'security-escape-attempt',
         code: `
-          export default async function(ctx) {
+          export default async function(core, context) {
             const results = {};
             results.hasProcess = typeof process !== 'undefined';
             results.hasRequire = typeof require !== 'undefined';
@@ -241,7 +241,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const fn = app.functions.createFunction({
         name: 'infinite-loop',
         code: `
-          export default async function(ctx) {
+          export default async function(core, context) {
             while (true) {}
             return { status: 200, body: 'never reached' };
           }
@@ -272,7 +272,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       app.functions.createFunction({
         name: 'suspended-promise',
         code: `
-          export default async function(ctx) {
+          export default async function(core, context) {
             await new Promise(() => {});
             return { status: 200, body: 'never reached' };
           }
@@ -305,7 +305,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         name: 'anon-async-fn',
         code: `
           // leading comment
-          async function(ctx) {
+          async function(core, context) {
             return { status: 200, body: { msg: 'from anon async' } };
           }
         `,
@@ -331,7 +331,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         name: 'arrow-fn',
         code: `
           /* block comment */
-          async (ctx) => ({ status: 200, body: { msg: 'from arrow fn' } })
+          async (core, context) => ({ status: 200, body: { msg: 'from arrow fn' } })
         `,
         enabled: true,
         authPolicy: 'public',
@@ -355,9 +355,9 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const fn = app.functions.createFunction({
         name: 'logging-fn',
         code: `
-          export default async function(ctx) {
+          export default async function(core, context) {
             console.log("Step 1: start processing");
-            ctx.log("Step 2: performing calculation", 42);
+            core.observability.log("Step 2: performing calculation", 42);
             return { status: 200, body: { done: true } };
           }
         `,
@@ -396,12 +396,12 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const fn = app.functions.createFunction({
         name: 'secret-reader',
         code: `
-          export default async function(ctx) {
+          export default async function(core, context) {
             return {
               status: 200,
               body: {
-                apiKey: ctx.env.MY_SECRET_KEY,
-                hasJwtSecret: typeof ctx.env.JWT_SECRET !== 'undefined'
+                apiKey: context.env.MY_SECRET_KEY,
+                hasJwtSecret: typeof context.env.JWT_SECRET !== 'undefined'
               }
             };
           }
@@ -445,8 +445,8 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const fn = app.functions.createFunction({
         name: 'list-my-orders',
         code: `
-          export default async function(ctx) {
-            const list = await ctx.records.list('orders');
+          export default async function(core, context) {
+            const list = await core.sdk.collection('orders').list();
             return { status: 200, body: list };
           }
         `,
@@ -484,8 +484,8 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const fn = app.functions.createFunction({
         name: 'admin-count-orders',
         code: `
-          export default async function(ctx) {
-            const list = await ctx.records.list('orders');
+          export default async function(core, context) {
+            const list = await core.sdk.collection('orders').list();
             return { status: 200, body: { total: list.totalItems } };
           }
         `,
@@ -512,13 +512,13 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const fn = app.functions.createFunction({
         name: 'create-order-function',
         code: `
-          export default async function(ctx) {
-            const body = ctx.request.body;
-            const newOrder = await ctx.records.create('orders', {
+          export default async function(core, context) {
+            const body = context.request.body;
+            const newOrder = await core.sdk.collection('orders').create({
               title: body.title,
               amount: body.amount,
               status: 'processed',
-              owner: ctx.request.auth ? ctx.request.auth.id : 'anon'
+              owner: context.request.auth ? context.request.auth.id : 'anon'
             });
             return { status: 201, body: newOrder };
           }
@@ -555,9 +555,9 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       app.functions.createFunction({
         name: 'order-slugifier',
         code: `
-          export default async function(ctx) {
-            if (ctx.event && ctx.event.record) {
-              const rec = ctx.event.record;
+          export default async function(core, context) {
+            if (context.event && context.event.record) {
+              const rec = context.event.record;
               rec.status = 'auto-validated';
               return { status: 200, body: { record: rec } };
             }
@@ -588,9 +588,9 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       app.functions.createFunction({
         name: 'order-guard-price',
         code: `
-          export default async function(ctx) {
-            if (ctx.event && ctx.event.record) {
-              if (ctx.event.record.amount < 0) {
+          export default async function(core, context) {
+            if (context.event && context.event.record) {
+              if (context.event.record.amount < 0) {
                 return { status: 200, body: { cancel: true, reason: 'Amount cannot be negative' } };
               }
             }
@@ -617,12 +617,12 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should prevent infinite circular recursion when a hook triggers matching mutations', async () => {
-      app.functions.createFunction({
+      const loopFn = app.functions.createFunction({
         name: 'infinite-loop-hook',
         code: `
-          export default async function(ctx) {
+          export default async function(core, context) {
             // Attempt to infinitely recurse by creating another order
-            await ctx.records.create('orders', { title: 'Recursive Order', amount: 10 });
+            await core.sdk.collection('orders').create({ title: 'Recursive Order', amount: 10 });
             return { status: 200 };
           }
         `,
@@ -643,13 +643,14 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
           amount: 50,
         })
       ).rejects.toThrow(/Circular recursion detected|Maximum function recursion depth/);
+      app.functions.deleteFunction(loopFn.id);
     });
 
     it('should enforce maxConcurrent concurrency admission limit during lifecycle hooks', async () => {
-      app.functions.createFunction({
+      const concFn = app.functions.createFunction({
         name: 'concurrency-hook-test',
         code: `
-          export default async function(ctx) {
+          export default async function(core, context) {
             return { status: 200 };
           }
         `,
@@ -677,6 +678,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         ).rejects.toThrow(/Serverless function concurrency limit reached/);
       } finally {
         (app.functions as any).activeExecutions = 0;
+        app.functions.deleteFunction(concFn.id);
       }
     });
   });
@@ -814,7 +816,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     it('should support live testing via POST /api/functions/:id/test', async () => {
       const fn = app.functions.createFunction({
         name: 'echo-test',
-        code: `export default async function(ctx) { return { status: 200, body: { echoed: ctx.request.body } }; }`,
+        code: `export default async function(core, context) { return { status: 200, body: { echoed: context.request.body } }; }`,
         enabled: true,
         authPolicy: 'public',
         methods: ['POST'],
@@ -865,7 +867,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         name: 'Mock-Custom-Runtime',
         version: '1.0.0',
         init: vi.fn(async () => {}),
-        execute: vi.fn(async (code: string, ctx: FunctionContext, opts: RuntimeExecutionOptions) => {
+        execute: vi.fn(async (code: string, hostServices: FunctionHostServices, opts: RuntimeExecutionOptions) => {
           return {
             status: 'success',
             statusCode: 200,
@@ -886,11 +888,13 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
 
       // Test execution through the swapped runtime
       const testRes = await runner.execute('const x = 1;', {
-        app: { id: 'default', slug: 'default' },
-        records: {} as any,
-        fetch: {} as any,
-        env: {},
-        log: () => {},
+        sdk: { records: {} as any, queue: {} as any },
+        network: { fetch: {} as any },
+        observability: { log: () => {}, metric: () => {} },
+        context: {
+          app: { id: 'default', slug: 'default' },
+          env: {},
+        },
       });
 
       expect(testRes.status).toBe('success');
@@ -1008,8 +1012,8 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       // Test snippet insertion into code editor
       const codeEditor = doc.getElementById('fn-editor-code') as HTMLTextAreaElement;
       expect(codeEditor).not.toBeNull();
-      win.insertFunctionSnippet('const testItem = await ctx.records.get("orders", "ord_123");\n');
-      expect(codeEditor.value).toContain('await ctx.records.get("orders", "ord_123")');
+      win.insertFunctionSnippet('const testItem = await core.sdk.collection("orders").get("ord_123");\n');
+      expect(codeEditor.value).toContain('await core.sdk.collection("orders").get("ord_123")');
 
       // Test toggle reference collapse/expand
       expect(win.functionsState.isCtxRefExpanded).toBe(false);
@@ -1053,7 +1057,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         id: 'fn_workbench_test',
         name: 'calculate-shipping',
         description: 'Calculate shipping cost by weight and zone',
-        code: 'export default async function(ctx) {\n  return { status: 200, body: { fee: 15 } };\n}',
+        code: 'export default async function(core, context) {\n  return { status: 200, body: { fee: 15 } };\n}',
         enabled: true,
         authPolicy: 'public',
         methods: ['GET', 'POST'],
@@ -1103,7 +1107,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const lineTokens = win.functionsState.cmEditor.getLineTokens(0);
       expect(lineTokens.some((t: any) => t.type === 'keyword' && t.string === 'export')).toBe(true);
       expect(lineTokens.some((t: any) => t.type === 'keyword' && t.string === 'default')).toBe(true);
-      expect(lineTokens.some((t: any) => t.type === 'def' && t.string === 'ctx')).toBe(true);
+      expect(lineTokens.some((t: any) => t.type === 'def' && (t.string === 'core' || t.string === 'context'))).toBe(true);
 
       // Verify CodeMirror Light & Dark Theme dynamic switching
       win.setTheme('light');
@@ -1124,8 +1128,8 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(ctxContent?.style.display).toBe('flex');
 
       // Test snippet insertion directly into dedicated editor textarea
-      win.insertFunctionSnippet('const weight = ctx.request.body.weight || 1;\n');
-      expect(codeEditor.value).toContain('ctx.request.body.weight');
+      win.insertFunctionSnippet('const weight = context.request.body.weight || 1;\n');
+      expect(codeEditor.value).toContain('context.request.body.weight');
 
       // Test real-time context search
       win.filterCtxSearch('body');
@@ -1204,6 +1208,82 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       win.closeFunctionEditor(false);
       expect(win.functionsState.currentView).toBe('list');
       expect(win.functionsState.activeFunctionForEdit).toBeNull();
+    });
+
+    it('should provide core.sdk, core.network, core.observability and enforce clean break on context', async () => {
+      const fn = app.functions.createFunction({
+        name: 'kernel-verification-fn',
+        code: `
+          export default async function(core, context) {
+            // 1. Verify core structure
+            const hasCoreSdk = typeof core.sdk === 'object';
+            const hasCollection = typeof core.sdk.collection === 'function';
+            const hasQueue = typeof core.sdk.queue === 'function';
+            const hasNetwork = typeof core.network?.http?.fetch === 'function';
+            const hasObs = typeof core.observability?.log === 'function' && typeof core.observability?.metric === 'function';
+            const version = core.version;
+
+            // 2. Strict clean break verification: context must NOT have records, queue, or core
+            const ctxRecords = context.records;
+            const ctxQueue = context.queue;
+            const ctxCore = context.core;
+
+            // 3. Test core.observability.metric
+            core.observability.metric('test_metric', 42, { tag: 'unit' });
+
+            // 4. Test core.sdk.collection operations
+            const created = await core.sdk.collection('orders').create({
+              title: 'Kernel Order',
+              amount: 88,
+              status: 'valid'
+            });
+
+            const fetched = await core.sdk.collection('orders').get(created.id);
+
+            return {
+              status: 200,
+              body: {
+                hasCoreSdk,
+                hasCollection,
+                hasQueue,
+                hasNetwork,
+                hasObs,
+                version,
+                ctxRecordsUndefined: typeof ctxRecords === 'undefined',
+                ctxQueueUndefined: typeof ctxQueue === 'undefined',
+                ctxCoreUndefined: typeof ctxCore === 'undefined',
+                fetchedAmount: fetched.amount
+              }
+            };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 3000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: true,
+        env: {},
+      });
+
+      const res = await app.server.inject({
+        method: 'POST',
+        url: '/api/functions/kernel-verification-fn/invoke',
+      });
+
+      expect(res.statusCode).toBe(200);
+      const data = res.json();
+      expect(data.hasCoreSdk).toBe(true);
+      expect(data.hasCollection).toBe(true);
+      expect(data.hasQueue).toBe(true);
+      expect(data.hasNetwork).toBe(true);
+      expect(data.hasObs).toBe(true);
+      expect(data.version).toBe('2.3.0');
+      expect(data.ctxRecordsUndefined).toBe(true);
+      expect(data.ctxQueueUndefined).toBe(true);
+      expect(data.ctxCoreUndefined).toBe(true);
+      expect(data.fetchedAmount).toBe(88);
     });
   });
 });

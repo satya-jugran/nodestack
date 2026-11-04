@@ -13,7 +13,7 @@ import {
   UpdateFunctionDto,
   FunctionRequestContext,
   FunctionEventContext,
-  FunctionContext,
+  FunctionHostServices,
   FunctionExecutionResult,
   FunctionLog,
   FunctionRecordQueryOptions,
@@ -29,6 +29,7 @@ export interface FunctionServiceOptions {
   maxConcurrent?: number;
   maxRecursionDepth?: number;
   flowService?: any;
+  queueService?: any;
 }
 
 export class FunctionService {
@@ -38,6 +39,7 @@ export class FunctionService {
   private activeExecutions = 0;
   private executionStorage = new AsyncLocalStorage<{ depth: number; activeFns: Set<string> }>();
   private flowService?: any;
+  private queueService?: any;
 
   constructor(
     private db: DatabaseService,
@@ -52,6 +54,7 @@ export class FunctionService {
     this.maxConcurrent = options.maxConcurrent || 15;
     this.maxRecursionDepth = options.maxRecursionDepth || 5;
     this.flowService = options.flowService;
+    this.queueService = options.queueService;
     this.initTables();
   }
 
@@ -280,6 +283,14 @@ export class FunctionService {
     return this.flowService;
   }
 
+  public setQueueService(queueService: any): void {
+    this.queueService = queueService;
+  }
+
+  public getQueueService(): any {
+    return this.queueService;
+  }
+
   /**
    * Finds all flows that reference a function by name or ID.
    * Uses wired FlowService if available, or falls back to direct SQLite query on _flows table.
@@ -330,6 +341,26 @@ export class FunctionService {
     return dependent;
   }
 
+  /**
+   * Finds all queues that bind this function as their targetFunction worker.
+   */
+  public getDependentQueues(functionName: string, functionId?: string): Array<{ name: string }> {
+    const tableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_queues'").get();
+    if (!tableExists) {
+      return [];
+    }
+    const targetName = functionName ? functionName.trim() : '';
+    const targetId = functionId ? functionId.trim() : '';
+    const rows = this.db.prepare('SELECT name, targetFunction FROM _queues WHERE targetFunction IS NOT NULL').all() as Array<{
+      name: string;
+      targetFunction: string;
+    }>;
+
+    return rows
+      .filter((r) => (targetName && r.targetFunction === targetName) || (targetId && r.targetFunction === targetId))
+      .map((r) => ({ name: r.name }));
+  }
+
   public deleteFunction(id: string, actor?: any, options?: { force?: boolean }): boolean {
     const current = this.getFunctionById(id) || this.getFunctionByName(id);
     if (!current) {
@@ -342,6 +373,14 @@ export class FunctionService {
         const flowList = dependent.map((f) => `'${f.name}'`).join(', ');
         throw new ConflictError(
           `Cannot delete function '${current.name}': referenced by ${dependent.length} flow(s) (${flowList})`
+        );
+      }
+
+      const dependentQueues = this.getDependentQueues(current.name, current.id);
+      if (dependentQueues.length > 0) {
+        const queueList = dependentQueues.map((q) => `'${q.name}'`).join(', ');
+        throw new ConflictError(
+          `Cannot delete function '${current.name}': bound as targetFunction by ${dependentQueues.length} queue(s) (${queueList})`
         );
       }
     }
@@ -445,6 +484,82 @@ export class FunctionService {
         logs: result.logs.join('\n'),
         error: result.error,
         actorId: actor?.id || requestCtx?.auth?.id || undefined,
+      });
+
+      return result;
+    } finally {
+      this.activeExecutions = Math.max(0, this.activeExecutions - 1);
+    }
+  }
+
+  /**
+   * Executes a serverless function bound as a Queue worker (targetFunction).
+   */
+  public async executeQueueJob(
+    functionIdOrName: string,
+    job: { id: string; queue: string; payload: any; attempts: number; maxAttempts: number; groupKey?: string | null },
+    actor?: any
+  ): Promise<FunctionExecutionResult> {
+    const fn = this.getFunctionById(functionIdOrName) || this.getFunctionByName(functionIdOrName);
+    if (!fn) {
+      throw new NotFoundError(`Function '${functionIdOrName}' not found`);
+    }
+
+    if (!fn.enabled) {
+      throw new AppError(`Function '${fn.name}' is currently disabled`, 403);
+    }
+
+    if (this.activeExecutions >= this.maxConcurrent) {
+      throw new AppError('Serverless function concurrency limit reached. Please retry shortly.', 429);
+    }
+
+    const requestCtx: FunctionRequestContext = {
+      method: 'POST',
+      path: `/api/queues/${job.queue}`,
+      query: {},
+      headers: {
+        'content-type': 'application/json',
+        'x-queue-name': job.queue,
+        'x-job-id': job.id,
+        'x-queue-job-id': job.id,
+        'x-job-attempts': String(job.attempts),
+      },
+      body: job.payload,
+      params: { queue: job.queue, jobId: job.id },
+      auth: actor ? { id: actor.id, role: actor.isAdmin ? 'admin' : 'user' } : null,
+    };
+
+    const parentStore = this.executionStorage.getStore();
+    const currentDepth = (parentStore?.depth || 0) + 1;
+    const activeFns = parentStore?.activeFns ? new Set(parentStore.activeFns) : new Set<string>();
+
+    this.activeExecutions++;
+    const nextActiveFns = new Set(activeFns);
+    nextActiveFns.add(fn.id);
+
+    try {
+      const context = this.buildFunctionContext(fn, requestCtx, undefined, actor);
+      const result = await this.executionStorage.run(
+        { depth: currentDepth, activeFns: nextActiveFns },
+        () =>
+          this.runner.execute(fn.code, context, {
+            timeoutMs: fn.timeoutMs,
+            memoryLimitMb: fn.memoryLimitMb,
+          })
+      );
+
+      this.recordLog({
+        functionId: fn.id,
+        functionName: fn.name,
+        trigger: `queue:${job.queue}`,
+        status: result.status,
+        statusCode: result.statusCode,
+        durationMs: result.durationMs,
+        requestPayload: JSON.stringify(job.payload ?? null),
+        responsePayload: JSON.stringify(result.body ?? null),
+        logs: result.logs.join('\n'),
+        error: result.error,
+        actorId: actor?.id || `job:${job.id}`,
       });
 
       return result;
@@ -729,7 +844,7 @@ export class FunctionService {
     requestCtx?: FunctionRequestContext,
     eventCtx?: FunctionEventContext,
     actor?: any
-  ): FunctionContext {
+  ): FunctionHostServices {
     // If elevated is true, run as service-role (bypassing user rules)
     const effectiveAuth = fn.elevated ? { isAdmin: true, id: 'service-role' } : (actor || requestCtx?.auth || null);
 
@@ -787,14 +902,81 @@ export class FunctionService {
       },
     };
 
+    const queueBridge = {
+      send: async (queueName: string, payload: any, options?: any) => {
+        if (!this.queueService) {
+          throw new Error('QueueService not available in function context');
+        }
+        if (!queueName || typeof queueName !== 'string' || !queueName.trim()) {
+          throw new Error('Queue name is required');
+        }
+        if (queueName.trim().startsWith('_system:')) {
+          throw new Error('Cannot enqueue messages into reserved _system:* queues from user functions');
+        }
+        return await this.queueService.send(queueName.trim(), payload, options);
+      },
+      claim: async (queueName: string, options?: { visibilityTimeoutSeconds?: number; limit?: number }) => {
+        if (!this.queueService) {
+          throw new Error('QueueService not available in function context');
+        }
+        if (!queueName || typeof queueName !== 'string' || !queueName.trim()) {
+          throw new Error('Queue name is required');
+        }
+        if (queueName.trim().startsWith('_system:')) {
+          throw new Error('Cannot claim messages from reserved _system:* queues from user functions');
+        }
+        const visibility = options?.visibilityTimeoutSeconds ?? 30;
+        const limit = Math.max(1, Math.min(options?.limit ?? 1, 50));
+        return await this.queueService.claim(queueName.trim(), visibility, limit, `fn_worker_${fn.id}`);
+      },
+      complete: async (jobId: string, result?: any) => {
+        if (!this.queueService) {
+          throw new Error('QueueService not available in function context');
+        }
+        if (!jobId || typeof jobId !== 'string') {
+          throw new Error('Job ID is required to complete a queue job');
+        }
+        return await this.queueService.complete(jobId, result);
+      },
+      fail: async (jobId: string, error?: string, options?: { backoffDelayMs?: number }) => {
+        if (!this.queueService) {
+          throw new Error('QueueService not available in function context');
+        }
+        if (!jobId || typeof jobId !== 'string') {
+          throw new Error('Job ID is required to fail a queue job');
+        }
+        const errMsg = error || 'Failed by function worker';
+        return await this.queueService.fail(jobId, errMsg, options?.backoffDelayMs);
+      },
+      getJob: async (jobId: string) => {
+        if (!this.queueService) {
+          throw new Error('QueueService not available in function context');
+        }
+        if (!jobId || typeof jobId !== 'string') {
+          return null;
+        }
+        return await this.queueService.getJob(jobId);
+      },
+    };
+
     return {
-      app: this.appScope,
-      request: requestCtx,
-      event: eventCtx,
-      records: recordsBridge,
-      fetch: safeFetch as any,
-      env: fn.env || {},
-      log: () => {},
+      sdk: {
+        records: recordsBridge,
+        queue: queueBridge,
+      },
+      network: {
+        fetch: safeFetch as any,
+      },
+      observability: {
+        log: () => {},
+      },
+      context: {
+        app: this.appScope,
+        request: requestCtx,
+        event: eventCtx,
+        env: fn.env || {},
+        auth: effectiveAuth,
+      },
     };
   }
 

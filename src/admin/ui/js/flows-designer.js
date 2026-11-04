@@ -180,6 +180,20 @@ function renderFlowDesignerWorkbench(flow) {
                 ${renderTriggerConfigHtml(flow)}
               </div>
             </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; background: var(--bg-card); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border-subtle);" title="Maximum concurrent instances allowed to run simultaneously (empty = unlimited)">
+              <span style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Concurrency:</span>
+              <input
+                type="number"
+                id="flow-edit-concurrency"
+                class="flow-field-input"
+                min="1"
+                step="1"
+                placeholder="Unlimited"
+                value="${flow.maxConcurrentExecutions ? escapeHtml(String(flow.maxConcurrentExecutions)) : ''}"
+                style="width: 90px; padding: 0.25rem 0.5rem; font-size: 0.8rem; font-weight: 600;"
+                onchange="updateFlowMeta('maxConcurrentExecutions', this.value !== '' ? parseInt(this.value, 10) : null)"
+              />
+            </div>
           </div>
         </div>
 
@@ -951,6 +965,7 @@ async function saveFlowChanges() {
         description: flow.description,
         triggerType: flow.triggerType,
         eventTrigger: flow.triggerType === 'event' ? (flow.eventTrigger || null) : null,
+        maxConcurrentExecutions: flow.maxConcurrentExecutions ?? null,
         definition: flow.definition,
       }),
     });

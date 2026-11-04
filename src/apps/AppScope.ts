@@ -25,6 +25,8 @@ import { AuditLogService } from '../audit/AuditLogService';
 import { WebhookService } from '../webhooks/WebhookService';
 import { FunctionService } from '../functions/FunctionService';
 import { FlowService } from '../flows/FlowService';
+import { QueueService } from '../queue/QueueService';
+import { SqliteQueueDriver } from '../queue/drivers/SqliteQueueDriver';
 import { AppRegistry } from './AppRegistry';
 import { IDatabaseDriver } from '../database/drivers/IDatabaseDriver';
 
@@ -53,6 +55,7 @@ export class AppScope {
   public readonly auditLogs: AuditLogService;
   public readonly webhooks: WebhookService;
   public readonly functions: FunctionService;
+  public readonly queue: QueueService;
   public readonly flows: FlowService;
 
   constructor(
@@ -123,8 +126,6 @@ export class AppScope {
       this.realtime
     );
 
-
-
     const isDefaultApp = Boolean(app.isDefault || app.slug === 'default');
     const appDbPath = config.getAppDbPath(app.slug);
     const appSnapshotDir = config.getAppSnapshotDir(app.slug);
@@ -159,11 +160,19 @@ export class AppScope {
       this.eventBus,
       { id: app.id, slug: app.slug, name: app.name }
     );
+    this.queue = new QueueService(
+      new SqliteQueueDriver(this.db),
+      this.config,
+      this.functions,
+      this.db
+    );
+    this.functions.setQueueService(this.queue);
     this.flows = new FlowService(
       this.db,
       this.functions,
       this.eventBus,
-      { id: app.id, slug: app.slug, name: app.name }
+      { id: app.id, slug: app.slug, name: app.name },
+      { queueService: this.queue }
     );
     this.functions.setFlowService(this.flows);
 
@@ -176,6 +185,16 @@ export class AppScope {
       this.functions,
       this.flows
     );
+
+    // Resync queues and flow queues after a snapshot restore / demo reset
+    this.eventBus.on('snapshot:restore', () => {
+      this.flows.initTables();
+      void this.queue.start().then(() => this.flows.syncAllFlowQueues());
+    });
+    this.eventBus.on('demo:reset', () => {
+      this.flows.initTables();
+      void this.queue.start().then(() => this.flows.syncAllFlowQueues());
+    });
 
     // Wire up audit logs listeners for this app
     this.eventBus.onRecordAfterCreate(async (ctx) => {
@@ -351,6 +370,13 @@ export class AppScope {
       }
     }
     this.onCloseHandlers = [];
+
+    // 0.5 Dispose QueueService
+    try {
+      void this.queue.dispose();
+    } catch {
+      // ignore
+    }
 
     // 1. Dispose RealtimeService (clears heartbeat interval and disconnects all SSE clients)
     try {

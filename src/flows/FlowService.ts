@@ -3,6 +3,8 @@ import { DatabaseService } from '../database/DatabaseService';
 import { EventBus } from '../core/events/EventBus';
 import { RecordAfterEventContext } from '../core/events/types';
 import { FunctionService } from '../functions/FunctionService';
+import { QueueService } from '../queue/QueueService';
+import { QueueJob } from '../queue/types';
 import { FlowEngine } from './FlowEngine';
 import {
   FlowConfig,
@@ -23,13 +25,22 @@ export interface FlowServiceOptions {
   engine?: FlowEngine;
   recoveryStrategy?: 'abort' | 'resume';
   autoRecoverOnStartup?: boolean;
+  queueService?: QueueService;
+}
+
+interface ExecutionWaiter {
+  resolve: (exec: FlowExecution) => void;
+  reject: (err: any) => void;
+  timer?: NodeJS.Timeout;
 }
 
 export class FlowService {
   private engine: FlowEngine;
   private recoveryStrategy: 'abort' | 'resume';
+  private queueService?: QueueService;
   private activeAbortControllers = new Map<string, AbortController>();
   private activeExecutionClaims = new Set<string>();
+  private executionWaiters = new Map<string, ExecutionWaiter>();
 
   constructor(
     private db: DatabaseService,
@@ -40,8 +51,10 @@ export class FlowService {
   ) {
     this.engine = options.engine || new FlowEngine();
     this.recoveryStrategy = options.recoveryStrategy || (process.env.FLOW_RECOVERY_STRATEGY as any) || 'abort';
+    this.queueService = options.queueService;
     this.initTables();
     this.bindEvents();
+    this.syncAllFlowQueues();
 
     if (options.autoRecoverOnStartup !== false) {
       this.handleStartupRecovery().catch((err) => {
@@ -52,6 +65,19 @@ export class FlowService {
 
   public static generateExecutionId(): string {
     return FlowEngine.generateExecutionId();
+  }
+
+  public static getFlowQueueName(flowId: string): string {
+    return `_system:flow:${flowId}`;
+  }
+
+  public setQueueService(queueService: QueueService): void {
+    this.queueService = queueService;
+    this.syncAllFlowQueues();
+  }
+
+  public getQueueService(): QueueService | undefined {
+    return this.queueService;
   }
 
   public getEngine(): FlowEngine {
@@ -72,6 +98,7 @@ export class FlowService {
           enabled INTEGER NOT NULL DEFAULT 1,
           triggerType TEXT NOT NULL DEFAULT 'http',
           eventTrigger TEXT,
+          maxConcurrentExecutions INTEGER DEFAULT NULL,
           definition TEXT NOT NULL,
           created TEXT NOT NULL,
           updated TEXT NOT NULL
@@ -92,6 +119,8 @@ export class FlowService {
           stepLogs TEXT,
           actorId TEXT,
           actor TEXT,
+          queuedAt TEXT,
+          jobId TEXT,
           startedAt TEXT NOT NULL,
           finishedAt TEXT,
           checkpoint TEXT,
@@ -100,10 +129,14 @@ export class FlowService {
 
         CREATE INDEX IF NOT EXISTS idx_flowexec_flowId ON _flow_executions(flowId);
         CREATE INDEX IF NOT EXISTS idx_flowexec_status ON _flow_executions(status);
+        CREATE INDEX IF NOT EXISTS idx_flowexec_flow_status ON _flow_executions(flowId, status);
         CREATE INDEX IF NOT EXISTS idx_flowexec_startedAt ON _flow_executions(startedAt DESC);
       `);
 
-      // Migration safeguard for existing tables
+      // Migration safeguards for existing databases
+      try {
+        this.db.exec('ALTER TABLE _flows ADD COLUMN maxConcurrentExecutions INTEGER DEFAULT NULL');
+      } catch {}
       try {
         this.db.exec('ALTER TABLE _flow_executions ADD COLUMN checkpoint TEXT');
       } catch {}
@@ -113,8 +146,62 @@ export class FlowService {
       try {
         this.db.exec('ALTER TABLE _flow_executions ADD COLUMN actor TEXT');
       } catch {}
+      try {
+        this.db.exec('ALTER TABLE _flow_executions ADD COLUMN queuedAt TEXT');
+      } catch {}
+      try {
+        this.db.exec('ALTER TABLE _flow_executions ADD COLUMN jobId TEXT');
+      } catch {}
+      try {
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_flowexec_flow_status ON _flow_executions(flowId, status)');
+      } catch {}
     } catch (err: any) {
       console.warn(`[FlowService] initTables warning: ${err.message}`);
+    }
+  }
+
+  // ==========================================
+  // Dedicated System Queue Provisioning
+  // ==========================================
+
+  public syncAllFlowQueues(): void {
+    if (!this.queueService) return;
+    // Register a single stateless prefix handler for all _system:flow:* queues (O(1) memory regardless of flow count)
+    this.queueService.registerPrefixWorker('_system:flow:', async (job: QueueJob) => {
+      return await this.processQueuedFlowJob(job);
+    });
+    try {
+      const flows = this.getAllFlows();
+      for (const flow of flows) {
+        if (flow.maxConcurrentExecutions && flow.maxConcurrentExecutions >= 1) {
+          this.syncFlowQueue(flow);
+        }
+      }
+    } catch {
+      // ignore if tables not ready
+    }
+  }
+
+  public syncFlowQueue(flow: FlowConfig): void {
+    if (!this.queueService) return;
+    const queueName = FlowService.getFlowQueueName(flow.id);
+
+    if (flow.enabled && flow.maxConcurrentExecutions && flow.maxConcurrentExecutions >= 1) {
+      const visibilityTimeoutSeconds = Math.max(60, (flow.definition?.timeoutSeconds || 300) + 30);
+      void this.queueService
+        .upsertQueue({
+          name: queueName,
+          concurrency: flow.maxConcurrentExecutions,
+          visibilityTimeoutSeconds,
+          maxAttempts: 1,
+          backoffDelayMs: 0,
+          isSystem: true,
+        })
+        .catch(() => {});
+    } else {
+      if (!flow.maxConcurrentExecutions || flow.maxConcurrentExecutions < 1) {
+        void this.queueService.deleteQueue(queueName).catch(() => {});
+      }
     }
   }
 
@@ -171,9 +258,9 @@ export class FlowService {
         timestamp: new Date().toISOString(),
       };
 
-      // Asynchronous event trigger (do not block database write loop)
+      // Asynchronous event trigger (single-path through executeFlow with wait: false)
       const eventActor = actor || (flow.eventTrigger ? { id: `event:${flow.eventTrigger}` } : { id: 'system:event' });
-      this.executeFlow(flow.id, eventPayload, eventActor).catch((err) => {
+      this.executeFlow(flow.id, eventPayload, eventActor, { wait: false }).catch((err) => {
         console.error(`[FlowService] Event trigger failed for flow '${flow.name}':`, err);
       });
     }
@@ -257,6 +344,7 @@ export class FlowService {
       throw new AppError('Flow definition is required', 400);
     }
     FlowValidator.validate(dto.definition);
+    FlowValidator.validateConcurrency(dto.maxConcurrentExecutions);
 
     const triggerType = dto.triggerType || 'http';
     const eventTrigger = triggerType === 'event' ? (dto.eventTrigger ? dto.eventTrigger.trim() : null) : null;
@@ -272,14 +360,20 @@ export class FlowService {
     const now = new Date().toISOString();
     const enabled = dto.enabled !== undefined ? (dto.enabled ? 1 : 0) : 1;
     const description = dto.description || '';
+    const maxConcurrentExecutions =
+      dto.maxConcurrentExecutions !== undefined && dto.maxConcurrentExecutions !== null
+        ? dto.maxConcurrentExecutions
+        : null;
     const definition = JSON.stringify(dto.definition);
 
     this.db.prepare(`
-      INSERT INTO _flows (id, name, description, enabled, triggerType, eventTrigger, definition, created, updated)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, trimmedName, description, enabled, triggerType, eventTrigger, definition, now, now);
+      INSERT INTO _flows (id, name, description, enabled, triggerType, eventTrigger, maxConcurrentExecutions, definition, created, updated)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, trimmedName, description, enabled, triggerType, eventTrigger, maxConcurrentExecutions, definition, now, now);
 
-    return this.getFlowById(id)!;
+    const created = this.getFlowById(id)!;
+    this.syncFlowQueue(created);
+    return created;
   }
 
   public updateFlow(id: string, dto: UpdateFlowDto, actor?: any): FlowConfig {
@@ -307,6 +401,10 @@ export class FlowService {
       FlowValidator.validate(dto.definition);
     }
 
+    if (dto.maxConcurrentExecutions !== undefined) {
+      FlowValidator.validateConcurrency(dto.maxConcurrentExecutions);
+    }
+
     const triggerType = dto.triggerType !== undefined ? dto.triggerType : current.triggerType;
     let eventTrigger = dto.eventTrigger !== undefined ? dto.eventTrigger : current.eventTrigger;
     if (triggerType !== 'event') {
@@ -318,16 +416,22 @@ export class FlowService {
 
     const description = dto.description !== undefined ? dto.description : current.description;
     const enabled = dto.enabled !== undefined ? (dto.enabled ? 1 : 0) : (current.enabled ? 1 : 0);
+    const maxConcurrentExecutions =
+      dto.maxConcurrentExecutions !== undefined
+        ? dto.maxConcurrentExecutions
+        : (current.maxConcurrentExecutions ?? null);
     const definition = dto.definition !== undefined ? JSON.stringify(dto.definition) : JSON.stringify(current.definition);
     const now = new Date().toISOString();
 
     this.db.prepare(`
       UPDATE _flows SET
-        name = ?, description = ?, enabled = ?, triggerType = ?, eventTrigger = ?, definition = ?, updated = ?
+        name = ?, description = ?, enabled = ?, triggerType = ?, eventTrigger = ?, maxConcurrentExecutions = ?, definition = ?, updated = ?
       WHERE id = ?
-    `).run(name, description, enabled, triggerType, eventTrigger, definition, now, id);
+    `).run(name, description, enabled, triggerType, eventTrigger, maxConcurrentExecutions, definition, now, id);
 
-    return this.getFlowById(id)!;
+    const updated = this.getFlowById(id)!;
+    this.syncFlowQueue(updated);
+    return updated;
   }
 
   public deleteFlow(id: string, actor?: any): boolean {
@@ -336,13 +440,25 @@ export class FlowService {
       throw new NotFoundError(`Flow '${id}' not found`);
     }
 
+    if (this.queueService) {
+      const queueName = FlowService.getFlowQueueName(id);
+      void this.queueService.deleteQueue(queueName).catch(() => {});
+    }
+
     this.db.prepare('DELETE FROM _flow_executions WHERE flowId = ?').run(id);
     this.db.prepare('DELETE FROM _flows WHERE id = ?').run(id);
     return true;
   }
 
+  public countRunningExecutions(flowId: string): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) as count FROM _flow_executions WHERE flowId = ? AND status = 'running'")
+      .get(flowId) as any;
+    return Number(row?.count || 0);
+  }
+
   // ==========================================
-  // Execution & Step Checkpointing
+  // Execution, Concurrency Admission & Checkpointing
   // ==========================================
 
   public async executeFlow(
@@ -364,19 +480,13 @@ export class FlowService {
     if (this.activeExecutionClaims.has(executionId)) {
       throw new ConflictError(`Flow execution '${executionId}' is currently running`);
     }
-    this.activeExecutionClaims.add(executionId);
-    const claimToken = crypto.randomUUID();
 
     if (options.executionId) {
       const existing = this.getExecutionById(options.executionId);
-      if (existing && (existing.status === 'running' || existing.claimToken)) {
-        this.activeExecutionClaims.delete(executionId);
+      if (existing && (existing.status === 'running' || existing.status === 'queued' || existing.claimToken)) {
         throw new ConflictError(`Flow execution '${options.executionId}' is already running`);
       }
     }
-
-    const abortController = new AbortController();
-    this.activeAbortControllers.set(executionId, abortController);
 
     const authContext = typeof actor === 'object' && actor !== null
       ? {
@@ -389,16 +499,108 @@ export class FlowService {
         }
       : (typeof actor === 'string' ? { id: actor } : null);
 
+    const now = new Date().toISOString();
     const initialCheckpoint: FlowCheckpoint = {
       currentStateName: flow.definition.startAt,
       currentPayload: input !== undefined ? input : {},
       stepCount: 0,
       loopCounters: {},
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
     };
 
-    // Atomically persist initial 'running' record so callers can poll immediately
-    this.saveExecution({
+    // Single-Path Concurrency Throttling via QueueService when maxConcurrentExecutions >= 1
+    if (flow.maxConcurrentExecutions && flow.maxConcurrentExecutions >= 1 && this.queueService) {
+      const queueName = FlowService.getFlowQueueName(flow.id);
+      const existingQueue = await this.queueService.getQueue(queueName);
+      if (!existingQueue || existingQueue.concurrency !== flow.maxConcurrentExecutions) {
+        const visibilityTimeoutSeconds = Math.max(60, (flow.definition?.timeoutSeconds || 300) + 30);
+        await this.queueService.upsertQueue({
+          name: queueName,
+          concurrency: flow.maxConcurrentExecutions,
+          visibilityTimeoutSeconds,
+          maxAttempts: 1,
+          backoffDelayMs: 0,
+          isSystem: true,
+        });
+      }
+
+      const jobId = `job_${executionId}`;
+      const shouldWait = options.wait !== false;
+
+      const queuedExec: FlowExecution = {
+        id: executionId,
+        flowId: flow.id,
+        flowName: flow.name,
+        status: 'queued',
+        input: input !== undefined ? input : null,
+        durationMs: 0,
+        stepLogs: [],
+        actorId: authContext?.id || (typeof actor === 'string' ? actor : null),
+        actor: authContext,
+        queuedAt: now,
+        jobId,
+        startedAt: now,
+        checkpoint: initialCheckpoint,
+        claimToken: null,
+      };
+
+      this.saveExecution(queuedExec);
+
+      let waitPromise: Promise<FlowExecution> | null = null;
+      if (shouldWait) {
+        const timeoutMs =
+          options.timeoutMs || (flow.definition.timeoutSeconds ? flow.definition.timeoutSeconds * 1000 : 30000);
+
+        waitPromise = new Promise<FlowExecution>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            this.executionWaiters.delete(executionId);
+            try {
+              this.abortExecution(
+                executionId,
+                `Flow '${flow.name}' execution timed out after ${timeoutMs}ms`
+              );
+            } catch {}
+            const timeoutErr = new AppError(
+              `Flow '${flow.name}' execution timed out after ${timeoutMs}ms`,
+              408
+            );
+            (timeoutErr as any).status = 'timeout';
+            reject(timeoutErr);
+          }, timeoutMs);
+
+          this.executionWaiters.set(executionId, { resolve, reject, timer });
+        });
+      }
+
+      await this.queueService.send({
+        id: jobId,
+        queue: queueName,
+        groupKey: flow.id,
+        maxAttempts: 1,
+        payload: {
+          executionId,
+          flowId: flow.id,
+          input,
+          actor: authContext || actor,
+          executionOptions: options,
+        },
+      });
+
+      if (!shouldWait) {
+        return this.getExecutionById(executionId) || queuedExec;
+      }
+
+      return await waitPromise!;
+    }
+
+    // Unconstrained execution path (maxConcurrentExecutions is null / undefined)
+    const shouldWait = options.wait !== false;
+    this.activeExecutionClaims.add(executionId);
+    const claimToken = crypto.randomUUID();
+    const abortController = new AbortController();
+    this.activeAbortControllers.set(executionId, abortController);
+
+    const initialRunning: FlowExecution = {
       id: executionId,
       flowId: flow.id,
       flowName: flow.name,
@@ -408,10 +610,123 @@ export class FlowService {
       stepLogs: [],
       actorId: authContext?.id || (typeof actor === 'string' ? actor : null),
       actor: authContext,
-      startedAt: new Date().toISOString(),
+      queuedAt: null,
+      jobId: null,
+      startedAt: now,
       checkpoint: initialCheckpoint,
       claimToken,
-    });
+    };
+
+    // Atomically persist initial 'running' record so callers can poll immediately
+    this.saveExecution(initialRunning);
+
+    const runPromise = (async (): Promise<FlowExecution> => {
+      try {
+        const execution = await this.engine.execute(flow.name, flow.definition, input, {
+          actor: authContext || actor,
+          functionService: this.functionService,
+          executionId,
+          flowId: flow.id,
+          executionOptions: options,
+          signal: abortController.signal,
+          onStepTransition: async (event) => {
+            this.persistCheckpoint(executionId, event, claimToken);
+          },
+        });
+
+        this.saveExecution(execution);
+        return execution;
+      } catch (err: any) {
+        const existing = this.getExecutionById(executionId);
+        if (existing?.status === 'aborted') {
+          throw err;
+        }
+        this.saveExecution({
+          id: executionId,
+          flowId: flow.id,
+          flowName: flow.name,
+          status: 'failed',
+          input: input !== undefined ? input : null,
+          output: existing?.output ?? null,
+          error: err.message || String(err),
+          durationMs: existing?.durationMs || 0,
+          stepLogs: existing?.stepLogs || [],
+          actorId: authContext?.id || (typeof actor === 'string' ? actor : null),
+          actor: authContext,
+          queuedAt: existing?.queuedAt ?? null,
+          jobId: existing?.jobId ?? null,
+          startedAt: existing?.startedAt || now,
+          finishedAt: new Date().toISOString(),
+          checkpoint: existing?.checkpoint ?? null,
+          claimToken: null,
+        });
+        throw err;
+      } finally {
+        this.releaseClaim(executionId, claimToken);
+        this.activeExecutionClaims.delete(executionId);
+        this.activeAbortControllers.delete(executionId);
+      }
+    })();
+
+    if (!shouldWait) {
+      runPromise.catch((err) => {
+        console.error(`[FlowService] Background execution failed for flow '${flow.name}':`, err);
+      });
+      return initialRunning;
+    }
+
+    return await runPromise;
+  }
+
+  /**
+   * Worker handler invoked by QueueService for `_system:flow:${flow.id}` jobs.
+   */
+  private async processQueuedFlowJob(job: QueueJob): Promise<FlowExecution | null> {
+    const payload = job.payload || {};
+    const { executionId, flowId, input, actor, executionOptions } = payload;
+    if (!executionId || !flowId) {
+      return null;
+    }
+
+    const existing = this.getExecutionById(executionId);
+    if (!existing || existing.status === 'aborted' || existing.status === 'cancelled' || existing.status === 'succeeded') {
+      return existing;
+    }
+
+    const flow = this.getFlowById(flowId);
+    if (!flow || !flow.enabled) {
+      const reason = !flow ? `Flow '${flowId}' no longer exists` : `Flow '${flow.name}' is currently disabled`;
+      const aborted = this.abortExecution(executionId, reason);
+      this.settleWaiter(executionId, undefined, new AppError(reason, !flow ? 404 : 403));
+      return aborted;
+    }
+
+    if (this.activeExecutionClaims.has(executionId)) {
+      return existing;
+    }
+
+    this.activeExecutionClaims.add(executionId);
+    const claimToken = crypto.randomUUID();
+    const abortController = new AbortController();
+    this.activeAbortControllers.set(executionId, abortController);
+    const startedAt = new Date().toISOString();
+
+    const authContext = existing.actor || (typeof actor === 'object' && actor !== null ? actor : (typeof actor === 'string' ? { id: actor } : null));
+
+    // Transition from 'queued' -> 'running'
+    const claimUpdate = this.db.prepare(`
+      UPDATE _flow_executions
+      SET status = 'running',
+          startedAt = ?,
+          claimToken = ?
+      WHERE id = ? AND status = 'queued'
+    `).run(startedAt, claimToken, executionId);
+
+    if ( Number(claimUpdate.changes) === 0 ) {
+      this.activeExecutionClaims.delete(executionId);
+      this.activeAbortControllers.delete(executionId);
+      return this.getExecutionById(executionId);
+    }
 
     try {
       const execution = await this.engine.execute(flow.name, flow.definition, input, {
@@ -419,42 +734,76 @@ export class FlowService {
         functionService: this.functionService,
         executionId,
         flowId: flow.id,
-        executionOptions: options,
+        executionOptions: executionOptions || {},
         signal: abortController.signal,
         onStepTransition: async (event) => {
           this.persistCheckpoint(executionId, event, claimToken);
+          if (this.queueService) {
+            void this.queueService.touch(job.id, 60).catch(() => {});
+          }
         },
       });
 
-      this.saveExecution(execution);
-      return execution;
+      const finalExecution: FlowExecution = {
+        ...execution,
+        queuedAt: existing.queuedAt ?? null,
+        jobId: job.id,
+      };
+      this.saveExecution(finalExecution);
+      this.settleWaiter(executionId, finalExecution);
+      return finalExecution;
     } catch (err: any) {
-      const existing = this.getExecutionById(executionId);
-      if (existing?.status === 'aborted') {
-        throw err;
+      const current = this.getExecutionById(executionId);
+      if (current?.status === 'aborted') {
+        this.settleWaiter(executionId, undefined, err);
+        return current;
       }
-      this.saveExecution({
+
+      const failedExec: FlowExecution = {
         id: executionId,
         flowId: flow.id,
         flowName: flow.name,
         status: 'failed',
         input: input !== undefined ? input : null,
-        output: existing?.output ?? null,
+        output: current?.output ?? null,
         error: err.message || String(err),
-        durationMs: existing?.durationMs || 0,
-        stepLogs: existing?.stepLogs || [],
-        actorId: authContext?.id || (typeof actor === 'string' ? actor : null),
+        durationMs: current?.durationMs || 0,
+        stepLogs: current?.stepLogs || [],
+        actorId: existing.actorId,
         actor: authContext,
-        startedAt: existing?.startedAt || new Date().toISOString(),
+        queuedAt: existing.queuedAt ?? null,
+        jobId: job.id,
+        startedAt: current?.startedAt || startedAt,
         finishedAt: new Date().toISOString(),
-        checkpoint: existing?.checkpoint ?? null,
+        checkpoint: current?.checkpoint ?? null,
         claimToken: null,
-      });
+      };
+      this.saveExecution(failedExec);
+
+      if (this.executionWaiters.has(executionId)) {
+        this.settleWaiter(executionId, undefined, err);
+        return failedExec;
+      }
+
       throw err;
     } finally {
       this.releaseClaim(executionId, claimToken);
       this.activeExecutionClaims.delete(executionId);
       this.activeAbortControllers.delete(executionId);
+    }
+  }
+
+  private settleWaiter(executionId: string, execution?: FlowExecution, error?: any): void {
+    const waiter = this.executionWaiters.get(executionId);
+    if (!waiter) return;
+    this.executionWaiters.delete(executionId);
+    if (waiter.timer) {
+      clearTimeout(waiter.timer);
+    }
+    if (error) {
+      waiter.reject(error);
+    } else if (execution) {
+      waiter.resolve(execution);
     }
   }
 
@@ -539,7 +888,7 @@ export class FlowService {
   }
 
   /**
-   * Aborts an orphaned running flow gracefully with status: 'aborted'.
+   * Aborts an active ('running') or pending ('queued') flow execution with status: 'aborted'.
    */
   public abortExecution(executionId: string, reason: string = 'Execution aborted due to server restart'): FlowExecution {
     const controller = this.activeAbortControllers.get(executionId);
@@ -553,8 +902,12 @@ export class FlowService {
       throw new NotFoundError(`Flow execution '${executionId}' not found`);
     }
 
-    if (exec.status !== 'running') {
+    if (exec.status !== 'running' && exec.status !== 'queued') {
       return exec;
+    }
+
+    if (exec.jobId && this.queueService) {
+      void this.queueService.cancel(exec.jobId).catch(() => {});
     }
 
     const aborted: FlowExecution = {
@@ -566,6 +919,11 @@ export class FlowService {
       claimToken: null,
     };
     this.saveExecution(aborted);
+
+    const abortErr = new AppError(reason, 499);
+    (abortErr as any).status = 'aborted';
+    this.settleWaiter(executionId, undefined, abortErr);
+
     return aborted;
   }
 
@@ -716,8 +1074,13 @@ export class FlowService {
           },
         });
 
-        this.saveExecution(execution);
-        return execution;
+        const mergedExecution: FlowExecution = {
+          ...execution,
+          queuedAt: exec.queuedAt ?? null,
+          jobId: exec.jobId ?? null,
+        };
+        this.saveExecution(mergedExecution);
+        return mergedExecution;
       } catch (err: any) {
         const existing = this.getExecutionById(executionId);
         if (existing?.status === 'aborted') {
@@ -735,6 +1098,8 @@ export class FlowService {
           stepLogs: existing?.stepLogs || exec.stepLogs,
           actorId: exec.actorId,
           actor: exec.actor,
+          queuedAt: exec.queuedAt ?? null,
+          jobId: exec.jobId ?? null,
           startedAt: exec.startedAt,
           finishedAt: new Date().toISOString(),
           checkpoint: existing?.checkpoint ?? null,
@@ -753,7 +1118,8 @@ export class FlowService {
   }
 
   /**
-   * Recovers orphaned running flows on startup (either fails gracefully with 'aborted' or resumes from checkpoint).
+   * Recovers orphaned running flows on startup (either fails gracefully with 'aborted' or resumes from checkpoint),
+   * and ensures any pending 'queued' executions are drained through QueueService.
    */
   public async recoverOrphanedExecutions(strategy: 'abort' | 'resume' = this.recoveryStrategy): Promise<FlowExecution[]> {
     if (strategy !== undefined && strategy !== 'abort' && strategy !== 'resume') {
@@ -768,32 +1134,75 @@ export class FlowService {
       .prepare("SELECT * FROM _flow_executions WHERE status = 'running'")
       .all() as any[];
 
-    if (!orphanedRows || orphanedRows.length === 0) {
-      return [];
-    }
-
     const recovered: FlowExecution[] = [];
 
-    for (const row of orphanedRows) {
-      const exec = this.mapRowToExecution(row);
-      try {
-        if (strategy === 'resume') {
-          const resumed = await this.resumeExecution(exec.id);
-          recovered.push(resumed);
-        } else {
-          const aborted = this.abortExecution(exec.id, 'Execution aborted due to server restart');
-          recovered.push(aborted);
+    if (orphanedRows && orphanedRows.length > 0) {
+      for (const row of orphanedRows) {
+        const exec = this.mapRowToExecution(row);
+        // Cancel any processing queue job associated with this running execution so QueueService doesn't re-run it from scratch
+        if (exec.jobId && this.queueService) {
+          try {
+            await this.queueService.cancel(exec.jobId);
+          } catch {}
         }
-      } catch (err: any) {
-        console.warn(`[FlowService] Failed to recover orphaned execution '${exec.id}': ${err.message}`);
-        if (err instanceof ConflictError || (err as any)?.statusCode === 409) {
+
+        try {
+          if (strategy === 'resume') {
+            const resumed = await this.resumeExecution(exec.id);
+            recovered.push(resumed);
+          } else {
+            const aborted = this.abortExecution(exec.id, 'Execution aborted due to server restart');
+            recovered.push(aborted);
+          }
+        } catch (err: any) {
+          console.warn(`[FlowService] Failed to recover orphaned execution '${exec.id}': ${err.message}`);
+          if (err instanceof ConflictError || (err as any)?.statusCode === 409) {
+            continue;
+          }
+          if (strategy === 'resume') {
+            try {
+              const aborted = this.abortExecution(exec.id, `Recovery failed: ${err.message}`);
+              recovered.push(aborted);
+            } catch {}
+          }
+        }
+      }
+    }
+
+    // Reconcile and drain any 'queued' executions waiting in _flow_executions
+    if (this.queueService) {
+      this.syncAllFlowQueues();
+      const queuedRows = this.db
+        .prepare("SELECT * FROM _flow_executions WHERE status = 'queued' ORDER BY queuedAt ASC, startedAt ASC")
+        .all() as any[];
+
+      for (const row of queuedRows) {
+        const exec = this.mapRowToExecution(row);
+        const flow = this.getFlowById(exec.flowId);
+        if (!flow || !flow.enabled) {
+          this.abortExecution(exec.id, !flow ? `Flow '${exec.flowName}' no longer exists` : `Flow '${flow.name}' is disabled`);
           continue;
         }
-        if (strategy === 'resume') {
-          try {
-            const aborted = this.abortExecution(exec.id, `Recovery failed: ${err.message}`);
-            recovered.push(aborted);
-          } catch {}
+        this.syncFlowQueue(flow);
+        const queueName = FlowService.getFlowQueueName(flow.id);
+        const jobId = exec.jobId || `job_${exec.id}`;
+        const existingJob = await this.queueService.getJob(jobId);
+
+        if (!existingJob) {
+          await this.queueService.send({
+            id: jobId,
+            queue: queueName,
+            groupKey: flow.id,
+            maxAttempts: 1,
+            payload: {
+              executionId: exec.id,
+              flowId: flow.id,
+              input: exec.input,
+              actor: exec.actor || (exec.actorId ? { id: exec.actorId } : null),
+            },
+          });
+        } else {
+          this.queueService.wakeWorker(queueName);
         }
       }
     }
@@ -823,7 +1232,7 @@ export class FlowService {
       params.push(options.flowId);
     }
 
-    if (options?.status) {
+    if (options?.status && options.status !== 'all') {
       whereClause += ' AND status = ?';
       params.push(options.status);
     }
@@ -832,7 +1241,7 @@ export class FlowService {
     const totalItems = countRow?.total || 0;
 
     const rows = this.db
-      .prepare(`SELECT * FROM _flow_executions ${whereClause} ORDER BY startedAt DESC LIMIT ? OFFSET ?`)
+      .prepare(`SELECT * FROM _flow_executions ${whereClause} ORDER BY startedAt DESC, rowid DESC LIMIT ? OFFSET ?`)
       .all(...params, perPage, offset) as any[];
 
     const items = rows.map((r) => this.mapRowToExecution(r));
@@ -863,8 +1272,11 @@ export class FlowService {
       }
 
       this.db.prepare(`
-        INSERT OR REPLACE INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, actorId, actor, startedAt, finishedAt, checkpoint, claimToken)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO _flow_executions (
+          id, flowId, flowName, status, input, output, error, durationMs,
+          stepLogs, actorId, actor, queuedAt, jobId, startedAt, finishedAt, checkpoint, claimToken
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         exec.id,
         exec.flowId,
@@ -877,6 +1289,8 @@ export class FlowService {
         JSON.stringify(exec.stepLogs),
         exec.actorId,
         exec.actor ? JSON.stringify(exec.actor) : null,
+        exec.queuedAt || null,
+        exec.jobId || null,
         exec.startedAt,
         exec.finishedAt || null,
         exec.checkpoint ? JSON.stringify(exec.checkpoint) : null,
@@ -895,6 +1309,10 @@ export class FlowService {
       enabled: row.enabled === 1,
       triggerType: row.triggerType,
       eventTrigger: row.eventTrigger,
+      maxConcurrentExecutions:
+        row.maxConcurrentExecutions !== null && row.maxConcurrentExecutions !== undefined
+          ? Number(row.maxConcurrentExecutions)
+          : null,
       definition: JSON.parse(row.definition),
       created: row.created,
       updated: row.updated,
@@ -914,6 +1332,8 @@ export class FlowService {
       stepLogs: row.stepLogs ? JSON.parse(row.stepLogs) : [],
       actorId: row.actorId,
       actor: row.actor ? JSON.parse(row.actor) : (row.actorId ? { id: row.actorId } : null),
+      queuedAt: row.queuedAt || null,
+      jobId: row.jobId || null,
       startedAt: row.startedAt,
       finishedAt: row.finishedAt,
       checkpoint: row.checkpoint ? JSON.parse(row.checkpoint) : null,

@@ -1,4 +1,4 @@
-import { FunctionContext, FunctionExecutionResult } from '../types';
+import { FunctionHostServices, FunctionExecutionResult } from '../types';
 
 export interface RuntimeExecutionOptions {
   timeoutMs: number;
@@ -20,7 +20,7 @@ export interface IFunctionRuntime {
    */
   execute(
     code: string,
-    context: FunctionContext,
+    hostServices: FunctionHostServices,
     options: RuntimeExecutionOptions
   ): Promise<FunctionExecutionResult>;
 

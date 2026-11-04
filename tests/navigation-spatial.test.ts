@@ -214,6 +214,7 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
         { id: 'nav-webhooks', label: 'Webhooks' },
         { id: 'nav-functions', label: 'Functions' },
         { id: 'nav-flows', label: 'Flows' },
+        { id: 'nav-queues', label: 'Queues' },
         { id: 'nav-plugins', label: 'Plugins' },
         { id: 'nav-snapshots', label: 'Snapshots' },
         { id: 'nav-logs', label: 'Audit Logs' },
@@ -729,6 +730,81 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
 
       win.switchLogsSubTab('traffic');
       expect(win.location.pathname).toBe('/_/logs');
+    });
+
+    it('should reset to default route and default tab when clicking primary sidebar navigation', async () => {
+      const { win } = createTestDOM();
+
+      // 1. Queues: Go to Queues -> Job Inspector -> click Functions -> click Queues
+      await win.selectNav('queues');
+      expect(win.location.pathname).toBe('/_/queues');
+      expect(win.queuesState.subTab).toBe('queues');
+
+      win.switchQueuesTab('jobs');
+      expect(win.location.pathname).toBe('/_/queues/jobs');
+      expect(win.queuesState.subTab).toBe('jobs');
+
+      await win.selectNav('functions');
+      expect(win.location.pathname).toBe('/_/functions');
+      expect(win.functionsState.subTab).toBe('functions');
+
+      await win.selectNav('queues');
+      expect(win.location.pathname).toBe('/_/queues');
+      expect(win.queuesState.subTab).toBe('queues');
+
+      // 2. Functions: Go to Functions -> logs -> click Webhooks -> click Functions
+      win.switchFunctionsTab('logs');
+      expect(win.location.pathname).toBe('/_/functions/logs');
+      expect(win.functionsState.subTab).toBe('logs');
+
+      await win.selectNav('webhooks');
+      expect(win.location.pathname).toBe('/_/webhooks');
+      expect(win.webhooksState.subTab).toBe('webhooks');
+
+      await win.selectNav('functions');
+      expect(win.location.pathname).toBe('/_/functions');
+      expect(win.functionsState.subTab).toBe('functions');
+
+      // 3. Webhooks: Go to Webhooks -> deliveries -> click Logs -> click Webhooks
+      win.switchWebhooksTab('deliveries');
+      expect(win.location.pathname).toBe('/_/webhooks/deliveries');
+      expect(win.webhooksState.subTab).toBe('deliveries');
+
+      await win.selectNav('logs');
+      expect(win.location.pathname).toBe('/_/logs');
+      expect(win.auditState.subTab).toBe('traffic');
+
+      await win.selectNav('webhooks');
+      expect(win.location.pathname).toBe('/_/webhooks');
+      expect(win.webhooksState.subTab).toBe('webhooks');
+
+      // 4. Logs: Go to Logs -> audit -> click Home -> click Logs
+      win.switchLogsSubTab('audit');
+      expect(win.location.pathname).toBe('/_/logs/audit');
+      expect(win.auditState.subTab).toBe('audit');
+
+      await win.selectNav('home');
+      expect(win.location.pathname).toBe('/_/');
+
+      await win.selectNav('logs');
+      expect(win.location.pathname).toBe('/_/logs');
+      expect(win.auditState.subTab).toBe('traffic');
+
+      // 5. Flows: Go to Flows -> executions -> click Home -> click Flows
+      await win.selectNav('flows');
+      expect(win.location.pathname).toBe('/_/flows');
+      expect(win.flowsState.subTab).toBe('flows');
+
+      win.switchFlowsTab('executions');
+      expect(win.location.pathname).toBe('/_/flows/executions');
+      expect(win.flowsState.subTab).toBe('executions');
+
+      await win.selectNav('home');
+      expect(win.location.pathname).toBe('/_/');
+
+      await win.selectNav('flows');
+      expect(win.location.pathname).toBe('/_/flows');
+      expect(win.flowsState.subTab).toBe('flows');
     });
 
     it('should parse deep-link URLs on startup via parseUrlAndNavigate and restore matching view', async () => {

@@ -24,6 +24,20 @@ export class FlowValidator {
     }
   }
 
+  public static validateConcurrency(maxConcurrentExecutions?: any): void {
+    if (maxConcurrentExecutions === undefined || maxConcurrentExecutions === null) {
+      return;
+    }
+    if (
+      typeof maxConcurrentExecutions !== 'number' ||
+      !Number.isFinite(maxConcurrentExecutions) ||
+      !Number.isInteger(maxConcurrentExecutions) ||
+      maxConcurrentExecutions < 1
+    ) {
+      throw new AppError('maxConcurrentExecutions must be an integer >= 1 or null/undefined', 400);
+    }
+  }
+
   public static validateTrigger(triggerType?: string, eventTrigger?: string | null): void {
     if (triggerType !== undefined) {
       const validTriggers: FlowTriggerType[] = ['http', 'event', 'manual'];

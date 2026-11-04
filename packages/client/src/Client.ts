@@ -12,6 +12,7 @@ import { WebhookService } from './services/WebhookService';
 import { AppService } from './services/AppService';
 import { FunctionService } from './services/FunctionService';
 import { FlowService } from './services/FlowService';
+import { QueueService } from './services/QueueService';
 import type {
   ClientOptions,
   SendOptions,
@@ -43,6 +44,7 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
   private defaultTimeout: number;
   private chaosOptions: ChaosOptions | null = null;
   private recordServices: Map<string, RecordService<any>> = new Map();
+  private queueServices: Map<string, QueueService> = new Map();
 
   constructor(baseUrl: string = '/', options: ClientOptions = {}) {
     this.baseUrl = (baseUrl || '/').replace(/\/+$/, '');
@@ -94,6 +96,19 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
     if (!service) {
       service = new RecordService(this, colName);
       this.recordServices.set(colName, service);
+    }
+    return service;
+  }
+
+  /**
+   * Returns a QueueService for producing and consuming messages in a specific queue.
+   */
+  public queue(name: string): QueueService {
+    const queueName = String(name);
+    let service = this.queueServices.get(queueName);
+    if (!service) {
+      service = new QueueService(this, queueName);
+      this.queueServices.set(queueName, service);
     }
     return service;
   }

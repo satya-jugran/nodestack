@@ -28,6 +28,7 @@ export {
 export { AppService } from './services/AppService';
 export { FunctionService, FunctionConfig, FunctionExecutionResult } from './services/FunctionService';
 export { FlowService, FlowConfig, FlowExecution, FlowAsyncDispatchResponse } from './services/FlowService';
+export { QueueService, QueueJob, EnqueueJobOptions, ClaimJobsOptions } from './services/QueueService';
 
 // Types & Models
 export * from './types';

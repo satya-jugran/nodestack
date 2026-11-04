@@ -39,6 +39,8 @@ export const TOKENS = {
   FunctionController: Symbol('FunctionController'),
   FlowService: Symbol('FlowService'),
   FlowController: Symbol('FlowController'),
+  QueueService: Symbol('QueueService'),
+  QueueController: Symbol('QueueController'),
   AppRegistry: Symbol('AppRegistry'),
   AppManager: Symbol('AppManager'),
 } as const;

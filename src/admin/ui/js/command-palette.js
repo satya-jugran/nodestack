@@ -94,6 +94,16 @@ function getAllCommandPaletteItems() {
     action: () => selectNav('flows')
   },
   {
+    id: 'nav-queues',
+    title: 'Queues Manager',
+    description: 'Configure message queues, serverless function workers, DLQs and inspect jobs',
+    category: 'Navigation',
+    badge: 'PAGE',
+    icon: '📬',
+    keywords: ['queues', 'queue', 'jobs', 'messages', 'dlq', 'dead letter', 'worker', 'background', 'concurrency'],
+    action: () => selectNav('queues')
+  },
+  {
     id: 'nav-analytics',
     title: 'Analytics',
     description: 'Realtime telemetry, latency and request throughput',

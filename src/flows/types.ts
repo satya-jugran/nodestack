@@ -1,5 +1,5 @@
 export type FlowTriggerType = 'http' | 'event' | 'manual';
-export type FlowExecutionStatus = 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled' | 'aborted';
+export type FlowExecutionStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled' | 'aborted';
 export type FlowStateType = 'Task' | 'Choice' | 'Map' | 'Loop' | 'Parallel' | 'Pass' | 'Wait' | 'Succeed' | 'Fail';
 
 export interface FlowRetryPolicy {
@@ -132,6 +132,7 @@ export interface FlowConfig {
   enabled: boolean;
   triggerType: FlowTriggerType;
   eventTrigger?: string | null;
+  maxConcurrentExecutions?: number | null;
   definition: FlowDefinition;
   created: string;
   updated: string;
@@ -175,6 +176,8 @@ export interface FlowExecution {
   stepLogs: FlowStepLog[];
   actorId?: string | null;
   actor?: any | null;
+  queuedAt?: string | null;
+  jobId?: string | null;
   startedAt: string;
   finishedAt?: string;
   checkpoint?: FlowCheckpoint | null;
@@ -210,7 +213,7 @@ export interface FlowAsyncDispatchResponse {
   executionId: string;
   flowId: string;
   flowName: string;
-  status: 'running';
+  status: 'queued' | 'running';
   pollUrl: string;
 }
 
