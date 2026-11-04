@@ -200,8 +200,177 @@ export class FlowService {
         .catch(() => {});
     } else {
       if (!flow.maxConcurrentExecutions || flow.maxConcurrentExecutions < 1) {
-        void this.queueService.deleteQueue(queueName).catch(() => {});
+        void this.drainAndRemoveFlowQueue(flow, queueName);
       }
+    }
+  }
+
+  /**
+   * Gracefully drains or migrates pending executions when a flow's concurrency limit is removed,
+   * ensuring outstanding jobs/executions are not stranded before deleting the system queue.
+   */
+  private async drainAndRemoveFlowQueue(flow: FlowConfig, queueName: string): Promise<void> {
+    if (!this.queueService) return;
+
+    try {
+      const existingQueue = await this.queueService.getQueue(queueName);
+      if (!existingQueue) {
+        // Queue already deleted or never existed: migrate any remaining queued executions directly
+        await this.migrateQueuedExecutionsToUnconstrained(flow);
+        return;
+      }
+
+      const stats = await this.queueService.getStats(queueName, true);
+      const hasPendingJobs = stats.queued > 0 || stats.processing > 0;
+
+      const queuedExecsRow = this.db
+        .prepare("SELECT COUNT(*) as count FROM _flow_executions WHERE flowId = ? AND status = 'queued'")
+        .get(flow.id) as any;
+      const queuedExecCount = Number(queuedExecsRow?.count || 0);
+
+      if (hasPendingJobs || queuedExecCount > 0) {
+        // Concurrency limit removed: drain all pending jobs under the new unlimited setting
+        // by boosting the queue concurrency so pending jobs process immediately in parallel
+        const drainConcurrency = Math.max(50, stats.queued + stats.processing + queuedExecCount);
+        const visibilityTimeoutSeconds = Math.max(60, (flow.definition?.timeoutSeconds || 300) + 30);
+        await this.queueService.upsertQueue({
+          name: queueName,
+          concurrency: drainConcurrency,
+          visibilityTimeoutSeconds,
+          maxAttempts: 1,
+          backoffDelayMs: 0,
+          isSystem: true,
+        });
+
+        // If there are queued executions in _flow_executions that don't have active jobs in queue, ensure they are enqueued
+        if (queuedExecCount > 0) {
+          const rows = this.db
+            .prepare("SELECT * FROM _flow_executions WHERE flowId = ? AND status = 'queued' ORDER BY queuedAt ASC, startedAt ASC")
+            .all(flow.id) as any[];
+
+          for (const row of rows) {
+            const exec = this.mapRowToExecution(row);
+            const jobId = exec.jobId || `job_${exec.id}`;
+            const job = await this.queueService.getJob(jobId);
+            if (!job) {
+              await this.queueService.send({
+                id: jobId,
+                queue: queueName,
+                groupKey: flow.id,
+                maxAttempts: 1,
+                payload: {
+                  executionId: exec.id,
+                  flowId: flow.id,
+                  input: exec.input,
+                  actor: exec.actor || (exec.actorId ? { id: exec.actorId } : null),
+                },
+              });
+            }
+          }
+        }
+
+        this.queueService.wakeWorker(queueName);
+      } else {
+        // No outstanding jobs or queued executions; safe to delete the system queue
+        await this.queueService.deleteQueue(queueName);
+      }
+    } catch (err: any) {
+      console.warn(`[FlowService] drainAndRemoveFlowQueue error for flow '${flow.name}': ${err.message}`);
+    }
+  }
+
+  /**
+   * Dispatches any stranded 'queued' executions directly in unconstrained mode.
+   */
+  private async migrateQueuedExecutionsToUnconstrained(flow: FlowConfig): Promise<number> {
+    const queuedRows = this.db
+      .prepare("SELECT * FROM _flow_executions WHERE flowId = ? AND status = 'queued' ORDER BY queuedAt ASC, startedAt ASC")
+      .all(flow.id) as any[];
+
+    if (!queuedRows || queuedRows.length === 0) return 0;
+
+    for (const row of queuedRows) {
+      const exec = this.mapRowToExecution(row);
+      void this.dispatchUnconstrainedQueuedExecution(exec, flow);
+    }
+
+    return queuedRows.length;
+  }
+
+  private async dispatchUnconstrainedQueuedExecution(exec: FlowExecution, flow: FlowConfig): Promise<void> {
+    if (this.activeExecutionClaims.has(exec.id)) return;
+    this.activeExecutionClaims.add(exec.id);
+
+    const claimToken = crypto.randomUUID();
+    const abortController = new AbortController();
+    this.activeAbortControllers.set(exec.id, abortController);
+
+    const now = new Date().toISOString();
+    const claimUpdate = this.db.prepare(`
+      UPDATE _flow_executions
+      SET status = 'running',
+          startedAt = ?,
+          claimToken = ?
+      WHERE id = ? AND status = 'queued'
+    `).run(now, claimToken, exec.id);
+
+    if (Number(claimUpdate.changes) === 0) {
+      this.activeExecutionClaims.delete(exec.id);
+      this.activeAbortControllers.delete(exec.id);
+      return;
+    }
+
+    try {
+      const execution = await this.engine.execute(flow.name, flow.definition, exec.input, {
+        actor: exec.actor || (exec.actorId ? { id: exec.actorId } : null),
+        functionService: this.functionService,
+        executionId: exec.id,
+        flowId: flow.id,
+        executionOptions: {},
+        signal: abortController.signal,
+        onStepTransition: async (event) => {
+          this.persistCheckpoint(exec.id, event, claimToken);
+        },
+      });
+
+      const finalExecution: FlowExecution = {
+        ...execution,
+        queuedAt: exec.queuedAt ?? null,
+        jobId: exec.jobId ?? null,
+      };
+      this.saveExecution(finalExecution);
+      this.settleWaiter(exec.id, finalExecution);
+    } catch (err: any) {
+      const current = this.getExecutionById(exec.id);
+      if (current?.status === 'aborted') {
+        this.settleWaiter(exec.id, undefined, err);
+        return;
+      }
+      const failedExec: FlowExecution = {
+        id: exec.id,
+        flowId: flow.id,
+        flowName: flow.name,
+        status: 'failed',
+        input: exec.input !== undefined ? exec.input : null,
+        output: current?.output ?? null,
+        error: err.message || String(err),
+        durationMs: current?.durationMs || 0,
+        stepLogs: current?.stepLogs || [],
+        actorId: exec.actorId ?? null,
+        actor: exec.actor ?? null,
+        queuedAt: exec.queuedAt ?? null,
+        jobId: exec.jobId ?? null,
+        startedAt: current?.startedAt || now,
+        finishedAt: new Date().toISOString(),
+        checkpoint: current?.checkpoint ?? null,
+        claimToken: null,
+      };
+      this.saveExecution(failedExec);
+      this.settleWaiter(exec.id, undefined, err);
+    } finally {
+      this.releaseClaim(exec.id, claimToken);
+      this.activeExecutionClaims.delete(exec.id);
+      this.activeAbortControllers.delete(exec.id);
     }
   }
 
@@ -790,6 +959,29 @@ export class FlowService {
       this.releaseClaim(executionId, claimToken);
       this.activeExecutionClaims.delete(executionId);
       this.activeAbortControllers.delete(executionId);
+      if (this.queueService) {
+        void this.checkAndCleanupDrainedFlowQueue(flow.id, job.queue);
+      }
+    }
+  }
+
+  private async checkAndCleanupDrainedFlowQueue(flowId: string, queueName: string): Promise<void> {
+    if (!this.queueService) return;
+    try {
+      const flow = this.getFlowById(flowId);
+      if (!flow || !flow.maxConcurrentExecutions || flow.maxConcurrentExecutions < 1) {
+        const stats = await this.queueService.getStats(queueName, true);
+        if (stats.queued === 0 && stats.processing <= 1) {
+          const remainingQueued = this.db
+            .prepare("SELECT COUNT(*) as count FROM _flow_executions WHERE flowId = ? AND status = 'queued'")
+            .get(flowId) as any;
+          if (Number(remainingQueued?.count || 0) === 0) {
+            await this.queueService.deleteQueue(queueName);
+          }
+        }
+      }
+    } catch {
+      // ignore
     }
   }
 

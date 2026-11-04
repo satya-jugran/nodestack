@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { JSDOM } from 'jsdom';
@@ -4037,6 +4037,56 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(deletedSysQueue).toBeNull();
 
       app.flows.deleteFlow(validFlow.id);
+    });
+
+    it('should drain pending queued executions when maxConcurrentExecutions is removed instead of stranding them', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'DrainOnConcurrencyRemovalFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'Work',
+          states: {
+            Work: {
+              type: 'Wait',
+              seconds: 1,
+              end: true,
+            },
+          },
+        },
+      });
+
+      // Dispatch 3 executions with wait=false
+      const exec1 = await app.flows.executeFlow(throttledFlow.id, { item: 1 }, undefined, { wait: false });
+      const exec2 = await app.flows.executeFlow(throttledFlow.id, { item: 2 }, undefined, { wait: false });
+      const exec3 = await app.flows.executeFlow(throttledFlow.id, { item: 3 }, undefined, { wait: false });
+
+      expect(['queued', 'running']).toContain(exec1.status);
+      expect(exec2.status).toBe('queued');
+      expect(exec3.status).toBe('queued');
+
+      // Now remove maxConcurrentExecutions while exec2 and exec3 are still queued
+      app.flows.updateFlow(throttledFlow.id, {
+        maxConcurrentExecutions: null,
+      });
+
+      // Poll until all executions complete under the new unlimited setting
+      await vi.waitFor(async () => {
+        const e1 = app.flows.getExecutionById(exec1.id);
+        const e2 = app.flows.getExecutionById(exec2.id);
+        const e3 = app.flows.getExecutionById(exec3.id);
+        expect(e1?.status).toBe('succeeded');
+        expect(e2?.status).toBe('succeeded');
+        expect(e3?.status).toBe('succeeded');
+      }, { timeout: 4000, interval: 50 });
+
+      // After draining, the system queue should be cleaned up automatically
+      await vi.waitFor(async () => {
+        const q = await app.queue.getQueue(`_system:flow:${throttledFlow.id}`);
+        expect(q).toBeNull();
+      }, { timeout: 4000, interval: 50 });
+
+      app.flows.deleteFlow(throttledFlow.id);
     });
 
     it('should throttle bulk database event triggers (e.g. 12 concurrent events with maxConcurrentExecutions = 2) and execute all in FIFO without dropping', async () => {
