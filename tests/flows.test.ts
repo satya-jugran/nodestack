@@ -4341,6 +4341,68 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       app.flows.deleteFlow(throttledFlow.id);
     });
 
+    it('should renew lease for remaining execution budget and maintain heartbeat so long steps (Pass -> Wait) do not lose their lease or concurrency slot', async () => {
+      const longBudgetFlow = app.flows.createFlow({
+        name: 'LongBudgetLeaseFlow',
+        enabled: true,
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'FastPass',
+          timeoutSeconds: 300,
+          states: {
+            FastPass: {
+              type: 'Pass',
+              next: 'HoldStep',
+            },
+            HoldStep: {
+              type: 'Wait',
+              seconds: 0.4,
+              end: true,
+            },
+          },
+        },
+      });
+
+      const execId1 = `exec_long_budget_${Date.now()}`;
+      const exec1Promise = app.flows.executeFlow(longBudgetFlow.id, { step: 1 }, undefined, {
+        executionId: execId1,
+        wait: true,
+      });
+
+      // Wait 80ms for FastPass to complete and HoldStep to be active
+      await new Promise((r) => setTimeout(r, 80));
+
+      const exec1 = app.flows.getExecutionById(execId1);
+      expect(exec1).not.toBeNull();
+      expect(exec1?.status).toBe('running');
+      expect(exec1?.jobId).toBeDefined();
+
+      const job = await app.queue.getJob(exec1!.jobId!);
+      expect(job).not.toBeNull();
+      expect(job?.status).toBe('processing');
+
+      // The lease must retain the remaining ~300+ second execution budget rather than being truncated to 60s
+      const leaseExpiry = new Date(job!.leaseExpiresAt!).getTime();
+      const minExpectedLeaseExpiry = Date.now() + 250000; // at least 250s in the future
+      expect(leaseExpiry).toBeGreaterThan(minExpectedLeaseExpiry);
+
+      // Concurrency check: another execution dispatched while HoldStep is running must stay queued
+      const exec2 = await app.flows.executeFlow(longBudgetFlow.id, { step: 2 }, undefined, { wait: false });
+      expect(exec2.status).toBe('queued');
+
+      // Wait for exec1 to complete
+      const res1 = await exec1Promise;
+      expect(res1.status).toBe('succeeded');
+
+      // Wait for queued exec2 to be claimed and complete
+      await vi.waitFor(async () => {
+        const check2 = app.flows.getExecutionById(exec2.id);
+        expect(check2?.status).toBe('succeeded');
+      }, { timeout: 3000, interval: 50 });
+
+      app.flows.deleteFlow(longBudgetFlow.id);
+    });
+
     it('should throttle bulk database event triggers (e.g. 12 concurrent events with maxConcurrentExecutions = 2) and execute all in FIFO without dropping', async () => {
       app.schema.createCollection({
         name: 'bulk_throttle_items',

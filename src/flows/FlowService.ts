@@ -972,6 +972,35 @@ export class FlowService {
       resumePayload = resumeInfo.resumePayload;
     }
 
+    const effectiveTimeoutMs =
+      executionOptions?.timeoutMs ||
+      (flow.definition.timeoutSeconds ? flow.definition.timeoutSeconds * 1000 : 30000);
+    const leaseBudgetMs = Math.max(60000, effectiveTimeoutMs + 30000);
+    const executionStartTime = Date.now();
+
+    const getRemainingBudgetSeconds = (): number => {
+      const remainingMs = executionStartTime + leaseBudgetMs - Date.now();
+      return Math.max(60, Math.ceil(remainingMs / 1000));
+    };
+
+    let heartbeatTimer: NodeJS.Timeout | null = null;
+    if (this.queueService) {
+      heartbeatTimer = setInterval(() => {
+        if (!heartbeatTimer || abortController.signal.aborted) {
+          if (heartbeatTimer) {
+            clearInterval(heartbeatTimer);
+            heartbeatTimer = null;
+          }
+          return;
+        }
+        const remainingSec = getRemainingBudgetSeconds();
+        void this.queueService!.touch(job.id, remainingSec).catch(() => {});
+      }, 15000);
+      if (typeof heartbeatTimer.unref === 'function') {
+        heartbeatTimer.unref();
+      }
+    }
+
     try {
       const execution = await this.engine.execute(
         flow.name,
@@ -987,8 +1016,9 @@ export class FlowService {
           resumeFrom,
           onStepTransition: async (event) => {
             this.persistCheckpoint(executionId, event, claimToken);
-            if (this.queueService) {
-              void this.queueService.touch(job.id, 60).catch(() => {});
+            if (this.queueService && !abortController.signal.aborted) {
+              const remainingSec = getRemainingBudgetSeconds();
+              void this.queueService.touch(job.id, remainingSec).catch(() => {});
             }
           },
         }
@@ -1037,6 +1067,10 @@ export class FlowService {
 
       throw err;
     } finally {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
       this.releaseClaim(executionId, claimToken);
       this.activeExecutionClaims.delete(executionId);
       this.activeAbortControllers.delete(executionId);
