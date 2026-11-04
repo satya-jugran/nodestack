@@ -357,6 +357,16 @@ export class AppScope {
     };
   }
 
+  public async closeAsync(): Promise<void> {
+    if (this._isClosed) return;
+    try {
+      await this.queue.dispose();
+    } catch {
+      // ignore
+    }
+    this.close();
+  }
+
   public close(): void {
     if (this._isClosed) return;
     this._isClosed = true;

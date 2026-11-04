@@ -17,7 +17,7 @@ export interface FlowExecution {
   id: string;
   flowId: string;
   flowName: string;
-  status: 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled' | 'aborted';
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled' | 'aborted';
   input: any;
   output?: any;
   error?: string;
@@ -48,7 +48,7 @@ export interface FlowAsyncDispatchResponse {
   executionId: string;
   flowId: string;
   flowName: string;
-  status: 'running';
+  status: 'queued' | 'running';
   pollUrl: string;
 }
 

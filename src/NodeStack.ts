@@ -464,8 +464,15 @@ export class NodeStack {
     // 1.1 Ensure built-in demo app is initialized
     await this.apps.ensureDemoAppInitialized();
 
-    // 1.2 Start QueueService on default app
-    await this.queue.start();
+    // 1.2 Start QueueService across all registered applications (including default app)
+    for (const app of this.apps.registry.getAllApps()) {
+      try {
+        const scope = this.apps.get(app.slug);
+        await scope.queue.start();
+      } catch (err: any) {
+        console.warn(`[NodeStack] Failed to start queue for app '${app.slug}': ${err.message}`);
+      }
+    }
 
     const serveContext: ServeEventContext = {
       server: this.server.app,
@@ -489,7 +496,7 @@ export class NodeStack {
     await this.queue.dispose();
     this.realtime.dispose();
     await this.server.close();
-    this.apps.closeAll();
+    await this.apps.closeAllAsync();
     await this.container.dispose();
   }
 

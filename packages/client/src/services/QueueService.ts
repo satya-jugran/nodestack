@@ -8,13 +8,16 @@ export interface QueueJob<T = any> {
   status: 'queued' | 'processing' | 'completed' | 'failed' | 'dead_letter';
   payload: T;
   result?: any;
-  lastError?: string;
+  error?: string | null;
+  /** @deprecated Use error */
+  lastError?: string | null;
   attempts: number;
   maxAttempts: number;
   priority: number;
   availableAt: string;
   claimedBy?: string | null;
   leaseExpiresAt?: string | null;
+  claimToken?: string | null;
   deduplicationId?: string | null;
   created: string;
   updated: string;

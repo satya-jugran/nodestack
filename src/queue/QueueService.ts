@@ -40,6 +40,7 @@ export class QueueService {
 
   private workerId: string;
   private isDisposed = false;
+  private startPromise?: Promise<void>;
   private delayedTimer: NodeJS.Timeout | null = null;
   private nextDelayedTargetMs: number | null = null;
   private reclaimTimer: NodeJS.Timeout | null = null;
@@ -110,33 +111,43 @@ export class QueueService {
   }
 
   public async start(): Promise<void> {
-    this.isDisposed = false;
-    await this.driver.init();
-
-    if (this.isDbAvailable()) {
-      // 1. Immediately reclaim any expired orphaned 'processing' jobs left behind by a crash/restart
-      // (excluding _system:flow:* jobs which FlowService recovers via step checkpoints)
-      try {
-        const allQueues = await this.driver.getAllQueues(true);
-        for (const q of allQueues) {
-          if (!q.name.startsWith('_system:flow:')) {
-            await this.driver.reclaimOrphaned(q.name, false);
-          }
-        }
-      } catch {}
-
-      // 2. Run startup retention cleanup
-      const retentionDays = this.config?.queueJobRetentionDays ?? 7;
-      try {
-        await this.driver.cleanup(retentionDays);
-      } catch {}
+    if (this.startPromise) {
+      return this.startPromise;
     }
+    this.isDisposed = false;
+    this.startPromise = (async () => {
+      try {
+        await this.driver.init();
 
-    this.startBackgroundSweepers();
+        if (this.isDbAvailable()) {
+          // 1. Immediately reclaim any expired orphaned 'processing' jobs left behind by a crash/restart
+          // (excluding _system:flow:* jobs which FlowService recovers via step checkpoints)
+          try {
+            const allQueues = await this.driver.getAllQueues(true);
+            for (const q of allQueues) {
+              if (!q.name.startsWith('_system:flow:')) {
+                await this.driver.reclaimOrphaned(q.name, false);
+              }
+            }
+          } catch {}
 
-    // 3. Query DB for any queues with pending 'queued' jobs and wake them
-    await this.wakePendingQueuesFromStorage();
-    void this.scheduleNextDelayedWake();
+          // 2. Run startup retention cleanup
+          const retentionDays = this.config?.queueJobRetentionDays ?? 7;
+          try {
+            await this.driver.cleanup(retentionDays);
+          } catch {}
+        }
+
+        this.startBackgroundSweepers();
+
+        // 3. Query DB for any queues with pending 'queued' jobs and wake them
+        await this.wakePendingQueuesFromStorage();
+        void this.scheduleNextDelayedWake();
+      } finally {
+        this.startPromise = undefined;
+      }
+    })();
+    return this.startPromise;
   }
 
   /**
@@ -686,6 +697,7 @@ export class QueueService {
 
   public async dispose(): Promise<void> {
     this.isDisposed = true;
+    this.startPromise = undefined;
     this.pendingWake.clear();
     this.drainingQueues.clear();
     if (this.delayedTimer) {

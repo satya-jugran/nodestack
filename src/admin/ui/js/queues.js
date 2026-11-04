@@ -474,7 +474,7 @@ async function loadQueueJobsList() {
                   </td>
                   <td style="max-width: 320px;">
                     <code style="font-size: 11.5px; color: var(--text-main); word-break: break-all;">${escapeHtml(shortPreview)}</code>
-                    ${job.lastError ? `<div style="font-size: 11px; color: var(--accent-danger); margin-top: 2px;">⚠️ ${escapeHtml(job.lastError)}</div>` : ''}
+                    ${(job.error || job.lastError) ? `<div style="font-size: 11px; color: var(--accent-danger); margin-top: 2px;">⚠️ ${escapeHtml(job.error || job.lastError)}</div>` : ''}
                   </td>
                   <td style="font-size: 11.5px; color: var(--text-muted); white-space: nowrap;">
                     ${job.created ? new Date(job.created).toLocaleString() : '--'}
@@ -1105,9 +1105,9 @@ async function openQueueJobDetailDrawer(jobId) {
             </div>
           </div>
 
-          ${job.lastError ? `
+          ${(job.error || job.lastError) ? `
             <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 14px; font-size:12px; color: var(--accent-danger);">
-              <strong>Last Error:</strong> ${escapeHtml(job.lastError)}
+              <strong>Error:</strong> ${escapeHtml(job.error || job.lastError)}
             </div>
           ` : ''}
 

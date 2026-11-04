@@ -1314,5 +1314,27 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       const updatedJob1 = await app.queue.getJob(job1.id);
       expect(updatedJob1?.status).toBe('completed');
     });
+
+    it('should start queue lifecycle for non-default apps and expose job error and claimToken', async () => {
+      const subAppScope = await app.apps.create({
+        slug: 'sub-tenant-queue-app',
+        name: 'Sub Tenant Queue App',
+      });
+
+      expect(subAppScope.queue).toBeDefined();
+      const job = await subAppScope.queue.send('tenant-tasks', { task: 'tenant-job' });
+      expect(job.status).toBe('queued');
+
+      // Claim and fail to verify error property and claimToken
+      const claimed = await subAppScope.queue.claim('tenant-tasks', 1, 5);
+      expect(claimed.length).toBe(1);
+      expect(claimed[0].claimToken).toBeDefined();
+
+      await subAppScope.queue.fail(job.id, 'Simulated tenant failure', 0, claimed[0].claimToken);
+      const failedJob = await subAppScope.queue.getJob(job.id);
+      expect(failedJob?.status).toBe('queued');
+      expect(failedJob?.error).toBe('Simulated tenant failure');
+      expect(failedJob?.attempts).toBe(1);
+    });
   });
 });
