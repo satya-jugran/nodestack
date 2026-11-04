@@ -1336,5 +1336,74 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(failedJob?.error).toBe('Simulated tenant failure');
       expect(failedJob?.attempts).toBe(1);
     });
+
+    it('should preserve existing queue settings when updating only targetFunction', async () => {
+      const qName = 'preserve-settings-queue';
+      await app.queue.upsertQueue({
+        name: qName,
+        concurrency: 7,
+        maxAttempts: 5,
+        visibilityTimeoutSeconds: 45,
+        backoffDelayMs: 2500,
+      });
+
+      const updated = await app.queue.upsertQueue({
+        name: qName,
+        targetFunction: 'new-target-fn',
+      });
+
+      expect(updated.concurrency).toBe(7);
+      expect(updated.maxAttempts).toBe(5);
+      expect(updated.visibilityTimeoutSeconds).toBe(45);
+      expect(updated.backoffDelayMs).toBe(2500);
+      expect(updated.targetFunction).toBe('new-target-fn');
+    });
+
+    it('should route exhausted visibility timeout jobs to configured deadLetterQueue and wake destination', async () => {
+      const dlqName = 'timeout-dlq-destination';
+      const srcName = 'timeout-dlq-source';
+
+      await app.queue.upsertQueue({ name: dlqName, concurrency: 1 });
+      await app.queue.upsertQueue({
+        name: srcName,
+        concurrency: 1,
+        maxAttempts: 1,
+        deadLetterQueue: dlqName,
+      });
+
+      const job = await app.queue.send(srcName, { message: 'lost-worker-payload' });
+      expect(job.status).toBe('queued');
+
+      // Claim job
+      const claimed = await app.queue.claim(srcName, 1, 10);
+      expect(claimed.length).toBe(1);
+      expect(claimed[0].id).toBe(job.id);
+
+      // Expire lease in SQLite
+      const expiredTime = new Date(Date.now() - 5000).toISOString();
+      app.db.prepare('UPDATE _queue_jobs SET leaseExpiresAt = ? WHERE id = ?').run(expiredTime, job.id);
+
+      // Reclaim orphaned leases
+      const count = await app.queue.reclaimOrphaned(srcName);
+      expect(count).toBe(1);
+
+      // Verify original job is dead_letter
+      const srcJob = await app.queue.getJob(job.id);
+      expect(srcJob?.status).toBe('dead_letter');
+      expect(srcJob?.error).toContain('Max attempts exceeded after visibility timeout');
+
+      // Verify DLQ received the copy
+      const dlqJobs = await app.queue.getJobs({ queue: dlqName });
+      expect(dlqJobs.total).toBe(1);
+      expect(dlqJobs.items[0].queue).toBe(dlqName);
+      expect(dlqJobs.items[0].payload.originalJobId).toBe(job.id);
+      expect(dlqJobs.items[0].payload.originalQueue).toBe(srcName);
+      expect(dlqJobs.items[0].payload.payload).toEqual({ message: 'lost-worker-payload' });
+
+      // Verify stats expose deadLetter and dead_letter for Admin UI
+      const stats = await app.queue.getStats(srcName);
+      expect(stats.deadLetter).toBe(1);
+      expect(stats.dead_letter).toBe(1);
+    });
   });
 });

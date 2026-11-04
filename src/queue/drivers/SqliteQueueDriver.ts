@@ -529,7 +529,11 @@ export class SqliteQueueDriver implements IQueueDriver {
     });
   }
 
-  public async reclaimOrphaned(queueName?: string, forceAll = false): Promise<number> {
+  public async reclaimOrphaned(
+    queueName?: string,
+    forceAll = false,
+    onDlqEnqueued?: (dlqQueue: string) => void
+  ): Promise<number> {
     this.ensureInit();
     return this.db.transaction(() => {
       const now = new Date().toISOString();
@@ -552,8 +556,11 @@ export class SqliteQueueDriver implements IQueueDriver {
 
       let reclaimed = 0;
       for (const row of expired) {
+        const qRow = this.db.prepare('SELECT * FROM _queues WHERE name = ?').get(row.queue) as any;
         const attempts = Number(row.attempts) || 1;
-        const maxAttempts = Number(row.maxAttempts) || 3;
+        const maxAttempts = Number(row.maxAttempts) || (qRow?.maxAttempts ?? 3);
+        const dlqName = qRow?.deadLetterQueue || null;
+        const timeoutError = 'Max attempts exceeded after visibility timeout';
 
         if (attempts < maxAttempts) {
           this.db.prepare(`
@@ -575,12 +582,36 @@ export class SqliteQueueDriver implements IQueueDriver {
                 claimedBy = NULL,
                 leaseExpiresAt = NULL,
                 claimToken = NULL,
-                error = COALESCE(error, 'Max attempts exceeded after visibility timeout'),
+                error = COALESCE(error, ?),
                 updated = ?,
                 finishedAt = ?
             WHERE id = ? AND status = 'processing'
-          `).run(now, now, row.id);
+          `).run(timeoutError, now, now, row.id);
           reclaimed++;
+
+          // If a separate deadLetterQueue is configured, also enqueue a copy into that DLQ
+          if (dlqName && dlqName !== row.queue) {
+            let parsedPayload: any = null;
+            try {
+              parsedPayload = row.payload ? JSON.parse(row.payload) : null;
+            } catch {
+              parsedPayload = row.payload;
+            }
+            this.insertJobSync({
+              queue: dlqName,
+              payload: {
+                originalJobId: row.id,
+                originalQueue: row.queue,
+                error: row.error || timeoutError,
+                attempts,
+                failedAt: now,
+                payload: parsedPayload,
+              },
+              groupKey: row.groupKey,
+              priority: row.priority,
+            });
+            onDlqEnqueued?.(dlqName);
+          }
         }
       }
 
@@ -691,12 +722,14 @@ export class SqliteQueueDriver implements IQueueDriver {
       ${where}
     `).get(...params) as any;
 
+    const deadLetter = Number(row?.deadLetter || 0);
     return {
       queued: Number(row?.queued || 0),
       processing: Number(row?.processing || 0),
       completed: Number(row?.completed || 0),
       failed: Number(row?.failed || 0),
-      deadLetter: Number(row?.deadLetter || 0),
+      deadLetter,
+      dead_letter: deadLetter,
       total: Number(row?.total || 0),
     };
   }

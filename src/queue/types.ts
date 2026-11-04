@@ -70,6 +70,7 @@ export interface QueueStats {
   completed: number;
   failed: number;
   deadLetter: number;
+  dead_letter?: number;
   total: number;
 }
 

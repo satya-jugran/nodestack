@@ -126,7 +126,7 @@ export class QueueService {
             const allQueues = await this.driver.getAllQueues(true);
             for (const q of allQueues) {
               if (!q.name.startsWith('_system:flow:')) {
-                await this.driver.reclaimOrphaned(q.name, false);
+                await this.reclaimOrphaned(q.name, false);
               }
             }
           } catch {}
@@ -199,8 +199,8 @@ export class QueueService {
     }
     const cleanName = dto.name.trim();
 
-    // Concurrency normalization: 0, null, blank, or undefined = 0 (unbounded)
-    let normalizedConcurrency = 0;
+    // Concurrency normalization: only normalize if explicitly provided; undefined preserves stored values on update
+    let normalizedConcurrency: number | undefined = undefined;
     if (dto.concurrency !== undefined && dto.concurrency !== null && (dto.concurrency as any) !== '') {
       const parsed = typeof dto.concurrency === 'number' ? dto.concurrency : parseInt(String(dto.concurrency), 10);
       if (isNaN(parsed) || !Number.isInteger(parsed) || parsed < 0) {
@@ -209,7 +209,7 @@ export class QueueService {
       normalizedConcurrency = parsed;
     }
 
-    let normalizedMaxAttempts = 3;
+    let normalizedMaxAttempts: number | undefined = undefined;
     if (dto.maxAttempts !== undefined && dto.maxAttempts !== null && (dto.maxAttempts as any) !== '') {
       const parsed = typeof dto.maxAttempts === 'number' ? dto.maxAttempts : parseInt(String(dto.maxAttempts), 10);
       if (isNaN(parsed) || !Number.isInteger(parsed) || parsed < 1) {
@@ -218,7 +218,7 @@ export class QueueService {
       normalizedMaxAttempts = parsed;
     }
 
-    let normalizedVisibility = 30;
+    let normalizedVisibility: number | undefined = undefined;
     if (dto.visibilityTimeoutSeconds !== undefined && dto.visibilityTimeoutSeconds !== null && (dto.visibilityTimeoutSeconds as any) !== '') {
       const parsed = typeof dto.visibilityTimeoutSeconds === 'number' ? dto.visibilityTimeoutSeconds : parseInt(String(dto.visibilityTimeoutSeconds), 10);
       if (isNaN(parsed) || !Number.isInteger(parsed) || parsed < 1) {
@@ -227,7 +227,7 @@ export class QueueService {
       normalizedVisibility = parsed;
     }
 
-    let normalizedBackoff = 1000;
+    let normalizedBackoff: number | undefined = undefined;
     if (dto.backoffDelayMs !== undefined && dto.backoffDelayMs !== null && (dto.backoffDelayMs as any) !== '') {
       const parsed = typeof dto.backoffDelayMs === 'number' ? dto.backoffDelayMs : parseInt(String(dto.backoffDelayMs), 10);
       if (isNaN(parsed) || !Number.isInteger(parsed) || parsed < 0) {
@@ -482,13 +482,19 @@ export class QueueService {
 
   public async reclaimOrphaned(queueName?: string, forceAll = false): Promise<number> {
     if (!this.isDbAvailable()) return 0;
-    const count = await this.driver.reclaimOrphaned(queueName, forceAll);
+    const dlqsToWake = new Set<string>();
+    const count = await this.driver.reclaimOrphaned(queueName, forceAll, (dlq) => {
+      dlqsToWake.add(dlq);
+    });
     if (count > 0) {
       if (queueName) {
         this.wakeWorker(queueName);
       } else {
         await this.wakePendingQueuesFromStorage();
       }
+    }
+    for (const dlq of dlqsToWake) {
+      this.wakeWorker(dlq);
     }
     return count;
   }

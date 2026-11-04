@@ -196,7 +196,8 @@ async function loadQueueStats() {
       if (elQueued) elQueued.textContent = (stats.queued || 0).toLocaleString();
       if (elProc) elProc.textContent = (stats.processing || 0).toLocaleString();
       if (elComp) elComp.textContent = (stats.completed || 0).toLocaleString();
-      if (elDlq) elDlq.textContent = ((stats.dead_letter || 0) + (stats.failed || 0)).toLocaleString();
+      const totalDlq = (stats.dead_letter !== undefined ? stats.dead_letter : stats.deadLetter) || 0;
+      if (elDlq) elDlq.textContent = (totalDlq + (stats.failed || 0)).toLocaleString();
 
       const sidebarBadge = document.getElementById('sidebar-queues-count');
       if (sidebarBadge) {
@@ -260,7 +261,8 @@ async function loadQueuesList() {
           </thead>
           <tbody>
             ${queuesState.queues.map(q => {
-              const s = q.stats || { queued: 0, processing: 0, completed: 0, failed: 0, dead_letter: 0 };
+              const s = q.stats || { queued: 0, processing: 0, completed: 0, failed: 0, deadLetter: 0, dead_letter: 0 };
+              const qDlq = (s.dead_letter !== undefined ? s.dead_letter : s.deadLetter) || 0;
               const isSys = Boolean(q.isSystem || (q.name && q.name.startsWith('_system:')));
               const concurrencyText = q.concurrency && q.concurrency > 0 ? `${q.concurrency} max concurrent` : 'Unbounded';
 
@@ -305,8 +307,8 @@ async function loadQueuesList() {
                       <span class="badge badge-get" title="Queued jobs">${s.queued || 0} queued</span>
                       ${(s.processing || 0) > 0 ? `<span class="badge badge-post" title="Processing jobs">${s.processing} active</span>` : ''}
                       <span style="color: var(--text-muted);" title="Completed jobs">${s.completed || 0} done</span>
-                      ${((s.dead_letter || 0) + (s.failed || 0)) > 0 ? `
-                        <span class="badge badge-delete" title="Dead-letter / Failed jobs">${(s.dead_letter || 0) + (s.failed || 0)} DLQ/err</span>
+                      ${(qDlq + (s.failed || 0)) > 0 ? `
+                        <span class="badge badge-delete" title="Dead-letter / Failed jobs">${qDlq + (s.failed || 0)} DLQ/err</span>
                       ` : ''}
                     </div>
                   </td>
@@ -320,7 +322,7 @@ async function loadQueuesList() {
                       <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="inspectQueueJobs(this.getAttribute('data-name'))" title="Inspect Jobs in Queue" style="padding: 3px 8px; font-size: 11px;">
                         Jobs
                       </button>
-                      ${(s.dead_letter || 0) > 0 ? `
+                      ${qDlq > 0 ? `
                         <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="handleRetryQueueDlq(this.getAttribute('data-name'))" title="Retry Dead-Letter Jobs" style="padding: 3px 8px; font-size: 11px; color: #fbbf24;">
                           ↻ DLQ
                         </button>
