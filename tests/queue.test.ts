@@ -482,6 +482,81 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       });
       expect(sysResult.statusCode).toBe(500);
       expect(JSON.stringify(sysResult.error || sysResult.body)).toContain('reserved _system:* queues');
+
+      // Also verify that complete(), fail(), and getJob() reject mutating/inspecting _system:* jobs
+      await app.queue.upsertQueue({ name: '_system:flow:tamper_test', concurrency: 1, isSystem: true });
+      const systemJob = await app.queue.send('_system:flow:tamper_test', { flowData: 123 });
+
+      app.functions.createFunction({
+        name: 'system-tamper-fn',
+        code: `
+          export default async function(core, context) {
+            const op = context.request.body.op;
+            const jobId = context.request.body.jobId;
+
+            if (op === 'complete') {
+              return await core.sdk.queue('custom').complete(jobId, { hacked: true });
+            }
+            if (op === 'fail') {
+              return await core.sdk.queue('custom').fail(jobId, 'hack fail');
+            }
+            if (op === 'getJob') {
+              return await core.sdk.queue('custom').getJob(jobId);
+            }
+            return { ok: true };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 3000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      // complete() on _system:* job must throw
+      const completeRes = await app.functions.executeFunction('system-tamper-fn', {
+        method: 'POST',
+        path: '/api/functions/system-tamper-fn',
+        headers: {},
+        query: {},
+        body: { op: 'complete', jobId: systemJob.id },
+      });
+      expect(completeRes.statusCode).toBe(500);
+      expect(JSON.stringify(completeRes.error || completeRes.body)).toMatch(/reserved _system:\* queues/i);
+
+      // fail() on _system:* job must throw
+      const failRes = await app.functions.executeFunction('system-tamper-fn', {
+        method: 'POST',
+        path: '/api/functions/system-tamper-fn',
+        headers: {},
+        query: {},
+        body: { op: 'fail', jobId: systemJob.id },
+      });
+      expect(failRes.statusCode).toBe(500);
+      expect(JSON.stringify(failRes.error || failRes.body)).toMatch(/reserved _system:\* queues/i);
+
+      // getJob() on _system:* job must return null (redacted)
+      const getRes = await app.functions.executeFunction('system-tamper-fn', {
+        method: 'POST',
+        path: '/api/functions/system-tamper-fn',
+        headers: {},
+        query: {},
+        body: { op: 'getJob', jobId: systemJob.id },
+      });
+      expect(getRes.statusCode).toBe(200);
+      expect(getRes.body).toBeNull();
+
+      // Ensure the system job remained completely intact and queued
+      const untouchedJob = await app.queue.getJob(systemJob.id);
+      expect(untouchedJob?.status).toBe('queued');
+      expect(untouchedJob?.error).toBeNull();
+
+      // Clean up the temporary system job and queue so it doesn't affect subsequent tests
+      await app.queue.cancel(systemJob.id);
+      await app.queue.deleteQueue('_system:flow:tamper_test');
     });
   });
 

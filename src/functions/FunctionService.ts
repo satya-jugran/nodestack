@@ -955,6 +955,13 @@ export class FunctionService {
         if (!jobId || typeof jobId !== 'string') {
           throw new Error('Job ID is required to complete a queue job');
         }
+        const job = await this.queueService.getJob(jobId);
+        if (!job) {
+          return false;
+        }
+        if (job.queue.startsWith('_system:')) {
+          throw new Error('Cannot complete jobs belonging to reserved _system:* queues from user functions');
+        }
         return await this.queueService.complete(jobId, result);
       },
       fail: async (jobId: string, error?: string, options?: { backoffDelayMs?: number }) => {
@@ -963,6 +970,13 @@ export class FunctionService {
         }
         if (!jobId || typeof jobId !== 'string') {
           throw new Error('Job ID is required to fail a queue job');
+        }
+        const job = await this.queueService.getJob(jobId);
+        if (!job) {
+          return { retried: false, deadLettered: false, attempts: 0 };
+        }
+        if (job.queue.startsWith('_system:')) {
+          throw new Error('Cannot fail jobs belonging to reserved _system:* queues from user functions');
         }
         const errMsg = error || 'Failed by function worker';
         return await this.queueService.fail(jobId, errMsg, options?.backoffDelayMs);
@@ -974,7 +988,11 @@ export class FunctionService {
         if (!jobId || typeof jobId !== 'string') {
           return null;
         }
-        return await this.queueService.getJob(jobId);
+        const job = await this.queueService.getJob(jobId);
+        if (job && job.queue.startsWith('_system:')) {
+          return null;
+        }
+        return job;
       },
     };
 
