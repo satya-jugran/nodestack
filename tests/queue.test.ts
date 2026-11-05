@@ -545,6 +545,51 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       );
     });
 
+    it('should automatically update bound queue targetFunction references when renaming a Serverless Function', async () => {
+      const fn = app.functions.createFunction({
+        name: 'rename-bound-worker-fn',
+        code: `
+          export default async function(core, context) {
+            return { processed: true, payload: context.request.body };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+      });
+
+      await app.queue.upsertQueue({
+        name: 'rename-bound-queue',
+        concurrency: 1,
+        maxAttempts: 2,
+        targetFunction: 'rename-bound-worker-fn',
+      });
+
+      let queueConfig = await app.queue.getQueue('rename-bound-queue');
+      expect(queueConfig?.targetFunction).toBe('rename-bound-worker-fn');
+
+      // Rename function via updateFunction
+      app.functions.updateFunction(fn.id, {
+        name: 'renamed-bound-worker-fn',
+      });
+
+      // Verify queue was updated automatically in _queues
+      queueConfig = await app.queue.getQueue('rename-bound-queue');
+      expect(queueConfig?.targetFunction).toBe('renamed-bound-worker-fn');
+
+      // Ensure jobs execute successfully under the renamed function
+      const job = await app.queue.send('rename-bound-queue', { action: 'test-rename' });
+      let j = await app.queue.getJob(job.id);
+      for (let i = 0; i < 40; i++) {
+        if (j?.status === 'completed' || j?.status === 'failed') break;
+        await new Promise((r) => setTimeout(r, 50));
+        j = await app.queue.getJob(job.id);
+      }
+      expect(j?.status).toBe('completed');
+      expect(j?.result?.processed).toBe(true);
+      expect(j?.result?.payload?.action).toBe('test-rename');
+    });
+
     it('should coordinate claiming with available function capacity and defer capacity-rejected jobs without consuming execution attempts', async () => {
       const originalMaxConcurrent = app.functions.getMaxConcurrent();
       // Set function capacity to 2

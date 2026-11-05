@@ -284,6 +284,13 @@ export class FunctionService {
       id
     );
 
+    if (name !== current.name) {
+      const tableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_queues'").get();
+      if (tableExists) {
+        this.db.prepare('UPDATE _queues SET targetFunction = ? WHERE targetFunction = ?').run(name, current.name);
+      }
+    }
+
     return this.getFunctionById(id)!;
   }
 
