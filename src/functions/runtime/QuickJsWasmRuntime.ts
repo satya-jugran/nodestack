@@ -110,12 +110,36 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
                 if (!hostServices.sdk.queue) {
                   throw new Error('QueueService not available in function context');
                 }
-                result = await hostServices.sdk.queue.complete(payload.jobId, payload.result);
+                const claimToken =
+                  payload.claimToken ||
+                  (typeof payload.options === 'string'
+                    ? payload.options
+                    : payload.options?.claimToken);
+                result = await hostServices.sdk.queue.complete(payload.jobId, payload.result, claimToken);
               } else if (callType === 'queue.fail') {
                 if (!hostServices.sdk.queue) {
                   throw new Error('QueueService not available in function context');
                 }
-                result = await hostServices.sdk.queue.fail(payload.jobId, payload.error, payload.options);
+                const failOptions =
+                  typeof payload.options === 'object' && payload.options !== null
+                    ? { ...payload.options }
+                    : {};
+                if (payload.claimToken && !failOptions.claimToken) {
+                  failOptions.claimToken = payload.claimToken;
+                } else if (typeof payload.options === 'string') {
+                  failOptions.claimToken = payload.options;
+                }
+                result = await hostServices.sdk.queue.fail(payload.jobId, payload.error, failOptions);
+              } else if (callType === 'queue.touch') {
+                if (!hostServices.sdk.queue) {
+                  throw new Error('QueueService not available in function context');
+                }
+                const claimToken =
+                  payload.claimToken ||
+                  (typeof payload.options === 'string'
+                    ? payload.options
+                    : payload.options?.claimToken);
+                result = await hostServices.sdk.queue.touch(payload.jobId, payload.extensionSeconds, claimToken);
               } else if (callType === 'queue.getJob') {
                 if (!hostServices.sdk.queue) {
                   throw new Error('QueueService not available in function context');
@@ -231,6 +255,58 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
             __raw_host_invoke(0, 'log', JSON.stringify(args));
           }
 
+          function createQueueClient(defaultQueueName) {
+            return {
+              send: function(first, second, third) {
+                if (defaultQueueName) {
+                  return hostCall('queue.send', { queue: defaultQueueName, payload: first, options: second });
+                }
+                return hostCall('queue.send', { queue: first, payload: second, options: third });
+              },
+              claim: function(first, second) {
+                if (defaultQueueName) {
+                  return hostCall('queue.claim', { queue: defaultQueueName, options: first });
+                }
+                return hostCall('queue.claim', { queue: first, options: second });
+              },
+              complete: function(jobId, result, claimToken) {
+                return hostCall('queue.complete', { jobId: jobId, result: result, claimToken: claimToken });
+              },
+              fail: function(jobId, error, opts, claimToken) {
+                var options = opts;
+                var token = claimToken;
+                if (typeof opts === 'string') {
+                  token = opts;
+                  options = { claimToken: token };
+                } else if (opts && typeof opts === 'object') {
+                  options = Object.assign({}, opts);
+                  if (token && !options.claimToken) options.claimToken = token;
+                } else if (token) {
+                  options = { claimToken: token };
+                }
+                return hostCall('queue.fail', {
+                  jobId: jobId,
+                  error: error,
+                  options: options,
+                  claimToken: token || (options && options.claimToken)
+                });
+              },
+              touch: function(jobId, extensionSeconds, claimToken) {
+                var ext = typeof extensionSeconds === 'number' ? extensionSeconds : undefined;
+                var token = typeof extensionSeconds === 'string' ? extensionSeconds : claimToken;
+                return hostCall('queue.touch', { jobId: jobId, extensionSeconds: ext, claimToken: token });
+              },
+              getJob: function(jobId) {
+                return hostCall('queue.getJob', { jobId: jobId });
+              }
+            };
+          }
+
+          var queueBridge = function(queueName) {
+            return createQueueClient(queueName);
+          };
+          Object.assign(queueBridge, createQueueClient(null));
+
           globalThis.core = {
             version: '2.3.0',
             sdk: {
@@ -243,26 +319,9 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
                   delete: function(id, opts) { return hostCall('records.delete', { collection: colName, id: id, options: opts }); }
                 };
               },
-              queue: function(queueName) {
-                return {
-                  send: function(payload, opts) {
-                    return hostCall('queue.send', { queue: queueName, payload: payload, options: opts });
-                  },
-                  claim: function(opts) {
-                    return hostCall('queue.claim', { queue: queueName, options: opts });
-                  },
-                  complete: function(jobId, result) {
-                    return hostCall('queue.complete', { jobId: jobId, result: result });
-                  },
-                  fail: function(jobId, error, opts) {
-                    return hostCall('queue.fail', { jobId: jobId, error: error, options: opts });
-                  },
-                  getJob: function(jobId) {
-                    return hostCall('queue.getJob', { jobId: jobId });
-                  }
-                };
-              }
+              queue: queueBridge
             },
+            queue: queueBridge,
             network: {
               http: {
                 fetch: function(url, init) { return hostHttpFetch(url, init); },
@@ -286,7 +345,8 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
             request: initialCtx.request,
             event: initialCtx.event,
             env: initialCtx.env,
-            auth: initialCtx.auth
+            auth: initialCtx.auth,
+            queue: queueBridge
           };
 
           // Backward compatibility for legacy 1-parameter functions (ctx):

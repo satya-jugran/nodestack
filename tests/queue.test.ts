@@ -702,6 +702,9 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
             if (op === 'complete') {
               return await core.sdk.queue('custom').complete(jobId, { hacked: true });
             }
+            if (op === 'touch') {
+              return await core.sdk.queue('custom').touch(jobId, 60);
+            }
             if (op === 'fail') {
               return await core.sdk.queue('custom').fail(jobId, 'hack fail');
             }
@@ -731,6 +734,17 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       });
       expect(completeRes.statusCode).toBe(500);
       expect(JSON.stringify(completeRes.error || completeRes.body)).toMatch(/reserved _system:\* queues/i);
+
+      // touch() on _system:* job must throw
+      const touchRes = await app.functions.executeFunction('system-tamper-fn', {
+        method: 'POST',
+        path: '/api/functions/system-tamper-fn',
+        headers: {},
+        query: {},
+        body: { op: 'touch', jobId: systemJob.id },
+      });
+      expect(touchRes.statusCode).toBe(500);
+      expect(JSON.stringify(touchRes.error || touchRes.body)).toMatch(/reserved _system:\* queues/i);
 
       // fail() on _system:* job must throw
       const failRes = await app.functions.executeFunction('system-tamper-fn', {
@@ -1308,11 +1322,154 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(res.body.claimedId).toBe(job1.id);
       expect(res.body.completed).toBe(true);
       expect(res.body.ctxHasRecords).toBe(false);
-      expect(res.body.ctxHasQueue).toBe(false);
+      expect(res.body.ctxHasQueue).toBe(true);
       expect(res.body.ctxHasCore).toBe(false);
 
       const updatedJob1 = await app.queue.getJob(job1.id);
       expect(updatedJob1?.status).toBe('completed');
+    });
+
+    it('should support queue.touch(), claimToken forwarding on complete/fail/touch, and convenience alias ctx.queue & core.queue', async () => {
+      await app.queue.upsertQueue({
+        name: 'touch-token-queue',
+        concurrency: 1,
+        maxAttempts: 3,
+        backoffDelayMs: 200,
+      });
+
+      const job1 = await app.queue.send('touch-token-queue', { task: 'touch_and_complete' });
+      const job2 = await app.queue.send('touch-token-queue', { task: 'fail_and_retry' });
+
+      app.functions.createFunction({
+        name: 'touch-token-worker-fn',
+        code: `
+          export default async function(core, context) {
+            // 1. Verify convenience aliases exist
+            const hasCtxQueue = typeof context.queue === 'function';
+            const hasCoreQueue = typeof core.queue === 'function';
+            const hasCoreSdkQueue = typeof core.sdk.queue === 'function';
+
+            // 2. Claim job 1 using core.sdk.queue
+            const claimed = await core.sdk.queue('touch-token-queue').claim({ limit: 1 });
+            if (!claimed || claimed.length === 0) {
+              return { status: 500, body: { error: 'No job claimed' } };
+            }
+            const item1 = claimed[0];
+            const token1 = item1.claimToken;
+
+            // 3. Test touch() with wrong claimToken -> should return false
+            const touchWrongToken = await core.sdk.queue('touch-token-queue').touch(item1.id, 60, 'invalid-token-xyz');
+
+            // 4. Test touch() with valid claimToken and explicit extensionSeconds -> should return true
+            const touchValidToken = await core.sdk.queue('touch-token-queue').touch(item1.id, 120, token1);
+
+            // 5. Test touch() with valid claimToken (2 arguments: jobId, claimToken) -> should return true
+            const touchShortArg = await core.sdk.queue('touch-token-queue').touch(item1.id, token1);
+
+            // 6. Test complete() with wrong claimToken -> should return false
+            const completeWrongToken = await core.sdk.queue('touch-token-queue').complete(item1.id, { done: true }, 'invalid-token-xyz');
+
+            // 7. Test complete() with valid claimToken -> should return true
+            const completeValidToken = await core.sdk.queue('touch-token-queue').complete(item1.id, { processed: true }, token1);
+
+            // 8. Claim job 2 using ctx.queue('name').claim
+            const claimed2 = await context.queue('touch-token-queue').claim({ limit: 1 });
+            const item2 = claimed2[0];
+            const token2 = item2.claimToken;
+
+            // 9. Test fail() with wrong claimToken -> should return 0 attempts / not retried
+            const failWrongToken = await context.queue('touch-token-queue').fail(item2.id, 'Stale fail', { backoffDelayMs: 100, claimToken: 'invalid-token-xyz' });
+
+            // 10. Test fail() with valid claimToken -> should succeed and trigger retry
+            const failValidToken = await context.queue('touch-token-queue').fail(item2.id, 'Legit fail', { backoffDelayMs: 50, claimToken: token2 });
+
+            // 11. Test convenience aliases for send:
+            // a) context.queue.send('name', payload)
+            const sentViaCtxDirect = await context.queue.send('touch-token-queue', { source: 'ctx.queue.send' });
+
+            // b) context.queue('name').send(payload)
+            const sentViaCtxBound = await context.queue('touch-token-queue').send({ source: 'ctx.queue(name).send' });
+
+            // c) core.queue.send('name', payload)
+            const sentViaCoreDirect = await core.queue.send('touch-token-queue', { source: 'core.queue.send' });
+
+            // d) core.queue('name').send(payload)
+            const sentViaCoreBound = await core.queue('touch-token-queue').send({ source: 'core.queue(name).send' });
+
+            // 12. Test convenience alias touch & complete directly on context.queue:
+            const claimed3 = await context.queue.claim('touch-token-queue', { limit: 1 });
+            const item3 = claimed3[0];
+            const token3 = item3.claimToken;
+            const touchCtxDirect = await context.queue.touch(item3.id, 90, token3);
+            const completeCtxDirect = await context.queue.complete(item3.id, { aliasDone: true }, token3);
+
+            return {
+              status: 200,
+              body: {
+                hasCtxQueue,
+                hasCoreQueue,
+                hasCoreSdkQueue,
+                touchWrongToken,
+                touchValidToken,
+                touchShortArg,
+                completeWrongToken,
+                completeValidToken,
+                failWrongTokenAttempts: failWrongToken.attempts,
+                failValidTokenRetried: failValidToken.retried,
+                sentViaCtxDirectId: sentViaCtxDirect.id,
+                sentViaCtxBoundId: sentViaCtxBound.id,
+                sentViaCoreDirectId: sentViaCoreDirect.id,
+                sentViaCoreBoundId: sentViaCoreBound.id,
+                touchCtxDirect,
+                completeCtxDirect
+              }
+            };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+        timeoutMs: 5000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: true,
+        env: {},
+      });
+
+      const res = await app.functions.executeFunction('touch-token-worker-fn', {
+        method: 'POST',
+        path: '/api/functions/touch-token-worker-fn',
+        headers: {},
+        query: {},
+        body: {},
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.hasCtxQueue).toBe(true);
+      expect(res.body.hasCoreQueue).toBe(true);
+      expect(res.body.hasCoreSdkQueue).toBe(true);
+      expect(res.body.touchWrongToken).toBe(false);
+      expect(res.body.touchValidToken).toBe(true);
+      expect(res.body.touchShortArg).toBe(true);
+      expect(res.body.completeWrongToken).toBe(false);
+      expect(res.body.completeValidToken).toBe(true);
+      expect(res.body.failWrongTokenAttempts).toBe(0);
+      expect(res.body.failValidTokenRetried).toBe(true);
+      expect(res.body.sentViaCtxDirectId).toBeDefined();
+      expect(res.body.sentViaCtxBoundId).toBeDefined();
+      expect(res.body.sentViaCoreDirectId).toBeDefined();
+      expect(res.body.sentViaCoreBoundId).toBeDefined();
+      expect(res.body.touchCtxDirect).toBe(true);
+      expect(res.body.completeCtxDirect).toBe(true);
+
+      const dbJob1 = await app.queue.getJob(job1.id);
+      expect(dbJob1?.status).toBe('completed');
+      expect(dbJob1?.result).toEqual({ processed: true });
+
+      const dbJob2 = await app.queue.getJob(job2.id);
+      expect(dbJob2?.status).toBe('queued');
+      expect(dbJob2?.attempts).toBe(1);
+      expect(dbJob2?.error).toBe('Legit fail');
     });
 
     it('should start queue lifecycle for non-default apps and expose job error and claimToken', async () => {

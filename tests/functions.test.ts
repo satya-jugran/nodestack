@@ -1303,7 +1303,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
                 hasObs,
                 version,
                 ctxRecordsUndefined: typeof ctxRecords === 'undefined',
-                ctxQueueUndefined: typeof ctxQueue === 'undefined',
+                hasCtxQueue: typeof ctxQueue === 'function',
                 ctxCoreUndefined: typeof ctxCore === 'undefined',
                 fetchedAmount: fetched.amount
               }
@@ -1334,7 +1334,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(data.hasObs).toBe(true);
       expect(data.version).toBe('2.3.0');
       expect(data.ctxRecordsUndefined).toBe(true);
-      expect(data.ctxQueueUndefined).toBe(true);
+      expect(data.hasCtxQueue).toBe(true);
       expect(data.ctxCoreUndefined).toBe(true);
       expect(data.fetchedAmount).toBe(88);
     });

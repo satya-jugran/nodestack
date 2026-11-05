@@ -83,8 +83,13 @@ export interface FunctionQueueBridge {
     queueName: string,
     options?: { visibilityTimeoutSeconds?: number; limit?: number }
   ): Promise<QueueJob<T>[]>;
-  complete(jobId: string, result?: any): Promise<boolean>;
-  fail(jobId: string, error?: string, options?: { backoffDelayMs?: number }): Promise<JobFailResult>;
+  complete(jobId: string, result?: any, claimToken?: string): Promise<boolean>;
+  fail(
+    jobId: string,
+    error?: string,
+    options?: { backoffDelayMs?: number; claimToken?: string }
+  ): Promise<JobFailResult>;
+  touch(jobId: string, extensionSeconds?: number, claimToken?: string): Promise<boolean>;
   getJob<T = any>(jobId: string): Promise<QueueJob<T> | null>;
 }
 
