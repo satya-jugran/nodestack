@@ -12,7 +12,7 @@ import {
 } from '../types';
 
 export class SqliteQueueDriver implements IQueueDriver {
-  private initialized = false;
+  public initialized = false;
 
   constructor(private db: DatabaseService) {}
 

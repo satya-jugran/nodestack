@@ -508,8 +508,8 @@ export class SnapshotService {
         durationMs,
       });
 
-      this.eventBus.emit('snapshot:restore', { metadata: target, durationMs });
-      this.eventBus.emit('demo:reset', { metadata: target, durationMs });
+      await this.eventBus.emit('snapshot:restore', { metadata: target, durationMs });
+      await this.eventBus.emit('demo:reset', { metadata: target, durationMs });
 
       return {
         success: true,

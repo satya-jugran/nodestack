@@ -1608,4 +1608,109 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(stats.dead_letter).toBe(1);
     });
   });
+
+  describe('5. Snapshot Restore & In-Flight Queue State Reconciliation (resetAfterRestore)', () => {
+    it('should reset initialized to false on driver and recreate tables if missing', async () => {
+      const driver = app.queue.getDriver() as any;
+      expect(driver.initialized).toBe(true);
+
+      driver.invalidateInit();
+      expect(driver.initialized).toBe(false);
+
+      // Temporarily drop _queues and _queue_jobs to simulate snapshot from before queues existed
+      app.db.exec('DROP TABLE IF EXISTS _queue_jobs;');
+      app.db.exec('DROP TABLE IF EXISTS _queues;');
+
+      // Calling resetAfterRestore() must recreate schema and set initialized back to true
+      await app.queue.resetAfterRestore();
+      expect(driver.initialized).toBe(true);
+
+      // Tables exist and can be queried without SQL error
+      const queues = await app.queue.getAllQueues(true);
+      expect(Array.isArray(queues)).toBe(true);
+    });
+
+    it('should forcibly reclaim orphaned processing jobs even if lease is still in future', async () => {
+      const qName = 'restore-in-flight-queue';
+      await app.queue.upsertQueue({ name: qName, concurrency: 1 });
+
+      // Enqueue job
+      const job = await app.queue.send(qName, { task: 'in-flight-at-snapshot' });
+      expect(job.status).toBe('queued');
+
+      // Claim job with a long lease (1 hour into the future)
+      const claimed = await app.queue.claim(qName, 3600);
+      expect(claimed.length).toBe(1);
+      expect(claimed[0].id).toBe(job.id);
+      expect(claimed[0].status).toBe('processing');
+
+      const futureJob = await app.queue.getJob(job.id);
+      expect(futureJob?.status).toBe('processing');
+      const leaseTime = new Date(futureJob!.leaseExpiresAt!).getTime();
+      expect(leaseTime).toBeGreaterThan(Date.now() + 1000 * 1800);
+
+      // A normal start() with forceAll = false would NOT reclaim this because lease has not expired
+      // But resetAfterRestore() must forceAll = true reclaim
+      await app.queue.resetAfterRestore();
+
+      const reclaimedJob = await app.queue.getJob(job.id);
+      expect(reclaimedJob?.status).toBe('queued');
+      expect(reclaimedJob?.claimedBy).toBeNull();
+      expect(reclaimedJob?.leaseExpiresAt).toBeNull();
+    });
+
+    it('should safely handle concurrent resetAfterRestore calls without deadlock', async () => {
+      const p1 = app.queue.resetAfterRestore();
+      const p2 = app.queue.resetAfterRestore();
+      const p3 = app.queue.resetAfterRestore();
+      await Promise.all([p1, p2, p3]);
+      expect((app.queue.getDriver() as any).initialized).toBe(true);
+    });
+
+    it('should reconcile in-flight jobs and wake workers through app.snapshots.restoreSnapshot', async () => {
+      const snapQName = 'snapshot-restore-e2e-queue';
+      await app.queue.upsertQueue({ name: snapQName, concurrency: 1 });
+
+      // Enqueue a job
+      const job = await app.queue.send(snapQName, { payload: 'snap-e2e' });
+
+      // Claim it to simulate it being in-flight during snapshot capture
+      const claimed = await app.queue.claim(snapQName, 3600);
+      expect(claimed.length).toBe(1);
+      expect(claimed[0].status).toBe('processing');
+
+      // Create snapshot while job is in 'processing' status
+      const snapshot = await app.snapshots.createSnapshot({
+        name: 'InFlight Queue Checkpoint',
+      });
+      expect(snapshot.id).toBeDefined();
+
+      // Simulate further changes: mark job complete in live DB
+      await app.queue.complete(job.id, { doneBeforeRestore: true }, claimed[0].claimToken);
+      const completedJob = await app.queue.getJob(job.id);
+      expect(completedJob?.status).toBe('completed');
+
+      // Register a worker to process the job once woken after restore
+      let workerProcessed = false;
+      app.queue.registerWorker(snapQName, async (j) => {
+        if (j.id === job.id) {
+          workerProcessed = true;
+        }
+      });
+
+      // Restore the snapshot: AppScope will receive snapshot:restore & demo:reset events
+      // and invoke queue.resetAfterRestore(), reclaiming the job and waking the worker!
+      await app.snapshots.restoreSnapshot(snapshot.id);
+
+      // Verify job was reclaimed and processed by the worker
+      const start = Date.now();
+      while (!workerProcessed && Date.now() - start < 4000) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(workerProcessed).toBe(true);
+
+      const finalJob = await app.queue.getJob(job.id);
+      expect(finalJob?.status).toBe('completed');
+    });
+  });
 });

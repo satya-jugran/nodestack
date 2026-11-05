@@ -187,13 +187,23 @@ export class AppScope {
     );
 
     // Resync queues and flow queues after a snapshot restore / demo reset
-    this.eventBus.on('snapshot:restore', () => {
-      this.flows.initTables();
-      void this.queue.start().then(() => this.flows.syncAllFlowQueues());
+    this.eventBus.on('snapshot:restore', async () => {
+      try {
+        this.flows.initTables();
+        await this.queue.resetAfterRestore();
+        this.flows.syncAllFlowQueues();
+      } catch (err: any) {
+        console.warn(`[AppScope] Failed to reconcile queues after snapshot:restore: ${err.message}`);
+      }
     });
-    this.eventBus.on('demo:reset', () => {
-      this.flows.initTables();
-      void this.queue.start().then(() => this.flows.syncAllFlowQueues());
+    this.eventBus.on('demo:reset', async () => {
+      try {
+        this.flows.initTables();
+        await this.queue.resetAfterRestore();
+        this.flows.syncAllFlowQueues();
+      } catch (err: any) {
+        console.warn(`[AppScope] Failed to reconcile queues after demo:reset: ${err.message}`);
+      }
     });
 
     // Wire up audit logs listeners for this app

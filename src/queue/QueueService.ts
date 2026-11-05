@@ -41,6 +41,7 @@ export class QueueService {
   private workerId: string;
   private isDisposed = false;
   private startPromise?: Promise<void>;
+  private resetPromise?: Promise<void>;
   private delayedTimer: NodeJS.Timeout | null = null;
   private nextDelayedTargetMs: number | null = null;
   private reclaimTimer: NodeJS.Timeout | null = null;
@@ -111,6 +112,11 @@ export class QueueService {
   }
 
   public async start(): Promise<void> {
+    if (this.resetPromise) {
+      try {
+        await this.resetPromise;
+      } catch {}
+    }
     if (this.startPromise) {
       return this.startPromise;
     }
@@ -148,6 +154,63 @@ export class QueueService {
       }
     })();
     return this.startPromise;
+  }
+
+  /**
+   * Reconciles queue state following a database snapshot restore or demo reset:
+   * 1. Invalidates driver schema cache so missing tables in older snapshots are recreated.
+   * 2. Re-ensures queue tables and schema on the reconnected database.
+   * 3. Clears transient in-memory drain/wake sets from the prior database file.
+   * 4. Resets background timers.
+   * 5. Atomically reclaims all orphaned 'processing' jobs from the snapshot (forceAll = true).
+   * 6. Wakes workers for all queues with pending jobs.
+   */
+  public async resetAfterRestore(): Promise<void> {
+    if (this.resetPromise) {
+      return this.resetPromise;
+    }
+    this.resetPromise = (async () => {
+      try {
+        if (this.startPromise) {
+          try {
+            await this.startPromise;
+          } catch {}
+        }
+        this.isDisposed = false;
+        this.drainingQueues.clear();
+        this.pendingWake.clear();
+        if (this.delayedTimer) {
+          clearTimeout(this.delayedTimer);
+          this.delayedTimer = null;
+          this.nextDelayedTargetMs = null;
+        }
+
+        // 1. Invalidate driver init cache and re-ensure schema in restored DB
+        if (typeof this.driver.invalidateInit === 'function') {
+          this.driver.invalidateInit();
+        } else if ('initialized' in (this.driver as any)) {
+          (this.driver as any).initialized = false;
+        }
+        await this.driver.init();
+
+        // 2. Ensure background sweepers are running
+        this.startBackgroundSweepers();
+
+        // 3. Immediately reclaim any orphaned 'processing' jobs in the restored snapshot (forceAll = true)
+        if (this.isDbAvailable()) {
+          try {
+            await this.reclaimOrphaned(undefined, true);
+          } catch {}
+
+          // 4. Wake all pending queues and schedule delayed wake
+          await this.wakePendingQueuesFromStorage();
+          void this.scheduleNextDelayedWake();
+        }
+      } finally {
+        this.resetPromise = undefined;
+      }
+    })();
+    return this.resetPromise;
   }
 
   /**
@@ -704,6 +767,7 @@ export class QueueService {
   public async dispose(): Promise<void> {
     this.isDisposed = true;
     this.startPromise = undefined;
+    this.resetPromise = undefined;
     this.pendingWake.clear();
     this.drainingQueues.clear();
     if (this.delayedTimer) {

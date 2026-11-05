@@ -11,6 +11,7 @@ import {
 export interface IQueueDriver {
   init(): Promise<void>;
   close(): Promise<void>;
+  invalidateInit?(): void;
 
   upsertQueue(config: CreateQueueDto): Promise<QueueConfig>;
   getQueue(name: string): Promise<QueueConfig | null>;
