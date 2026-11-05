@@ -37,7 +37,7 @@ export class SqliteQueueDriver implements IQueueDriver {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS _queues (
         name TEXT PRIMARY KEY,
-        concurrency INTEGER NOT NULL DEFAULT 1,
+        concurrency INTEGER NOT NULL DEFAULT 0,
         visibilityTimeoutSeconds INTEGER NOT NULL DEFAULT 30,
         maxAttempts INTEGER NOT NULL DEFAULT 3,
         backoffDelayMs INTEGER NOT NULL DEFAULT 1000,
@@ -195,7 +195,7 @@ export class SqliteQueueDriver implements IQueueDriver {
         INSERT OR IGNORE INTO _queues (
           name, concurrency, visibilityTimeoutSeconds, maxAttempts, backoffDelayMs,
           deadLetterQueue, targetFunction, isSystem, created, updated
-        ) VALUES (?, 1, 30, 3, 1000, NULL, NULL, ?, ?, ?)
+        ) VALUES (?, 0, 30, 3, 1000, NULL, NULL, ?, ?, ?)
       `).run(dto.queue, isSys, now, now);
     } else {
       defaultMaxAttempts = existingQueue.maxAttempts ?? 3;
@@ -765,7 +765,7 @@ export class SqliteQueueDriver implements IQueueDriver {
   private mapRowToQueue(row: any): QueueConfig {
     return {
       name: row.name,
-      concurrency: Number(row.concurrency ?? 1),
+      concurrency: Number(row.concurrency ?? 0),
       visibilityTimeoutSeconds: Number(row.visibilityTimeoutSeconds ?? 30),
       maxAttempts: Number(row.maxAttempts ?? 3),
       backoffDelayMs: Number(row.backoffDelayMs ?? 1000),

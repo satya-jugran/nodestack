@@ -290,6 +290,46 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       const stillQueued = (await app.queue.getJob(job3.id))!;
       expect(stillQueued.status).toBe('queued');
     });
+
+    it('should consistently auto-create queues with concurrency = 0 (unbounded) matching upsertQueue defaults', async () => {
+      // 1. Implicit auto-creation on send()
+      const autoQueueName = `auto-created-q-${Date.now()}`;
+      await app.queue.send(autoQueueName, { test: 1 });
+      const autoQueueConfig = await app.queue.getQueue(autoQueueName);
+      expect(autoQueueConfig).not.toBeNull();
+      expect(autoQueueConfig?.concurrency).toBe(0);
+
+      // 2. Explicit creation without concurrency defaults to 0 (unbounded)
+      const explicitQueueName = `explicit-default-q-${Date.now()}`;
+      await app.queue.upsertQueue({ name: explicitQueueName });
+      const explicitQueueConfig = await app.queue.getQueue(explicitQueueName);
+      expect(explicitQueueConfig).not.toBeNull();
+      expect(explicitQueueConfig?.concurrency).toBe(0);
+      expect(autoQueueConfig?.concurrency).toBe(explicitQueueConfig?.concurrency);
+
+      // 3. Verify auto-created queue allows claiming multiple jobs concurrently without being capped at 1
+      await app.queue.send(autoQueueName, { test: 2 });
+      await app.queue.send(autoQueueName, { test: 3 });
+      const claimed = await app.queue.claim(autoQueueName, 30, 5);
+      expect(claimed.length).toBe(3);
+      for (const c of claimed) {
+        await app.queue.complete(c.id);
+      }
+
+      // 4. Implicit auto-creation on sendBatch()
+      const autoBatchQueueName = `auto-batch-q-${Date.now()}`;
+      await app.queue.sendBatch([
+        { queue: autoBatchQueueName, payload: { a: 1 } },
+        { queue: autoBatchQueueName, payload: { a: 2 } },
+      ]);
+      const autoBatchQueueConfig = await app.queue.getQueue(autoBatchQueueName);
+      expect(autoBatchQueueConfig?.concurrency).toBe(0);
+      const claimedBatch = await app.queue.claim(autoBatchQueueName, 30, 5);
+      expect(claimedBatch.length).toBe(2);
+      for (const c of claimedBatch) {
+        await app.queue.complete(c.id);
+      }
+    });
   });
 
   describe('2. Direct O(1) Map Worker Registry & Concurrency Enforcement', () => {
