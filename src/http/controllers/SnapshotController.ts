@@ -9,7 +9,7 @@ export class SnapshotController extends BaseController {
   }
 
   private getService(req: any): SnapshotService {
-    return req?.appScope?.snapshots || req?.appScope?.demo || this.snapshotService;
+    return req?.appScope?.snapshots || this.snapshotService;
   }
 
   /**

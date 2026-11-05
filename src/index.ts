@@ -142,17 +142,6 @@ export { SnapshotService } from './snapshots/SnapshotService';
 export { SnapshotController } from './http/controllers/SnapshotController';
 export * from './snapshots/types';
 
-// Demo State Management ("Reset to Demo State")
-export {
-  DemoService,
-  DemoSnapshotOptions,
-  DemoServicePaths,
-  DemoCollectionSummary,
-  DemoSnapshotMetadata,
-  DemoSnapshotStatus,
-  DemoResetResult,
-} from './demo/DemoService';
-export { DemoController } from './http/controllers/DemoController';
 
 // Formal Plugin Architecture (nodestack.use(plugin))
 export { PluginManager } from './core/plugins/PluginManager';

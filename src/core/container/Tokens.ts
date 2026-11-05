@@ -23,8 +23,6 @@ export const TOKENS = {
   ChaosMiddleware: Symbol('ChaosMiddleware'),
   TemplateService: Symbol('TemplateService'),
   TemplateController: Symbol('TemplateController'),
-  DemoService: Symbol('DemoService'),
-  DemoController: Symbol('DemoController'),
   SnapshotService: Symbol('SnapshotService'),
   SnapshotController: Symbol('SnapshotController'),
   MaintenanceGate: Symbol('MaintenanceGate'),

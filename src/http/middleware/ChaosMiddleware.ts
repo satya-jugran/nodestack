@@ -45,7 +45,7 @@ export class ChaosMiddleware {
     '/api/admins/create-initial',
     '/api/admins/has-admins',
     '/api/admins/me',
-    '/api/demo/reset',
+    '/api/snapshots',
     '/api/realtime',
   ];
 

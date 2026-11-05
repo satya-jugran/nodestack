@@ -5,12 +5,7 @@ async function fetchDemoStatus() {
     const res = await api('/api/snapshots');
     state.demo = res || { hasSnapshot: false, snapshots: [], total: 0, maxLimit: 10, snapshot: null, activeSnapshot: null };
   } catch {
-    try {
-      const res = await api('/api/demo/status');
-      state.demo = res || { hasSnapshot: false, snapshots: [], total: 0, maxLimit: 10, snapshot: null, activeSnapshot: null };
-    } catch {
-      state.demo = { hasSnapshot: false, snapshots: [], total: 0, maxLimit: 10, snapshot: null, activeSnapshot: null };
-    }
+    state.demo = { hasSnapshot: false, snapshots: [], total: 0, maxLimit: 10, snapshot: null, activeSnapshot: null };
   }
 
   updateDemoSidebarDot();

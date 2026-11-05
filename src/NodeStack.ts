@@ -35,8 +35,6 @@ import { AnalyticsController } from './http/controllers/AnalyticsController';
 import { AnalyticsService } from './analytics/AnalyticsService';
 import { TemplateService } from './templates/TemplateService';
 import { TemplateController } from './http/controllers/TemplateController';
-import { DemoService } from './demo/DemoService';
-import { DemoController } from './http/controllers/DemoController';
 import { SnapshotService } from './snapshots/SnapshotService';
 import { SnapshotController } from './http/controllers/SnapshotController';
 import { AuditLogService } from './audit/AuditLogService';
@@ -85,7 +83,6 @@ export class NodeStack {
   public readonly apiKeys: ApiKeyService;
   public readonly apiKeyController: ApiKeyController;
   public readonly snapshots: SnapshotService;
-  public readonly demo: DemoService;
   public readonly files: FileStorageService;
   public readonly realtime: RealtimeService;
   public readonly logs: LogService;
@@ -202,8 +199,6 @@ export class NodeStack {
     // 13.6 Demo Service ("Reset to Demo State")
     this.snapshots = this.defaultApp.snapshots;
     this.container.bindInstance(TOKENS.SnapshotService, this.snapshots);
-    this.demo = this.defaultApp.demo;
-    this.container.bindInstance(TOKENS.DemoService, this.demo);
 
     // 14. Analytics Service
     this.analytics = this.defaultApp.analytics;
@@ -238,8 +233,6 @@ export class NodeStack {
     const analyticsCtrl = new AnalyticsController(this.analytics);
     const templateCtrl = new TemplateController(this.templates);
     this.container.bindInstance(TOKENS.TemplateController, templateCtrl);
-    const demoCtrl = new DemoController(this.demo);
-    this.container.bindInstance(TOKENS.DemoController, demoCtrl);
     const snapshotCtrl = new SnapshotController(this.snapshots);
     this.container.bindInstance(TOKENS.SnapshotController, snapshotCtrl);
 
@@ -301,7 +294,6 @@ export class NodeStack {
       analyticsCtrl,
       this.chaos,
       templateCtrl,
-      demoCtrl,
       snapshotCtrl,
       this.maintenanceGate,
       auditLogCtrl,
@@ -431,11 +423,6 @@ export class NodeStack {
     return this;
   }
 
-  public onDemoSnapshot(handler: (metadata: any) => void | Promise<void>): this {
-    this.eventBus.on('demo:snapshot', handler);
-    return this;
-  }
-
   public onSnapshotCreate(handler: (metadata: any) => void | Promise<void>): this {
     this.eventBus.on('snapshot:create', handler);
     return this;
@@ -448,11 +435,6 @@ export class NodeStack {
 
   public onSnapshotDelete(handler: (info: any) => void | Promise<void>): this {
     this.eventBus.on('snapshot:delete', handler);
-    return this;
-  }
-
-  public onDemoReset(handler: (result: any) => void | Promise<void>): this {
-    this.eventBus.on('demo:reset', handler);
     return this;
   }
 
