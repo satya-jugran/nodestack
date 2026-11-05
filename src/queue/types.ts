@@ -85,3 +85,8 @@ export interface GetJobsOptions {
   perPage?: number;
   includeSystem?: boolean;
 }
+
+export interface ReclaimOrphanedOptions {
+  forceAll?: boolean;
+  reclaimDeadWorkers?: boolean;
+}

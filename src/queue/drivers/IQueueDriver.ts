@@ -6,6 +6,7 @@ import {
   JobFailResult,
   QueueStats,
   GetJobsOptions,
+  ReclaimOrphanedOptions,
 } from '../types';
 
 export interface IQueueDriver {
@@ -36,7 +37,7 @@ export interface IQueueDriver {
 
   retryDeadLetterJobs(queueName: string, limit?: number, onJobRequeued?: (queue: string) => void): Promise<number>;
   retryJob(jobId: string, onJobRequeued?: (queue: string) => void): Promise<boolean>;
-  reclaimOrphaned(queueName?: string, forceAll?: boolean, onDlqEnqueued?: (dlqQueue: string) => void): Promise<number>;
+  reclaimOrphaned(queueName?: string, options?: ReclaimOrphanedOptions, onDlqEnqueued?: (dlqQueue: string) => void): Promise<number>;
   cleanup(retentionDays: number, queueName?: string): Promise<number>;
   purge(queueName: string, status?: string): Promise<number>;
 

@@ -9,6 +9,7 @@ import {
   JobFailResult,
   QueueStats,
   GetJobsOptions,
+  ReclaimOrphanedOptions,
 } from '../types';
 
 export class SqliteQueueDriver implements IQueueDriver {
@@ -755,18 +756,27 @@ export class SqliteQueueDriver implements IQueueDriver {
 
   public async reclaimOrphaned(
     queueName?: string,
-    forceAll = false,
+    options: ReclaimOrphanedOptions = {},
     onDlqEnqueued?: (dlqQueue: string) => void
   ): Promise<number> {
     this.ensureInit();
     return this.db.transaction(() => {
       const now = new Date().toISOString();
       let expired: any[];
-      if (forceAll) {
+
+      if (options.forceAll) {
         const sql = queueName
           ? `SELECT * FROM _queue_jobs WHERE queue = ? AND status = 'processing'`
           : `SELECT * FROM _queue_jobs WHERE status = 'processing'`;
         expired = (queueName ? this.db.prepare(sql).all(queueName) : this.db.prepare(sql).all()) as any[];
+      } else if (options.reclaimDeadWorkers) {
+        const localClause = `claimedBy IS NULL OR claimedBy LIKE 'worker_%' OR claimedBy LIKE '%crashed%'`;
+        const sql = queueName
+          ? `SELECT * FROM _queue_jobs WHERE queue = ? AND status = 'processing' AND ((leaseExpiresAt IS NOT NULL AND leaseExpiresAt <= ?) OR ${localClause})`
+          : `SELECT * FROM _queue_jobs WHERE status = 'processing' AND ((leaseExpiresAt IS NOT NULL AND leaseExpiresAt <= ?) OR ${localClause})`;
+        expired = (queueName
+          ? this.db.prepare(sql).all(queueName, now)
+          : this.db.prepare(sql).all(now)) as any[];
       } else {
         const sql = queueName
           ? `SELECT * FROM _queue_jobs WHERE queue = ? AND status = 'processing' AND leaseExpiresAt IS NOT NULL AND leaseExpiresAt <= ?`

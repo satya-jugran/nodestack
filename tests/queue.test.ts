@@ -984,6 +984,26 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
           nowIso
         );
 
+      // 1b. An orphaned 'processing' job with an UNEXPIRED future lease (300s) claimed by a dead local worker (worker_*)
+      // Verifies immediate startup recovery without waiting 5 minutes for lease expiration
+      app.db
+        .prepare(`
+          INSERT INTO _queue_jobs (
+            id, queue, groupKey, status, payload, result, error,
+            attempts, maxAttempts, priority, availableAt, claimedBy,
+            leaseExpiresAt, deduplicationId, created, updated, finishedAt
+          ) VALUES (?, ?, NULL, 'processing', ?, NULL, NULL, 1, 3, 0, ?, 'worker_crashed_node_123', ?, NULL, ?, ?, NULL)
+        `)
+        .run(
+          'job_crashed_unexpired_lease',
+          'crash-restart-queue',
+          JSON.stringify({ eventName: 'recovered.unexpired.local.worker' }),
+          nowIso,
+          futureLease,
+          nowIso,
+          nowIso
+        );
+
       app.db
         .prepare(`
           INSERT INTO _queue_jobs (
@@ -1004,19 +1024,23 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       // Simulate server restart by calling app.queue.start()
       await app.queue.start();
 
-      // Poll until the expired and pending jobs complete
+      // Poll until the expired, unexpired local worker, and pending jobs complete
       for (let i = 0; i < 40; i++) {
         const j1 = await app.queue.getJob('job_crashed_midflight');
         const j2 = await app.queue.getJob('job_pending_on_disk');
-        if (j1?.status === 'completed' && j2?.status === 'completed') break;
+        const j3 = await app.queue.getJob('job_crashed_unexpired_lease');
+        if (j1?.status === 'completed' && j2?.status === 'completed' && j3?.status === 'completed') break;
         await new Promise((r) => setTimeout(r, 50));
       }
 
       const finalJ1 = await app.queue.getJob('job_crashed_midflight');
       const finalJ2 = await app.queue.getJob('job_pending_on_disk');
+      const finalJ3 = await app.queue.getJob('job_crashed_unexpired_lease');
       expect(finalJ1?.status).toBe('completed');
       expect(finalJ1?.attempts).toBe(2); // Reclaimed from attempt 1 and completed on attempt 2
       expect(finalJ2?.status).toBe('completed');
+      expect(finalJ3?.status).toBe('completed');
+      expect(finalJ3?.attempts).toBe(2); // Immediately reclaimed on startup without waiting for 300s lease expiry
 
       // The job with a valid future lease must NOT have been reclaimed on startup
       const activeJob = await app.queue.getJob('job_active_external_consumer');
@@ -1030,6 +1054,49 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       const events = deliveries.items.map((d: any) => d.event);
       expect(events).toContain('recovered.from.crash');
       expect(events).toContain('drained.on.boot');
+      expect(events).toContain('recovered.unexpired.local.worker');
+    });
+
+    it('should immediately reclaim orphaned processing jobs on startup for in-memory worker queues without waiting for lease expiry', async () => {
+      const memQueue = 'mem-worker-crash-recovery';
+      await app.queue.upsertQueue({
+        name: memQueue,
+        concurrency: 1,
+        visibilityTimeoutSeconds: 300,
+      });
+
+      let processedCount = 0;
+      app.queue.registerWorker(memQueue, async () => {
+        processedCount++;
+      });
+
+      const futureLease = new Date(Date.now() + 300000).toISOString();
+      const nowIso = new Date().toISOString();
+
+      // Insert job in 'processing' status with a 300s future lease claimed by a dead local worker from previous process
+      app.db
+        .prepare(`
+          INSERT INTO _queue_jobs (
+            id, queue, groupKey, status, payload, result, error,
+            attempts, maxAttempts, priority, availableAt, claimedBy,
+            leaseExpiresAt, deduplicationId, created, updated, finishedAt
+          ) VALUES (?, ?, NULL, 'processing', ?, NULL, NULL, 1, 3, 0, ?, 'worker_old_crashed_instance', ?, NULL, ?, ?, NULL)
+        `)
+        .run('job_mem_crash_recovery', memQueue, JSON.stringify({ test: true }), nowIso, futureLease, nowIso, nowIso);
+
+      // Startup recovery: app.queue.start() must immediately reclaim dead worker job without waiting 5 minutes
+      await app.queue.start();
+
+      for (let i = 0; i < 40; i++) {
+        const job = await app.queue.getJob('job_mem_crash_recovery');
+        if (job?.status === 'completed') break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+
+      const finalJob = await app.queue.getJob('job_mem_crash_recovery');
+      expect(finalJob?.status).toBe('completed');
+      expect(finalJob?.attempts).toBe(2);
+      expect(processedCount).toBe(1);
     });
 
     it('should recreate missing queue tables and indexes on init() after database replacement (pre-queue snapshot restore)', async () => {

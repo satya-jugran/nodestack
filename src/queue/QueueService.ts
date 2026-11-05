@@ -9,6 +9,7 @@ import {
   JobHandler,
   QueueStats,
   GetJobsOptions,
+  ReclaimOrphanedOptions,
 } from './types';
 import { ConfigService } from '../core/config/ConfigService';
 import { FunctionService, FunctionConcurrencyLimitError } from '../functions/FunctionService';
@@ -132,7 +133,7 @@ export class QueueService {
             const allQueues = await this.driver.getAllQueues(true);
             for (const q of allQueues) {
               if (!q.name.startsWith('_system:flow:')) {
-                await this.reclaimOrphaned(q.name, false);
+                await this.reclaimOrphaned(q.name, { reclaimDeadWorkers: true });
               }
             }
           } catch {}
@@ -199,7 +200,7 @@ export class QueueService {
         // 3. Immediately reclaim any orphaned 'processing' jobs in the restored snapshot (forceAll = true)
         if (this.isDbAvailable()) {
           try {
-            await this.reclaimOrphaned(undefined, true);
+            await this.reclaimOrphaned(undefined, { forceAll: true });
           } catch {}
 
           // 4. Wake all pending queues and schedule delayed wake
@@ -562,10 +563,13 @@ export class QueueService {
     return ok;
   }
 
-  public async reclaimOrphaned(queueName?: string, forceAll = false): Promise<number> {
+  public async reclaimOrphaned(
+    queueName?: string,
+    options: ReclaimOrphanedOptions = {}
+  ): Promise<number> {
     if (!this.isDbAvailable()) return 0;
     const dlqsToWake = new Set<string>();
-    const count = await this.driver.reclaimOrphaned(queueName, forceAll, (dlq) => {
+    const count = await this.driver.reclaimOrphaned(queueName, options, (dlq) => {
       dlqsToWake.add(dlq);
     });
     if (count > 0) {
