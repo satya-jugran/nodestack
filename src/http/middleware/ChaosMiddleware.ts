@@ -101,12 +101,30 @@ export class ChaosMiddleware {
 
   /**
    * Checks whether the requested URL pathname is a protected system endpoint.
+   * Critical endpoints (health probes, auth, and snapshot backup/restore operations)
+   * must never be disrupted by injected chaos or latency.
    */
   public isProtectedPath(url: string): boolean {
     const pathname = url.split('?')[0].toLowerCase();
-    return ChaosMiddleware.PROTECTED_PATHS.some(
-      (path) => pathname === path || pathname === `${path}/`
-    );
+
+    // 1. Exact path matches (with or without trailing slash)
+    if (
+      ChaosMiddleware.PROTECTED_PATHS.some(
+        (path) => pathname === path || pathname === `${path}/`
+      )
+    ) {
+      return true;
+    }
+
+    // 2. Snapshot management & restore routes (root /api/snapshots/* and app-scoped /api/apps/:appId/snapshots/*)
+    if (
+      pathname.startsWith('/api/snapshots/') ||
+      /^\/api\/apps\/[^/]+\/snapshots(\/|$)/.test(pathname)
+    ) {
+      return true;
+    }
+
+    return false;
   }
 
   /**
