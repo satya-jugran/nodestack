@@ -558,6 +558,15 @@ function ensureDrawerRoot() {
   return root;
 }
 
+function handleQueueDrawerKeyDown(e) {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (typeof e.stopPropagation === 'function') e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+    closeQueueDrawer();
+  }
+}
+
 function animateQueueDrawerOpen() {
   const triggerOpen = () => {
     const backdrop = document.getElementById('queue-drawer-backdrop');
@@ -567,8 +576,16 @@ function animateQueueDrawerOpen() {
     const firstInput = panel?.querySelector('input:not([readonly]):not([type="hidden"]), select, textarea');
     if (firstInput && typeof firstInput.focus === 'function') {
       firstInput.focus();
+    } else if (panel && typeof panel.focus === 'function') {
+      panel.focus();
     }
   };
+
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', handleQueueDrawerKeyDown);
+    window.addEventListener('keydown', handleQueueDrawerKeyDown);
+  }
+
   if (typeof requestAnimationFrame === 'function') {
     requestAnimationFrame(triggerOpen);
   } else {
@@ -603,7 +620,7 @@ async function openCreateQueueDrawer(queueToEdit = null) {
   const root = ensureDrawerRoot();
   root.innerHTML = `
     <div id="queue-drawer-backdrop" class="drawer-backdrop" onclick="closeQueueDrawer()" aria-hidden="true"></div>
-    <aside id="queue-drawer-panel" class="record-drawer webhook-drawer" role="dialog" aria-modal="true" aria-labelledby="queue-drawer-title" tabindex="-1">
+    <aside id="queue-drawer-panel" class="record-drawer webhook-drawer" role="dialog" aria-modal="true" aria-labelledby="queue-drawer-title" tabindex="-1" onkeydown="if(event.key==='Escape'){event.preventDefault();if(event.stopPropagation)event.stopPropagation();closeQueueDrawer();}">
       <!-- Drawer Header -->
       <div class="drawer-header">
         <div class="drawer-title-area">
@@ -837,7 +854,7 @@ function openSendMessageDrawer(queueName) {
 
   root.innerHTML = `
     <div id="queue-drawer-backdrop" class="drawer-backdrop" onclick="closeQueueDrawer()" aria-hidden="true"></div>
-    <aside id="queue-drawer-panel" class="record-drawer webhook-drawer" role="dialog" aria-modal="true" aria-labelledby="queue-send-drawer-title" tabindex="-1">
+    <aside id="queue-drawer-panel" class="record-drawer webhook-drawer" role="dialog" aria-modal="true" aria-labelledby="queue-send-drawer-title" tabindex="-1" onkeydown="if(event.key==='Escape'){event.preventDefault();if(event.stopPropagation)event.stopPropagation();closeQueueDrawer();}">
       <!-- Drawer Header -->
       <div class="drawer-header">
         <div class="drawer-title-area">
@@ -977,14 +994,56 @@ async function handleRequeueJob(jobId, queueName) {
       body: JSON.stringify({}),
     });
     if (typeof toast === 'function') {
-      toast(`Job "${jobId}" requeued successfully`, 'success');
+      toast(`Job "${jobId}" retried / requeued successfully`, 'success');
     }
     closeQueueDrawer();
     await refreshQueuesView();
   } catch (err) {
-    if (typeof toast === 'function') toast(err.message || 'Failed to requeue job', 'error');
+    if (typeof toast === 'function') toast(err.message || 'Failed to retry job', 'error');
   }
 }
+
+const handleRetryJob = handleRequeueJob;
+const handleRetrySingleJob = handleRequeueJob;
+
+async function handleDeleteQueueJob(jobId, queueName) {
+  const safeId = typeof escapeHtml === 'function' ? escapeHtml(jobId) : jobId;
+  const confirmed = typeof showConfirmDialog === 'function'
+    ? await showConfirmDialog({
+        title: 'Delete / Cancel Job',
+        message: `Are you sure you want to delete / cancel job <strong style="color: var(--text-heading); font-family: var(--font-mono);">${safeId}</strong>?`,
+        messageText: `Are you sure you want to delete / cancel job "${jobId}"?`,
+        warning: 'This action cannot be undone. The job will be permanently removed from the queue.',
+        warningType: 'danger',
+        confirmText: 'Delete Job',
+        cancelText: 'Cancel',
+        variant: 'danger',
+        icon: '🗑️',
+      })
+    : confirm(`Are you sure you want to delete / cancel job "${jobId}"?`);
+
+  if (!confirmed) return;
+
+  try {
+    const prefix = getQueuesApiPrefix();
+    const endpoint = queueName
+      ? `${prefix}/${encodeURIComponent(queueName)}/jobs/${encodeURIComponent(jobId)}`
+      : `${prefix}/jobs/${encodeURIComponent(jobId)}`;
+    await api(endpoint, {
+      method: 'DELETE',
+    });
+    if (typeof toast === 'function') {
+      toast(`Job "${jobId}" deleted / cancelled successfully`, 'success');
+    }
+    closeQueueDrawer();
+    await refreshQueuesView();
+  } catch (err) {
+    if (typeof toast === 'function') toast(err.message || 'Failed to delete job', 'error');
+  }
+}
+
+const handleCancelQueueJob = handleDeleteQueueJob;
+const handleCancelJob = handleDeleteQueueJob;
 
 async function handleRetryQueueDlq(queueName) {
   try {
@@ -1097,7 +1156,7 @@ async function openQueueJobDetailDrawer(jobId) {
 
     root.innerHTML = `
       <div id="queue-drawer-backdrop" class="drawer-backdrop" onclick="closeQueueDrawer()" aria-hidden="true"></div>
-      <aside id="queue-drawer-panel" class="record-drawer webhook-drawer" role="dialog" aria-modal="true" tabindex="-1">
+      <aside id="queue-drawer-panel" class="record-drawer webhook-drawer" role="dialog" aria-modal="true" tabindex="-1" onkeydown="if(event.key==='Escape'){event.preventDefault();if(event.stopPropagation)event.stopPropagation();closeQueueDrawer();}">
         <div class="drawer-header">
           <div class="drawer-title-area">
             ${renderQueueJobStatusBadge(job.status)}
@@ -1203,23 +1262,28 @@ async function openQueueJobDetailDrawer(jobId) {
         <div class="drawer-footer" style="padding:1rem 1.5rem; border-top:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center; background:var(--bg-card); flex-shrink:0;">
           <div style="display:flex; gap:6px; flex-wrap:wrap;">
             ${!isSys && job.status === 'processing' ? `
-              <button class="btn btn-primary btn-sm" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleAckQueueJob(this.getAttribute('data-queue'), this.getAttribute('data-id'))">✓ ACK (Complete)</button>
-              <button class="btn btn-secondary btn-sm" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleNackQueueJob(this.getAttribute('data-queue'), this.getAttribute('data-id'))">✕ NACK (Fail)</button>
+              <button class="btn btn-primary btn-sm" id="btn-job-ack" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleAckQueueJob(this.getAttribute('data-queue'), this.getAttribute('data-id'))">✓ ACK (Complete)</button>
+              <button class="btn btn-secondary btn-sm" id="btn-job-nack" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleNackQueueJob(this.getAttribute('data-queue'), this.getAttribute('data-id'))">✕ NACK (Fail)</button>
             ` : ''}
             ${!isSys && isForwardedDlq ? `
-              <button class="btn btn-primary btn-sm" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleRequeueJob(this.getAttribute('data-id'), this.getAttribute('data-queue'))">
+              <button class="btn btn-primary btn-sm" id="btn-job-retry" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleRequeueJob(this.getAttribute('data-id'), this.getAttribute('data-queue'))">
                 ↻ Replay to "${escapeHtml(origQueue || 'Original Queue')}"
               </button>
             ` : !isSys && (job.status === 'dead_letter' || job.status === 'failed') ? `
-              <button class="btn btn-primary btn-sm" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleRequeueJob(this.getAttribute('data-id'), this.getAttribute('data-queue'))">
-                ↻ Requeue Job
+              <button class="btn btn-primary btn-sm" id="btn-job-retry" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleRequeueJob(this.getAttribute('data-id'), this.getAttribute('data-queue'))" title="Retry this single job">
+                ↻ Retry Job
               </button>
-              <button class="btn btn-secondary btn-sm" data-queue="${escapeHtml(job.queue)}" onclick="handleRetryQueueDlq(this.getAttribute('data-queue')); closeQueueDrawer();" title="Retry all dead-letter jobs in this queue">
+              <button class="btn btn-secondary btn-sm" id="btn-retry-all-dlq" data-queue="${escapeHtml(job.queue)}" onclick="handleRetryQueueDlq(this.getAttribute('data-queue')); closeQueueDrawer();" title="Retry all dead-letter jobs in this queue">
                 ↻ Retry All Queue DLQ
               </button>
             ` : ''}
+            ${!isSys ? `
+              <button class="btn btn-danger btn-sm" id="btn-job-delete" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleDeleteQueueJob(this.getAttribute('data-id'), this.getAttribute('data-queue'))" style="color: var(--accent-danger); border-color: rgba(239, 68, 68, 0.35);" title="Delete / Cancel this individual job">
+                🗑 Delete / Cancel Job
+              </button>
+            ` : ''}
           </div>
-          <button class="btn btn-secondary btn-sm" onclick="closeQueueDrawer()">Close</button>
+          <button class="btn btn-secondary btn-sm" id="btn-drawer-close" onclick="closeQueueDrawer()">Close</button>
         </div>
       </aside>
     `;
@@ -1261,6 +1325,9 @@ async function handleNackQueueJob(queueName, jobId) {
 }
 
 function closeQueueDrawer() {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', handleQueueDrawerKeyDown);
+  }
   const backdrop = document.getElementById('queue-drawer-backdrop');
   const panel = document.getElementById('queue-drawer-panel');
   if (backdrop) backdrop.classList.remove('open');
@@ -1303,6 +1370,12 @@ if (typeof window !== 'undefined') {
   window.closeQueueModal = closeQueueModal;
   window.handleRetryQueueDlq = handleRetryQueueDlq;
   window.handleRequeueJob = handleRequeueJob;
+  window.handleRetryJob = handleRetryJob;
+  window.handleRetrySingleJob = handleRetrySingleJob;
+  window.handleDeleteQueueJob = handleDeleteQueueJob;
+  window.handleCancelQueueJob = handleCancelQueueJob;
+  window.handleCancelJob = handleCancelJob;
+  window.handleQueueDrawerKeyDown = handleQueueDrawerKeyDown;
   window.handlePurgeQueue = handlePurgeQueue;
   window.handleDeleteQueue = handleDeleteQueue;
   window.handleCleanupOldQueueJobs = handleCleanupOldQueueJobs;

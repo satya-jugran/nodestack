@@ -395,6 +395,36 @@ export class QueueController extends BaseController {
     this.ok(reply, { success: true, retriedCount });
   }
 
+  public async deleteJob(
+    req: FastifyRequest<{ Params: { id: string; name?: string } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const service = this.getQueueService(req);
+    const queueName = req.params.name;
+    if (queueName) {
+      this.assertNotSystemQueue(queueName);
+    }
+    const jobId = req.params.id;
+    const existing = await service.getJob(jobId);
+    if (!existing) {
+      this.error(reply, `Job '${jobId}' not found`, 404);
+      return;
+    }
+    if (queueName && existing.queue !== queueName) {
+      this.error(reply, `Job '${jobId}' not found in queue '${queueName}'`, 404);
+      return;
+    }
+    if (existing.queue && existing.queue.startsWith('_system:')) {
+      this.assertNotSystemQueue(existing.queue);
+    }
+    const ok = await service.cancel(jobId);
+    if (!ok) {
+      this.error(reply, `Failed to delete/cancel job '${jobId}'`, 400);
+      return;
+    }
+    this.ok(reply, { success: true, message: `Job '${jobId}' deleted` });
+  }
+
   public async purgeQueue(
     req: FastifyRequest<{ Params: { name: string }; Querystring: { status?: string } }>,
     reply: FastifyReply

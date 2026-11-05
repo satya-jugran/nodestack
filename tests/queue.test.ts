@@ -2034,6 +2034,160 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(replayedMain?.status).toBe('queued');
       expect((await app.queue.getJobs({ queue: dlqQ })).items.length).toBe(0);
     });
+
+    it('should close the queue drawer when Escape key is pressed', async () => {
+      const dom = new JSDOM(
+        `<!DOCTYPE html><html><body><div id="main-body"></div><div id="drawer-root"></div></body></html>`,
+        { url: baseUrl, runScripts: 'dangerously' }
+      );
+      const win = dom.window as any;
+      win.adminToken = adminToken;
+      win.api = async () => ({ items: [], total: 0 });
+      win.toast = vi.fn();
+      win.escapeHtml = (s: any) => String(s ?? '');
+
+      const queuesJsCode = fs.readFileSync(path.resolve(__dirname, '../src/admin/ui/js/queues.js'), 'utf8');
+      win.eval(queuesJsCode);
+
+      // Open a create queue drawer
+      await win.openCreateQueueDrawer();
+      const panel = win.document.getElementById('queue-drawer-panel');
+      const backdrop = win.document.getElementById('queue-drawer-backdrop');
+      expect(panel).not.toBeNull();
+      expect(backdrop).not.toBeNull();
+
+      // Dispatch Escape key event on window
+      const escEvent = new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+      win.dispatchEvent(escEvent);
+
+      // Verify open class is removed immediately
+      expect(panel.classList.contains('open')).toBe(false);
+      expect(backdrop.classList.contains('open')).toBe(false);
+
+      // Wait for 300ms cleanup timeout
+      await new Promise((r) => setTimeout(r, 300));
+      expect(win.document.getElementById('queue-drawer-panel')).toBeNull();
+    });
+
+    it('should show Delete / Cancel Job button for stuck queued job and delete it from drawer', async () => {
+      const testQ = 'ui-stuck-job-queue';
+      await app.queue.upsertQueue({ name: testQ, concurrency: 1 });
+      const job = await app.queue.send(testQ, { payload: 'stuck-task' });
+      expect(job.status).toBe('queued');
+
+      const dom = new JSDOM(
+        `<!DOCTYPE html><html><body><div id="main-body"></div><div id="drawer-root"></div></body></html>`,
+        { url: baseUrl, runScripts: 'dangerously' }
+      );
+      const win = dom.window as any;
+      win.adminToken = adminToken;
+      win.api = async (url: string, opts: any = {}) => {
+        const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${adminToken}`,
+          ...(opts.headers || {}),
+        };
+        if (opts.body && typeof opts.body === 'string') {
+          headers['Content-Type'] = 'application/json';
+        }
+        const resp = await fetch(fullUrl, {
+          ...opts,
+          headers,
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+        return data;
+      };
+      win.toast = vi.fn();
+      win.escapeHtml = (s: any) => String(s ?? '');
+      win.showConfirmDialog = vi.fn().mockResolvedValue(true);
+
+      const queuesJsCode = fs.readFileSync(path.resolve(__dirname, '../src/admin/ui/js/queues.js'), 'utf8');
+      win.eval(queuesJsCode);
+
+      // Open job detail drawer
+      await win.openQueueJobDetailDrawer(job.id);
+      const drawer = win.document.getElementById('queue-drawer-panel');
+      expect(drawer).not.toBeNull();
+
+      // Should have Delete / Cancel Job button
+      const deleteBtn = win.document.getElementById('btn-job-delete');
+      expect(deleteBtn).not.toBeNull();
+      expect(deleteBtn.textContent).toContain('Delete / Cancel Job');
+
+      // Click Delete / Cancel Job
+      await win.handleDeleteQueueJob(job.id, testQ);
+
+      // Verify job was deleted in database
+      const deletedJob = await app.queue.getJob(job.id);
+      expect(deletedJob).toBeNull();
+      expect(win.toast).toHaveBeenCalledWith(expect.stringContaining('deleted / cancelled successfully'), 'success');
+    });
+
+    it('should show single-job Retry Job and Delete / Cancel buttons for dead_letter/failed job in drawer', async () => {
+      const testQ = 'ui-failed-job-queue';
+      await app.queue.upsertQueue({ name: testQ, concurrency: 1, maxAttempts: 1 });
+      const job = await app.queue.send(testQ, { payload: 'will-fail' });
+      await app.queue.claim(testQ, 30, 1);
+      await app.queue.fail(job.id, 'Failed explicitly', 0);
+
+      const failedJob = await app.queue.getJob(job.id);
+      expect(failedJob?.status === 'dead_letter' || failedJob?.status === 'failed').toBe(true);
+
+      const dom = new JSDOM(
+        `<!DOCTYPE html><html><body><div id="main-body"></div><div id="drawer-root"></div></body></html>`,
+        { url: baseUrl, runScripts: 'dangerously' }
+      );
+      const win = dom.window as any;
+      win.adminToken = adminToken;
+      win.api = async (url: string, opts: any = {}) => {
+        const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${adminToken}`,
+          ...(opts.headers || {}),
+        };
+        if (opts.body && typeof opts.body === 'string') {
+          headers['Content-Type'] = 'application/json';
+        }
+        const resp = await fetch(fullUrl, {
+          ...opts,
+          headers,
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+        return data;
+      };
+      win.toast = vi.fn();
+      win.escapeHtml = (s: any) => String(s ?? '');
+      win.showConfirmDialog = vi.fn().mockResolvedValue(true);
+
+      const queuesJsCode = fs.readFileSync(path.resolve(__dirname, '../src/admin/ui/js/queues.js'), 'utf8');
+      win.eval(queuesJsCode);
+
+      // Open detail drawer for the failed/dead_letter job
+      await win.openQueueJobDetailDrawer(job.id);
+      const drawer = win.document.getElementById('queue-drawer-panel');
+      expect(drawer).not.toBeNull();
+
+      // Check single-job Retry button exists and is titled/labeled Retry Job
+      const retryBtn = win.document.getElementById('btn-job-retry');
+      expect(retryBtn).not.toBeNull();
+      expect(retryBtn.textContent).toContain('Retry Job');
+
+      // Check Delete / Cancel Job button exists
+      const deleteBtn = win.document.getElementById('btn-job-delete');
+      expect(deleteBtn).not.toBeNull();
+      expect(deleteBtn.textContent).toContain('Delete / Cancel Job');
+
+      // Click Retry Job
+      await win.handleRequeueJob(job.id, testQ);
+
+      // Job should now be queued
+      const retriedJob = await app.queue.getJob(job.id);
+      expect(retriedJob?.status).toBe('queued');
+      expect(retriedJob?.attempts).toBe(0);
+      expect(win.toast).toHaveBeenCalledWith(expect.stringContaining('requeued successfully'), 'success');
+    });
   });
 
 });

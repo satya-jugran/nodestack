@@ -513,6 +513,11 @@ export class SqliteQueueDriver implements IQueueDriver {
         `).run(row.forwardedToJobId || '', jobId, `%"originalJobId":"${jobId}"%`);
       } catch {}
       const res = this.db.prepare('DELETE FROM _queue_jobs WHERE id = ?').run(jobId);
+      try {
+        this.db.prepare(`
+          UPDATE _queue_jobs SET forwardedToJobId = NULL WHERE forwardedToJobId = ?
+        `).run(jobId);
+      } catch {}
       return Number(res.changes) > 0;
     });
   }
