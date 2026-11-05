@@ -134,9 +134,9 @@ const CTX_DOCS = [
   },
   {
     name: 'core.sdk.queue(name).fail(jobId, error, opts)',
-    type: 'Promise<boolean>',
+    type: 'Promise<JobFailResult>',
     cat: 'queue',
-    desc: 'Reject a job with error details and trigger retry/backoff (with optional backoffDelayMs and claimToken)',
+    desc: 'Reject a job with error details and trigger retry/backoff, returning { retried, deadLettered, attempts }',
     snippet: 'await core.sdk.queue("notifications").fail(job.id, "SMTP timeout", { backoffDelayMs: 5000, claimToken: job.claimToken });\n'
   },
   {
