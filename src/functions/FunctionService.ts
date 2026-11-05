@@ -23,6 +23,8 @@ import {
 export const ALLOWED_AUTH_POLICIES: readonly FunctionAuthPolicy[] = ['public', 'auth', 'admin', 'apiKey'] as const;
 import { AppError, NotFoundError, ForbiddenError, UnauthorizedError, ValidationError, ConflictError } from '../core/errors/AppError';
 import { FlowValidator } from '../flows/FlowValidator';
+import type { FlowService } from '../flows/FlowService';
+import type { QueueService } from '../queue/QueueService';
 
 export class FunctionConcurrencyLimitError extends AppError {
   constructor(message = 'Serverless function concurrency limit reached. Please retry shortly.') {
@@ -34,8 +36,8 @@ export interface FunctionServiceOptions {
   runner?: SandboxedRunner;
   maxConcurrent?: number;
   maxRecursionDepth?: number;
-  flowService?: any;
-  queueService?: any;
+  flowService?: FlowService;
+  queueService?: QueueService;
 }
 
 export class FunctionService {
@@ -44,8 +46,8 @@ export class FunctionService {
   private maxRecursionDepth: number;
   private activeExecutions = 0;
   private executionStorage = new AsyncLocalStorage<{ depth: number; activeFns: Set<string> }>();
-  private flowService?: any;
-  private queueService?: any;
+  private flowService?: FlowService;
+  private queueService?: QueueService;
 
   constructor(
     private db: DatabaseService,
@@ -285,19 +287,19 @@ export class FunctionService {
     return this.getFunctionById(id)!;
   }
 
-  public setFlowService(flowService: any): void {
+  public setFlowService(flowService: FlowService): void {
     this.flowService = flowService;
   }
 
-  public getFlowService(): any {
+  public getFlowService(): FlowService | undefined {
     return this.flowService;
   }
 
-  public setQueueService(queueService: any): void {
+  public setQueueService(queueService: QueueService): void {
     this.queueService = queueService;
   }
 
-  public getQueueService(): any {
+  public getQueueService(): QueueService | undefined {
     return this.queueService;
   }
 
@@ -306,8 +308,8 @@ export class FunctionService {
    * Uses wired FlowService if available, or falls back to direct SQLite query on _flows table.
    */
   public getDependentFlows(functionName: string, functionId?: string): Array<{ id: string; name: string }> {
-    if (this.flowService && typeof this.flowService.getFlowsReferencingFunction === 'function') {
-      return this.flowService.getFlowsReferencingFunction(functionName, functionId).map((f: any) => ({
+    if (this.flowService) {
+      return this.flowService.getFlowsReferencingFunction(functionName, functionId).map((f) => ({
         id: f.id,
         name: f.name,
       }));
@@ -499,9 +501,7 @@ export class FunctionService {
       return result;
     } finally {
       this.activeExecutions = Math.max(0, this.activeExecutions - 1);
-      if (this.queueService && typeof this.queueService.wakeAllWorkers === 'function') {
-        this.queueService.wakeAllWorkers();
-      }
+      this.queueService?.wakeAllWorkers();
     }
   }
 
@@ -578,9 +578,7 @@ export class FunctionService {
       return result;
     } finally {
       this.activeExecutions = Math.max(0, this.activeExecutions - 1);
-      if (this.queueService && typeof this.queueService.wakeAllWorkers === 'function') {
-        this.queueService.wakeAllWorkers();
-      }
+      this.queueService?.wakeAllWorkers();
     }
   }
 
@@ -618,9 +616,7 @@ export class FunctionService {
       });
     } finally {
       this.activeExecutions = Math.max(0, this.activeExecutions - 1);
-      if (this.queueService && typeof this.queueService.wakeAllWorkers === 'function') {
-        this.queueService.wakeAllWorkers();
-      }
+      this.queueService?.wakeAllWorkers();
     }
 
     this.recordLog({
@@ -734,6 +730,7 @@ export class FunctionService {
         );
       } finally {
         this.activeExecutions = Math.max(0, this.activeExecutions - 1);
+        this.queueService?.wakeAllWorkers();
       }
 
       this.recordLog({

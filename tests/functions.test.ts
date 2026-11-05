@@ -734,6 +734,40 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         app.functions.deleteFunction(concFn.id);
       }
     });
+
+    it('should wake queue workers on completion of record event hook execution', async () => {
+      const wakeSpy = vi.spyOn(app.queue, 'wakeAllWorkers');
+
+      const hookFn = app.functions.createFunction({
+        name: 'wake-worker-hook-test',
+        code: `
+          export default async function(core, context) {
+            return { status: 200 };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['*'],
+        eventTrigger: 'orders:beforeCreate',
+        timeoutMs: 1000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      try {
+        await app.records.create('orders', {
+          title: 'Wake Worker Order',
+          amount: 50,
+        });
+
+        expect(wakeSpy).toHaveBeenCalled();
+      } finally {
+        wakeSpy.mockRestore();
+        app.functions.deleteFunction(hookFn.id);
+      }
+    });
   });
 
   // ==========================================
