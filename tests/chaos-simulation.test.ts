@@ -539,6 +539,31 @@ describe('Latency & Chaos Simulation (For Testing Frontend States)', () => {
       expect(clamped).toBeLessThanOrEqual(15000);
     });
 
+    it('should protect root and tenant snapshot routes from chaos injection', async () => {
+      // 1. Direct path check
+      expect(app.chaos.isProtectedPath('/api/snapshots')).toBe(true);
+      expect(app.chaos.isProtectedPath('/api/snapshots/')).toBe(true);
+      expect(app.chaos.isProtectedPath('/api/snapshots/snap_123')).toBe(true);
+      expect(app.chaos.isProtectedPath('/api/snapshots/snap_123/restore')).toBe(true);
+      expect(app.chaos.isProtectedPath('/api/snapshots/snap_123/restore?mock_error=500')).toBe(true);
+      expect(app.chaos.isProtectedPath('/api/apps/shop/snapshots')).toBe(true);
+      expect(app.chaos.isProtectedPath('/api/apps/shop/snapshots/')).toBe(true);
+      expect(app.chaos.isProtectedPath('/api/apps/shop/snapshots/snap_456')).toBe(true);
+      expect(app.chaos.isProtectedPath('/api/apps/shop/snapshots/snap_456/restore')).toBe(true);
+      expect(app.chaos.isProtectedPath('/api/collections/posts/records')).toBe(false);
+
+      // 2. HTTP restore injection check: mock_error=500 and mock_delay must not disrupt snapshot restore
+      const snap = await app.snapshots.createSnapshot({ name: 'Chaos Protected Snapshot' });
+      const res = await app.server.inject({
+        method: 'POST',
+        url: `/api/snapshots/${snap.id}/restore?mock_error=500&mock_delay=2000`,
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['x-simulated-chaos']).toBeUndefined();
+      expect(res.headers['x-simulated-delay']).toBeUndefined();
+    });
+
     it('should ignore unauthenticated chaos parameters in production mode (chaosEnabled: false)', async () => {
       const prodDir = path.resolve(__dirname, '../.test_chaos_prod_data');
       if (fs.existsSync(prodDir)) {

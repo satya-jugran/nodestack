@@ -18,7 +18,6 @@ import { LogService } from '../logger/LogService';
 import { RecordService } from '../records/RecordService';
 import { MockDataService } from '../records/MockDataService';
 import { TemplateService } from '../templates/TemplateService';
-import { DemoService } from '../demo/DemoService';
 import { SnapshotService } from '../snapshots/SnapshotService';
 import { AnalyticsService } from '../analytics/AnalyticsService';
 import { AuditLogService } from '../audit/AuditLogService';
@@ -50,7 +49,6 @@ export class AppScope {
   public readonly mockData: MockDataService;
   public readonly templates: TemplateService;
   public readonly snapshots: SnapshotService;
-  public readonly demo: DemoService;
   public readonly analytics: AnalyticsService;
   public readonly auditLogs: AuditLogService;
   public readonly webhooks: WebhookService;
@@ -144,8 +142,6 @@ export class AppScope {
         legacySnapshotDir: isDefaultApp ? path.join(this.config.dataDir, '.demo_snapshot') : undefined,
       }
     );
-
-    this.demo = this.snapshots as unknown as DemoService;
     this.analytics = new AnalyticsService(this.db, this.config, this.schema, this.realtime, {
       dbPath: appDbPath,
       logService: this.logs,
@@ -194,15 +190,6 @@ export class AppScope {
         this.flows.syncAllFlowQueues();
       } catch (err: any) {
         console.warn(`[AppScope] Failed to reconcile queues after snapshot:restore: ${err.message}`);
-      }
-    });
-    this.eventBus.on('demo:reset', async () => {
-      try {
-        this.flows.initTables();
-        await this.queue.resetAfterRestore();
-        this.flows.syncAllFlowQueues();
-      } catch (err: any) {
-        console.warn(`[AppScope] Failed to reconcile queues after demo:reset: ${err.message}`);
       }
     });
 

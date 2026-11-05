@@ -217,60 +217,39 @@ export interface ImportResult {
   errors: Array<{ row: number; error: string }>;
 }
 
-export interface DemoCollectionSummary {
+export interface SnapshotCollectionSummary {
   name: string;
   type: string;
   recordsCount: number;
   schemaFieldsCount: number;
 }
 
-export interface DemoSnapshotMetadata {
+export interface SnapshotMetadata {
   id: string;
   name: string;
   description?: string;
   createdAt: string;
-  collections: DemoCollectionSummary[];
+  collections: SnapshotCollectionSummary[];
   totalCollections: number;
   totalRecords: number;
   totalFiles: number;
   storageSizeBytes: number;
   dbSizeBytes: number;
   contentHash?: string;
+  isActive?: boolean;
 }
 
-export interface DemoSnapshotStatus {
-  hasSnapshot: boolean;
-  snapshot: DemoSnapshotMetadata | null;
-  liveStats?: {
-    totalCollections: number;
-    totalRecords: number;
-    totalFiles: number;
-    contentHash?: string;
-    drift: {
-      collectionsDelta: number;
-      recordsDelta: number;
-      filesDelta: number;
-      contentChanged?: boolean;
-      isModified: boolean;
-    };
-  };
-}
-
-export interface DemoResetResult {
+export interface SnapshotRestoreResult {
   success: boolean;
   message: string;
   durationMs: number;
-  snapshot: DemoSnapshotMetadata;
+  snapshot: SnapshotMetadata;
   restoredAt: string;
 }
 
 // ==========================================
 // Webhook Types & Models
 // ==========================================
-
-export type SnapshotCollectionSummary = DemoCollectionSummary;
-export type SnapshotMetadata = DemoSnapshotMetadata;
-export type SnapshotRestoreResult = DemoResetResult;
 
 export interface SnapshotStatus {
   hasSnapshot: boolean;

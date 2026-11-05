@@ -18,7 +18,6 @@ export { FileService, FileUrlOptions } from './services/FileService';
 export { RealtimeService } from './services/RealtimeService';
 export { AdminService } from './services/AdminService';
 export { CollectionService } from './services/CollectionService';
-export { DemoService } from './services/DemoService';
 export { SnapshotService } from './services/SnapshotService';
 export {
   WebhookService,

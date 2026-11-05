@@ -6,7 +6,6 @@ import { FileService } from './services/FileService';
 import { RealtimeService } from './services/RealtimeService';
 import { AdminService } from './services/AdminService';
 import { CollectionService } from './services/CollectionService';
-import { DemoService } from './services/DemoService';
 import { SnapshotService } from './services/SnapshotService';
 import { WebhookService } from './services/WebhookService';
 import { AppService } from './services/AppService';
@@ -32,7 +31,6 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
   public readonly admins: AdminService;
   public readonly collections: CollectionService;
   public readonly snapshots: SnapshotService;
-  public readonly demo: DemoService;
   public readonly webhooks: WebhookService;
   public readonly apps: AppService;
   public readonly functions: FunctionService;
@@ -61,7 +59,6 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
     this.admins = new AdminService(this);
     this.collections = new CollectionService(this);
     this.snapshots = new SnapshotService(this);
-    this.demo = new DemoService(this);
     this.webhooks = new WebhookService(this);
     this.apps = new AppService(this);
     this.functions = new FunctionService(this);

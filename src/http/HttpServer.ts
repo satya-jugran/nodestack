@@ -15,7 +15,6 @@ import { LogController } from './controllers/LogController';
 import { HealthController } from './controllers/HealthController';
 import { AnalyticsController } from './controllers/AnalyticsController';
 import { TemplateController } from './controllers/TemplateController';
-import { DemoController } from './controllers/DemoController';
 import { SnapshotController } from './controllers/SnapshotController';
 import { AuditLogController } from './controllers/AuditLogController';
 import { WebhookController } from './controllers/WebhookController';
@@ -83,7 +82,6 @@ export class HttpServer {
     analyticsControllerOrChaos?: AnalyticsController | ChaosMiddleware,
     chaosMiddleware?: ChaosMiddleware,
     private templateController?: TemplateController,
-    private demoController?: DemoController,
     private snapshotController?: SnapshotController,
     maintenanceGate?: MaintenanceGate,
     private auditLogController?: AuditLogController,
@@ -177,13 +175,10 @@ export class HttpServer {
         (req as any)._maintenanceGate = gate;
         const isExclusiveMutation =
           (req.method === 'POST' || req.method === 'DELETE' || req.method === 'PATCH') &&
-          (req.url.includes('/demo/reset') ||
-           req.url.includes('/restore') ||
-           req.url.includes('/snapshots') ||
-           req.url.includes('/demo/snapshot'));
+          (req.url.includes('/restore') ||
+           req.url.includes('/snapshots'));
         const isExempt =
           isExclusiveMutation ||
-          req.url.includes('/demo/reset') ||
           req.url.includes('/restore') ||
           req.url.startsWith('/api/realtime');
         try {
@@ -192,7 +187,7 @@ export class HttpServer {
           return reply.status(503).send({
             statusCode: 503,
             error: 'Service Unavailable',
-            message: err.message || 'Server is temporarily undergoing demo reset maintenance. Please retry.',
+            message: err.message || 'Server is temporarily undergoing snapshot maintenance. Please retry.',
           });
         }
       }
@@ -485,20 +480,6 @@ export class HttpServer {
         this.snapshotController!.clearAllSnapshots(req, reply)
       );
     }
-    if (this.demoController) {
-      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
-      const requireAdmin = this.authMiddleware.requireAdmin();
-      app.get('/api/apps/:appId/demo/status', (req, reply) => this.demoController!.getStatus(req, reply));
-      app.post('/api/apps/:appId/demo/snapshot', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.demoController!.createSnapshot(req, reply)
-      );
-      app.post('/api/apps/:appId/demo/reset', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.demoController!.reset(req, reply)
-      );
-      app.delete('/api/apps/:appId/demo/snapshot', { preHandler: requireAdmin }, (req: any, reply) =>
-        this.demoController!.clearSnapshot(req, reply)
-      );
-    }
     if (this.webhookController) {
       app.get('/api/apps/:appId/webhooks', { preHandler: requireAdmin }, (req: any, reply) =>
         this.webhookController!.getWebhooks(req, reply)
@@ -775,7 +756,7 @@ export class HttpServer {
       );
     }
 
-    // 3.8 Demo State Management ("Reset to Demo State")
+    // 3.8 Application Snapshots Management
     if (this.snapshotController) {
       const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
       const requireAdmin = this.authMiddleware.requireAdmin();
@@ -796,20 +777,6 @@ export class HttpServer {
       );
       app.delete('/api/snapshots', { preHandler: requireAdmin }, (req: any, reply) =>
         this.snapshotController!.clearAllSnapshots(req, reply)
-      );
-    }
-    if (this.demoController) {
-      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
-      const requireAdmin = this.authMiddleware.requireAdmin();
-      app.get('/api/demo/status', (req, reply) => this.demoController!.getStatus(req, reply));
-      app.post('/api/demo/snapshot', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.demoController!.createSnapshot(req, reply)
-      );
-      app.post('/api/demo/reset', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.demoController!.reset(req, reply)
-      );
-      app.delete('/api/demo/snapshot', { preHandler: requireAdmin }, (req: any, reply) =>
-        this.demoController!.clearSnapshot(req, reply)
       );
     }
 

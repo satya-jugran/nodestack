@@ -112,18 +112,7 @@
       es.addEventListener('NB_CONNECT', handleConnect);
 
       es.addEventListener('SNAPSHOT_RESTORE', () => {
-        if (typeof fetchDemoStatus === 'function') fetchDemoStatus();
-      });
-      es.addEventListener('SNAPSHOT_CREATE', () => {
-        if (typeof fetchDemoStatus === 'function') fetchDemoStatus();
-      });
-      es.addEventListener('SNAPSHOT_DELETE', () => {
-        if (typeof fetchDemoStatus === 'function') fetchDemoStatus();
-      });
-
-      // Listen for system demo state reset
-      es.addEventListener('DEMO_RESET', () => {
-        toast('✨ Clean demo baseline restored!', 'success');
+        toast('✨ Application snapshot restored!', 'success');
         if (typeof fetchDemoStatus === 'function') {
           fetchDemoStatus();
         }
@@ -144,6 +133,12 @@
             renderHomeView();
           }
         });
+      });
+      es.addEventListener('SNAPSHOT_CREATE', () => {
+        if (typeof fetchDemoStatus === 'function') fetchDemoStatus();
+      });
+      es.addEventListener('SNAPSHOT_DELETE', () => {
+        if (typeof fetchDemoStatus === 'function') fetchDemoStatus();
       });
 
       // Listen for updates on any collection

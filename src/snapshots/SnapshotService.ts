@@ -76,40 +76,6 @@ export class SnapshotService {
     return undefined;
   }
 
-  // ==========================================
-  // Backward compatibility getters for DemoService
-  // ==========================================
-  public get snapshotDir(): string {
-    const active = this.getActiveOrLatestSnapshot();
-    if (active) {
-      return path.join(this.snapshotsDir, active.id);
-    }
-    return this.snapshotsDir;
-  }
-
-  public get snapshotDbPath(): string {
-    const active = this.getActiveOrLatestSnapshot();
-    if (active) {
-      return path.join(this.snapshotsDir, active.id, 'data.db');
-    }
-    return path.join(this.snapshotsDir, 'latest_fallback_data.db');
-  }
-
-  public get snapshotMetadataPath(): string {
-    const active = this.getActiveOrLatestSnapshot();
-    if (active) {
-      return path.join(this.snapshotsDir, active.id, 'metadata.json');
-    }
-    return path.join(this.snapshotsDir, 'latest_fallback_metadata.json');
-  }
-
-  public get snapshotStorageDir(): string {
-    const active = this.getActiveOrLatestSnapshot();
-    if (active) {
-      return path.join(this.snapshotsDir, active.id, 'storage');
-    }
-    return path.join(this.snapshotsDir, 'latest_fallback_storage');
-  }
 
   /**
    * Automatically migrates legacy .demo_snapshot if it exists and no generic snapshots exist yet.
@@ -390,7 +356,6 @@ export class SnapshotService {
 
         // 7. Emit events
         this.eventBus.emit('snapshot:create', metadata);
-        this.eventBus.emit('demo:snapshot', metadata);
         this.realtimeService.broadcastSystemEvent('SNAPSHOT_CREATE', { metadata });
 
         return metadata;
@@ -414,7 +379,7 @@ export class SnapshotService {
     const snapshots = this.listSnapshots();
     if (snapshots.length === 0) {
       throw new NotFoundError(
-        'No demo snapshot found. Please create a snapshot first before attempting to restore.'
+        'No snapshot found. Please create a snapshot first before attempting to restore.'
       );
     }
 
@@ -502,14 +467,7 @@ export class SnapshotService {
         durationMs,
       });
 
-      this.realtimeService.broadcastSystemEvent('DEMO_RESET', {
-        timestamp: new Date().toISOString(),
-        snapshot: target,
-        durationMs,
-      });
-
       await this.eventBus.emit('snapshot:restore', { metadata: target, durationMs });
-      await this.eventBus.emit('demo:reset', { metadata: target, durationMs });
 
       return {
         success: true,
@@ -579,7 +537,6 @@ export class SnapshotService {
       }
 
       this.eventBus.emit('snapshot:clear', { timestamp: new Date().toISOString() });
-      this.eventBus.emit('demo:clear', { timestamp: new Date().toISOString() });
       this.realtimeService.broadcastSystemEvent('SNAPSHOT_CLEAR', {});
     });
   }
@@ -662,20 +619,6 @@ export class SnapshotService {
     }
   }
 
-  // ==========================================
-  // DemoService Backwards Compatibility Aliases
-  // ==========================================
-  public async snapshot(options: SnapshotCreateOptions = {}): Promise<SnapshotMetadata> {
-    return this.createSnapshot({ ...options, evictOldest: true });
-  }
-
-  public async reset(): Promise<SnapshotRestoreResult> {
-    return this.restoreSnapshot();
-  }
-
-  public async clearSnapshot(): Promise<void> {
-    return this.clearAllSnapshots();
-  }
 
   // ==========================================
   // Statistics & Content Hash Calculation

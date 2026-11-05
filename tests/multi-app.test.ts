@@ -254,8 +254,8 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       const shopClient = client.app('ecommerce');
       const blogClient = client.app('blog');
 
-      // Freeze demo state on shop app
-      await shopClient.demo.snapshot({ name: 'shop-baseline' });
+      // Create snapshot on shop app
+      const snap = await shopClient.snapshots.create({ name: 'shop-baseline' });
 
       // Mutate shop app: add another product
       await shopClient.collection('products').create({
@@ -284,8 +284,8 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       const blogArticlesBefore = await blogClient.collection('articles').getFullList();
       expect(blogArticlesBefore.length).toBe(1);
 
-      // Reset ONLY shop app
-      await shopClient.demo.reset();
+      // Restore ONLY shop app
+      await shopClient.snapshots.restore(snap.id);
 
       // After reset:
       // Shop should be restored to 1 product
