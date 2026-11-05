@@ -536,11 +536,30 @@ export class QueueService {
   }
 
   public async retryDeadLetterJobs(queueName: string, limit = 100): Promise<number> {
-    const count = await this.driver.retryDeadLetterJobs(queueName, limit);
+    const queuesToWake = new Set<string>([queueName]);
+    const count = await this.driver.retryDeadLetterJobs(queueName, limit, (q) => {
+      queuesToWake.add(q);
+    });
     if (count > 0) {
-      this.wakeWorker(queueName);
+      for (const q of queuesToWake) {
+        this.wakeWorker(q);
+      }
     }
     return count;
+  }
+
+  public async retryJob(jobId: string): Promise<boolean> {
+    if (!this.isDbAvailable()) return false;
+    const queuesToWake = new Set<string>();
+    const ok = await this.driver.retryJob(jobId, (queue) => {
+      queuesToWake.add(queue);
+    });
+    if (ok) {
+      for (const q of queuesToWake) {
+        this.wakeWorker(q);
+      }
+    }
+    return ok;
   }
 
   public async reclaimOrphaned(queueName?: string, forceAll = false): Promise<number> {

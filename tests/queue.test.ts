@@ -1753,4 +1753,220 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(finalJob?.status).toBe('completed');
     });
   });
+
+  describe('6. DLQ Retry Duplication Prevention & Individual Job Requeue', () => {
+    it('should clean up forwarded DLQ copy when retrying DLQ on main queue and avoid duplicate copies', async () => {
+      const mainQ = 'dlq-cleanup-main';
+      const dlqQ = 'dlq-cleanup-dlq';
+
+      await app.queue.upsertQueue({ name: dlqQ, concurrency: 1 });
+      await app.queue.upsertQueue({
+        name: mainQ,
+        concurrency: 1,
+        maxAttempts: 2,
+        backoffDelayMs: 0,
+        deadLetterQueue: dlqQ,
+      });
+
+      const job = await app.queue.send(mainQ, { data: 'test-cleanup' });
+
+      // Attempt 1 -> fail
+      await app.queue.claim(mainQ, 30, 1);
+      await app.queue.fail(job.id, 'Err 1', 0);
+
+      // Attempt 2 -> fail -> exhausted -> status dead_letter, forwarded to dlqQ
+      await app.queue.claim(mainQ, 30, 1);
+      const failRes = await app.queue.fail(job.id, 'Err 2', 0);
+      expect(failRes.deadLettered).toBe(true);
+
+      const mainJobBefore = await app.queue.getJob(job.id);
+      expect(mainJobBefore?.status).toBe('dead_letter');
+      expect(mainJobBefore?.forwardedToJobId).toBeDefined();
+
+      const dlqJobsBefore = await app.queue.getJobs({ queue: dlqQ });
+      expect(dlqJobsBefore.items.length).toBe(1);
+      expect(dlqJobsBefore.items[0].originalJobId).toBe(job.id);
+
+      // Replay dead_letter jobs on mainQ
+      const retried = await app.queue.retryDeadLetterJobs(mainQ);
+      expect(retried).toBe(1);
+
+      const mainJobAfter = await app.queue.getJob(job.id);
+      expect(mainJobAfter?.status).toBe('queued');
+      expect(mainJobAfter?.attempts).toBe(0);
+      expect(mainJobAfter?.forwardedToJobId).toBeNull();
+
+      // Forwarded copy in dlqQ MUST be cleaned up to avoid duplication
+      const dlqJobsAfter = await app.queue.getJobs({ queue: dlqQ });
+      expect(dlqJobsAfter.items.length).toBe(0);
+
+      // If job in mainQ fails again, it should forward a single fresh copy without duplicating
+      await app.queue.claim(mainQ, 30, 1);
+      await app.queue.fail(job.id, 'Err 3', 0);
+      await app.queue.claim(mainQ, 30, 1);
+      await app.queue.fail(job.id, 'Err 4', 0);
+
+      const dlqJobsAfterRefail = await app.queue.getJobs({ queue: dlqQ });
+      expect(dlqJobsAfterRefail.items.length).toBe(1);
+    });
+
+    it('should replay forwarded DLQ jobs back to original queue when retrying DLQ on dlq queue itself', async () => {
+      const origQ = 'dlq-replay-orig';
+      const dlqQ = 'dlq-replay-dlq';
+
+      await app.queue.upsertQueue({ name: dlqQ, concurrency: 1 });
+      await app.queue.upsertQueue({
+        name: origQ,
+        concurrency: 1,
+        maxAttempts: 1,
+        backoffDelayMs: 0,
+        deadLetterQueue: dlqQ,
+      });
+
+      const job = await app.queue.send(origQ, { data: 'test-replay' });
+      await app.queue.claim(origQ, 30, 1);
+      await app.queue.fail(job.id, 'Exhausted', 0);
+
+      // Forwarded job sits in dlqQ with status = 'queued'
+      const dlqJobs = await app.queue.getJobs({ queue: dlqQ });
+      expect(dlqJobs.items.length).toBe(1);
+      expect(dlqJobs.items[0].status).toBe('queued');
+
+      // Admin clicks "↻ DLQ" on dlqQ itself
+      const retried = await app.queue.retryDeadLetterJobs(dlqQ);
+      expect(retried).toBe(1);
+
+      // dlqQ should now be empty
+      const dlqJobsAfter = await app.queue.getJobs({ queue: dlqQ });
+      expect(dlqJobsAfter.items.length).toBe(0);
+
+      // Original job in origQ should be reset to queued
+      const origJobAfter = await app.queue.getJob(job.id);
+      expect(origJobAfter?.status).toBe('queued');
+      expect(origJobAfter?.attempts).toBe(0);
+    });
+
+    it('should allow individual job requeue via retryJob and REST API for both main queue and DLQ queue', async () => {
+      const mainQ = 'individual-retry-main';
+      const dlqQ = 'individual-retry-dlq';
+
+      await app.queue.upsertQueue({ name: dlqQ, concurrency: 1 });
+      await app.queue.upsertQueue({
+        name: mainQ,
+        concurrency: 1,
+        maxAttempts: 1,
+        deadLetterQueue: dlqQ,
+      });
+
+      const job1 = await app.queue.send(mainQ, { id: 1 });
+      await app.queue.claim(mainQ, 30, 1);
+      await app.queue.fail(job1.id, 'Fail 1', 0);
+
+      // 1. Test individual retry of main dead_letter job via app.queue.retryJob
+      const ok1 = await app.queue.retryJob(job1.id);
+      expect(ok1).toBe(true);
+      const retried1 = await app.queue.getJob(job1.id);
+      expect(retried1?.status).toBe('queued');
+      expect(retried1?.attempts).toBe(0);
+      expect((await app.queue.getJobs({ queue: dlqQ })).items.length).toBe(0);
+
+      // Fail it again
+      await app.queue.claim(mainQ, 30, 1);
+      await app.queue.fail(job1.id, 'Fail 2', 0);
+      const [dlqItem] = (await app.queue.getJobs({ queue: dlqQ })).items;
+      expect(dlqItem).toBeDefined();
+
+      // 2. Test individual retry of forwarded job in dlqQ via REST API POST /api/queues/:name/jobs/:id/retry
+      const res = await fetch(`${baseUrl}/api/queues/${dlqQ}/jobs/${dlqItem.id}/retry`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(res.status).toBe(200);
+      const resBody = await res.json() as any;
+      expect(resBody.success).toBe(true);
+
+      // Verify dlq copy is gone and main job is queued
+      expect((await app.queue.getJobs({ queue: dlqQ })).items.length).toBe(0);
+      const retriedViaDlq = await app.queue.getJob(job1.id);
+      expect(retriedViaDlq?.status).toBe('queued');
+      expect(retriedViaDlq?.attempts).toBe(0);
+    });
+
+    it('should correctly render DLQ badges and drawer action buttons in Admin UI queues.js', async () => {
+      const mainQ = 'ui-dlq-test-main';
+      const dlqQ = 'ui-dlq-test-dlq';
+
+      await app.queue.upsertQueue({ name: dlqQ, concurrency: 1 });
+      await app.queue.upsertQueue({
+        name: mainQ,
+        concurrency: 1,
+        maxAttempts: 1,
+        deadLetterQueue: dlqQ,
+      });
+
+      const job = await app.queue.send(mainQ, { task: 'ui-test' });
+      await app.queue.claim(mainQ, 30, 1);
+      await app.queue.fail(job.id, 'Fail UI', 0);
+
+      const dom = new JSDOM(
+        `<!DOCTYPE html><html><body><div id="main-body"></div><div id="drawer-root"></div></body></html>`,
+        { url: baseUrl, runScripts: 'dangerously' }
+      );
+      const win = dom.window as any;
+      win.adminToken = adminToken;
+      win.api = async (url: string, opts: any = {}) => {
+        const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+        const resp = await fetch(fullUrl, {
+          ...opts,
+          headers: {
+            Authorization: `Bearer ${adminToken}`,
+            'Content-Type': 'application/json',
+            ...(opts.headers || {}),
+          },
+        });
+        const data = await resp.json();
+   if (!resp.ok) console.log("API ERROR:", resp.status, data);
+   return data;
+      };
+      win.toast = vi.fn();
+      win.escapeHtml = (s: any) => String(s ?? '');
+
+      const queuesJsCode = fs.readFileSync(path.resolve(__dirname, '../src/admin/ui/js/queues.js'), 'utf8');
+      win.eval(queuesJsCode);
+
+      // Render view and wait for data load
+      win.renderQueuesView();
+      await new Promise((r) => setTimeout(r, 600));
+
+      // Verify the Queues list recognizes dlqQ as DLQ target and shows button
+      const dlqRow = win.document.querySelector(`tr[data-queue-name="${dlqQ}"]`);
+      expect(dlqRow).not.toBeNull();
+      expect(dlqRow?.innerHTML).toContain('Dead-Letter Queue (DLQ)');
+      expect(dlqRow?.innerHTML).toContain('↻ DLQ');
+
+      // Inspect the forwarded job in dlqQ
+      const [dlqJob] = (await app.queue.getJobs({ queue: dlqQ })).items;
+      await win.openQueueJobDetailDrawer(dlqJob.id);
+
+      const drawer = win.document.getElementById('queue-drawer-panel');
+      expect(drawer).not.toBeNull();
+      expect(drawer?.innerHTML).toContain('Forwarded DLQ Job');
+      expect(drawer?.innerHTML).toContain('↻ Replay to');
+
+      // Click Replay from drawer
+      console.log("dlqJob in test:", dlqJob);
+   await win.handleRequeueJob(dlqJob.id, dlqQ);
+   console.log("job after handleRequeueJob:", await app.queue.getJob(job.id));
+   console.log("dlq after handleRequeueJob:", await app.queue.getJobs({ queue: dlqQ }));
+      expect(win.toast).toHaveBeenCalledWith(expect.stringContaining('requeued successfully'), 'success');
+
+      // Main job is now queued, DLQ is empty
+      const replayedMain = await app.queue.getJob(job.id);
+      expect(replayedMain?.status).toBe('queued');
+      expect((await app.queue.getJobs({ queue: dlqQ })).items.length).toBe(0);
+    });
+  });
+
 });

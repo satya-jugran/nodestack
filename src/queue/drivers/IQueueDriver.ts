@@ -34,7 +34,8 @@ export interface IQueueDriver {
   cancel(jobId: string): Promise<boolean>;
   defer(jobId: string, delayMs: number, reason?: string): Promise<boolean>;
 
-  retryDeadLetterJobs(queueName: string, limit?: number): Promise<number>;
+  retryDeadLetterJobs(queueName: string, limit?: number, onJobRequeued?: (queue: string) => void): Promise<number>;
+  retryJob(jobId: string, onJobRequeued?: (queue: string) => void): Promise<boolean>;
   reclaimOrphaned(queueName?: string, forceAll?: boolean, onDlqEnqueued?: (dlqQueue: string) => void): Promise<number>;
   cleanup(retentionDays: number, queueName?: string): Promise<number>;
   purge(queueName: string, status?: string): Promise<number>;

@@ -263,6 +263,7 @@ async function loadQueuesList() {
             ${queuesState.queues.map(q => {
               const s = q.stats || { queued: 0, processing: 0, completed: 0, failed: 0, deadLetter: 0, dead_letter: 0 };
               const qDlq = (s.dead_letter !== undefined ? s.dead_letter : s.deadLetter) || 0;
+              const isDlqTarget = (queuesState.queues || []).some(other => other.deadLetterQueue === q.name);
               const isSys = Boolean(q.isSystem || (q.name && q.name.startsWith('_system:')));
               const concurrencyText = q.concurrency && q.concurrency > 0 ? `${q.concurrency} max concurrent` : 'Unbounded';
 
@@ -276,7 +277,7 @@ async function loadQueuesList() {
                           ${escapeHtml(q.name)}
                         </div>
                         <div style="font-size: 11px; color: var(--text-muted);">
-                          ${isSys ? 'System Queue' : 'User Queue'}
+                          ${isSys ? 'System Queue' : isDlqTarget ? 'Dead-Letter Queue (DLQ)' : 'User Queue'}
                           ${q.deadLetterQueue ? ` • DLQ: <code>${escapeHtml(q.deadLetterQueue)}</code>` : ''}
                         </div>
                       </div>
@@ -309,6 +310,8 @@ async function loadQueuesList() {
                       <span style="color: var(--text-muted);" title="Completed jobs">${s.completed || 0} done</span>
                       ${(qDlq + (s.failed || 0)) > 0 ? `
                         <span class="badge badge-delete" title="Dead-letter / Failed jobs">${qDlq + (s.failed || 0)} DLQ/err</span>
+                      ` : isDlqTarget && (s.queued || 0) > 0 ? `
+                        <span class="badge badge-delete" title="Forwarded Dead-Letter jobs waiting in DLQ">${s.queued} DLQ jobs</span>
                       ` : ''}
                     </div>
                   </td>
@@ -322,8 +325,8 @@ async function loadQueuesList() {
                       <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="inspectQueueJobs(this.getAttribute('data-name'))" title="Inspect Jobs in Queue" style="padding: 3px 8px; font-size: 11px;">
                         Jobs
                       </button>
-                      ${qDlq > 0 ? `
-                        <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="handleRetryQueueDlq(this.getAttribute('data-name'))" title="Retry Dead-Letter Jobs" style="padding: 3px 8px; font-size: 11px; color: #fbbf24;">
+                      ${(qDlq > 0 || (isDlqTarget && (s.queued || 0) > 0)) ? `
+                        <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="handleRetryQueueDlq(this.getAttribute('data-name'))" title="${isDlqTarget ? 'Replay Forwarded DLQ Jobs to Original Queue' : 'Retry Dead-Letter Jobs'}" style="padding: 3px 8px; font-size: 11px; color: #fbbf24;">
                           ↻ DLQ
                         </button>
                       ` : ''}
@@ -963,6 +966,26 @@ async function submitSendQueueMessage() {
 // Queue Actions: Retry DLQ, Purge, Delete, Cleanup
 // ==========================================
 
+async function handleRequeueJob(jobId, queueName) {
+  try {
+    const prefix = getQueuesApiPrefix();
+    const endpoint = queueName
+      ? `${prefix}/${encodeURIComponent(queueName)}/jobs/${encodeURIComponent(jobId)}/retry`
+      : `${prefix}/jobs/${encodeURIComponent(jobId)}/retry`;
+    await api(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    if (typeof toast === 'function') {
+      toast(`Job "${jobId}" requeued successfully`, 'success');
+    }
+    closeQueueDrawer();
+    await refreshQueuesView();
+  } catch (err) {
+    if (typeof toast === 'function') toast(err.message || 'Failed to requeue job', 'error');
+  }
+}
+
 async function handleRetryQueueDlq(queueName) {
   try {
     const prefix = getQueuesApiPrefix();
@@ -1065,6 +1088,12 @@ async function openQueueJobDetailDrawer(jobId) {
 
     const root = ensureDrawerRoot();
     const isSys = Boolean(job.queue && job.queue.startsWith('_system:'));
+    const isForwardedDlq = Boolean(
+      job.originalJobId ||
+      (job.payload && typeof job.payload === 'object' && job.payload.originalJobId && job.payload.originalQueue)
+    );
+    const origId = job.originalJobId || (job.payload && job.payload.originalJobId);
+    const origQueue = (job.payload && job.payload.originalQueue) || '';
 
     root.innerHTML = `
       <div id="queue-drawer-backdrop" class="drawer-backdrop" onclick="closeQueueDrawer()" aria-hidden="true"></div>
@@ -1103,9 +1132,28 @@ async function openQueueJobDetailDrawer(jobId) {
                   <span style="font-size:10px; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Completed</span>
                   <span>${job.completedAt || job.finishedAt ? new Date(job.completedAt || job.finishedAt).toLocaleString() : '--'}</span>
                 </div>
+                ${job.forwardedToJobId ? `
+                  <div>
+                    <span style="font-size:10px; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Forwarded DLQ ID</span>
+                    <span style="font-family: var(--font-mono); font-size:11px; color:#fbbf24;">${escapeHtml(job.forwardedToJobId)}</span>
+                  </div>
+                ` : ''}
+                ${isForwardedDlq ? `
+                  <div>
+                    <span style="font-size:10px; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Original Queue</span>
+                    <strong style="color: #60a5fa; font-family: var(--font-mono); font-size:11.5px;">${escapeHtml(origQueue || '--')}</strong>
+                  </div>
+                ` : ''}
               </div>
             </div>
           </div>
+
+          ${isForwardedDlq ? `
+            <div style="background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-radius:6px; padding:10px 14px; font-size:12px; color: #fbbf24; margin-top: 10px;">
+              <strong>Forwarded DLQ Job:</strong> This job was forwarded from queue <strong>${escapeHtml(origQueue || '--')}</strong> (Original ID: <code>${escapeHtml(origId || '--')}</code>).
+              ${job.payload && job.payload.error ? `<div style="margin-top: 4px; color: var(--accent-danger);"><strong>Failure Reason:</strong> ${escapeHtml(job.payload.error)}</div>` : ''}
+            </div>
+          ` : ''}
 
           ${(job.error || job.lastError) ? `
             <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 14px; font-size:12px; color: var(--accent-danger);">
@@ -1153,13 +1201,22 @@ async function openQueueJobDetailDrawer(jobId) {
         </div>
 
         <div class="drawer-footer" style="padding:1rem 1.5rem; border-top:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center; background:var(--bg-card); flex-shrink:0;">
-          <div style="display:flex; gap:6px;">
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
             ${!isSys && job.status === 'processing' ? `
               <button class="btn btn-primary btn-sm" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleAckQueueJob(this.getAttribute('data-queue'), this.getAttribute('data-id'))">✓ ACK (Complete)</button>
               <button class="btn btn-secondary btn-sm" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleNackQueueJob(this.getAttribute('data-queue'), this.getAttribute('data-id'))">✕ NACK (Fail)</button>
             ` : ''}
-            ${job.status === 'dead_letter' ? `
-              <button class="btn btn-primary btn-sm" data-queue="${escapeHtml(job.queue)}" onclick="handleRetryQueueDlq(this.getAttribute('data-queue')); closeQueueDrawer();">↻ Retry Queue DLQ</button>
+            ${!isSys && isForwardedDlq ? `
+              <button class="btn btn-primary btn-sm" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleRequeueJob(this.getAttribute('data-id'), this.getAttribute('data-queue'))">
+                ↻ Replay to "${escapeHtml(origQueue || 'Original Queue')}"
+              </button>
+            ` : !isSys && (job.status === 'dead_letter' || job.status === 'failed') ? `
+              <button class="btn btn-primary btn-sm" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleRequeueJob(this.getAttribute('data-id'), this.getAttribute('data-queue'))">
+                ↻ Requeue Job
+              </button>
+              <button class="btn btn-secondary btn-sm" data-queue="${escapeHtml(job.queue)}" onclick="handleRetryQueueDlq(this.getAttribute('data-queue')); closeQueueDrawer();" title="Retry all dead-letter jobs in this queue">
+                ↻ Retry All Queue DLQ
+              </button>
             ` : ''}
           </div>
           <button class="btn btn-secondary btn-sm" onclick="closeQueueDrawer()">Close</button>
@@ -1245,6 +1302,7 @@ if (typeof window !== 'undefined') {
   window.closeQueueDrawer = closeQueueDrawer;
   window.closeQueueModal = closeQueueModal;
   window.handleRetryQueueDlq = handleRetryQueueDlq;
+  window.handleRequeueJob = handleRequeueJob;
   window.handlePurgeQueue = handlePurgeQueue;
   window.handleDeleteQueue = handleDeleteQueue;
   window.handleCleanupOldQueueJobs = handleCleanupOldQueueJobs;

@@ -356,6 +356,33 @@ export class QueueController extends BaseController {
     this.ok(reply, { success: true, job: updated });
   }
 
+  public async retryJob(
+    req: FastifyRequest<{ Params: { id: string; name?: string } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const service = this.getQueueService(req);
+    const queueName = req.params.name;
+    if (queueName) {
+      this.assertNotSystemQueue(queueName);
+    }
+    const jobId = req.params.id;
+    const existing = await service.getJob(jobId);
+    if (!existing) {
+      this.error(reply, `Job '${jobId}' not found`, 404);
+      return;
+    }
+    if (existing.queue && existing.queue.startsWith('_system:')) {
+      this.assertNotSystemQueue(existing.queue);
+    }
+    const ok = await service.retryJob(jobId);
+    if (!ok) {
+      this.error(reply, `Failed to requeue job '${jobId}'`, 400);
+      return;
+    }
+    const updated = (await service.getJob(jobId)) || (existing.originalJobId ? await service.getJob(existing.originalJobId) : null);
+    this.ok(reply, { success: true, message: `Job '${jobId}' requeued`, job: updated });
+  }
+
   public async retryDlq(
     req: FastifyRequest<{ Params: { name: string }; Body?: { limit?: number } }>,
     reply: FastifyReply

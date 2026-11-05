@@ -652,6 +652,18 @@ export class HttpServer {
       app.post('/api/apps/:appId/queues/:name/jobs/:id/touch', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.touchMessage(req, reply)
       );
+      app.post('/api/apps/:appId/queues/:name/jobs/:id/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.retryJob(req, reply)
+      );
+      app.post('/api/apps/:appId/queues/:name/jobs/:id/requeue', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.retryJob(req, reply)
+      );
+      app.post('/api/apps/:appId/queues/jobs/:id/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.retryJob(req, reply)
+      );
+      app.post('/api/apps/:appId/queues/jobs/:id/requeue', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.retryJob(req, reply)
+      );
       app.post('/api/apps/:appId/queues/:name/dlq/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.retryDlq(req, reply)
       );
@@ -1060,6 +1072,18 @@ export class HttpServer {
       );
       app.post('/api/queues/:name/jobs/:id/touch', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.touchMessage(req, reply)
+      );
+      app.post('/api/queues/:name/jobs/:id/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.retryJob(req, reply)
+      );
+      app.post('/api/queues/:name/jobs/:id/requeue', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.retryJob(req, reply)
+      );
+      app.post('/api/queues/jobs/:id/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.retryJob(req, reply)
+      );
+      app.post('/api/queues/jobs/:id/requeue', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.retryJob(req, reply)
       );
       app.post('/api/queues/:name/dlq/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.retryDlq(req, reply)

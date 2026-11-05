@@ -19,6 +19,8 @@ export interface QueueJob<T = any> {
   leaseExpiresAt?: string | null;
   claimToken?: string | null;
   deduplicationId?: string | null;
+  originalJobId?: string | null;
+  forwardedToJobId?: string | null;
   created: string;
   updated: string;
   finishedAt?: string | null;
@@ -120,6 +122,18 @@ export class QueueService {
   /**
    * Get a job by ID.
    */
+  /**
+   * Requeue or retry an individual job (or replay a forwarded DLQ job back to its original queue).
+   */
+  public async retry(jobId: string, options: SendOptions = {}): Promise<boolean> {
+    const path = `${this.getAppPrefix()}/queues/${encodeURIComponent(this.queueName)}/jobs/${encodeURIComponent(jobId)}/retry`;
+    const res = await this.client.send<{ success: boolean }>(path, {
+      method: 'POST',
+      ...options,
+    });
+    return res?.success ?? true;
+  }
+
   public async getJob<T = any>(jobId: string, options: SendOptions = {}): Promise<QueueJob<T> | null> {
     const path = `${this.getAppPrefix()}/queues/jobs/${encodeURIComponent(jobId)}`;
     try {

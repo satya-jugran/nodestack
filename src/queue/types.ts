@@ -40,6 +40,8 @@ export interface QueueJob<T = any> {
   leaseExpiresAt?: string | null;
   claimToken?: string | null;
   deduplicationId?: string | null;
+  originalJobId?: string | null;
+  forwardedToJobId?: string | null;
   created: string;
   updated: string;
   finishedAt?: string | null;
@@ -54,6 +56,7 @@ export interface EnqueueJobDto<T = any> {
   priority?: number;
   maxAttempts?: number;
   deduplicationId?: string | null;
+  originalJobId?: string | null;
 }
 
 export interface JobFailResult {

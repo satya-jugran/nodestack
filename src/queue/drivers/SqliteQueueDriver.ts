@@ -64,6 +64,8 @@ export class SqliteQueueDriver implements IQueueDriver {
         leaseExpiresAt TEXT DEFAULT NULL,
         claimToken TEXT DEFAULT NULL,
         deduplicationId TEXT DEFAULT NULL,
+        originalJobId TEXT DEFAULT NULL,
+        forwardedToJobId TEXT DEFAULT NULL,
         created TEXT NOT NULL,
         updated TEXT NOT NULL,
         finishedAt TEXT DEFAULT NULL
@@ -75,9 +77,23 @@ export class SqliteQueueDriver implements IQueueDriver {
       CREATE INDEX IF NOT EXISTS idx_qjobs_dedup ON _queue_jobs(queue, deduplicationId);
     `);
 
-    // Ensure claimToken column exists on pre-existing or upgraded tables
+    // Ensure claimToken and DLQ linkage columns exist on pre-existing or upgraded tables
     try {
       this.db.exec(`ALTER TABLE _queue_jobs ADD COLUMN claimToken TEXT DEFAULT NULL;`);
+    } catch {}
+    try {
+      this.db.exec(`ALTER TABLE _queue_jobs ADD COLUMN originalJobId TEXT DEFAULT NULL;`);
+    } catch {}
+    try {
+      this.db.exec(`ALTER TABLE _queue_jobs ADD COLUMN forwardedToJobId TEXT DEFAULT NULL;`);
+    } catch {}
+
+    // Ensure migration column indexes are created after column existence
+    try {
+      this.db.exec(`CREATE INDEX IF NOT EXISTS idx_qjobs_orig_job ON _queue_jobs(originalJobId);`);
+    } catch {}
+    try {
+      this.db.exec(`CREATE INDEX IF NOT EXISTS idx_qjobs_forwarded_to ON _queue_jobs(forwardedToJobId);`);
     } catch {}
   }
 
@@ -224,8 +240,8 @@ export class SqliteQueueDriver implements IQueueDriver {
       INSERT INTO _queue_jobs (
         id, queue, groupKey, status, payload, result, error,
         attempts, maxAttempts, priority, availableAt, claimedBy,
-        leaseExpiresAt, deduplicationId, created, updated, finishedAt
-      ) VALUES (?, ?, ?, 'queued', ?, NULL, NULL, 0, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL)
+        leaseExpiresAt, deduplicationId, originalJobId, created, updated, finishedAt
+      ) VALUES (?, ?, ?, 'queued', ?, NULL, NULL, 0, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, NULL)
     `).run(
       id,
       dto.queue,
@@ -235,6 +251,7 @@ export class SqliteQueueDriver implements IQueueDriver {
       priority,
       availableAt,
       dto.deduplicationId ?? null,
+      dto.originalJobId ?? null,
       now,
       now
     );
@@ -441,13 +458,21 @@ export class SqliteQueueDriver implements IQueueDriver {
 
       // If a separate deadLetterQueue is configured, also enqueue a copy into that DLQ
       if (dlqName && dlqName !== row.queue) {
+        // Clean up any previous pending copy in dlqName for this original job to prevent duplicate buildup
+        try {
+          this.db.prepare(`
+            DELETE FROM _queue_jobs
+            WHERE queue = ? AND status = 'queued' AND (originalJobId = ? OR id = ? OR payload LIKE ?)
+          `).run(dlqName, row.id, row.forwardedToJobId || '', `%"originalJobId":"${row.id}"%`);
+        } catch {}
+
         let parsedPayload: any = null;
         try {
           parsedPayload = row.payload ? JSON.parse(row.payload) : null;
         } catch {
           parsedPayload = row.payload;
         }
-        this.insertJobSync({
+        const dlqJob = this.insertJobSync({
           queue: dlqName,
           payload: {
             originalJobId: row.id,
@@ -457,9 +482,17 @@ export class SqliteQueueDriver implements IQueueDriver {
             failedAt: now,
             payload: parsedPayload,
           },
+          originalJobId: row.id,
           groupKey: row.groupKey,
           priority: row.priority,
         });
+
+        // Record the forwarded job ID on the original job
+        try {
+          this.db.prepare(`
+            UPDATE _queue_jobs SET forwardedToJobId = ? WHERE id = ?
+          `).run(dlqJob.id, row.id);
+        } catch {}
       }
 
       return { retried: false, deadLettered: true, attempts };
@@ -468,8 +501,19 @@ export class SqliteQueueDriver implements IQueueDriver {
 
   public async cancel(jobId: string): Promise<boolean> {
     this.ensureInit();
-    const res = this.db.prepare('DELETE FROM _queue_jobs WHERE id = ?').run(jobId);
-    return Number(res.changes) > 0;
+    return this.db.transaction(() => {
+      const row = this.db.prepare('SELECT id, forwardedToJobId FROM _queue_jobs WHERE id = ?').get(jobId) as any;
+      if (!row) return false;
+      // Clean up any forwarded DLQ copy
+      try {
+        this.db.prepare(`
+          DELETE FROM _queue_jobs
+          WHERE status = 'queued' AND (id = ? OR originalJobId = ? OR payload LIKE ?)
+        `).run(row.forwardedToJobId || '', jobId, `%"originalJobId":"${jobId}"%`);
+      } catch {}
+      const res = this.db.prepare('DELETE FROM _queue_jobs WHERE id = ?').run(jobId);
+      return Number(res.changes) > 0;
+    });
   }
 
   public async defer(jobId: string, delayMs: number, reason?: string): Promise<boolean> {
@@ -493,39 +537,219 @@ export class SqliteQueueDriver implements IQueueDriver {
     return Number(res.changes) > 0;
   }
 
-  public async retryDeadLetterJobs(queueName: string, limit = 100): Promise<number> {
+  public async retryDeadLetterJobs(
+    queueName: string,
+    limit = 100,
+    onJobRequeued?: (queue: string) => void
+  ): Promise<number> {
     this.ensureInit();
     const safeLimit = Math.max(1, Math.floor(limit));
     return this.db.transaction(() => {
       const now = new Date().toISOString();
       const rows = this.db.prepare(`
-        SELECT id FROM _queue_jobs
+        SELECT id, forwardedToJobId FROM _queue_jobs
         WHERE queue = ? AND status IN ('dead_letter', 'failed')
         ORDER BY updated ASC, rowid ASC
         LIMIT ?
-      `).all(queueName, safeLimit) as Array<{ id: string }>;
+      `).all(queueName, safeLimit) as Array<{ id: string; forwardedToJobId?: string | null }>;
 
-      if (!rows || rows.length === 0) return 0;
+      let count = 0;
 
-      const stmt = this.db.prepare(`
+      if (rows && rows.length > 0) {
+        const stmt = this.db.prepare(`
+          UPDATE _queue_jobs
+          SET status = 'queued',
+              attempts = 0,
+              error = NULL,
+              claimedBy = NULL,
+              leaseExpiresAt = NULL,
+              claimToken = NULL,
+              availableAt = ?,
+              updated = ?,
+              finishedAt = NULL,
+              forwardedToJobId = NULL
+          WHERE id = ?
+        `);
+
+        for (const r of rows) {
+          const res = stmt.run(now, now, r.id);
+          const changed = Number(res.changes);
+          if (changed > 0) {
+            count += changed;
+            // Clean up any forwarded copy in DLQ for this job if still queued
+            try {
+              this.db.prepare(`
+                DELETE FROM _queue_jobs
+                WHERE status = 'queued' AND (id = ? OR originalJobId = ? OR payload LIKE ?)
+              `).run(r.forwardedToJobId || '', r.id, `%"originalJobId":"${r.id}"%`);
+            } catch {}
+          }
+        }
+        if (count > 0) {
+          onJobRequeued?.(queueName);
+        }
+      }
+
+      // If limit is not exhausted, check if this queue contains forwarded DLQ copies
+      // (which may be 'queued' if the DLQ has no dedicated worker, or 'dead_letter'/'failed')
+      const remainingLimit = safeLimit - count;
+      if (remainingLimit > 0) {
+        const dlqRows = this.db.prepare(`
+          SELECT * FROM _queue_jobs
+          WHERE queue = ? AND status IN ('queued', 'dead_letter', 'failed')
+            AND (originalJobId IS NOT NULL OR payload LIKE '%"originalJobId"%')
+          ORDER BY updated ASC, rowid ASC
+          LIMIT ?
+        `).all(queueName, remainingLimit) as any[];
+
+        for (const dlqRow of dlqRows) {
+          let parsed: any = null;
+          try {
+            parsed = dlqRow.payload ? JSON.parse(dlqRow.payload) : null;
+          } catch {
+            parsed = dlqRow.payload;
+          }
+          const origId = dlqRow.originalJobId || parsed?.originalJobId;
+          const origQueue = parsed?.originalQueue;
+
+          if (origId) {
+            const origJob = this.db.prepare('SELECT * FROM _queue_jobs WHERE id = ?').get(origId) as any;
+            if (origJob) {
+              const resOrig = this.db.prepare(`
+                UPDATE _queue_jobs
+                SET status = 'queued',
+                    attempts = 0,
+                    error = NULL,
+                    claimedBy = NULL,
+                    leaseExpiresAt = NULL,
+                    claimToken = NULL,
+                    availableAt = ?,
+                    updated = ?,
+                    finishedAt = NULL,
+                    forwardedToJobId = NULL
+                WHERE id = ?
+              `).run(now, now, origId);
+              if (Number(resOrig.changes) > 0) {
+                count++;
+                if (origJob.queue) {
+                  onJobRequeued?.(origJob.queue);
+                }
+              }
+            } else if (origQueue) {
+              const unwrapped = parsed?.payload !== undefined ? parsed.payload : parsed;
+              this.insertJobSync({
+                queue: origQueue,
+                payload: unwrapped,
+                groupKey: dlqRow.groupKey,
+                priority: dlqRow.priority,
+              });
+              count++;
+              onJobRequeued?.(origQueue);
+            }
+            this.db.prepare('DELETE FROM _queue_jobs WHERE id = ?').run(dlqRow.id);
+          }
+        }
+      }
+
+      return count;
+    });
+  }
+
+  public async retryJob(jobId: string, onJobRequeued?: (queue: string) => void): Promise<boolean> {
+    this.ensureInit();
+    return this.db.transaction(() => {
+      const now = new Date().toISOString();
+      const row = this.db.prepare('SELECT * FROM _queue_jobs WHERE id = ?').get(jobId) as any;
+      if (!row) return false;
+
+      // Do not retry actively processing jobs
+      if (row.status === 'processing') {
+        return false;
+      }
+
+      let parsedPayload: any = null;
+      try {
+        parsedPayload = row.payload ? JSON.parse(row.payload) : null;
+      } catch {
+        parsedPayload = row.payload;
+      }
+
+      // Check if this is a forwarded DLQ copy
+      const origJobId = row.originalJobId || parsedPayload?.originalJobId;
+      const origQueue = parsedPayload?.originalQueue;
+
+      if (origJobId && (row.queue !== origQueue || row.originalJobId)) {
+        // This is a forwarded copy in a DLQ queue
+        const origRow = this.db.prepare('SELECT * FROM _queue_jobs WHERE id = ?').get(origJobId) as any;
+        if (origRow) {
+          this.db.prepare(`
+            UPDATE _queue_jobs
+            SET status = 'queued',
+                attempts = 0,
+                error = NULL,
+                claimedBy = NULL,
+                leaseExpiresAt = NULL,
+                claimToken = NULL,
+                availableAt = ?,
+                updated = ?,
+                finishedAt = NULL,
+                forwardedToJobId = NULL
+            WHERE id = ?
+          `).run(now, now, origJobId);
+          onJobRequeued?.(origRow.queue);
+        } else if (origQueue) {
+          const unwrapped = parsedPayload?.payload !== undefined ? parsedPayload.payload : parsedPayload;
+          this.insertJobSync({
+            queue: origQueue,
+            payload: unwrapped,
+            groupKey: row.groupKey,
+            priority: row.priority,
+          });
+          onJobRequeued?.(origQueue);
+        }
+
+        // Delete the DLQ copy
+        this.db.prepare('DELETE FROM _queue_jobs WHERE id = ?').run(jobId);
+        // Also clean up any other duplicates in status = 'queued' in this DLQ for this original job
+        if (origJobId) {
+          try {
+            this.db.prepare(`
+              DELETE FROM _queue_jobs
+              WHERE queue = ? AND status = 'queued' AND (originalJobId = ? OR payload LIKE ?)
+            `).run(row.queue, origJobId, `%"originalJobId":"${origJobId}"%`);
+          } catch {}
+        }
+        return true;
+      }
+
+      // Otherwise, this is a standard / original job
+      const res = this.db.prepare(`
         UPDATE _queue_jobs
         SET status = 'queued',
             attempts = 0,
             error = NULL,
             claimedBy = NULL,
             leaseExpiresAt = NULL,
+            claimToken = NULL,
             availableAt = ?,
             updated = ?,
-            finishedAt = NULL
+            finishedAt = NULL,
+            forwardedToJobId = NULL
         WHERE id = ?
-      `);
+      `).run(now, now, jobId);
 
-      let count = 0;
-      for (const r of rows) {
-        const res = stmt.run(now, now, r.id);
-        count += Number(res.changes);
-      }
-      return count;
+      if (Number(res.changes) === 0) return false;
+
+      // Clean up any forwarded copy in DLQ queues
+      try {
+        this.db.prepare(`
+          DELETE FROM _queue_jobs
+          WHERE status = 'queued' AND (id = ? OR originalJobId = ? OR payload LIKE ?)
+        `).run(row.forwardedToJobId || '', jobId, `%"originalJobId":"${jobId}"%`);
+      } catch {}
+
+      onJobRequeued?.(row.queue);
+      return true;
     });
   }
 
@@ -591,13 +815,21 @@ export class SqliteQueueDriver implements IQueueDriver {
 
           // If a separate deadLetterQueue is configured, also enqueue a copy into that DLQ
           if (dlqName && dlqName !== row.queue) {
+            // Clean up any previous pending copy in dlqName for this original job
+            try {
+              this.db.prepare(`
+                DELETE FROM _queue_jobs
+                WHERE queue = ? AND status = 'queued' AND (originalJobId = ? OR id = ? OR payload LIKE ?)
+              `).run(dlqName, row.id, row.forwardedToJobId || '', `%"originalJobId":"${row.id}"%`);
+            } catch {}
+
             let parsedPayload: any = null;
             try {
               parsedPayload = row.payload ? JSON.parse(row.payload) : null;
             } catch {
               parsedPayload = row.payload;
             }
-            this.insertJobSync({
+            const dlqJob = this.insertJobSync({
               queue: dlqName,
               payload: {
                 originalJobId: row.id,
@@ -607,9 +839,15 @@ export class SqliteQueueDriver implements IQueueDriver {
                 failedAt: now,
                 payload: parsedPayload,
               },
+              originalJobId: row.id,
               groupKey: row.groupKey,
               priority: row.priority,
             });
+            try {
+              this.db.prepare(`
+                UPDATE _queue_jobs SET forwardedToJobId = ? WHERE id = ?
+              `).run(dlqJob.id, row.id);
+            } catch {}
             onDlqEnqueued?.(dlqName);
           }
         }
@@ -812,6 +1050,8 @@ export class SqliteQueueDriver implements IQueueDriver {
       leaseExpiresAt: row.leaseExpiresAt || null,
       claimToken: row.claimToken || null,
       deduplicationId: row.deduplicationId || null,
+      originalJobId: row.originalJobId || null,
+      forwardedToJobId: row.forwardedToJobId || null,
       created: row.created,
       updated: row.updated,
       finishedAt: row.finishedAt || null,
