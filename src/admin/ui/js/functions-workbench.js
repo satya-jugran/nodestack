@@ -126,18 +126,32 @@ const CTX_DOCS = [
     snippet: 'const jobs = await core.sdk.queue("notifications").claim({ limit: 1, visibilityTimeoutSeconds: 30 });\n'
   },
   {
-    name: 'core.sdk.queue(name).complete(jobId, result)',
+    name: 'core.sdk.queue(name).complete(jobId, result, claimToken)',
     type: 'Promise<boolean>',
     cat: 'queue',
-    desc: 'Acknowledge and mark a claimed job as completed',
-    snippet: 'await core.sdk.queue("notifications").complete(job.id, { sent: true });\n'
+    desc: 'Acknowledge and mark a claimed job as completed with optional claim token',
+    snippet: 'await core.sdk.queue("notifications").complete(job.id, { sent: true }, job.claimToken);\n'
   },
   {
-    name: 'core.sdk.queue(name).fail(jobId, error)',
+    name: 'core.sdk.queue(name).fail(jobId, error, opts)',
     type: 'Promise<boolean>',
     cat: 'queue',
-    desc: 'Reject a job with error details and trigger retry/backoff',
-    snippet: 'await core.sdk.queue("notifications").fail(job.id, "SMTP timeout");\n'
+    desc: 'Reject a job with error details and trigger retry/backoff (with optional backoffDelayMs and claimToken)',
+    snippet: 'await core.sdk.queue("notifications").fail(job.id, "SMTP timeout", { backoffDelayMs: 5000, claimToken: job.claimToken });\n'
+  },
+  {
+    name: 'core.sdk.queue(name).touch(jobId, extensionSeconds, claimToken)',
+    type: 'Promise<boolean>',
+    cat: 'queue',
+    desc: 'Extend visibility timeout lease on an in-progress job',
+    snippet: 'await core.sdk.queue("notifications").touch(job.id, 60, job.claimToken);\n'
+  },
+  {
+    name: 'ctx.queue(name).send(payload, opts) / ctx.queue.send(...)',
+    type: 'Promise<QueueJob>',
+    cat: 'queue',
+    desc: 'Convenience alias on context.queue for enqueuing messages',
+    snippet: 'await ctx.queue.send("notifications", { to: "user@example.com" });\n'
   },
 
   // Outbound Network, Observability & Environment
