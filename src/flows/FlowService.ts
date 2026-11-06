@@ -635,10 +635,10 @@ export class FlowService {
       throw new NotFoundError(`Flow '${id}' not found`);
     }
 
-    // Abort active in-flight executions for this flow
+    // Abort active and queued in-flight executions for this flow
     try {
-      const running = this.db.prepare("SELECT id FROM _flow_executions WHERE flowId = ? AND status = 'running'").all(id) as any[];
-      for (const r of running) {
+      const active = this.db.prepare("SELECT id FROM _flow_executions WHERE flowId = ? AND status IN ('running', 'queued')").all(id) as any[];
+      for (const r of active) {
         try {
           this.abortExecution(r.id, `Flow '${id}' was deleted`);
         } catch {}
@@ -1834,20 +1834,21 @@ export class FlowService {
   }
 
   public clearExecutions(flowId?: string): boolean {
+    const targetFlowId = flowId ? (this.getFlowById(flowId)?.id || this.getFlowByName(flowId)?.id || flowId) : undefined;
     try {
-      const query = flowId
-        ? "SELECT id FROM _flow_executions WHERE flowId = ? AND status = 'running'"
-        : "SELECT id FROM _flow_executions WHERE status = 'running'";
-      const running = (flowId ? this.db.prepare(query).all(flowId) : this.db.prepare(query).all()) as any[];
-      for (const r of running) {
+      const query = targetFlowId
+        ? "SELECT id FROM _flow_executions WHERE flowId = ? AND status IN ('running', 'queued')"
+        : "SELECT id FROM _flow_executions WHERE status IN ('running', 'queued')";
+      const active = (targetFlowId ? this.db.prepare(query).all(targetFlowId) : this.db.prepare(query).all()) as any[];
+      for (const r of active) {
         try {
-          this.abortExecution(r.id, flowId ? `Executions cleared for flow '${flowId}'` : 'Executions cleared');
+          this.abortExecution(r.id, targetFlowId ? `Executions cleared for flow '${targetFlowId}'` : 'Executions cleared');
         } catch {}
       }
     } catch {}
 
-    if (flowId) {
-      this.db.prepare('DELETE FROM _flow_executions WHERE flowId = ?').run(flowId);
+    if (targetFlowId) {
+      this.db.prepare('DELETE FROM _flow_executions WHERE flowId = ?').run(targetFlowId);
     } else {
       this.db.prepare('DELETE FROM _flow_executions').run();
     }

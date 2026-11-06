@@ -5340,5 +5340,101 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       });
       expect(queryAfterClear.json().totalItems).toBe(0);
     });
+
+    it('should abort queued executions and immediately settle waiters when clearExecutions is called', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'ClearExecutionsQueuedFlow',
+        enabled: true,
+        triggerType: 'http',
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'SlowStep',
+          states: {
+            SlowStep: {
+              type: 'Wait',
+              seconds: 2.0,
+              end: true,
+            },
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      // 1. First execution takes the concurrency slot and is 'running'
+      await app.flows.executeFlow(throttledFlow.id, { seq: 1 }, undefined, { wait: false });
+
+      // 2. Second execution is queued with wait: true and a long timeout (10s)
+      const waiterPromise = app.flows.executeFlow(throttledFlow.id, { seq: 2 }, undefined, { wait: true, timeoutMs: 10000 });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const startTime = Date.now();
+      // 3. Clear executions
+      app.flows.clearExecutions(throttledFlow.id);
+
+      // Waiter must reject promptly with aborted error (499) rather than waiting 10s for timeout
+      let thrownErr: any;
+      try {
+        await waiterPromise;
+      } catch (err) {
+        thrownErr = err;
+      }
+      const elapsed = Date.now() - startTime;
+      expect(thrownErr).toBeDefined();
+      expect(thrownErr.statusCode).toBe(499);
+      expect(elapsed).toBeLessThan(1500);
+
+      // Verify execution records were removed
+      const remaining = app.flows.getExecutions({ flowId: throttledFlow.id });
+      expect(remaining.totalItems).toBe(0);
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
+    it('should abort queued executions and immediately settle waiters when deleteFlow is called', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'DeleteFlowQueuedFlow',
+        enabled: true,
+        triggerType: 'http',
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'SlowStep',
+          states: {
+            SlowStep: {
+              type: 'Wait',
+              seconds: 2.0,
+              end: true,
+            },
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      // 1. First execution takes the concurrency slot
+      await app.flows.executeFlow(throttledFlow.id, { seq: 1 }, undefined, { wait: false });
+
+      // 2. Second execution is queued with wait: true and a long timeout (10s)
+      const waiterPromise = app.flows.executeFlow(throttledFlow.id, { seq: 2 }, undefined, { wait: true, timeoutMs: 10000 });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const startTime = Date.now();
+      // 3. Delete flow
+      app.flows.deleteFlow(throttledFlow.id);
+
+      // Waiter must reject promptly with aborted error (499) rather than waiting 10s for timeout
+      let thrownErr: any;
+      try {
+        await waiterPromise;
+      } catch (err) {
+        thrownErr = err;
+      }
+      const elapsed = Date.now() - startTime;
+      expect(thrownErr).toBeDefined();
+      expect(thrownErr.statusCode).toBe(499);
+      expect(elapsed).toBeLessThan(1500);
+    });
   });
 });
