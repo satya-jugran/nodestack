@@ -1240,6 +1240,23 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const testBodyArea = doc.getElementById('editor-test-body') as HTMLTextAreaElement;
       expect(testBodyArea).not.toBeNull();
 
+      // Verify simulated caller role and auth controls
+      const authSelect = doc.getElementById('editor-test-auth') as HTMLSelectElement;
+      expect(authSelect).not.toBeNull();
+      expect(authSelect.innerHTML).toContain('Explicit Mock Auth Object');
+
+      win.toggleEditorTestAuthCustom('custom');
+      expect((doc.getElementById('editor-test-custom-auth-row') as HTMLElement).style.display).toBe('block');
+      expect((doc.getElementById('editor-test-mock-auth-row') as HTMLElement).style.display).toBe('none');
+
+      win.toggleEditorTestAuthCustom('mock');
+      expect((doc.getElementById('editor-test-custom-auth-row') as HTMLElement).style.display).toBe('none');
+      expect((doc.getElementById('editor-test-mock-auth-row') as HTMLElement).style.display).toBe('block');
+
+      win.toggleEditorTestAuthCustom('none');
+      expect((doc.getElementById('editor-test-custom-auth-row') as HTMLElement).style.display).toBe('none');
+      expect((doc.getElementById('editor-test-mock-auth-row') as HTMLElement).style.display).toBe('none');
+
       // Switch to Configuration Tab
       win.switchFunctionEditorTab('config');
       expect(win.functionsState.editorTab).toBe('config');
@@ -1612,6 +1629,132 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       );
       expect(adminTest.status).toBe('success');
       expect(adminTest.body.totalItems).toBe(1);
+    });
+
+    it('should resolve and verify nested authorization headers server-side and reject unverified tokens in testFunction', async () => {
+      // 1. Function returning ctx.auth and querying orders collection (listRule: owner = @request.auth.id)
+      const authEchoFn = app.functions.createFunction({
+        name: 'auth-echo-fn',
+        code: `
+          export default async function(core, ctx) {
+            let orderCount = 0;
+            try {
+              const res = await core.sdk.collection('orders').list();
+              orderCount = res.totalItems;
+            } catch (e) {
+              orderCount = -1;
+            }
+            return {
+              auth: ctx.auth,
+              orderCount,
+            };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+      });
+
+      // Insert an order owned by userId
+      await app.records.create('orders', {
+        title: 'User Widget',
+        amount: 25,
+        owner: userId,
+      }, { isAdmin: true, id: 'admin' });
+
+      // 2. Verified JWT passed in Authorization header: resolves real claims and reads owned order
+      const validTokenRes = await app.functions.testFunction(
+        authEchoFn.id,
+        {
+          headers: { authorization: `Bearer ${userToken}` },
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(validTokenRes.status).toBe('success');
+      expect(validTokenRes.body.auth.id).toBe(userId);
+      expect(validTokenRes.body.orderCount).toBeGreaterThan(0);
+
+      // 3. Forged / invalid JWT in Authorization header: resolved to null and fails ownership rule,
+      // even if fabricated mock auth is passed in request body
+      const forgedTokenRes = await app.functions.testFunction(
+        authEchoFn.id,
+        {
+          headers: { authorization: 'Bearer invalid.forged.jwt' },
+          auth: { id: 'custom-user', role: 'admin', isAdmin: true },
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(forgedTokenRes.status).toBe('success');
+      expect(forgedTokenRes.body.auth).toBeNull();
+      expect(forgedTokenRes.body.orderCount).toBe(0); // Filtered out by owner = @request.auth.id rule
+
+      // 4. Function with authPolicy: 'auth' rejects invalid Authorization header
+      const protectedFn = app.functions.createFunction({
+        name: 'protected-auth-fn',
+        code: `export default async function(core, ctx) { return { ok: true }; }`,
+        enabled: true,
+        authPolicy: 'auth',
+      });
+
+      const invalidPolicyRes = await app.functions.testFunction(
+        protectedFn.id,
+        {
+          headers: { authorization: 'Bearer fake_token' },
+          auth: { id: 'custom-user', role: 'user' },
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(invalidPolicyRes.status).toBe('error');
+      expect(invalidPolicyRes.error).toContain('Authentication token required');
+
+      // Valid token satisfies authPolicy: 'auth'
+      const validPolicyRes = await app.functions.testFunction(
+        protectedFn.id,
+        {
+          headers: { authorization: `Bearer ${userToken}` },
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(validPolicyRes.status).toBe('success');
+      expect(validPolicyRes.body.ok).toBe(true);
+
+      // 5. Function with authPolicy: 'apiKey' verified via ApiKey header
+      const apiKeyResult = app.apiKeys.createKey({
+        name: 'Test Service Key',
+        role: 'user',
+        scopes: ['functions:invoke'],
+      });
+      const apiKeyProtectedFn = app.functions.createFunction({
+        name: 'apikey-protected-fn',
+        code: `export default async function(core, ctx) { return { isApiKey: ctx.auth?.isApiKey, scopes: ctx.auth?.scopes }; }`,
+        enabled: true,
+        authPolicy: 'apiKey',
+      });
+
+      const apiKeyRes = await app.functions.testFunction(
+        apiKeyProtectedFn.id,
+        {
+          headers: { authorization: `ApiKey ${apiKeyResult.secretKey}` },
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(apiKeyRes.status).toBe('success');
+      expect(apiKeyRes.body.isApiKey).toBe(true);
+      expect(apiKeyRes.body.scopes).toContain('functions:invoke');
+
+      // HTTP endpoint inject verification: POST /api/functions/:id/test
+      const httpTestRes = await app.server.inject({
+        method: 'POST',
+        url: `/api/functions/${protectedFn.id}/test`,
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: {
+          headers: { authorization: 'Bearer forged.token.attempt' },
+          auth: { id: 'custom-user', role: 'user' },
+        },
+      });
+      expect(httpTestRes.statusCode).toBe(200);
+      const httpTestData = httpTestRes.json();
+      expect(httpTestData.status).toBe('error');
+      expect(httpTestData.error).toContain('Authentication token required');
     });
 
   });

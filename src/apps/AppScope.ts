@@ -154,7 +154,8 @@ export class AppScope {
       this.records,
       this.ruleEngine,
       this.eventBus,
-      { id: app.id, slug: app.slug, name: app.name }
+      { id: app.id, slug: app.slug, name: app.name },
+      { authService: this.auth, apiKeyService: this.apiKeys }
     );
     this.queue = new QueueService(
       new SqliteQueueDriver(this.db),

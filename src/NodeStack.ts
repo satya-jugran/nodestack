@@ -254,7 +254,8 @@ export class NodeStack {
     this.functions = this.defaultApp.functions;
     this.container.bindInstance(TOKENS.FunctionService, this.functions);
 
-    this.functionController = new FunctionController(this.functions);
+    this.functions.setAuthServices(this.auth, this.apiKeys);
+    this.functionController = new FunctionController(this.functions, this.auth, this.apiKeys);
     this.container.bindInstance(TOKENS.FunctionController, this.functionController);
 
     // 17.75 Generic Queue Processor ("NodeStack Queues")
