@@ -1548,6 +1548,72 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(testNullRes.status).toBe('success');
       expect(testNullRes.body.auth).toBeNull();
     });
+
+    it('should preserve full authenticated actor for normal executions while allowing mock auth overrides in testFunction', async () => {
+      // 1. Create an admin-only collection (listRule: null)
+      app.schema.createCollection({
+        name: 'secret_vault',
+        type: 'base',
+        schema: [{ name: 'secretKey', type: 'text' }],
+        listRule: null,
+        viewRule: null,
+      });
+
+      // Insert record as admin
+      await app.records.create('secret_vault', { secretKey: 'TOP_SECRET_42' }, { isAdmin: true, id: 'admin' });
+
+      // Create a function that queries the admin-only collection
+      const vaultFn = app.functions.createFunction({
+        name: 'vault-reader-fn',
+        code: `
+          export default async function(core, ctx) {
+            const list = await core.sdk.collection('secret_vault').list();
+            return {
+              totalItems: list.totalItems,
+              items: list.items,
+            };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+      });
+
+      // 2. Normal execution invoked with admin actor must preserve isAdmin rule bypass
+      const adminExec = await app.functions.executeFunction(vaultFn.id, undefined, {
+        id: 'admin_user',
+        isAdmin: true,
+      });
+      expect(adminExec.status).toBe('success');
+      expect(adminExec.body.totalItems).toBe(1);
+
+      // 3. Normal execution invoked with API key missing required scope must be rejected
+      const apiKeyExec = await app.functions.executeFunction(vaultFn.id, undefined, {
+        id: 'api_key_user',
+        isApiKey: true,
+        scopes: ['other_collection:read'],
+      });
+      expect(apiKeyExec.status).toBe('error');
+      expect(apiKeyExec.error).toContain('API Key missing required scope');
+
+      // 4. In testFunction: explicit mock auth with null (public) must override admin actor and reject admin-only list
+      const mockPublicTest = await app.functions.testFunction(
+        vaultFn.id,
+        { auth: null },
+        { id: 'admin_user', isAdmin: true }
+      );
+      expect(mockPublicTest.status).toBe('error');
+      expect(mockPublicTest.error).toContain('not allowed to list records');
+
+      // 5. In testFunction without mock auth: calling admin actor is preserved and list succeeds
+      const adminTest = await app.functions.testFunction(
+        vaultFn.id,
+        {},
+        { id: 'admin_user', isAdmin: true }
+      );
+      expect(adminTest.status).toBe('success');
+      expect(adminTest.body.totalItems).toBe(1);
+    });
+
   });
 
 });

@@ -645,7 +645,8 @@ export class FunctionService {
     this.activeExecutions++;
     let result: FunctionExecutionResult;
     try {
-      const context = this.buildFunctionContext(fn, requestCtx, undefined, actor);
+      const testActor = mockRequest.auth !== undefined ? mockRequest.auth : actor;
+      const context = this.buildFunctionContext(fn, requestCtx, undefined, testActor);
       result = await this.executionStorage.run(
         { depth: currentDepth, activeFns: currentActive },
         async () => {
@@ -909,7 +910,7 @@ export class FunctionService {
     // If elevated is true, run as service-role (bypassing user rules)
     const effectiveAuth = fn.elevated
       ? { isAdmin: true, id: 'service-role' }
-      : (requestCtx && requestCtx.auth !== undefined ? requestCtx.auth : (actor || null));
+      : (actor || null);
 
     const safeFetch = SsrfGuard.createGuardedFetch(fn.allowedDomains, fn.timeoutMs);
 
@@ -1075,7 +1076,7 @@ export class FunctionService {
         request: requestCtx,
         event: eventCtx,
         env: fn.env || {},
-        auth: effectiveAuth,
+        auth: (requestCtx && requestCtx.auth !== undefined) ? requestCtx.auth : (effectiveAuth || null),
       },
     };
   }
