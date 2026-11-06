@@ -2,6 +2,11 @@ import { getQuickJS, shouldInterruptAfterDeadline, QuickJSWASMModule } from 'qui
 import { IFunctionRuntime, RuntimeExecutionOptions } from './IFunctionRuntime';
 import { FunctionHostServices, FunctionExecutionResult } from '../types';
 
+function safeJsonForEval(val: any): string {
+  const json = JSON.stringify(val ?? null);
+  return json.replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+}
+
 export class QuickJsWasmRuntime implements IFunctionRuntime {
   public readonly name = 'QuickJS-Wasm';
   public readonly version = '0.32.0';
@@ -175,11 +180,17 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
 
               if (isVmDisposed || !vm.alive) return;
 
-              const resJson = JSON.stringify(result ?? null);
+              const resJson = safeJsonForEval(result ?? null);
               const resolveCode = `__resolve_host_call(${callId}, null, ${resJson});`;
               const res = vm.evalCode(resolveCode);
               if (res.error) {
                 res.error.dispose();
+                if (!isVmDisposed && vm.alive) {
+                  const fallbackErrJson = safeJsonForEval('Failed to evaluate host response in guest VM');
+                  const rejRes = vm.evalCode(`__resolve_host_call(${callId}, ${fallbackErrJson}, null);`);
+                  if (rejRes.error) rejRes.error.dispose();
+                  else rejRes.value.dispose();
+                }
               } else {
                 res.value.dispose();
               }
@@ -187,7 +198,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
               vm.runtime.executePendingJobs();
             } catch (err: any) {
               if (isVmDisposed || !vm.alive) return;
-              const errJson = JSON.stringify(err.message || String(err));
+              const errJson = safeJsonForEval(err.message || String(err));
               const rejectCode = `__resolve_host_call(${callId}, ${errJson}, null);`;
               const res = vm.evalCode(rejectCode);
               if (res.error) res.error.dispose();
@@ -338,7 +349,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
             }
           };
 
-          var initialCtx = ${JSON.stringify(safeContextPayload)};
+          var initialCtx = ${safeJsonForEval(safeContextPayload)};
 
           globalThis.ctx = {
             app: initialCtx.app,
@@ -546,8 +557,12 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
       const leadingComments = match ? match[0] : '';
       const codeBody = code.slice(leadingComments.length).trim();
 
-      // Anonymous function: async function(...) or function(...)
-      if (/^(async\s+)?function\s*\(/.test(codeBody)) {
+      // Named or anonymous function
+      const namedFnMatch = /^(async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/.exec(codeBody);
+      if (namedFnMatch) {
+        const fnName = namedFnMatch[2];
+        code = leadingComments + codeBody + `;\n__fn = ${fnName};`;
+      } else if (/^(async\s+)?function\s*\(/.test(codeBody)) {
         code = leadingComments + '__fn = ' + codeBody;
       } else if (/^(async\s+)?(\([^)]*\)|[a-zA-Z_$][a-zA-Z0-9_$]*)\s*=>/.test(codeBody)) {
         // Arrow function

@@ -70,6 +70,7 @@ export class FlowEngine {
       onStepTransition?: (event: FlowStepTransitionEvent) => Promise<void> | void;
       resumeFrom?: FlowResumeOptions;
       signal?: AbortSignal;
+      sharedStepTracker?: { count: number };
     } = {}
   ): Promise<FlowExecution> {
     const startedAt = options.resumeFrom?.startedAt || new Date().toISOString();
@@ -93,6 +94,7 @@ export class FlowEngine {
     const deadline = startTime + timeoutMs;
     const maxStepTransitions = 500;
     let stepCount = options.resumeFrom?.stepCount || stepLogs.length;
+    const stepTracker = options.sharedStepTracker || { count: stepCount };
 
     let currentStateName: string | undefined = options.resumeFrom ? options.resumeFrom.stateName : definition.startAt;
     let currentPayload = options.resumeFrom?.payload !== undefined
@@ -108,6 +110,7 @@ export class FlowEngine {
         onStepTransition: undefined,
         resumeFrom: undefined,
         signal: options.signal,
+        sharedStepTracker: stepTracker,
         executionOptions: {
           ...options.executionOptions,
           executionId: undefined,
@@ -129,7 +132,11 @@ export class FlowEngine {
           (cancelErr as any).status = 'cancelled';
           throw cancelErr;
         }
-        throw new Error(subExec.error || `Sub-flow execution ${subExec.status}`);
+        const err = new Error(subExec.error || `Sub-flow execution ${subExec.status}`);
+        if (subExec.error) {
+          (err as any).name = subExec.error;
+        }
+        throw err;
       }
       return subExec.output;
     };
@@ -146,7 +153,9 @@ export class FlowEngine {
           throw new AppError(`Flow '${flowName}' execution timed out after ${timeoutMs}ms`, 408);
         }
 
-        if (++stepCount > maxStepTransitions) {
+        stepCount++;
+        stepTracker.count++;
+        if (stepCount > maxStepTransitions || stepTracker.count > maxStepTransitions) {
           throw new AppError(`Flow '${flowName}' exceeded maximum step transitions (${maxStepTransitions})`, 400);
         }
 
@@ -435,21 +444,51 @@ export class FlowEngine {
     let attempt = 0;
 
     while (true) {
+      if (context.signal?.aborted) {
+        const cancelErr = new AppError('State execution aborted', 499);
+        (cancelErr as any).status = 'cancelled';
+        throw cancelErr;
+      }
+
       try {
         return await handler.execute(state, context);
       } catch (err: any) {
         attempt++;
         const policy = this.findMatchingRetryPolicy(retryPolicies, err);
 
-        if (!policy || attempt >= (policy.maxAttempts || 3)) {
+        const maxAttempts = policy?.maxAttempts ?? 3;
+        if (!policy || attempt >= maxAttempts) {
           throw err;
         }
 
-        const baseInterval = policy.intervalSeconds || 1;
-        const rate = policy.backoffRate || 2;
+        const baseInterval = policy.intervalSeconds ?? 1;
+        const rate = policy.backoffRate ?? 2;
         const delayMs = baseInterval * Math.pow(rate, attempt - 1) * 1000;
 
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        if (context.signal?.aborted) {
+          const cancelErr = new AppError('State execution aborted during retry backoff', 499);
+          (cancelErr as any).status = 'cancelled';
+          throw cancelErr;
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          let timer: any;
+          const onAbort = () => {
+            clearTimeout(timer);
+            const cancelErr = new AppError('State execution aborted during retry backoff', 499);
+            (cancelErr as any).status = 'cancelled';
+            reject(cancelErr);
+          };
+          if (context.signal) {
+            context.signal.addEventListener('abort', onAbort, { once: true });
+          }
+          timer = setTimeout(() => {
+            if (context.signal) {
+              context.signal.removeEventListener('abort', onAbort);
+            }
+            resolve();
+          }, delayMs);
+        });
       }
     }
   }

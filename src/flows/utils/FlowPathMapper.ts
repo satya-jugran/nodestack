@@ -39,8 +39,10 @@ export class FlowPathMapper {
       return value;
     }
 
-    const root = this.clone(target ?? {});
-    let current = root;
+    const root = (target !== null && typeof target === 'object')
+      ? this.clone(target)
+      : (typeof segments[0] === 'number' ? [] : {});
+    let current: any = root;
 
     for (let i = 0; i < segments.length - 1; i++) {
       const segment = segments[i];
@@ -108,7 +110,11 @@ export class FlowPathMapper {
       if (match[2] !== undefined) {
         tokens.push(parseInt(match[2], 10));
       } else if (match[1] !== undefined) {
-        tokens.push(match[1]);
+        const seg = match[1];
+        if (seg === '__proto__' || seg === 'constructor' || seg === 'prototype') {
+          continue;
+        }
+        tokens.push(seg);
       }
     }
 

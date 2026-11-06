@@ -1,3 +1,4 @@
+import { FailStateHandler } from '../src/flows/runtime/StateHandlers';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -4803,4 +4804,277 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
   });
 
+
+  
+  describe('State Machine Resilience, Path Mapping & Sub-Flow Error Propagation', () => {
+    it('should initialize target object or array when setting paths on primitive or null roots', () => {
+      const objResult = FlowPathMapper.set('primitive-string', '$.user.name', 'Alice');
+      expect(objResult).toEqual({ user: { name: 'Alice' } });
+
+      const arrResult = FlowPathMapper.set(12345, '$[0]', 'first-item');
+      expect(Array.isArray(arrResult)).toBe(true);
+      expect(arrResult[0]).toBe('first-item');
+
+      const nullResult = FlowPathMapper.set(null, '$.data.status', 'ready');
+      expect(nullResult).toEqual({ data: { status: 'ready' } });
+    });
+
+    it('should prevent prototype pollution via __proto__, constructor, or prototype path segments', () => {
+      const target = {};
+      FlowPathMapper.set(target, '$.__proto__.polluted', true);
+      FlowPathMapper.set(target, '$.constructor.prototype.polluted2', true);
+
+      expect((({} as any).polluted)).toBeUndefined();
+      expect((({} as any).polluted2)).toBeUndefined();
+    });
+
+    it('should reject Loop state definitions missing condition rules or terminal/next transitions', () => {
+      // Missing condition
+      const defMissingCond: FlowDefinition = {
+        startAt: 'LoopStep',
+        states: {
+          LoopStep: {
+            type: 'Loop',
+            target: 'LoopStep',
+            next: 'Done',
+          } as any,
+          Done: { type: 'Succeed' },
+        },
+      };
+      expect(() => FlowValidator.validate(defMissingCond)).toThrow(/must specify a condition choice rule/);
+
+      // Missing next and end
+      const defMissingNextAndEnd: FlowDefinition = {
+        startAt: 'LoopStep',
+        states: {
+          LoopStep: {
+            type: 'Loop',
+            target: 'LoopStep',
+            condition: { variable: '$.count', numericLessThan: 5 },
+          } as any,
+        },
+      };
+      expect(() => FlowValidator.validate(defMissingNextAndEnd)).toThrow(/must specify either 'next' or 'end: true'/);
+    });
+
+    it('should recursively update referenced function identifiers across Task, Map, and Parallel states', () => {
+      const def: FlowDefinition = {
+        startAt: 'Step1',
+        states: {
+          Step1: { type: 'Task', function: 'old-fn-name', next: 'Step2' },
+          Step2: {
+            type: 'Map',
+            itemsPath: '$.items',
+            iterator: {
+              startAt: 'MapTask',
+              states: {
+                MapTask: { type: 'Task', function: 'old-fn-name', end: true },
+              },
+            },
+            next: 'Step3',
+          },
+          Step3: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'BranchTask',
+                states: {
+                  BranchTask: { type: 'Task', function: 'old-fn-name', end: true },
+                },
+              },
+            ],
+            end: true,
+          },
+        },
+      };
+
+      const modified = FlowValidator.renameReferencedFunction(def, 'old-fn-name', 'new-fn-name');
+      expect(modified).toBe(true);
+      expect((def.states.Step1 as any).function).toBe('new-fn-name');
+      expect((def.states.Step2 as any).iterator.states.MapTask.function).toBe('new-fn-name');
+      expect((def.states.Step3 as any).branches[0].states.BranchTask.function).toBe('new-fn-name');
+    });
+
+    it('should format error message combining error and cause when both are defined in Fail state', async () => {
+      const handler = new FailStateHandler();
+      const result = await handler.execute(
+        { type: 'Fail', error: 'PaymentDeclined', cause: 'Insufficient funds on credit card' },
+        { flowName: 'TestFlow', stateName: 'FailStep', payload: {}, loopCounters: new Map(), executeSubFlow: async () => ({}) }
+      );
+
+      expect(result.status).toBe('failed');
+      expect(result.error).toBe('PaymentDeclined: Insufficient funds on credit card');
+    });
+
+    it('should strictly respect maxAttempts: 0 in retry policy without defaulting to multiple attempts', async () => {
+      const engine = new FlowEngine();
+      let callCount = 0;
+
+      engine.registerHandler('Task', {
+        async execute() {
+          callCount++;
+          throw new Error('TaskExecutionFailed');
+        },
+      });
+
+      const def: FlowDefinition = {
+        startAt: 'FailingStep',
+        states: {
+          FailingStep: {
+            type: 'Task',
+            function: 'any',
+            retry: [
+              {
+                errorEquals: ['*'],
+                maxAttempts: 0,
+                intervalSeconds: 1,
+              },
+            ],
+            end: true,
+          },
+        },
+      };
+
+      const result = await engine.execute('RetryZeroTest', def, {});
+      expect(result.status).toBe('failed');
+      expect(callCount).toBe(1);
+    });
+
+    it('should propagate sub-flow error codes and names to matching parent catch policies', async () => {
+      const engine = new FlowEngine();
+      engine.registerHandler('Task', {
+        async execute(state: any) {
+          if (state.function === 'failing-task') {
+            const err = new Error('CustomBusinessError');
+            err.name = 'CustomBusinessError';
+            throw err;
+          }
+          return { status: 'succeeded', payload: { ok: true } };
+        },
+      });
+      engine.registerHandler('Pass', {
+        async execute(state: any, ctx: any) {
+          return { status: 'succeeded', payload: ctx.payload, nextState: state.next, isEnd: state.end };
+        },
+      });
+
+      const def: FlowDefinition = {
+        startAt: 'RunParallel',
+        states: {
+          RunParallel: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'SubTask',
+                states: {
+                  SubTask: { type: 'Task', function: 'failing-task', end: true },
+                },
+              },
+            ],
+            catch: [
+              {
+                errorEquals: ['CustomBusinessError'],
+                next: 'HandleError',
+                resultPath: '$.catchError',
+              },
+            ],
+            end: true,
+          },
+          HandleError: {
+            type: 'Pass',
+            end: true,
+          },
+        },
+      };
+
+      const result = await engine.execute('CatchSubFlowTest', def, {});
+      expect(result.status).toBe('succeeded');
+      expect(result.output?.catchError).toBeDefined();
+    });
+
+    it('should preserve in-flight execution claims and active status during crash recovery', async () => {
+      const flowService = app.flows;
+
+      // Seed an active claim in activeExecutionClaims
+      const testClaimId = 'exec_actively_running_claim_test';
+      (flowService as any).activeExecutionClaims.add(testClaimId);
+
+      // Insert mock DB records: one actively claimed, one genuinely orphaned
+      (flowService as any).db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, startedAt, durationMs, claimToken)
+        VALUES (?, 'f1', 'Flow1', 'running', ?, 0, 'token-123')
+      `).run(testClaimId, new Date().toISOString());
+
+      const orphanId = 'exec_truly_orphaned_restart_test';
+      (flowService as any).db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, startedAt, durationMs, claimToken)
+        VALUES (?, 'f1', 'Flow1', 'running', ?, 0, 'token-456')
+      `).run(orphanId, new Date().toISOString());
+
+      try {
+        const recovered = await flowService.recoverOrphanedExecutions('abort');
+        expect(recovered.some(e => e.id === orphanId)).toBe(true);
+        expect(recovered.some(e => e.id === testClaimId)).toBe(false);
+
+        // Verify active claimed execution still has its status and claim in DB
+        const activeRow = (flowService as any).db.prepare('SELECT status, claimToken FROM _flow_executions WHERE id = ?').get(testClaimId);
+        expect(activeRow.status).toBe('running');
+        expect(activeRow.claimToken).toBe('token-123');
+      } finally {
+        (flowService as any).activeExecutionClaims.delete(testClaimId);
+        (flowService as any).db.prepare('DELETE FROM _flow_executions WHERE id IN (?, ?)').run(testClaimId, orphanId);
+      }
+    });
+
+    it('should resolve flow execution history and clear operations by flow name as well as ID', async () => {
+      // Create a flow with a specific name
+      const createRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/flows',
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: {
+          name: 'NamedFlowResolvingTest',
+          definition: {
+            startAt: 'Done',
+            states: { Done: { type: 'Succeed' } },
+          },
+        },
+      });
+      const createdFlow = createRes.json();
+
+      // Execute it once
+      await app.server.inject({
+        method: 'POST',
+        url: `/api/flows/${createdFlow.id}/execute?wait=true`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: {},
+      });
+
+      // Query executions using flow NAME instead of ID
+      const queryByNameRes = await app.server.inject({
+        method: 'GET',
+        url: '/api/flows/NamedFlowResolvingTest/executions',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(queryByNameRes.statusCode).toBe(200);
+      const nameData = queryByNameRes.json();
+      expect(nameData.totalItems).toBe(1);
+
+      // Clear executions using flow NAME
+      const clearRes = await app.server.inject({
+        method: 'DELETE',
+        url: '/api/flows/NamedFlowResolvingTest/executions',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(clearRes.statusCode).toBe(200);
+
+      // Query again to confirm cleared
+      const queryAfterClear = await app.server.inject({
+        method: 'GET',
+        url: '/api/flows/NamedFlowResolvingTest/executions',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(queryAfterClear.json().totalItems).toBe(0);
+    });
+  });
 });

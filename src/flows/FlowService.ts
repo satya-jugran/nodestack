@@ -627,6 +627,16 @@ export class FlowService {
       throw new NotFoundError(`Flow '${id}' not found`);
     }
 
+    // Abort active in-flight executions for this flow
+    try {
+      const running = this.db.prepare("SELECT id FROM _flow_executions WHERE flowId = ? AND status = 'running'").all(id) as any[];
+      for (const r of running) {
+        try {
+          this.abortExecution(r.id, `Flow '${id}' was deleted`);
+        } catch {}
+      }
+    } catch {}
+
     if (this.queueService) {
       const queueName = FlowService.getFlowQueueName(id);
       void this.queueService.deleteQueue(queueName).catch(() => {});
@@ -1609,13 +1619,29 @@ export class FlowService {
       throw new AppError(`Invalid recovery strategy '${strategy}'. Must be 'abort' or 'resume'.`, 400);
     }
 
-    try {
-      this.db.prepare("UPDATE _flow_executions SET claimToken = NULL WHERE status IN ('running', 'queued')").run();
-    } catch {}
+    const activeIds = Array.from(new Set([...this.activeExecutionClaims, ...this.pendingExecutionAdmissions]));
+    if (activeIds.length > 0) {
+      const placeholders = activeIds.map(() => '?').join(',');
+      try {
+        this.db.prepare(`UPDATE _flow_executions SET claimToken = NULL WHERE status IN ('running', 'queued') AND id NOT IN (${placeholders})`).run(...activeIds);
+      } catch {}
+    } else {
+      try {
+        this.db.prepare("UPDATE _flow_executions SET claimToken = NULL WHERE status IN ('running', 'queued')").run();
+      } catch {}
+    }
 
-    const orphanedRows = this.db
-      .prepare("SELECT * FROM _flow_executions WHERE status = 'running'")
-      .all() as any[];
+    let orphanedRows: any[];
+    if (activeIds.length > 0) {
+      const placeholders = activeIds.map(() => '?').join(',');
+      orphanedRows = this.db
+        .prepare(`SELECT * FROM _flow_executions WHERE status = 'running' AND id NOT IN (${placeholders})`)
+        .all(...activeIds) as any[];
+    } else {
+      orphanedRows = this.db
+        .prepare("SELECT * FROM _flow_executions WHERE status = 'running'")
+        .all() as any[];
+    }
 
     const recovered: FlowExecution[] = [];
 
@@ -1660,9 +1686,17 @@ export class FlowService {
     // Reconcile and drain any 'queued' executions waiting in _flow_executions
     if (this.queueService) {
       this.syncAllFlowQueues();
-      const queuedRows = this.db
-        .prepare("SELECT * FROM _flow_executions WHERE status = 'queued' ORDER BY queuedAt ASC, startedAt ASC")
-        .all() as any[];
+      let queuedRows: any[];
+      if (activeIds.length > 0) {
+        const placeholders = activeIds.map(() => '?').join(',');
+        queuedRows = this.db
+          .prepare(`SELECT * FROM _flow_executions WHERE status = 'queued' AND id NOT IN (${placeholders}) ORDER BY queuedAt ASC, startedAt ASC`)
+          .all(...activeIds) as any[];
+      } else {
+        queuedRows = this.db
+          .prepare("SELECT * FROM _flow_executions WHERE status = 'queued' ORDER BY queuedAt ASC, startedAt ASC")
+          .all() as any[];
+      }
 
       for (const row of queuedRows) {
         const exec = this.mapRowToExecution(row);
@@ -1792,6 +1826,18 @@ export class FlowService {
   }
 
   public clearExecutions(flowId?: string): boolean {
+    try {
+      const query = flowId
+        ? "SELECT id FROM _flow_executions WHERE flowId = ? AND status = 'running'"
+        : "SELECT id FROM _flow_executions WHERE status = 'running'";
+      const running = (flowId ? this.db.prepare(query).all(flowId) : this.db.prepare(query).all()) as any[];
+      for (const r of running) {
+        try {
+          this.abortExecution(r.id, flowId ? `Executions cleared for flow '${flowId}'` : 'Executions cleared');
+        } catch {}
+      }
+    } catch {}
+
     if (flowId) {
       this.db.prepare('DELETE FROM _flow_executions WHERE flowId = ?').run(flowId);
     } else {

@@ -187,8 +187,12 @@ export class FlowValidator {
             throw new AppError(`${prefix}Loop state '${name}': maxIterations must be a positive integer >= 1`, 400);
           }
         }
-        if (state.condition) {
-          this.validateChoiceRule(name, 0, state.condition, allKeys, true, 'condition', false, contextPath);
+        if (!state.condition || typeof state.condition !== 'object') {
+          throw new AppError(`${prefix}Loop state '${name}' must specify a condition choice rule`, 400);
+        }
+        this.validateChoiceRule(name, 0, state.condition, allKeys, true, 'condition', false, contextPath);
+        if (!state.next && !state.end) {
+          throw new AppError(`${prefix}Loop state '${name}' must specify either 'next' or 'end: true'`, 400);
         }
         break;
 
@@ -450,5 +454,47 @@ export class FlowValidator {
 
     scanStates(states);
     return referenced;
+  }
+  /**
+   * Recursively renames all references to a function in a flow definition
+   */
+  public static renameReferencedFunction(
+    defOrStates: FlowDefinition | Record<string, FlowState> | null | undefined,
+    oldName: string,
+    newName: string
+  ): boolean {
+    if (!defOrStates || typeof defOrStates !== 'object') {
+      return false;
+    }
+
+    const states: Record<string, FlowState> =
+      (defOrStates as FlowDefinition).states || (defOrStates as Record<string, FlowState>);
+    if (!states || typeof states !== 'object') {
+      return false;
+    }
+
+    let modified = false;
+
+    function mutateStates(stateRecord: Record<string, any>) {
+      if (!stateRecord || typeof stateRecord !== 'object') return;
+      for (const state of Object.values(stateRecord)) {
+        if (!state || typeof state !== 'object') continue;
+        if (state.type === 'Task' && state.function === oldName) {
+          state.function = newName;
+          modified = true;
+        } else if (state.type === 'Map' && state.iterator && typeof state.iterator === 'object' && state.iterator.states) {
+          mutateStates(state.iterator.states);
+        } else if (state.type === 'Parallel' && Array.isArray(state.branches)) {
+          for (const branch of state.branches) {
+            if (branch && typeof branch === 'object' && branch.states) {
+              mutateStates(branch.states);
+            }
+          }
+        }
+      }
+    }
+
+    mutateStates(states);
+    return modified;
   }
 }

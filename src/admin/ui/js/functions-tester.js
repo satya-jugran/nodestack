@@ -198,10 +198,15 @@ async function executeFunctionEditorTest() {
       }
     }
 
-    if (authType === 'admin' && typeof state !== 'undefined' && state.token) {
-      headers['authorization'] = `Bearer ${state.token}`;
+    let mockAuth = null;
+    if (authType === 'admin') {
+      if (typeof state !== 'undefined' && state.token) {
+        headers['authorization'] = `Bearer ${state.token}`;
+      }
+      mockAuth = { id: (typeof state !== 'undefined' && state.user?.id) || 'admin', role: 'admin', isAdmin: true };
     } else if (authType === 'custom' && customAuthToken) {
       headers['authorization'] = `Bearer ${customAuthToken.trim()}`;
+      mockAuth = { id: 'custom-user', token: customAuthToken.trim(), role: 'user' };
     }
 
     const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
@@ -212,7 +217,7 @@ async function executeFunctionEditorTest() {
     const res = await api(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method, body, headers }),
+      body: JSON.stringify({ method, body, headers, auth: mockAuth }),
     });
 
     if (outputEmpty) outputEmpty.style.display = 'none';

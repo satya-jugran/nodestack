@@ -289,6 +289,24 @@ export class FunctionService {
       if (tableExists) {
         this.db.prepare('UPDATE _queues SET targetFunction = ? WHERE targetFunction = ?').run(name, current.name);
       }
+
+      const flowsTableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_flows'").get();
+      if (flowsTableExists) {
+        const rows = this.db.prepare('SELECT id, definition FROM _flows').all() as any[];
+        for (const row of rows) {
+          try {
+            const def = JSON.parse(row.definition);
+            const renamed = FlowValidator.renameReferencedFunction(def, current.name, name);
+            if (renamed) {
+              this.db.prepare('UPDATE _flows SET definition = ?, updated = ? WHERE id = ?').run(
+                JSON.stringify(def),
+                now,
+                row.id
+              );
+            }
+          } catch {}
+        }
+      }
     }
 
     return this.getFunctionById(id)!;
@@ -613,14 +631,30 @@ export class FunctionService {
       throw new AppError('Serverless function concurrency limit reached. Please retry shortly.', 429);
     }
 
+    const parentStore = this.executionStorage.getStore();
+    const currentDepth = (parentStore?.depth || 0) + 1;
+    if (currentDepth > 10) {
+      throw new AppError(`Function execution exceeded maximum recursion depth of 10`, 400);
+    }
+    const currentActive = new Set(parentStore?.activeFns || []);
+    if (currentActive.has(fn.name)) {
+      throw new AppError(`Cyclic function execution detected: '${fn.name}' is already in call stack`, 400);
+    }
+    currentActive.add(fn.name);
+
     this.activeExecutions++;
     let result: FunctionExecutionResult;
     try {
       const context = this.buildFunctionContext(fn, requestCtx, undefined, actor);
-      result = await this.runner.execute(fn.code, context, {
-        timeoutMs: fn.timeoutMs,
-        memoryLimitMb: fn.memoryLimitMb,
-      });
+      result = await this.executionStorage.run(
+        { depth: currentDepth, activeFns: currentActive },
+        async () => {
+          return await this.runner.execute(fn.code, context, {
+            timeoutMs: fn.timeoutMs,
+            memoryLimitMb: fn.memoryLimitMb,
+          });
+        }
+      );
     } finally {
       this.activeExecutions = Math.max(0, this.activeExecutions - 1);
       this.queueService?.wakeAllWorkers();
@@ -754,6 +788,10 @@ export class FunctionService {
         actorId: eventCtx.auth?.id || undefined,
       });
 
+      if (result.status === 'timeout' && eventCtx.isBefore) {
+        throw new AppError(result.error || `Before-hook function '${fn.name}' timed out`, 504);
+      }
+
       if (result.status === 'error' && eventCtx.isBefore) {
         const isRecursion = result.error?.includes('recursion');
         throw new AppError(result.error || `Function '${fn.name}' failed`, isRecursion ? 508 : 500);
@@ -869,7 +907,9 @@ export class FunctionService {
     actor?: any
   ): FunctionHostServices {
     // If elevated is true, run as service-role (bypassing user rules)
-    const effectiveAuth = fn.elevated ? { isAdmin: true, id: 'service-role' } : (actor || requestCtx?.auth || null);
+    const effectiveAuth = fn.elevated
+      ? { isAdmin: true, id: 'service-role' }
+      : (requestCtx && requestCtx.auth !== undefined ? requestCtx.auth : (actor || null));
 
     const safeFetch = SsrfGuard.createGuardedFetch(fn.allowedDomains, fn.timeoutMs);
 

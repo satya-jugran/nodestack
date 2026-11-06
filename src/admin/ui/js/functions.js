@@ -691,7 +691,7 @@ function renderFunctionLogsTable(logs) {
         </td>
         <td style="padding: 10px 14px;">${statusBadge}</td>
         <td style="padding: 10px 14px; font-size: 12px; font-weight: 600;">${l.durationMs}ms</td>
-        <td style="padding: 10px 14px;"><code style="font-size: 11px;">${escapeHtml(l.method || 'POST')}</code></td>
+        <td style="padding: 10px 14px;"><code style="font-size: 11px;">${escapeHtml(l.trigger || l.method || 'http')}</code></td>
         <td style="padding: 10px 14px; font-size: 12px; color: var(--text-muted);">${escapeHtml(l.actorId || 'public')}</td>
         <td style="padding: 10px 14px; text-align: right;">
           <button class="btn btn-secondary btn-sm" onclick="viewLogPayload('${l.id}')" title="Inspect Request/Response payload" style="font-size: 11px; padding: 2px 8px;">
@@ -718,6 +718,9 @@ function renderFunctionLogsTable(logs) {
           <button class="btn btn-secondary btn-sm" onclick="loadFunctionLogs(${functionsState.logFilter.page || 1})">
             Refresh
           </button>
+          <button class="btn btn-danger btn-sm" onclick="openClearLogsModal()">
+            Clear Logs
+          </button>
         </div>
       </div>
 
@@ -729,7 +732,7 @@ function renderFunctionLogsTable(logs) {
               <th style="padding: 10px 14px; font-size: 11.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Function</th>
               <th style="padding: 10px 14px; font-size: 11.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Status</th>
               <th style="padding: 10px 14px; font-size: 11.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Latency</th>
-              <th style="padding: 10px 14px; font-size: 11.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Method</th>
+              <th style="padding: 10px 14px; font-size: 11.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Trigger / Method</th>
               <th style="padding: 10px 14px; font-size: 11.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Caller</th>
               <th style="padding: 10px 14px; font-size: 11.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; text-align: right;">Payload</th>
             </tr>

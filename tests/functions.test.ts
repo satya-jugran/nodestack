@@ -1373,4 +1373,181 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(data.fetchedAmount).toBe(88);
     });
   });
+
+  describe('8. Syntax Flexibility, Lifecycle Safety & Cross-System Referential Integrity', () => {
+    it('should execute top-level named function declarations without export default', async () => {
+      const createRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/functions',
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: {
+          name: 'named-declaration-fn',
+          code: `
+            async function handler(core, ctx) {
+              return { success: true, message: 'Executed via named function declaration' };
+            }
+          `,
+          enabled: true,
+          authPolicy: 'public',
+          methods: ['GET', 'POST'],
+        },
+      });
+      expect(createRes.statusCode).toBe(201);
+
+      const invokeRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/functions/named-declaration-fn/invoke',
+        payload: {},
+      });
+      expect(invokeRes.statusCode).toBe(200);
+      expect(invokeRes.json()).toEqual({ success: true, message: 'Executed via named function declaration' });
+    });
+
+    it('should safely evaluate payloads containing U+2028 and U+2029 line/paragraph separators', async () => {
+      const createRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/functions',
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: {
+          name: 'unicode-separator-fn',
+          code: `
+            export default async function(core, ctx) {
+              return { echo: ctx.request.body.text };
+            }
+          `,
+          enabled: true,
+          authPolicy: 'public',
+          methods: ['POST'],
+        },
+      });
+      expect(createRes.statusCode).toBe(201);
+
+      const invokeRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/functions/unicode-separator-fn/invoke',
+        payload: { text: "line 1\u2028line 2\u2029paragraph 2" },
+      });
+      expect(invokeRes.statusCode).toBe(200);
+      expect(invokeRes.json().echo).toContain('line 1');
+      expect(invokeRes.json().echo).toContain('line 2');
+    });
+
+    it('should automatically synchronize referenced Task states in flows when a function is renamed', async () => {
+      // 1. Create a function
+      const fn = app.functions.createFunction({
+        name: 'flow-target-rename-initial',
+        code: 'export default async function(core, ctx) { return { ok: true }; }',
+        enabled: true,
+        authPolicy: 'public',
+      });
+
+      // 2. Create a flow referencing this function
+      const flow = app.flows.createFlow({
+        name: 'DependentFlowRenameTest',
+        definition: {
+          startAt: 'TaskStep',
+          states: {
+            TaskStep: {
+              type: 'Task',
+              function: 'flow-target-rename-initial',
+              end: true,
+            },
+          },
+        },
+      });
+
+      // 3. Rename the function
+      app.functions.updateFunction(fn.id, {
+        name: 'flow-target-renamed-final',
+      });
+
+      // 4. Verify the flow definition in DB now references the new function name
+      const reloadedFlow = app.flows.getFlowById(flow.id);
+      expect(reloadedFlow).toBeDefined();
+      expect((reloadedFlow!.definition.states.TaskStep as any).function).toBe('flow-target-renamed-final');
+    });
+
+    it('should abort record creation with 504 Gateway Timeout when a beforeCreate hook times out', async () => {
+      // Create test collection
+      app.schema.createCollection({
+        name: 'timeout_test_orders',
+        type: 'base',
+        schema: [
+          { name: 'item', type: 'text' },
+        ],
+        createRule: '',
+        listRule: '',
+      });
+
+      // Create a beforeCreate function hook that hangs/times out
+      app.functions.createFunction({
+        name: 'hanging-before-hook',
+        code: `
+          export default async function(core, ctx) {
+            await new Promise(() => {});
+            return { ok: true };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        timeoutMs: 150,
+        eventTrigger: 'timeout_test_orders:beforeCreate',
+      });
+
+      // Attempt creating record in collection - must reject with 504 and NOT write record
+      let caughtErr: any;
+      try {
+        await app.records.create('timeout_test_orders', { item: 'Widget A' }, { isAdmin: true, id: 'admin' });
+      } catch (err: any) {
+        caughtErr = err;
+      }
+
+      expect(caughtErr).toBeDefined();
+      expect(caughtErr.statusCode).toBe(504);
+      expect(caughtErr.message).toContain("timed out");
+
+      // Verify no records were saved in collection
+      const list = await app.records.getList('timeout_test_orders');
+      expect(list.totalItems).toBe(0);
+    });
+
+    it('should respect simulated custom or unauthenticated auth contexts in function test runner', async () => {
+      // Create a function that reflects back ctx.auth
+      const fn = app.functions.createFunction({
+        name: 'auth-inspector-fn',
+        code: `
+          export default async function(core, ctx) {
+            return {
+              auth: ctx.auth
+            };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+      });
+
+      // Test with custom simulated auth passed via testFunction
+      const testRes = await app.functions.testFunction(
+        fn.id,
+        {
+          auth: { id: 'simulated_user_99', role: 'customer' },
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(testRes.status).toBe('success');
+      expect(testRes.body.auth).toEqual({ id: 'simulated_user_99', role: 'customer' });
+
+      // Test with explicit null auth (public test)
+      const testNullRes = await app.functions.testFunction(
+        fn.id,
+        {
+          auth: null,
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(testNullRes.status).toBe('success');
+      expect(testNullRes.body.auth).toBeNull();
+    });
+  });
+
 });
