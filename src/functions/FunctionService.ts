@@ -579,6 +579,13 @@ export class FunctionService {
     const currentDepth = (parentStore?.depth || 0) + 1;
     const activeFns = parentStore?.activeFns ? new Set(parentStore.activeFns) : new Set<string>();
 
+    if (currentDepth > this.maxRecursionDepth || activeFns.has(fn.id)) {
+      const errorMsg = activeFns.has(fn.id)
+        ? `Circular recursion detected: function '${fn.name}' already active in call stack`
+        : `Maximum function recursion depth of ${this.maxRecursionDepth} exceeded`;
+      throw new AppError(errorMsg, 508);
+    }
+
     this.activeExecutions++;
     const nextActiveFns = new Set(activeFns);
     nextActiveFns.add(fn.id);
@@ -776,21 +783,24 @@ export class FunctionService {
 
     const parentStore = this.executionStorage.getStore();
     const currentDepth = (parentStore?.depth || 0) + 1;
-    if (currentDepth > 10) {
-      throw new AppError(`Function execution exceeded maximum recursion depth of 10`, 400);
+    const activeFns = parentStore?.activeFns ? new Set(parentStore.activeFns) : new Set<string>();
+
+    if (currentDepth > this.maxRecursionDepth || activeFns.has(fn.id)) {
+      const errorMsg = activeFns.has(fn.id)
+        ? `Circular recursion detected: function '${fn.name}' already active in call stack`
+        : `Maximum function recursion depth of ${this.maxRecursionDepth} exceeded`;
+      throw new AppError(errorMsg, 508);
     }
-    const currentActive = new Set(parentStore?.activeFns || []);
-    if (currentActive.has(fn.name)) {
-      throw new AppError(`Cyclic function execution detected: '${fn.name}' is already in call stack`, 400);
-    }
-    currentActive.add(fn.name);
 
     this.activeExecutions++;
+    const nextActiveFns = new Set(activeFns);
+    nextActiveFns.add(fn.id);
+
     let result: FunctionExecutionResult;
     try {
       const context = this.buildFunctionContext(fn, requestCtx, undefined, effectiveActor);
       result = await this.executionStorage.run(
-        { depth: currentDepth, activeFns: currentActive },
+        { depth: currentDepth, activeFns: nextActiveFns },
         async () => {
           return await this.runner.execute(fn.code, context, {
             timeoutMs: fn.timeoutMs,

@@ -1757,6 +1757,63 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(httpTestData.error).toContain('Authentication token required');
     });
 
+    it('should detect circular recursion when testFunction re-enters its own lifecycle hook and enforce 508 status', async () => {
+      const hookLoopFn = app.functions.createFunction({
+        name: 'test-fn-reentrant-hook',
+        code: `
+          export default async function(core, context) {
+            // Re-enters its own hook via orders:beforeCreate
+            await core.sdk.collection('orders').create({ title: 'Loop from testFunction', amount: 99 });
+            return { status: 200, done: true };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['*'],
+        eventTrigger: 'orders:beforeCreate',
+        timeoutMs: 1500,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: true,
+        env: {},
+      });
+
+      const testRes = await app.functions.testFunction(
+        hookLoopFn.id,
+        {},
+        { id: 'admin_test', isAdmin: true }
+      );
+
+      // The hook execution failed with 508 circular recursion error
+      expect(testRes.status).toBe('error');
+      expect(testRes.error).toMatch(/Circular recursion detected.*test-fn-reentrant-hook.*already active in call stack/);
+
+      // Also verify direct cyclic invocation in testFunction throws 508 AppError
+      const storage = (app.functions as any).executionStorage;
+      await expect(
+        storage.run(
+          { depth: 1, activeFns: new Set([hookLoopFn.id]) },
+          () => app.functions.testFunction(hookLoopFn.id, {}, { id: 'admin_test', isAdmin: true })
+        )
+      ).rejects.toMatchObject({
+        statusCode: 508,
+        message: expect.stringContaining(`Circular recursion detected: function 'test-fn-reentrant-hook' already active in call stack`),
+      });
+
+      // Verify configured depth limit (maxRecursionDepth) throws 508 AppError
+      await expect(
+        storage.run(
+          { depth: 11, activeFns: new Set() },
+          () => app.functions.testFunction(hookLoopFn.id, {}, { id: 'admin_test', isAdmin: true })
+        )
+      ).rejects.toMatchObject({
+        statusCode: 508,
+        message: expect.stringContaining(`Maximum function recursion depth of ${app.functions.getMaxRecursionDepth()} exceeded`),
+      });
+
+      app.functions.deleteFunction(hookLoopFn.id);
+    });
+
   });
 
 });
