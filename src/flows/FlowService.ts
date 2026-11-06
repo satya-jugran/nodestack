@@ -117,6 +117,8 @@ export class FlowService {
           input TEXT,
           output TEXT,
           error TEXT,
+          errorName TEXT,
+          errorCode TEXT,
           durationMs INTEGER NOT NULL,
           stepLogs TEXT,
           actorId TEXT,
@@ -138,6 +140,12 @@ export class FlowService {
       // Migration safeguards for existing databases
       try {
         this.db.exec('ALTER TABLE _flows ADD COLUMN maxConcurrentExecutions INTEGER DEFAULT NULL');
+      } catch {}
+      try {
+        this.db.exec('ALTER TABLE _flow_executions ADD COLUMN errorName TEXT');
+      } catch {}
+      try {
+        this.db.exec('ALTER TABLE _flow_executions ADD COLUMN errorCode TEXT');
       } catch {}
       try {
         this.db.exec('ALTER TABLE _flow_executions ADD COLUMN checkpoint TEXT');
@@ -1857,10 +1865,10 @@ export class FlowService {
 
       this.db.prepare(`
         INSERT OR REPLACE INTO _flow_executions (
-          id, flowId, flowName, status, input, output, error, durationMs,
+          id, flowId, flowName, status, input, output, error, errorName, errorCode, durationMs,
           stepLogs, actorId, actor, queuedAt, jobId, startedAt, finishedAt, checkpoint, claimToken
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         exec.id,
         exec.flowId,
@@ -1869,6 +1877,8 @@ export class FlowService {
         exec.input !== undefined ? JSON.stringify(exec.input) : null,
         exec.output !== undefined ? JSON.stringify(exec.output) : null,
         exec.error || null,
+        exec.errorName || null,
+        exec.errorCode || null,
         exec.durationMs,
         JSON.stringify(exec.stepLogs),
         exec.actorId,
@@ -1912,6 +1922,8 @@ export class FlowService {
       input: row.input ? JSON.parse(row.input) : null,
       output: row.output ? JSON.parse(row.output) : null,
       error: row.error || undefined,
+      errorName: row.errorName || undefined,
+      errorCode: row.errorCode || undefined,
       durationMs: row.durationMs,
       stepLogs: row.stepLogs ? JSON.parse(row.stepLogs) : [],
       actorId: row.actorId,

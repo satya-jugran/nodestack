@@ -133,8 +133,9 @@ export class FlowEngine {
           throw cancelErr;
         }
         const err = new Error(subExec.error || `Sub-flow execution ${subExec.status}`);
-        if (subExec.error) {
-          (err as any).name = subExec.error;
+        err.name = subExec.errorName || 'Error';
+        if (subExec.errorCode) {
+          (err as any).code = subExec.errorCode;
         }
         throw err;
       }
@@ -410,6 +411,8 @@ export class FlowEngine {
         (err as any)?.status === 'cancelled' ||
         (err as any)?.statusCode === 499;
       const totalDuration = baseDurationMs + (Date.now() - startTime);
+      const errorName = err?.name || (err instanceof Error ? 'Error' : undefined);
+      const errorCode = err?.code ? String(err.code) : undefined;
       return {
         id: executionId,
         flowId: options.flowId || 'inline',
@@ -418,6 +421,8 @@ export class FlowEngine {
         input,
         output: currentPayload,
         error: err.message || String(err),
+        errorName,
+        errorCode,
         durationMs: totalDuration,
         stepLogs,
         actorId: typeof options.actor === 'string' ? options.actor : (options.actor?.id || options.actor?.email || null),
@@ -499,13 +504,14 @@ export class FlowEngine {
     }
 
     const errName = error.name || 'Error';
+    const errCode = error.code ? String(error.code) : undefined;
     const errMsg = error.message || '';
 
     return policies.find((policy) => {
       if (!policy.errorEquals || policy.errorEquals.length === 0 || policy.errorEquals.includes('*') || policy.errorEquals.includes('States.ALL')) {
         return true;
       }
-      return policy.errorEquals.some((expected) => expected === errName || errMsg.includes(expected));
+      return policy.errorEquals.some((expected) => expected === errName || (errCode && expected === errCode) || errMsg.includes(expected));
     });
   }
 
@@ -520,13 +526,14 @@ export class FlowEngine {
     }
 
     const errName = error.name || 'Error';
+    const errCode = error.code ? String(error.code) : undefined;
     const errMsg = error.message || '';
 
     const matchingPolicy = catchPolicies.find((policy) => {
       if (!policy.errorEquals || policy.errorEquals.length === 0 || policy.errorEquals.includes('*') || policy.errorEquals.includes('States.ALL')) {
         return true;
       }
-      return policy.errorEquals.some((expected) => expected === errName || errMsg.includes(expected));
+      return policy.errorEquals.some((expected) => expected === errName || (errCode && expected === errCode) || errMsg.includes(expected));
     });
 
     if (!matchingPolicy) {
@@ -536,6 +543,7 @@ export class FlowEngine {
     const errorDetails = {
       error: errName,
       message: errMsg,
+      code: errCode,
       statusCode: (error as any).statusCode || 500,
     };
 

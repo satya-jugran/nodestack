@@ -172,6 +172,8 @@ export interface FlowExecution {
   input: any;
   output?: any;
   error?: string;
+  errorName?: string;
+  errorCode?: string;
   durationMs: number;
   stepLogs: FlowStepLog[];
   actorId?: string | null;

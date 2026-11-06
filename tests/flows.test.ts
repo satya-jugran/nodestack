@@ -5089,6 +5089,173 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(result.output?.catchError).toBeDefined();
     });
 
+    it('should match parent catch policy for Error when child throws new Error with a custom message like declined', async () => {
+      const engine = new FlowEngine();
+      engine.registerHandler('Task', {
+        async execute(state: any) {
+          if (state.function === 'declined-task') {
+            throw new Error('declined');
+          }
+          return { status: 'succeeded', payload: { ok: true } };
+        },
+      });
+      engine.registerHandler('Pass', {
+        async execute(state: any, ctx: any) {
+          return { status: 'succeeded', payload: ctx.payload, nextState: state.next, isEnd: state.end };
+        },
+      });
+
+      const def: FlowDefinition = {
+        startAt: 'RunParallel',
+        states: {
+          RunParallel: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'SubTask',
+                states: {
+                  SubTask: { type: 'Task', function: 'declined-task', end: true },
+                },
+              },
+            ],
+            catch: [
+              {
+                errorEquals: ['Error'],
+                next: 'HandleError',
+                resultPath: '$.catchError',
+              },
+            ],
+            end: true,
+          },
+          HandleError: {
+            type: 'Pass',
+            end: true,
+          },
+        },
+      };
+
+      const result = await engine.execute('CatchStandardErrorTest', def, {});
+      expect(result.status).toBe('succeeded');
+      expect(result.output?.catchError).toBeDefined();
+      expect(result.output?.catchError?.error).toBe('Error');
+      expect(result.output?.catchError?.message).toBe('declined');
+    });
+
+    it('should preserve custom error names differing from message and retain default Error name when no identity is recorded', async () => {
+      const engine = new FlowEngine();
+      engine.registerHandler('Task', {
+        async execute(state: any) {
+          if (state.function === 'custom-failing-task') {
+            const err = new Error('card was declined by payment processor');
+            err.name = 'PaymentDeclinedError';
+            (err as any).code = 'ERR_CARD_DECLINED';
+            throw err;
+          }
+          return { status: 'succeeded', payload: { ok: true } };
+        },
+      });
+      engine.registerHandler('Pass', {
+        async execute(state: any, ctx: any) {
+          return { status: 'succeeded', payload: ctx.payload, nextState: state.next, isEnd: state.end };
+        },
+      });
+
+      // 1. Verify custom error name differing from message matches parent catch policy
+      const defWithCustomName: FlowDefinition = {
+        startAt: 'RunParallel',
+        states: {
+          RunParallel: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'SubTask',
+                states: {
+                  SubTask: { type: 'Task', function: 'custom-failing-task', end: true },
+                },
+              },
+            ],
+            catch: [
+              {
+                errorEquals: ['PaymentDeclinedError'],
+                next: 'HandleCustomError',
+                resultPath: '$.catchError',
+              },
+            ],
+            end: true,
+          },
+          HandleCustomError: {
+            type: 'Pass',
+            end: true,
+          },
+        },
+      };
+
+      const customResult = await engine.execute('CatchCustomNameTest', defWithCustomName, {});
+      expect(customResult.status).toBe('succeeded');
+      expect(customResult.output?.catchError?.error).toBe('PaymentDeclinedError');
+      expect(customResult.output?.catchError?.code).toBe('ERR_CARD_DECLINED');
+      expect(customResult.output?.catchError?.message).toBe('card was declined by payment processor');
+
+      // 2. Verify sub-flow execution without recorded error identity retains default 'Error' name
+      let capturedErrorName: string | undefined;
+      const defWithLegacyError: FlowDefinition = {
+        startAt: 'RunParallel',
+        states: {
+          RunParallel: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'SubTask',
+                states: {
+                  SubTask: { type: 'Task', function: 'declined-task', end: true },
+                },
+              },
+            ],
+            catch: [
+              {
+                errorEquals: ['Error'],
+                next: 'HandleDefaultError',
+                resultPath: '$.catchError',
+              },
+            ],
+            end: true,
+          },
+          HandleDefaultError: {
+            type: 'Pass',
+            end: true,
+          },
+        },
+      };
+
+      // Mock sub-flow execution returning failed status with error message but without errorName
+      let callCount = 0;
+      const originalExecute = engine.execute.bind(engine);
+      engine.execute = async (name: string, definition: FlowDefinition, input: any, options: any) => {
+        callCount++;
+        // If it is the sub-flow execution (inner execution)
+        if (callCount > 1) {
+          return {
+            id: 'legacy_sub_exec',
+            flowId: 'inline',
+            flowName: name,
+            status: 'failed',
+            input,
+            error: 'legacy raw failure message',
+            // errorName intentionally omitted
+            durationMs: 5,
+            stepLogs: [],
+            startedAt: new Date().toISOString(),
+          };
+        }
+        return originalExecute(name, definition, input, options);
+      };
+
+      const legacyResult = await engine.execute('ParentWithLegacy', defWithLegacyError, {});
+      expect(legacyResult.status).toBe('succeeded');
+      expect(legacyResult.output?.catchError?.error).toBe('Error');
+      expect(legacyResult.output?.catchError?.message).toBe('legacy raw failure message');
+    });
+
     it('should preserve in-flight execution claims and active status during crash recovery', async () => {
       const flowService = app.flows;
 
