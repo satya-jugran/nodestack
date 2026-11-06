@@ -623,8 +623,8 @@ function updateLoopCondition(stepName, prop, val) {
   if (!step.condition) step.condition = { variable: '$.counter' };
   if (prop === 'variable') {
     let cleanVal = String(val || '').trim();
-    if (cleanVal && !cleanVal.startsWith('$.')) {
-      cleanVal = '$.' + cleanVal;
+    if (cleanVal && !cleanVal.startsWith('$')) {
+      cleanVal = cleanVal.startsWith('[') ? '$' + cleanVal : '$.' + cleanVal;
     }
     step.condition.variable = cleanVal;
   } else if (prop === 'numericLessThan') {

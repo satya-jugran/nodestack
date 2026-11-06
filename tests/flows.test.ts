@@ -1571,6 +1571,47 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(diagramContainer?.innerHTML).toContain('<tspan');
     });
 
+    it('should correctly format loop condition variables preserving root and bracket notations', () => {
+      const prevFlow = win.designerState.activeFlow;
+      win.designerState.activeFlow = {
+        id: 'loop_flow',
+        definition: {
+          startAt: 'Loop1',
+          states: {
+            Loop1: {
+              type: 'Loop',
+              target: 'Loop1',
+              condition: { variable: '$.counter', numericLessThan: 10 },
+            },
+          },
+        },
+      };
+
+      try {
+        // 1. Root path '$' must not be rewritten to '$.$'
+        win.updateLoopCondition('Loop1', 'variable', '$');
+        expect(win.designerState.activeFlow.definition.states.Loop1.condition.variable).toBe('$');
+
+        // 2. Bracket path '$[0]' must not be rewritten to '$.$[0]'
+        win.updateLoopCondition('Loop1', 'variable', '$[0]');
+        expect(win.designerState.activeFlow.definition.states.Loop1.condition.variable).toBe('$[0]');
+
+        // 3. Dot path '$.items[0].count' already starting with '$' is preserved
+        win.updateLoopCondition('Loop1', 'variable', '$.items[0].count');
+        expect(win.designerState.activeFlow.definition.states.Loop1.condition.variable).toBe('$.items[0].count');
+
+        // 4. Plain property name without '$' gets prepended with '$.'
+        win.updateLoopCondition('Loop1', 'variable', 'counter');
+        expect(win.designerState.activeFlow.definition.states.Loop1.condition.variable).toBe('$.counter');
+
+        // 5. Raw bracket '[0]' without '$' gets prepended with '$'
+        win.updateLoopCondition('Loop1', 'variable', '[0]');
+        expect(win.designerState.activeFlow.definition.states.Loop1.condition.variable).toBe('$[0]');
+      } finally {
+        win.designerState.activeFlow = prevFlow;
+      }
+    });
+
     it('should toggle Test Runner Drawer and execute flow', () => {
       win.toggleTestDrawer();
       expect(win.designerState.isTestDrawerOpen).toBe(true);
