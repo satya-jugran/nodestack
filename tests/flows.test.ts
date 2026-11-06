@@ -5436,5 +5436,71 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(thrownErr.statusCode).toBe(499);
       expect(elapsed).toBeLessThan(1500);
     });
+
+    it('should not resurrect execution records when clearExecutions is called during an actively running execution', async () => {
+      const activeFlow = app.flows.createFlow({
+        name: 'ClearActiveRunningResurrectFlow',
+        enabled: true,
+        triggerType: 'http',
+        definition: {
+          startAt: 'SlowStep',
+          states: {
+            SlowStep: {
+              type: 'Wait',
+              seconds: 0.25,
+              end: true,
+            },
+          },
+        },
+      });
+
+      const runningExec = await app.flows.executeFlow(activeFlow.id, { test: 1 }, undefined, { wait: false });
+      expect(runningExec.status).toBe('running');
+
+      // Clear executions while runner is actively in flight
+      app.flows.clearExecutions(activeFlow.id);
+      expect(app.flows.getExecutionById(runningExec.id)).toBeNull();
+
+      // Wait for the runner's Wait timer to finish and terminate
+      await new Promise((r) => setTimeout(r, 400));
+
+      // Record must not be resurrected in SQLite by saveExecution
+      expect(app.flows.getExecutionById(runningExec.id)).toBeNull();
+      const list = app.flows.getExecutions({ flowId: activeFlow.id });
+      expect(list.totalItems).toBe(0);
+
+      app.flows.deleteFlow(activeFlow.id);
+    });
+
+    it('should not resurrect execution records when deleteFlow is called during an actively running execution', async () => {
+      const activeFlow = app.flows.createFlow({
+        name: 'DeleteActiveRunningResurrectFlow',
+        enabled: true,
+        triggerType: 'http',
+        definition: {
+          startAt: 'SlowStep',
+          states: {
+            SlowStep: {
+              type: 'Wait',
+              seconds: 0.25,
+              end: true,
+            },
+          },
+        },
+      });
+
+      const runningExec = await app.flows.executeFlow(activeFlow.id, { test: 1 }, undefined, { wait: false });
+      expect(runningExec.status).toBe('running');
+
+      // Delete flow while runner is actively in flight
+      app.flows.deleteFlow(activeFlow.id);
+      expect(app.flows.getExecutionById(runningExec.id)).toBeNull();
+
+      // Wait for runner to complete
+      await new Promise((r) => setTimeout(r, 400));
+
+      // Record must not be resurrected
+      expect(app.flows.getExecutionById(runningExec.id)).toBeNull();
+    });
   });
 });
