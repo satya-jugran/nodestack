@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:c54cfd6b6dd05ef00313ad7057aa04f52a36bdf5a10954f78c83097f72bbbab0",
+  "claims": [
+    {
+      "id": "claim_d8170633bd4a4cb798aa45ef105ae15f",
+      "statement": "FileStorageService stores record files under <dataDir>/storage/<collectionId>/<recordId>, enforces maxSize and mimeTypes options, appends an 8-character random hex suffix on saveFile(), and validates path containment to prevent path traversal.",
+      "evidence": [
+        {
+          "resource": "repo://src/files/FileStorageService.ts",
+          "version": "repo-file-v1:sha256:ed3012e862c2dcb5faf5e8b4587d4f6b0b9bdafccb2699c9f342cf06c2713bf1"
+        }
+      ]
+    },
+    {
+      "id": "claim_59a71dfd961b44e39b84d1436f1f58a4",
+      "statement": "RealtimeService manages Server-Sent Events (SSE) clients with 25-second keepalive pings, topic subscriptions (*, <collection>, <collection>/<recordId>), and per-client RuleEngine.evaluate(collection.viewRule) checks before broadcasting record events.",
+      "evidence": [
+        {
+          "resource": "repo://src/realtime/RealtimeService.ts",
+          "version": "repo-file-v1:sha256:180cce474318455014788fdd61ae1f39aa05f92de488342a151da0d2d0b5a1df"
+        }
+      ]
+    },
+    {
+      "id": "claim_1b20b0a26282430c90970f2cbd86dc6b",
+      "statement": "WebhookService stores configurations in _webhooks and delivery logs in _webhook_deliveries, signs payloads with HMAC-SHA256 in X-NodeStack-Signature when a secret is set, and dispatches requests through SsrfGuard.createGuardedFetch().",
+      "evidence": [
+        {
+          "resource": "repo://src/webhooks/WebhookService.ts",
+          "version": "repo-file-v1:sha256:0f13a744ab396ecdbc026a7b4a7182a51ec573c2fabdf80231c664e2d29055fb"
+        }
+      ]
+    },
+    {
+      "id": "claim_273462bafb3448a0ba2ed447e4deed5a",
+      "statement": "SnapshotService manages up to 10 point-in-time snapshots in <dataDir>/.snapshots/ using MaintenanceGate.executeExclusive(), SQLite VACUUM INTO, storage directory copies, and deterministic SHA-256 content hashes for drift detection.",
+      "evidence": [
+        {
+          "resource": "repo://src/snapshots/SnapshotService.ts",
+          "version": "repo-file-v1:sha256:8847cafe158fa5b97b3ef347121c0e75de5a94442d9e34353ca16d87e2e2048b"
+        }
+      ]
+    },
+    {
+      "id": "claim_f1e62afcf88d49deaeaa66637e582043",
+      "statement": "AuditLogService records afterCreate, afterUpdate, and afterDelete events in _audit_logs with field-level diffs while redacting password, passwordHash, tokenKey, secret, apiKey, and token fields to '[REDACTED]'.",
+      "evidence": [
+        {
+          "resource": "repo://src/audit/AuditLogService.ts",
+          "version": "repo-file-v1:sha256:9286a66c1be288406ffdae9e7ea2b4959847a0a8d6291d26391455ec97980336"
+        }
+      ]
+    },
+    {
+      "id": "claim_44557118143e452f95029915f357dd84",
+      "statement": "LogService buffers HTTP request logs in memory (up to 50 entries or 250ms) before batch-inserting into _logs, and AnalyticsService aggregates database sizes, collection counts, connected SSE clients, and 24-hour hourly traffic metrics.",
+      "evidence": [
+        {
+          "resource": "repo://src/analytics/AnalyticsService.ts",
+          "version": "repo-file-v1:sha256:16ac319f67c5b3b65c23b75a9030e7dffbe2166b53563fa012421156b9b6188c"
+        },
+        {
+          "resource": "repo://src/logger/LogService.ts",
+          "version": "repo-file-v1:sha256:4a83ab0077a8a9b3fbe7d37701bf268f12bc91c827da60c6a2f9b4e6acea6781"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-05T17:08:40.212Z"
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:285d4c81475fbe03d494ef5075b8d280faa487c78f459cc1eff6fde5bad0d318",
+  "claims": [
+    {
+      "id": "claim_a51bc3f7dc554f178b8a75c619043e86",
+      "statement": "FunctionService and QuickJsWasmRuntime execute serverless functions inside a QuickJS WebAssembly sandbox with configurable memory limits, CPU deadlines, auth policies (public, auth, admin, apiKey), concurrency throttling, and AsyncLocalStorage recursion guards.",
+      "evidence": [
+        {
+          "resource": "repo://src/functions/FunctionService.ts",
+          "version": "repo-file-v1:sha256:e55bd245b37faedb589113b2a6b909c53b47e6ade1c6429838337e267f0966fa"
+        },
+        {
+          "resource": "repo://src/functions/runtime/QuickJsWasmRuntime.ts",
+          "version": "repo-file-v1:sha256:bab2eb34a22958154c6c42fbecfe17d22f4870170b4d150d2600c395f8eda3b2"
+        },
+        {
+          "resource": "repo://src/functions/runtime/SandboxedRunner.ts",
+          "version": "repo-file-v1:sha256:5fbe6583842ae414e6e816b2da6562b241cf5da7ae553ca12abd21ed06a28d19"
+        }
+      ]
+    },
+    {
+      "id": "claim_6341ae2b035c4b64987d6ac24a1bc67c",
+      "statement": "SsrfGuard validates outbound URLs against private IPv4/IPv6 ranges, cloud metadata hosts, and domain allowlists, and pins resolved DNS addresses onto HTTP/HTTPS requests to prevent DNS rebinding.",
+      "evidence": [
+        {
+          "resource": "repo://src/functions/security/SsrfGuard.ts",
+          "version": "repo-file-v1:sha256:5f20f8ec9b5577e3976e32ef83bfc8cbafbae262ebbaf49febc264b7d6369088"
+        }
+      ]
+    },
+    {
+      "id": "claim_6db35ac3cb2542c5afe6e68d801369cd",
+      "statement": "FlowEngine and StateHandlers execute 9 state types (Task, Choice, Map, Loop, Parallel, Pass, Wait, Succeed, Fail) with JSONPath payload mapping via FlowPathMapper, retry policies, catch transitions, and a 500-step transition cap.",
+      "evidence": [
+        {
+          "resource": "repo://src/flows/FlowEngine.ts",
+          "version": "repo-file-v1:sha256:c3471dd9d1d1134f69c32d5cbff547c9e72ff02e16a3fc2930add8107bee9b22"
+        },
+        {
+          "resource": "repo://src/flows/runtime/ChoiceEvaluator.ts",
+          "version": "repo-file-v1:sha256:52e2a4793ddc91ffec576e546990ade87d6e5bcc41aa7eb99674c48cc400946e"
+        },
+        {
+          "resource": "repo://src/flows/runtime/StateHandlers.ts",
+          "version": "repo-file-v1:sha256:b7929ce110b039f17b4c1d7a0abe7eb7a5a37fdc670165da5503b0e24960ed8e"
+        },
+        {
+          "resource": "repo://src/flows/utils/FlowPathMapper.ts",
+          "version": "repo-file-v1:sha256:f7a38592fffc2de87212df3dc9142658287166bbd644281c1a8369258416c8e4"
+        }
+      ]
+    },
+    {
+      "id": "claim_518c92374ec84c41b7d107b09b5552f4",
+      "statement": "FlowService validates workflow definitions via FlowValidator, persists step-level checkpoints in _flow_executions for crash recovery (abort or resume), and throttles concurrent flow executions through _system:flow:* queues.",
+      "evidence": [
+        {
+          "resource": "repo://src/flows/FlowService.ts",
+          "version": "repo-file-v1:sha256:d26bcd59f829e4a016e2b22efbf4747497ff3ee7e750ef9dc3bbfc9baaa908c1"
+        },
+        {
+          "resource": "repo://src/flows/FlowValidator.ts",
+          "version": "repo-file-v1:sha256:ac4440bcb308af37637e96d18f79af30b8dbf3e74eadbdb3d3794a89adaa34b0"
+        }
+      ]
+    },
+    {
+      "id": "claim_2e42e565fab2411184d2721d6fe2ff48",
+      "statement": "QueueService and SqliteQueueDriver manage persistent background jobs in _queues and _queue_jobs with atomic lease claiming, priority ordering, deduplication, exponential backoff retries, dead-letter queue forwarding, and targetFunction worker execution.",
+      "evidence": [
+        {
+          "resource": "repo://src/queue/QueueService.ts",
+          "version": "repo-file-v1:sha256:8fcadeba9eb3ec8a3fe04d29536437bd215ff44aa7dd67bef69d0f2451a073e8"
+        },
+        {
+          "resource": "repo://src/queue/drivers/SqliteQueueDriver.ts",
+          "version": "repo-file-v1:sha256:10c6ffedc67898f8bc0b1bd10f8205384ba1e7dcdb504ecf51473fa04f007b9f"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-05T17:08:40.212Z"
+  }
+}

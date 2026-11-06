@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:fc3a715751f132cfb36fd905d11ff5db0b6eee946eac9e257c866bd6b63917d1",
+  "claims": [
+    {
+      "id": "claim_94d5e801b563413891e89f45f2242afe",
+      "statement": "NodeSqliteDriver wraps Node's built-in node:sqlite DatabaseSync with WAL mode, foreign keys, a 5000ms busy timeout, and synchronous nested transaction support via SAVEPOINTs that rejects async callbacks.",
+      "evidence": [
+        {
+          "resource": "repo://src/database/DatabaseService.ts",
+          "version": "repo-file-v1:sha256:da7f53563aa86e8641edf7ffc0b0f8b58c22fb1c76fe6022b0f5e5b5bf525d54"
+        },
+        {
+          "resource": "repo://src/database/drivers/NodeSqliteDriver.ts",
+          "version": "repo-file-v1:sha256:7113f60529d383ca33cc1290a9d0c992be1fa2afe3c2b4385f4353704865ce12"
+        }
+      ]
+    },
+    {
+      "id": "claim_3afbb167b1444b9ca7655e824fbbdd14",
+      "statement": "SystemMigrations bootstraps internal metadata tables (_collections, _admins, _logs, _params, _audit_logs, _webhooks, _webhook_deliveries, _external_auths, _api_keys) and seeds the default users auth collection.",
+      "evidence": [
+        {
+          "resource": "repo://src/database/migrations/SystemMigrations.ts",
+          "version": "repo-file-v1:sha256:b59b37bf24bf70a82077d73396d5ca46ddd4f1699285405b617f41cd407f24e9"
+        }
+      ]
+    },
+    {
+      "id": "claim_488e2bcbd29942bf8d97126df885abd6",
+      "statement": "SchemaService manages base, auth, and view collections, validates reserved field and FTS5 column names, dynamically alters SQLite tables on schema updates, and synchronizes FTS5 virtual tables via FtsService.",
+      "evidence": [
+        {
+          "resource": "repo://src/records/FtsService.ts",
+          "version": "repo-file-v1:sha256:dfcb24b9e67aed7cf2e1a08a8bd4e375ddf6205f48d51bc50c910d54adf77233"
+        },
+        {
+          "resource": "repo://src/schema/SchemaService.ts",
+          "version": "repo-file-v1:sha256:784f12867e315cec6a366bd1785487ab49015b9495567db70d7444c3db91bb38"
+        }
+      ]
+    },
+    {
+      "id": "claim_32552db8ce51496394f95bf5087ed9ad",
+      "statement": "SchemaInferenceService infers collection schemas from raw JSON payloads or envelopes and imports records inside a single SQLite transaction, while TypeGenerator and OpenApiGenerator emit TypeScript interfaces and OpenAPI 3.0.3 specs.",
+      "evidence": [
+        {
+          "resource": "repo://src/schema/OpenApiGenerator.ts",
+          "version": "repo-file-v1:sha256:737101e0b973f8e18236ce6f1e4e83f148b706d35a1baf3e676506f2aaf855a3"
+        },
+        {
+          "resource": "repo://src/schema/SchemaInferenceService.ts",
+          "version": "repo-file-v1:sha256:4365251b4431eb06bf38f51f33be09d679a47b9e4f3a9c9493683e12c238db2c"
+        },
+        {
+          "resource": "repo://src/schema/TypeGenerator.ts",
+          "version": "repo-file-v1:sha256:4a04fe1802e7eaf2f2f2315b496a13dbe7eebcc6f708c881c47e390adaa532c5"
+        }
+      ]
+    },
+    {
+      "id": "claim_d313e2cd85e849d297d0e54124a5d8ae",
+      "statement": "RecordService executes CRUD, single-level relation expansion, CSV/JSON import and export via CsvHelper, parameterized SQL filtering via QueryFilterParser, and synthetic record generation via MockDataService and FakerEngine.",
+      "evidence": [
+        {
+          "resource": "repo://src/records/MockDataService.ts",
+          "version": "repo-file-v1:sha256:37d0f830e63c8d3c3865a6928a1b0522a7866170ca5b7895cd95ebb4096a8a70"
+        },
+        {
+          "resource": "repo://src/records/QueryFilterParser.ts",
+          "version": "repo-file-v1:sha256:eba2d44e9f6e5c8710791d4c216ee35985cf958297e621b67e611b365c65379a"
+        },
+        {
+          "resource": "repo://src/records/RecordService.ts",
+          "version": "repo-file-v1:sha256:2922a42176a0678469f5c667f5448533cc99932b2a43d75e0983d3c92728fce7"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-05T17:08:40.212Z"
+  }
+}

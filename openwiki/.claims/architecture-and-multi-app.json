@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:36826f7a7c47145b6bc71bfba0412e704c59d3b90531305a23d64232f6755785",
+  "claims": [
+    {
+      "id": "claim_c8432bbd7dd24b64ab928e9c10483259",
+      "statement": "NodeStack initializes global infrastructure and delegates tenant-specific state to AppScope instances.",
+      "evidence": [
+        {
+          "resource": "repo://src/NodeStack.ts",
+          "version": "repo-file-v1:sha256:8069a908d440bbee0790e612492c16a2cee8a1e5a4409deb45d8ffa169cb428e"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-05T17:08:40.212Z"
+  }
+}

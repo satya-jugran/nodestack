@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:50dbbe9b0d8156d4ccfe2f2e1a7e8e73933783f5ffdbef59d5d309aa775baf2d",
+  "claims": [
+    {
+      "id": "claim_e0a4841e457a4b0cbe35115f2034eb88",
+      "statement": "The nodestack CLI (src/cli/cli.ts) provides start (alias serve), superuser (create, reset-password), typegen, openapi, mock, import-json, template, collection, and snapshots commands.",
+      "evidence": [
+        {
+          "resource": "repo://package.json",
+          "version": "repo-file-v1:sha256:9fa66b3e4270c6e4ef0b073823b62b6de06042c09f8e63bd3e09f8eced05f3cf"
+        },
+        {
+          "resource": "repo://src/cli/cli.ts",
+          "version": "repo-file-v1:sha256:1a8ea80f23c08051a6f176b81c22b14d4f680c42b0f94326e8f5f03f1686216f"
+        }
+      ]
+    },
+    {
+      "id": "claim_5fd47a0eadd7476b878dd90f4edb8f20",
+      "statement": "NodeStack can be embedded programmatically via new NodeStack(options), exposing schema, records, auth, router, functions, flows, queues, files, realtime, webhooks, snapshots, plugins, and templates services along with record lifecycle hooks.",
+      "evidence": [
+        {
+          "resource": "repo://src/NodeStack.ts",
+          "version": "repo-file-v1:sha256:8069a908d440bbee0790e612492c16a2cee8a1e5a4409deb45d8ffa169cb428e"
+        },
+        {
+          "resource": "repo://src/index.ts",
+          "version": "repo-file-v1:sha256:bbf633486622fbf083393e9cb8be3204c2d31e8405fb20054d654e1a5edcac3e"
+        },
+        {
+          "resource": "repo://tests/nodestack.test.ts",
+          "version": "repo-file-v1:sha256:3f7db1b325b75fc6d65c38c90eeab14def9a6aede0b62f2cacccba21ba69f9b3"
+        }
+      ]
+    },
+    {
+      "id": "claim_daee76a2a6e04bc99a6ce4c3c46c7ae2",
+      "statement": "NodeStack loads .env files from process.cwd() and dataDir via EnvLoader, honours NODESTACK_DATA_DIR, NODESTACK_HOST/HOST, NODESTACK_PORT/PORT, JWT_SECRET, and NODESTACK_MASTER_KEY, and persists runtime settings in the _settings table via ConfigService.",
+      "evidence": [
+        {
+          "resource": "repo://src/cli/cli.ts",
+          "version": "repo-file-v1:sha256:1a8ea80f23c08051a6f176b81c22b14d4f680c42b0f94326e8f5f03f1686216f"
+        },
+        {
+          "resource": "repo://src/core/config/ConfigService.ts",
+          "version": "repo-file-v1:sha256:e14bdcbcbd4e86c723448326e696842cdc179a400c326a08abd69ce352613fe2"
+        },
+        {
+          "resource": "repo://src/core/config/EnvLoader.ts",
+          "version": "repo-file-v1:sha256:17144047d3b71f54eef8b145586be9815880ebff6884564399bcf5377ab0ba37"
+        }
+      ]
+    },
+    {
+      "id": "claim_823a9449b0cb4eac8000e27cefee3afb",
+      "statement": "package.json defines scripts for building the TypeScript server and React Admin UI (npm run build), running the Vitest test suite (npm test), and bundling a Node.js Single Executable Application via src/cli/sea-entry.ts (npm run build:exe).",
+      "evidence": [
+        {
+          "resource": "repo://package.json",
+          "version": "repo-file-v1:sha256:9fa66b3e4270c6e4ef0b073823b62b6de06042c09f8e63bd3e09f8eced05f3cf"
+        },
+        {
+          "resource": "repo://src/cli/sea-entry.ts",
+          "version": "repo-file-v1:sha256:f3135fd82341148c102ff7204cf537893d0665e8fd00d66d3f0b185081cc31b5"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-05T17:08:40.212Z"
+  }
+}

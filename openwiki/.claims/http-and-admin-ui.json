@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:0acd78d185a1bc3ac7152f476fa2b4542d60b0809da5c0b725af748096c23f58",
+  "claims": [
+    {
+      "id": "claim_8a8b9d89e7b340a4b9bb2285225cdc4e",
+      "statement": "HttpServer configures Fastify with CORS, 100MB multipart uploads, CSV content parsing, MaintenanceGate request tracking, rawBody buffering for dynamic plugin routes, and dual-scoped REST routes (/api/... and /api/apps/:appId/...).",
+      "evidence": [
+        {
+          "resource": "repo://src/http/HttpServer.ts",
+          "version": "repo-file-v1:sha256:cc3d81a485be48163a02685fea60d3702b19acc3d9b2c49a761334629c386905"
+        },
+        {
+          "resource": "repo://src/http/controllers/BaseController.ts",
+          "version": "repo-file-v1:sha256:e39f5e607b2ecd876a801364092d6d85954b40f559870b228600eed8bd9e4c7d"
+        },
+        {
+          "resource": "repo://src/http/controllers/CollectionController.ts",
+          "version": "repo-file-v1:sha256:13ebea8bf3b05355dc90c9af927f4fdd8d42cf5c4caa5b80ac9cfda73a66ec89"
+        },
+        {
+          "resource": "repo://src/http/controllers/RecordController.ts",
+          "version": "repo-file-v1:sha256:975ba4c56165fba9281fe9ed616f694ecb582d94fe27816e1ea46f1a408ac9b6"
+        }
+      ]
+    },
+    {
+      "id": "claim_97fd985b5f87431fa65eb78c5fc429ed",
+      "statement": "AppResolutionMiddleware resolves the active AppScope from URL parameters (/api/apps/:appId), x-nodestack-app or x-app-id headers, ?app query parameters, or the default app fallback.",
+      "evidence": [
+        {
+          "resource": "repo://src/http/middleware/AppResolutionMiddleware.ts",
+          "version": "repo-file-v1:sha256:cad0c3c7c7486856c0581f1e4ec5de8738afb86a128bd4147f7ee18993d5bfe4"
+        }
+      ]
+    },
+    {
+      "id": "claim_78f83d0c4f5e45fbbf7794eab488b27e",
+      "statement": "ChaosMiddleware simulates configurable network latency, jitter, failure rates, HTTP 4xx/5xx errors, and raw TCP socket drops while exempting protected health, admin auth, snapshot, and realtime endpoints.",
+      "evidence": [
+        {
+          "resource": "repo://src/http/middleware/ChaosMiddleware.ts",
+          "version": "repo-file-v1:sha256:5e961059f96ba3c048070ba52c0f34621d76f43115cb29e6a9fb073a2f264be5"
+        }
+      ]
+    },
+    {
+      "id": "claim_26bf1f43abb24bdda368fd76b32b41be",
+      "statement": "AdminUIBundler and AdminUIService inline the modular CSS and JS frontend files under src/admin/ui/ (or load Node SEA assets) into a single HTML document served at /_/ with XSS-escaped plugin metadata injection.",
+      "evidence": [
+        {
+          "resource": "repo://src/admin/AdminUIBundler.ts",
+          "version": "repo-file-v1:sha256:0e32ff6c6f3ca41494879d5fefa3bae7fb05a65f51ba43f0c6c5ea9dbe94ce1f"
+        },
+        {
+          "resource": "repo://src/admin/AdminUIService.ts",
+          "version": "repo-file-v1:sha256:567f50302fabf8e31bf393ffad04e9d793d1467af905779b62692b231f75d6a9"
+        }
+      ]
+    },
+    {
+      "id": "claim_97d751a108d14ed1ab46a5f0ae94c09f",
+      "statement": "DocsService serves app-scoped OpenAPI 3.0 JSON specifications, an interactive Scalar and Swagger UI reference at /_/docs with automatic Admin JWT pre-authorization, and the static Docusaurus portal at /documentation/.",
+      "evidence": [
+        {
+          "resource": "repo://src/admin/DocsService.ts",
+          "version": "repo-file-v1:sha256:cb432772deb65e54e8c2eaf13333fc2a03a810642c71cf384e6f565cec253401"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-05T17:08:40.212Z"
+  }
+}

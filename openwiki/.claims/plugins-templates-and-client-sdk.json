@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:d5692968282684724a546fd837147bd75aeda1071e6848b8eed743f858d899e1",
+  "claims": [
+    {
+      "id": "claim_b690f0f49d864dcbad52372147d84577",
+      "statement": "PluginManager manages plugin registration, runtime dynamic routing via find-my-way, multi-app scope provisioning, and 5 official plugins (stripe, s3-storage, resend, chat-notifications, algolia).",
+      "evidence": [
+        {
+          "resource": "repo://src/core/plugins/PluginManager.ts",
+          "version": "repo-file-v1:sha256:c472e4ffaa4ca9adf7a01ac4050b753f4a32b5892aa3f836c1e55f22c50a78b0"
+        },
+        {
+          "resource": "repo://src/core/plugins/types.ts",
+          "version": "repo-file-v1:sha256:04e9d372fab8defb221a10ca12f618e292e397cfe108943f929dfd8930fb5d0e"
+        },
+        {
+          "resource": "repo://src/plugins/index.ts",
+          "version": "repo-file-v1:sha256:9170f3fa103af997895d429d7fd091fc2fddfa6bd98a0283c105b53821302c84"
+        }
+      ]
+    },
+    {
+      "id": "claim_4461cb72a5b849ecb0e55a3e6706cf02",
+      "statement": "PluginManager resolves plugin configuration in _plugin_settings with strict precedence (env > db > code > default), locks environment-defined fields, and masks password fields in API responses with write-only secret updates.",
+      "evidence": [
+        {
+          "resource": "repo://src/core/plugins/PluginManager.ts",
+          "version": "repo-file-v1:sha256:c472e4ffaa4ca9adf7a01ac4050b753f4a32b5892aa3f836c1e55f22c50a78b0"
+        }
+      ]
+    },
+    {
+      "id": "claim_df12032ed0a040138f9118e2afd295b2",
+      "statement": "TemplateService and TemplateImageGenerator provision starter templates (ecommerce, blog, crm) with relational collections, custom SVG images, seeded records, serverless functions, and workflows.",
+      "evidence": [
+        {
+          "resource": "repo://src/templates/TemplateImageGenerator.ts",
+          "version": "repo-file-v1:sha256:977476fdb28947037ead80d9a0d1965b09409aebbaf899db848cfb3406a46877"
+        },
+        {
+          "resource": "repo://src/templates/TemplateService.ts",
+          "version": "repo-file-v1:sha256:97c09fb9345a8817bc667ff81053c44cbfaafeeea642660e9ff81820b3c7a7e3"
+        },
+        {
+          "resource": "repo://src/templates/definitions/index.ts",
+          "version": "repo-file-v1:sha256:03ab8cf352f53410a73f9d5a40b88e313ad402bce828ba8221778d717374b3b7"
+        }
+      ]
+    },
+    {
+      "id": "claim_d3a24f07216f4d68a1dffe88f4196524",
+      "statement": "NodeStackClient (@nodestackapp/client) provides type-safe collection CRUD, multi-app scoping via client.app(slug), LocalAuthStore and MemoryAuthStore, RFC 7636 PKCE utilities, and client services for queues, functions, flows, realtime SSE, webhooks, and snapshots.",
+      "evidence": [
+        {
+          "resource": "repo://packages/client/src/Client.ts",
+          "version": "repo-file-v1:sha256:c3b35812d53fdaeb29ae9f184191732456f9fe2eeadbea3208f95cb95dffaaa9"
+        },
+        {
+          "resource": "repo://packages/client/src/auth/BaseAuthStore.ts",
+          "version": "repo-file-v1:sha256:d0aef0da5a56fb1018a58f393c070ed569d5fea11f2cf519c6d44636d1a9b56e"
+        },
+        {
+          "resource": "repo://packages/client/src/auth/PkceUtil.ts",
+          "version": "repo-file-v1:sha256:b0337296491daecfaed03e07c333aa60e1168ebdfde38f1ad9e577c36e290dd6"
+        },
+        {
+          "resource": "repo://packages/client/src/index.ts",
+          "version": "repo-file-v1:sha256:3fb075276e422143f970ac82b06584c915c1fabd6edc9df0297cf1b57d7bd16f"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-05T17:08:40.212Z"
+  }
+}
