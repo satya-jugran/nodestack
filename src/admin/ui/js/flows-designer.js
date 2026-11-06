@@ -430,17 +430,13 @@ async function runFlowTest() {
   const flow = designerState.activeFlow;
   if (!flow || !flow.id) return;
 
-  if (designerState.activeMode === 'code' && designerState.cmDslEditor) {
-    try {
-      const parsed = JSON.parse(designerState.cmDslEditor.getValue());
-      flow.definition = parsed;
-    } catch (e) {
-      toast('Invalid JSON in DSL editor: ' + e.message, 'error');
-      return;
-    }
+  // Validate and persist edits before execution so server runs the up-to-date definition
+  const saved = await saveFlowChanges({ silent: true });
+  if (!saved) {
+    return;
   }
 
-  const flowId = flow.id;
+  const flowId = designerState.activeFlow.id;
 
   try {
     const base = getDesignerFlowsApiBase();
@@ -992,9 +988,9 @@ function switchDesignerMode(mode) {
   renderFlowDesignerWorkbench(designerState.activeFlow);
 }
 
-async function saveFlowChanges() {
+async function saveFlowChanges(options = {}) {
   const flow = designerState.activeFlow;
-  if (!flow || !flow.id) return;
+  if (!flow || !flow.id) return false;
 
   if (designerState.activeMode === 'code' && designerState.cmDslEditor) {
     try {
@@ -1002,14 +998,14 @@ async function saveFlowChanges() {
       flow.definition = parsed;
     } catch (e) {
       toast('Invalid JSON in DSL editor: ' + e.message, 'error');
-      return;
+      return false;
     }
   }
 
   const validationError = validateFlowDefinitionClient(flow.definition);
   if (validationError) {
     toast('Validation Error: ' + validationError, 'error');
-    return;
+    return false;
   }
 
   try {
@@ -1037,9 +1033,13 @@ async function saveFlowChanges() {
       updateBreadcrumbs();
     }
 
-    toast('Flow changes saved successfully!', 'success');
+    if (!options || !options.silent) {
+      toast('Flow changes saved successfully!', 'success');
+    }
+    return true;
   } catch (err) {
     toast('Failed to save flow: ' + (err.message || err), 'error');
+    return false;
   }
 }
 
