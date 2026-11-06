@@ -1,5 +1,6 @@
 import { FlowDefinition, FlowState, ChoiceRule, FlowTriggerType } from './types';
 import { AppError } from '../core/errors/AppError';
+import { FlowPathMapper } from './utils/FlowPathMapper';
 
 export class FlowValidator {
   public static validate(def: FlowDefinition, contextPath: string = ''): void {
@@ -161,6 +162,7 @@ export class FlowValidator {
         break;
 
       case 'Map':
+        this.validatePath(name, 'itemsPath', state.itemsPath, contextPath);
         if (!state.itemsPath || !state.itemsPath.startsWith('$')) {
           throw new AppError(`${prefix}Map state '${name}': itemsPath must be a valid JSONPath starting with '$'`, 400);
         }
@@ -250,6 +252,9 @@ export class FlowValidator {
       if (typeof path !== 'string' || (path !== '' && !path.startsWith('$'))) {
         throw new AppError(`${prefix}State '${stateName}': ${propName} must be a valid JSONPath starting with '$'`, 400);
       }
+      if (FlowPathMapper.isUnsafePath(path)) {
+        throw new AppError(`${prefix}State '${stateName}': ${propName} contains forbidden segments (__proto__, constructor, prototype)`, 400);
+      }
     }
   }
 
@@ -312,6 +317,13 @@ export class FlowValidator {
           400
         );
       }
+    }
+
+    if (rule.variable && FlowPathMapper.isUnsafePath(rule.variable)) {
+      throw new AppError(
+        `${prefix}State '${stateName}': ${pathPrefix} variable contains forbidden segments (__proto__, constructor, prototype)`,
+        400
+      );
     }
 
     // Strict type checks for condition operators

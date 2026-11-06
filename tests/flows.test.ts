@@ -4819,13 +4819,69 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(nullResult).toEqual({ data: { status: 'ready' } });
     });
 
-    it('should prevent prototype pollution via __proto__, constructor, or prototype path segments', () => {
-      const target = {};
-      FlowPathMapper.set(target, '$.__proto__.polluted', true);
-      FlowPathMapper.set(target, '$.constructor.prototype.polluted2', true);
+    it('should reject unsafe paths containing __proto__, constructor, or prototype without redirecting reads/writes or replacing root', () => {
+      const payload = { user: { name: 'Alice' }, status: 'active' };
 
+      // 1. Reads with unsafe segments must not redirect to unrelated data (e.g. $.user.name)
+      expect(FlowPathMapper.get(payload, '$.user.constructor.name')).toBeUndefined();
+      expect(FlowPathMapper.get(payload, '$.user.constructor.name', 'fallback')).toBe('fallback');
+      expect(FlowPathMapper.get(payload, '$.__proto__')).toBeUndefined();
+      expect(FlowPathMapper.get(payload, '$.__proto__.polluted')).toBeUndefined();
+      expect(FlowPathMapper.get(payload, '$.constructor.prototype.evil')).toBeUndefined();
+
+      // 2. Writes with unsafe segments must return unchanged target, not redirect or replace root
+      const setProtoRoot = FlowPathMapper.set(payload, '$.__proto__', { replaced: true });
+      expect(setProtoRoot).toEqual({ user: { name: 'Alice' }, status: 'active' });
+      expect((setProtoRoot as any).replaced).toBeUndefined();
+
+      const setRedirect = FlowPathMapper.set(payload, '$.user.constructor.name', 'Hacked');
+      expect(setRedirect).toEqual({ user: { name: 'Alice' }, status: 'active' });
+      expect(setRedirect.user.name).toBe('Alice');
+
+      const setNestedProto = FlowPathMapper.set(payload, '$.__proto__.polluted', true);
+      expect(setNestedProto).toEqual({ user: { name: 'Alice' }, status: 'active' });
       expect((({} as any).polluted)).toBeUndefined();
-      expect((({} as any).polluted2)).toBeUndefined();
+      expect((setNestedProto as any).polluted).toBeUndefined();
+
+      // Bracket notation forms
+      expect(FlowPathMapper.get(payload, '$["__proto__"]')).toBeUndefined();
+      expect(FlowPathMapper.get(payload, '$[\'constructor\']')).toBeUndefined();
+      const setBracketProto = FlowPathMapper.set(payload, '$["__proto__"].polluted', true);
+      expect(setBracketProto).toEqual({ user: { name: 'Alice' }, status: 'active' });
+
+      // 3. FlowValidator rejects flow definitions containing forbidden segments
+      expect(() => {
+        FlowValidator.validate({
+          startAt: 'Step1',
+          states: {
+            Step1: {
+              type: 'Pass',
+              resultPath: '$.__proto__.evil',
+              end: true,
+            },
+          },
+        });
+      }).toThrow(/forbidden segments/);
+
+      expect(() => {
+        FlowValidator.validate({
+          startAt: 'Check',
+          states: {
+            Check: {
+              type: 'Choice',
+              choices: [
+                {
+                  variable: '$.user.constructor.name',
+                  stringEquals: 'Alice',
+                  next: 'Done',
+                },
+              ],
+              default: 'Done',
+            },
+            Done: { type: 'Succeed' },
+          },
+        });
+      }).toThrow(/forbidden segments/);
     });
 
     it('should reject Loop state definitions missing condition rules or terminal/next transitions', () => {

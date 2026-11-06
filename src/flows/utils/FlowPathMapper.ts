@@ -3,9 +3,19 @@
  * Evaluates and mutates JSON objects based on dot/bracket path notations (e.g. $.items[0].id).
  */
 export class FlowPathMapper {
+  private static readonly FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+  /**
+   * Checks whether a JSONPath contains forbidden segments (prototype pollution vectors).
+   */
+  public static isUnsafePath(path?: string): boolean {
+    if (!path) return false;
+    return this.parsePath(path) === null;
+  }
+
   /**
    * Resolves a value from payload using path (e.g. "$.user.name" or "$.items[0]").
-   * Returns defaultValue or undefined if path cannot be resolved.
+   * Returns defaultValue or undefined if path cannot be resolved or is unsafe.
    */
   public static get(target: any, path?: string, defaultValue?: any): any {
     if (!path || path === '$') {
@@ -13,6 +23,10 @@ export class FlowPathMapper {
     }
 
     const segments = this.parsePath(path);
+    if (segments === null) {
+      return defaultValue;
+    }
+
     let current = target;
 
     for (const segment of segments) {
@@ -28,6 +42,7 @@ export class FlowPathMapper {
   /**
    * Immutably sets a value in payload at target path and returns the modified object.
    * If path is "$" or undefined, replaces root value entirely.
+   * If path contains forbidden segments, returns unchanged target.
    */
   public static set(target: any, path: string | undefined, value: any): any {
     if (!path || path === '$') {
@@ -35,6 +50,9 @@ export class FlowPathMapper {
     }
 
     const segments = this.parsePath(path);
+    if (segments === null) {
+      return target;
+    }
     if (segments.length === 0) {
       return value;
     }
@@ -96,7 +114,11 @@ export class FlowPathMapper {
     return this.get(payload, outputPath);
   }
 
-  private static parsePath(path: string): (string | number)[] {
+  private static parsePath(path: string): (string | number)[] | null {
+    if (typeof path !== 'string') {
+      return null;
+    }
+
     const cleanPath = path.startsWith('$.') ? path.slice(2) : path.startsWith('$') ? path.slice(1) : path;
     if (!cleanPath) {
       return [];
@@ -110,9 +132,9 @@ export class FlowPathMapper {
       if (match[2] !== undefined) {
         tokens.push(parseInt(match[2], 10));
       } else if (match[1] !== undefined) {
-        const seg = match[1];
-        if (seg === '__proto__' || seg === 'constructor' || seg === 'prototype') {
-          continue;
+        const seg = match[1].replace(/^["']|["']$/g, '');
+        if (this.FORBIDDEN_SEGMENTS.has(seg)) {
+          return null;
         }
         tokens.push(seg);
       }
