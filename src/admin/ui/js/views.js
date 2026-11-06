@@ -23,6 +23,18 @@
           ? functionsState.functions.length
           : '--';
 
+      // Flows initial count
+      const flowsInitial = (typeof flowsState !== 'undefined' && Array.isArray(flowsState.flows))
+        ? flowsState.flows.length
+        : '--';
+
+      // Queues initial count
+      const queuesInitial = (typeof queuesState !== 'undefined' && queuesState.stats?.totalQueues !== undefined)
+        ? queuesState.stats.totalQueues
+        : (typeof queuesState !== 'undefined' && Array.isArray(queuesState.queues))
+          ? queuesState.queues.filter(q => !q.isSystem).length
+          : '--';
+
       main.innerHTML = `
         <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
           
@@ -56,9 +68,9 @@
             </div>
           </div>
 
-          <!-- Zone 1 (Vitals Strip): High-Density 7-KPI Row + Integrated Telemetry Bar -->
+          <!-- Zone 1 (Vitals Strip): High-Density 9-KPI Row + Integrated Telemetry Bar -->
           <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden;">
-            <!-- Top: 7 Horizontal KPI Metrics (Responsive auto-fitting row) -->
+            <!-- Top: 9 Horizontal KPI Metrics (Responsive auto-fitting row) -->
             <div class="home-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 0.75rem; padding: 0.85rem 1.15rem;">
               <!-- KPI 1: Collections -->
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('collections')" title="Click to view all collections directory">
@@ -140,6 +152,32 @@
                 </div>
                 <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-functions">${functionsInitial}</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-functions-sub">Serverless lambda logic</div>
+              </div>
+
+              <!-- KPI 8: Flows -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('flows')" title="Click to view visual function flows and state machines">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><circle cx="12" cy="5" r="3"></circle><line x1="12" y1="8" x2="12" y2="12"></line><circle cx="6" cy="19" r="3"></circle><circle cx="18" cy="19" r="3"></circle><path d="M12 12h-6v4"></path><path d="M12 12h6v4"></path></svg>
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Flows</span>
+                  </div>
+                  <span style="font-size: 11px; color: var(--accent-primary); font-weight: 600;">View ➔</span>
+                </div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-flows">${flowsInitial}</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-flows-sub">Visual pipelines</div>
+              </div>
+
+              <!-- KPI 9: Queues -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('queues')" title="Click to manage message queues and background workers">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Queues</span>
+                  </div>
+                  <span style="font-size: 11px; color: var(--accent-primary); font-weight: 600;">View ➔</span>
+                </div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-queues">${queuesInitial}</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-queues-sub">Async jobs & workers</div>
               </div>
             </div>
 
@@ -346,6 +384,54 @@
           const active = stats.activeFunctions || 0;
           const execs = stats.totalExecutions || 0;
           fnSubEl.textContent = `${active} active${execs > 0 ? ` • ${execs} runs` : ' • 0 runs'}`;
+        }
+      }).catch(() => {});
+
+      // Asynchronously load flow vitals
+      const flowSlug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+      const flowEndpoint = flowSlug && flowSlug !== 'default' ? `/api/apps/${flowSlug}/flows` : '/api/flows';
+      api(flowEndpoint).then(async (flowsData) => {
+        if (!flowsData) return;
+        const flows = Array.isArray(flowsData) ? flowsData : (flowsData?.data || []);
+        if (typeof flowsState !== 'undefined') {
+          flowsState.flows = flows;
+        }
+        const flowEl = document.getElementById('home-stat-flows');
+        const flowSubEl = document.getElementById('home-stat-flows-sub');
+        if (flowEl) {
+          flowEl.textContent = flows.length.toString();
+        }
+        if (flowSubEl) {
+          const active = flows.filter(f => f.enabled !== false).length;
+          try {
+            const execEndpoint = flowSlug && flowSlug !== 'default' ? `/api/apps/${flowSlug}/flows/executions?perPage=1` : '/api/flows/executions?perPage=1';
+            const execData = await api(execEndpoint);
+            const runs = execData?.totalItems !== undefined ? execData.totalItems : (Array.isArray(execData) ? execData.length : 0);
+            flowSubEl.textContent = `${active} active${runs > 0 ? ` • ${runs} runs` : ' • 0 runs'}`;
+          } catch {
+            flowSubEl.textContent = `${active} active • visual pipelines`;
+          }
+        }
+      }).catch(() => {});
+
+      // Asynchronously load queue vitals
+      const qSlug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+      const qEndpoint = qSlug && qSlug !== 'default' ? `/api/apps/${qSlug}/queues/stats` : '/api/queues/stats';
+      api(qEndpoint).then((stats) => {
+        if (!stats) return;
+        if (typeof queuesState !== 'undefined') {
+          queuesState.stats = stats;
+        }
+        const qEl = document.getElementById('home-stat-queues');
+        const qSubEl = document.getElementById('home-stat-queues-sub');
+        const total = stats.totalQueues !== undefined ? stats.totalQueues : 0;
+        if (qEl) {
+          qEl.textContent = total.toString();
+        }
+        if (qSubEl) {
+          const queued = stats.queued || 0;
+          const comp = stats.completed || 0;
+          qSubEl.textContent = `${queued} queued • ${comp} completed`;
         }
       }).catch(() => {});
     }

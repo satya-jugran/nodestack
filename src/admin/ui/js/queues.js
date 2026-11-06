@@ -204,6 +204,17 @@ async function loadQueueStats() {
         sidebarBadge.textContent = String(totalQueues);
         sidebarBadge.style.display = totalQueues > 0 ? 'inline-block' : 'none';
       }
+
+      const homeQueueEl = document.getElementById('home-stat-queues');
+      const homeQueueSubEl = document.getElementById('home-stat-queues-sub');
+      if (homeQueueEl) {
+        homeQueueEl.textContent = String(totalQueues);
+      }
+      if (homeQueueSubEl) {
+        const queued = stats.queued || 0;
+        const comp = stats.completed || 0;
+        homeQueueSubEl.textContent = `${queued} queued • ${comp} completed`;
+      }
     }
   } catch (err) {
     console.error('Failed to load queue stats:', err);
@@ -227,6 +238,11 @@ async function loadQueuesList() {
     if (sidebarBadge) {
       sidebarBadge.textContent = String(userQueuesCount);
       sidebarBadge.style.display = userQueuesCount > 0 ? 'inline-block' : 'none';
+    }
+
+    const homeQueueEl = document.getElementById('home-stat-queues');
+    if (homeQueueEl) {
+      homeQueueEl.textContent = String(userQueuesCount);
     }
     const elQueues = document.getElementById('q-stat-queues');
     if (elQueues) {

@@ -260,6 +260,17 @@ async function loadFunctionStats() {
         sidebarBadge.textContent = res.totalFunctions || 0;
         sidebarBadge.style.display = (res.totalFunctions > 0) ? 'inline-block' : 'none';
       }
+
+      const homeFnEl = document.getElementById('home-stat-functions');
+      const homeFnSubEl = document.getElementById('home-stat-functions-sub');
+      if (homeFnEl) {
+        homeFnEl.textContent = (res.totalFunctions !== undefined ? res.totalFunctions : (res.activeFunctions || 0)).toString();
+      }
+      if (homeFnSubEl) {
+        const active = res.activeFunctions || 0;
+        const execs = res.totalExecutions || 0;
+        homeFnSubEl.textContent = `${active} active${execs > 0 ? ` • ${execs} runs` : ' • 0 runs'}`;
+      }
     }
   } catch (err) {
     console.warn('Failed to load function stats:', err);

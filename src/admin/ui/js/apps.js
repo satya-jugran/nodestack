@@ -70,7 +70,6 @@ function updateAppSwitcherUI() {
 
   itemsContainer.innerHTML = apps.map(app => {
     const isActive = state.activeApp && (state.activeApp.slug === app.slug || state.activeApp.id === app.id);
-    const countInfo = app.stats ? `${app.stats.collectionsCount} cols` : '';
     const isDefault = Boolean(app.isDefault || app.slug === 'default');
 
     return `
@@ -84,7 +83,6 @@ function updateAppSwitcherUI() {
           ${isDefault ? '<span class="badge app-switcher-default-badge">default</span>' : ''}
         </div>
         <div class="app-switcher-item-right">
-          ${countInfo ? `<span class="app-switcher-item-count">${countInfo}</span>` : ''}
           ${isActive ? '<span class="app-switcher-check">✓</span>' : ''}
           ${!isDefault ? `
             <button 

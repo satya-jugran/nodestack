@@ -1609,6 +1609,8 @@ describe('Multi-Application Switcher UI (apps.js)', () => {
     const deleteButtons = doc.querySelectorAll('.btn-delete-app');
     expect(deleteButtons.length).toBe(1);
     expect(deleteButtons[0].getAttribute('title')).toContain('CRM Launchpad');
+    expect(doc.querySelector('.app-switcher-item-count')).toBeNull();
+    expect(doc.getElementById('app-switcher-items')?.textContent).not.toContain('cols');
 
     // Call promptDeleteApp
     win.promptDeleteApp('crm-launchpad', 'CRM Launchpad');

@@ -623,18 +623,20 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
   });
 
   describe('Overview Page Hub & Vitals', () => {
-    it('should render 7 KPI vital cards including Webhooks, Plugins, and Functions and exclude Quick Access Collections table', () => {
+    it('should render 9 KPI vital cards including Webhooks, Functions, Flows, Queues, and Plugins and exclude Quick Access Collections table', () => {
       const { win, doc } = createTestDOM({ activeNav: 'home' });
       win.renderHomeView();
 
-      // Verify 7 KPI vitals are present
+      // Verify 9 KPI vitals are present
       expect(doc.getElementById('home-stat-collections')).not.toBeNull();
       expect(doc.getElementById('home-stat-records')).not.toBeNull();
       expect(doc.getElementById('home-stat-size')).not.toBeNull();
       expect(doc.getElementById('home-stat-realtime')).not.toBeNull();
       expect(doc.getElementById('home-stat-webhooks')).not.toBeNull();
-      expect(doc.getElementById('home-stat-plugins')).not.toBeNull();
       expect(doc.getElementById('home-stat-functions')).not.toBeNull();
+      expect(doc.getElementById('home-stat-flows')).not.toBeNull();
+      expect(doc.getElementById('home-stat-queues')).not.toBeNull();
+      expect(doc.getElementById('home-stat-plugins')).not.toBeNull();
 
       // Verify arbitrary Quick Access Collections table is NOT present
       expect(doc.body.innerHTML).not.toContain('Quick Access Collections');
@@ -644,6 +646,24 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       const homeTools = doc.querySelector('.home-tools-grid');
       expect(homeTools).not.toBeNull();
       expect(homeTools?.textContent).toContain('New Collection');
+    });
+
+    it('should route to flows and queues views when clicking their overview KPI cards', () => {
+      const { win, doc } = createTestDOM({ activeNav: 'home' });
+      win.selectNav = vi.fn();
+      win.renderHomeView();
+
+      const flowsCard = doc.getElementById('home-stat-flows')?.closest('[onclick*="selectNav"]');
+      const queuesCard = doc.getElementById('home-stat-queues')?.closest('[onclick*="selectNav"]');
+
+      expect(flowsCard).not.toBeNull();
+      expect(queuesCard).not.toBeNull();
+
+      (flowsCard as HTMLElement)?.click();
+      expect(win.selectNav).toHaveBeenCalledWith('flows');
+
+      (queuesCard as HTMLElement)?.click();
+      expect(win.selectNav).toHaveBeenCalledWith('queues');
     });
 
     it('should open Import JSON modal when clicking Import JSON button in collections hub', () => {

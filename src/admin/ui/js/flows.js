@@ -77,11 +77,23 @@ async function loadFunctionsForPicker() {
 }
 
 function updateSidebarFlowsCount() {
-  const badge = document.getElementById('sidebar-flows-count');
-  if (!badge) return;
   const count = (flowsState.flows || []).length;
-  badge.textContent = count;
-  badge.style.display = count > 0 ? 'inline-block' : 'none';
+  const badge = document.getElementById('sidebar-flows-count');
+  if (badge) {
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'inline-block' : 'none';
+  }
+
+  const homeFlowEl = document.getElementById('home-stat-flows');
+  const homeFlowSubEl = document.getElementById('home-stat-flows-sub');
+  if (homeFlowEl) {
+    homeFlowEl.textContent = String(count);
+  }
+  if (homeFlowSubEl) {
+    const active = (flowsState.flows || []).filter(f => f.enabled !== false).length;
+    const runs = (flowsState.executions && Array.isArray(flowsState.executions)) ? flowsState.executions.length : 0;
+    homeFlowSubEl.textContent = `${active} active${runs > 0 ? ` • ${runs} runs` : ' • visual pipelines'}`;
+  }
 }
 
 // ==========================================

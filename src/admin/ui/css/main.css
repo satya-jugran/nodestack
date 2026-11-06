@@ -1927,14 +1927,14 @@ html.light {
     /* Home Overview Responsive Grid Layouts */
     .home-kpi-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
       gap: 0.75rem;
       padding: 0.85rem 1.15rem;
     }
 
     @media (min-width: 1024px) {
       .home-kpi-grid {
-        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)) !important;
       }
     }
 
