@@ -1420,6 +1420,83 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(invokeRes.json()).toEqual({ success: true, message: 'Executed via named function declaration' });
     });
 
+    it('should not let a leading named helper override an explicit CommonJS export', async () => {
+      // 1. function helper() { return 1; } module.exports = async function() { return 2; }
+      const cjsFn = app.functions.createFunction({
+        name: 'helper-with-cjs-export',
+        code: `
+          function helper() {
+            return { from: 'helper', value: 1 };
+          }
+          module.exports = async function(core, ctx) {
+            return { from: 'module.exports', value: 2 };
+          };
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+      });
+
+      const res1 = await app.server.inject({
+        method: 'POST',
+        url: `/api/functions/${cjsFn.id}/invoke`,
+        payload: {},
+      });
+      expect(res1.statusCode).toBe(200);
+      expect(res1.json()).toEqual({ from: 'module.exports', value: 2 });
+
+      // 2. Helper with exports.default export
+      const cjsDefaultFn = app.functions.createFunction({
+        name: 'helper-with-exports-default',
+        code: `
+          function helper() {
+            return { from: 'helper', value: 1 };
+          }
+          exports.default = async function(core, ctx) {
+            return { from: 'exports.default', value: 3 };
+          };
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+      });
+
+      const res2 = await app.server.inject({
+        method: 'POST',
+        url: `/api/functions/${cjsDefaultFn.id}/invoke`,
+        payload: {},
+      });
+      expect(res2.statusCode).toBe(200);
+      expect(res2.json()).toEqual({ from: 'exports.default', value: 3 });
+
+      // 3. Leading comments mentioning module.exports still correctly infers named entry point
+      const commentFn = app.functions.createFunction({
+        name: 'comment-mentioning-cjs',
+        code: `
+          // Note: do not use module.exports here
+          /* exports.handler is also not used */
+          async function mainHandler(core, ctx) {
+            return { from: 'mainHandler', success: true };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+      });
+
+      const res3 = await app.server.inject({
+        method: 'POST',
+        url: `/api/functions/${commentFn.id}/invoke`,
+        payload: {},
+      });
+      expect(res3.statusCode).toBe(200);
+      expect(res3.json()).toEqual({ from: 'mainHandler', success: true });
+
+      app.functions.deleteFunction(cjsFn.id);
+      app.functions.deleteFunction(cjsDefaultFn.id);
+      app.functions.deleteFunction(commentFn.id);
+    });
+
     it('should safely evaluate payloads containing U+2028 and U+2029 line/paragraph separators', async () => {
       const createRes = await app.server.inject({
         method: 'POST',

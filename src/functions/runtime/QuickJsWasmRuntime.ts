@@ -557,9 +557,16 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
       const leadingComments = match ? match[0] : '';
       const codeBody = code.slice(leadingComments.length).trim();
 
+      // Only infer named entry point if no supported CommonJS export is present
+      const codeWithoutCommentsOrStrings = codeBody
+        .replace(/\/\/[^\r\n]*/g, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/(["'`])(?:\\.|(?!\1)[^\\])*\1/g, '');
+      const hasCjsExport = /(?:\bmodule\s*\.\s*exports\b|\bexports\s*(?:\.|\s*=))/.test(codeWithoutCommentsOrStrings);
+
       // Named or anonymous function
       const namedFnMatch = /^(async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/.exec(codeBody);
-      if (namedFnMatch) {
+      if (namedFnMatch && !hasCjsExport) {
         const fnName = namedFnMatch[2];
         code = leadingComments + codeBody + `;\n__fn = ${fnName};`;
       } else if (/^(async\s+)?function\s*\(/.test(codeBody)) {
@@ -578,15 +585,15 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
 
         ${code}
 
-        if (typeof __fn === 'function') {
-          return await __fn(globalThis.core, globalThis.ctx);
-        } else if (__fn !== null && typeof __fn !== 'undefined') {
-          return __fn;
-        } else if (typeof module.exports === 'function') {
+        if (typeof module.exports === 'function') {
           return await module.exports(globalThis.core, globalThis.ctx);
         } else if (module.exports && typeof module.exports.default === 'function') {
           return await module.exports.default(globalThis.core, globalThis.ctx);
-        } else if (Object.keys(module.exports).length > 0) {
+        } else if (typeof __fn === 'function') {
+          return await __fn(globalThis.core, globalThis.ctx);
+        } else if (__fn !== null && typeof __fn !== 'undefined') {
+          return __fn;
+        } else if (module.exports && typeof module.exports === 'object' && Object.keys(module.exports).length > 0) {
           return module.exports;
         }
 
