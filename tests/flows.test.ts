@@ -1,3 +1,4 @@
+import { FailStateHandler } from '../src/flows/runtime/StateHandlers';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1568,6 +1569,47 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(diagramContainer?.innerHTML).toContain('status == "approve"');
       expect(diagramContainer?.innerHTML).toContain('or status &gt; 10');
       expect(diagramContainer?.innerHTML).toContain('<tspan');
+    });
+
+    it('should correctly format loop condition variables preserving root and bracket notations', () => {
+      const prevFlow = win.designerState.activeFlow;
+      win.designerState.activeFlow = {
+        id: 'loop_flow',
+        definition: {
+          startAt: 'Loop1',
+          states: {
+            Loop1: {
+              type: 'Loop',
+              target: 'Loop1',
+              condition: { variable: '$.counter', numericLessThan: 10 },
+            },
+          },
+        },
+      };
+
+      try {
+        // 1. Root path '$' must not be rewritten to '$.$'
+        win.updateLoopCondition('Loop1', 'variable', '$');
+        expect(win.designerState.activeFlow.definition.states.Loop1.condition.variable).toBe('$');
+
+        // 2. Bracket path '$[0]' must not be rewritten to '$.$[0]'
+        win.updateLoopCondition('Loop1', 'variable', '$[0]');
+        expect(win.designerState.activeFlow.definition.states.Loop1.condition.variable).toBe('$[0]');
+
+        // 3. Dot path '$.items[0].count' already starting with '$' is preserved
+        win.updateLoopCondition('Loop1', 'variable', '$.items[0].count');
+        expect(win.designerState.activeFlow.definition.states.Loop1.condition.variable).toBe('$.items[0].count');
+
+        // 4. Plain property name without '$' gets prepended with '$.'
+        win.updateLoopCondition('Loop1', 'variable', 'counter');
+        expect(win.designerState.activeFlow.definition.states.Loop1.condition.variable).toBe('$.counter');
+
+        // 5. Raw bracket '[0]' without '$' gets prepended with '$'
+        win.updateLoopCondition('Loop1', 'variable', '[0]');
+        expect(win.designerState.activeFlow.definition.states.Loop1.condition.variable).toBe('$[0]');
+      } finally {
+        win.designerState.activeFlow = prevFlow;
+      }
     });
 
     it('should toggle Test Runner Drawer and execute flow', () => {
@@ -4803,4 +4845,662 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
   });
 
+
+  
+  describe('State Machine Resilience, Path Mapping & Sub-Flow Error Propagation', () => {
+    it('should initialize target object or array when setting paths on primitive or null roots', () => {
+      const objResult = FlowPathMapper.set('primitive-string', '$.user.name', 'Alice');
+      expect(objResult).toEqual({ user: { name: 'Alice' } });
+
+      const arrResult = FlowPathMapper.set(12345, '$[0]', 'first-item');
+      expect(Array.isArray(arrResult)).toBe(true);
+      expect(arrResult[0]).toBe('first-item');
+
+      const nullResult = FlowPathMapper.set(null, '$.data.status', 'ready');
+      expect(nullResult).toEqual({ data: { status: 'ready' } });
+    });
+
+    it('should reject unsafe paths containing __proto__, constructor, or prototype without redirecting reads/writes or replacing root', () => {
+      const payload = { user: { name: 'Alice' }, status: 'active' };
+
+      // 1. Reads with unsafe segments must not redirect to unrelated data (e.g. $.user.name)
+      expect(FlowPathMapper.get(payload, '$.user.constructor.name')).toBeUndefined();
+      expect(FlowPathMapper.get(payload, '$.user.constructor.name', 'fallback')).toBe('fallback');
+      expect(FlowPathMapper.get(payload, '$.__proto__')).toBeUndefined();
+      expect(FlowPathMapper.get(payload, '$.__proto__.polluted')).toBeUndefined();
+      expect(FlowPathMapper.get(payload, '$.constructor.prototype.evil')).toBeUndefined();
+
+      // 2. Writes with unsafe segments must return unchanged target, not redirect or replace root
+      const setProtoRoot = FlowPathMapper.set(payload, '$.__proto__', { replaced: true });
+      expect(setProtoRoot).toEqual({ user: { name: 'Alice' }, status: 'active' });
+      expect((setProtoRoot as any).replaced).toBeUndefined();
+
+      const setRedirect = FlowPathMapper.set(payload, '$.user.constructor.name', 'Hacked');
+      expect(setRedirect).toEqual({ user: { name: 'Alice' }, status: 'active' });
+      expect(setRedirect.user.name).toBe('Alice');
+
+      const setNestedProto = FlowPathMapper.set(payload, '$.__proto__.polluted', true);
+      expect(setNestedProto).toEqual({ user: { name: 'Alice' }, status: 'active' });
+      expect((({} as any).polluted)).toBeUndefined();
+      expect((setNestedProto as any).polluted).toBeUndefined();
+
+      // Bracket notation forms
+      expect(FlowPathMapper.get(payload, '$["__proto__"]')).toBeUndefined();
+      expect(FlowPathMapper.get(payload, '$[\'constructor\']')).toBeUndefined();
+      const setBracketProto = FlowPathMapper.set(payload, '$["__proto__"].polluted', true);
+      expect(setBracketProto).toEqual({ user: { name: 'Alice' }, status: 'active' });
+
+      // 3. FlowValidator rejects flow definitions containing forbidden segments
+      expect(() => {
+        FlowValidator.validate({
+          startAt: 'Step1',
+          states: {
+            Step1: {
+              type: 'Pass',
+              resultPath: '$.__proto__.evil',
+              end: true,
+            },
+          },
+        });
+      }).toThrow(/forbidden segments/);
+
+      expect(() => {
+        FlowValidator.validate({
+          startAt: 'Check',
+          states: {
+            Check: {
+              type: 'Choice',
+              choices: [
+                {
+                  variable: '$.user.constructor.name',
+                  stringEquals: 'Alice',
+                  next: 'Done',
+                },
+              ],
+              default: 'Done',
+            },
+            Done: { type: 'Succeed' },
+          },
+        });
+      }).toThrow(/forbidden segments/);
+    });
+
+    it('should reject Loop state definitions missing condition rules or terminal/next transitions', () => {
+      // Missing condition
+      const defMissingCond: FlowDefinition = {
+        startAt: 'LoopStep',
+        states: {
+          LoopStep: {
+            type: 'Loop',
+            target: 'LoopStep',
+            next: 'Done',
+          } as any,
+          Done: { type: 'Succeed' },
+        },
+      };
+      expect(() => FlowValidator.validate(defMissingCond)).toThrow(/must specify a condition choice rule/);
+
+      // Missing next and end
+      const defMissingNextAndEnd: FlowDefinition = {
+        startAt: 'LoopStep',
+        states: {
+          LoopStep: {
+            type: 'Loop',
+            target: 'LoopStep',
+            condition: { variable: '$.count', numericLessThan: 5 },
+          } as any,
+        },
+      };
+      expect(() => FlowValidator.validate(defMissingNextAndEnd)).toThrow(/must specify either 'next' or 'end: true'/);
+    });
+
+    it('should recursively update referenced function identifiers across Task, Map, and Parallel states', () => {
+      const def: FlowDefinition = {
+        startAt: 'Step1',
+        states: {
+          Step1: { type: 'Task', function: 'old-fn-name', next: 'Step2' },
+          Step2: {
+            type: 'Map',
+            itemsPath: '$.items',
+            iterator: {
+              startAt: 'MapTask',
+              states: {
+                MapTask: { type: 'Task', function: 'old-fn-name', end: true },
+              },
+            },
+            next: 'Step3',
+          },
+          Step3: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'BranchTask',
+                states: {
+                  BranchTask: { type: 'Task', function: 'old-fn-name', end: true },
+                },
+              },
+            ],
+            end: true,
+          },
+        },
+      };
+
+      const modified = FlowValidator.renameReferencedFunction(def, 'old-fn-name', 'new-fn-name');
+      expect(modified).toBe(true);
+      expect((def.states.Step1 as any).function).toBe('new-fn-name');
+      expect((def.states.Step2 as any).iterator.states.MapTask.function).toBe('new-fn-name');
+      expect((def.states.Step3 as any).branches[0].states.BranchTask.function).toBe('new-fn-name');
+    });
+
+    it('should format error message combining error and cause when both are defined in Fail state', async () => {
+      const handler = new FailStateHandler();
+      const result = await handler.execute(
+        { type: 'Fail', error: 'PaymentDeclined', cause: 'Insufficient funds on credit card' },
+        { flowName: 'TestFlow', stateName: 'FailStep', payload: {}, loopCounters: new Map(), executeSubFlow: async () => ({}) }
+      );
+
+      expect(result.status).toBe('failed');
+      expect(result.error).toBe('PaymentDeclined: Insufficient funds on credit card');
+    });
+
+    it('should strictly respect maxAttempts: 0 in retry policy without defaulting to multiple attempts', async () => {
+      const engine = new FlowEngine();
+      let callCount = 0;
+
+      engine.registerHandler('Task', {
+        async execute() {
+          callCount++;
+          throw new Error('TaskExecutionFailed');
+        },
+      });
+
+      const def: FlowDefinition = {
+        startAt: 'FailingStep',
+        states: {
+          FailingStep: {
+            type: 'Task',
+            function: 'any',
+            retry: [
+              {
+                errorEquals: ['*'],
+                maxAttempts: 0,
+                intervalSeconds: 1,
+              },
+            ],
+            end: true,
+          },
+        },
+      };
+
+      const result = await engine.execute('RetryZeroTest', def, {});
+      expect(result.status).toBe('failed');
+      expect(callCount).toBe(1);
+    });
+
+    it('should propagate sub-flow error codes and names to matching parent catch policies', async () => {
+      const engine = new FlowEngine();
+      engine.registerHandler('Task', {
+        async execute(state: any) {
+          if (state.function === 'failing-task') {
+            const err = new Error('CustomBusinessError');
+            err.name = 'CustomBusinessError';
+            throw err;
+          }
+          return { status: 'succeeded', payload: { ok: true } };
+        },
+      });
+      engine.registerHandler('Pass', {
+        async execute(state: any, ctx: any) {
+          return { status: 'succeeded', payload: ctx.payload, nextState: state.next, isEnd: state.end };
+        },
+      });
+
+      const def: FlowDefinition = {
+        startAt: 'RunParallel',
+        states: {
+          RunParallel: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'SubTask',
+                states: {
+                  SubTask: { type: 'Task', function: 'failing-task', end: true },
+                },
+              },
+            ],
+            catch: [
+              {
+                errorEquals: ['CustomBusinessError'],
+                next: 'HandleError',
+                resultPath: '$.catchError',
+              },
+            ],
+            end: true,
+          },
+          HandleError: {
+            type: 'Pass',
+            end: true,
+          },
+        },
+      };
+
+      const result = await engine.execute('CatchSubFlowTest', def, {});
+      expect(result.status).toBe('succeeded');
+      expect(result.output?.catchError).toBeDefined();
+    });
+
+    it('should match parent catch policy for Error when child throws new Error with a custom message like declined', async () => {
+      const engine = new FlowEngine();
+      engine.registerHandler('Task', {
+        async execute(state: any) {
+          if (state.function === 'declined-task') {
+            throw new Error('declined');
+          }
+          return { status: 'succeeded', payload: { ok: true } };
+        },
+      });
+      engine.registerHandler('Pass', {
+        async execute(state: any, ctx: any) {
+          return { status: 'succeeded', payload: ctx.payload, nextState: state.next, isEnd: state.end };
+        },
+      });
+
+      const def: FlowDefinition = {
+        startAt: 'RunParallel',
+        states: {
+          RunParallel: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'SubTask',
+                states: {
+                  SubTask: { type: 'Task', function: 'declined-task', end: true },
+                },
+              },
+            ],
+            catch: [
+              {
+                errorEquals: ['Error'],
+                next: 'HandleError',
+                resultPath: '$.catchError',
+              },
+            ],
+            end: true,
+          },
+          HandleError: {
+            type: 'Pass',
+            end: true,
+          },
+        },
+      };
+
+      const result = await engine.execute('CatchStandardErrorTest', def, {});
+      expect(result.status).toBe('succeeded');
+      expect(result.output?.catchError).toBeDefined();
+      expect(result.output?.catchError?.error).toBe('Error');
+      expect(result.output?.catchError?.message).toBe('declined');
+    });
+
+    it('should preserve custom error names differing from message and retain default Error name when no identity is recorded', async () => {
+      const engine = new FlowEngine();
+      engine.registerHandler('Task', {
+        async execute(state: any) {
+          if (state.function === 'custom-failing-task') {
+            const err = new Error('card was declined by payment processor');
+            err.name = 'PaymentDeclinedError';
+            (err as any).code = 'ERR_CARD_DECLINED';
+            throw err;
+          }
+          return { status: 'succeeded', payload: { ok: true } };
+        },
+      });
+      engine.registerHandler('Pass', {
+        async execute(state: any, ctx: any) {
+          return { status: 'succeeded', payload: ctx.payload, nextState: state.next, isEnd: state.end };
+        },
+      });
+
+      // 1. Verify custom error name differing from message matches parent catch policy
+      const defWithCustomName: FlowDefinition = {
+        startAt: 'RunParallel',
+        states: {
+          RunParallel: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'SubTask',
+                states: {
+                  SubTask: { type: 'Task', function: 'custom-failing-task', end: true },
+                },
+              },
+            ],
+            catch: [
+              {
+                errorEquals: ['PaymentDeclinedError'],
+                next: 'HandleCustomError',
+                resultPath: '$.catchError',
+              },
+            ],
+            end: true,
+          },
+          HandleCustomError: {
+            type: 'Pass',
+            end: true,
+          },
+        },
+      };
+
+      const customResult = await engine.execute('CatchCustomNameTest', defWithCustomName, {});
+      expect(customResult.status).toBe('succeeded');
+      expect(customResult.output?.catchError?.error).toBe('PaymentDeclinedError');
+      expect(customResult.output?.catchError?.code).toBe('ERR_CARD_DECLINED');
+      expect(customResult.output?.catchError?.message).toBe('card was declined by payment processor');
+
+      // 2. Verify sub-flow execution without recorded error identity retains default 'Error' name
+      let capturedErrorName: string | undefined;
+      const defWithLegacyError: FlowDefinition = {
+        startAt: 'RunParallel',
+        states: {
+          RunParallel: {
+            type: 'Parallel',
+            branches: [
+              {
+                startAt: 'SubTask',
+                states: {
+                  SubTask: { type: 'Task', function: 'declined-task', end: true },
+                },
+              },
+            ],
+            catch: [
+              {
+                errorEquals: ['Error'],
+                next: 'HandleDefaultError',
+                resultPath: '$.catchError',
+              },
+            ],
+            end: true,
+          },
+          HandleDefaultError: {
+            type: 'Pass',
+            end: true,
+          },
+        },
+      };
+
+      // Mock sub-flow execution returning failed status with error message but without errorName
+      let callCount = 0;
+      const originalExecute = engine.execute.bind(engine);
+      engine.execute = async (name: string, definition: FlowDefinition, input: any, options: any) => {
+        callCount++;
+        // If it is the sub-flow execution (inner execution)
+        if (callCount > 1) {
+          return {
+            id: 'legacy_sub_exec',
+            flowId: 'inline',
+            flowName: name,
+            status: 'failed',
+            input,
+            error: 'legacy raw failure message',
+            // errorName intentionally omitted
+            durationMs: 5,
+            stepLogs: [],
+            startedAt: new Date().toISOString(),
+          };
+        }
+        return originalExecute(name, definition, input, options);
+      };
+
+      const legacyResult = await engine.execute('ParentWithLegacy', defWithLegacyError, {});
+      expect(legacyResult.status).toBe('succeeded');
+      expect(legacyResult.output?.catchError?.error).toBe('Error');
+      expect(legacyResult.output?.catchError?.message).toBe('legacy raw failure message');
+    });
+
+    it('should preserve in-flight execution claims and active status during crash recovery', async () => {
+      const flowService = app.flows;
+
+      // Seed an active claim in activeExecutionClaims
+      const testClaimId = 'exec_actively_running_claim_test';
+      (flowService as any).activeExecutionClaims.add(testClaimId);
+
+      // Insert mock DB records: one actively claimed, one genuinely orphaned
+      (flowService as any).db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, startedAt, durationMs, claimToken)
+        VALUES (?, 'f1', 'Flow1', 'running', ?, 0, 'token-123')
+      `).run(testClaimId, new Date().toISOString());
+
+      const orphanId = 'exec_truly_orphaned_restart_test';
+      (flowService as any).db.prepare(`
+        INSERT INTO _flow_executions (id, flowId, flowName, status, startedAt, durationMs, claimToken)
+        VALUES (?, 'f1', 'Flow1', 'running', ?, 0, 'token-456')
+      `).run(orphanId, new Date().toISOString());
+
+      try {
+        const recovered = await flowService.recoverOrphanedExecutions('abort');
+        expect(recovered.some(e => e.id === orphanId)).toBe(true);
+        expect(recovered.some(e => e.id === testClaimId)).toBe(false);
+
+        // Verify active claimed execution still has its status and claim in DB
+        const activeRow = (flowService as any).db.prepare('SELECT status, claimToken FROM _flow_executions WHERE id = ?').get(testClaimId);
+        expect(activeRow.status).toBe('running');
+        expect(activeRow.claimToken).toBe('token-123');
+      } finally {
+        (flowService as any).activeExecutionClaims.delete(testClaimId);
+        (flowService as any).db.prepare('DELETE FROM _flow_executions WHERE id IN (?, ?)').run(testClaimId, orphanId);
+      }
+    });
+
+    it('should resolve flow execution history and clear operations by flow name as well as ID', async () => {
+      // Create a flow with a specific name
+      const createRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/flows',
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: {
+          name: 'NamedFlowResolvingTest',
+          definition: {
+            startAt: 'Done',
+            states: { Done: { type: 'Succeed' } },
+          },
+        },
+      });
+      const createdFlow = createRes.json();
+
+      // Execute it once
+      await app.server.inject({
+        method: 'POST',
+        url: `/api/flows/${createdFlow.id}/execute?wait=true`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: {},
+      });
+
+      // Query executions using flow NAME instead of ID
+      const queryByNameRes = await app.server.inject({
+        method: 'GET',
+        url: '/api/flows/NamedFlowResolvingTest/executions',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(queryByNameRes.statusCode).toBe(200);
+      const nameData = queryByNameRes.json();
+      expect(nameData.totalItems).toBe(1);
+
+      // Clear executions using flow NAME
+      const clearRes = await app.server.inject({
+        method: 'DELETE',
+        url: '/api/flows/NamedFlowResolvingTest/executions',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(clearRes.statusCode).toBe(200);
+
+      // Query again to confirm cleared
+      const queryAfterClear = await app.server.inject({
+        method: 'GET',
+        url: '/api/flows/NamedFlowResolvingTest/executions',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(queryAfterClear.json().totalItems).toBe(0);
+    });
+
+    it('should abort queued executions and immediately settle waiters when clearExecutions is called', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'ClearExecutionsQueuedFlow',
+        enabled: true,
+        triggerType: 'http',
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'SlowStep',
+          states: {
+            SlowStep: {
+              type: 'Wait',
+              seconds: 2.0,
+              end: true,
+            },
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      // 1. First execution takes the concurrency slot and is 'running'
+      await app.flows.executeFlow(throttledFlow.id, { seq: 1 }, undefined, { wait: false });
+
+      // 2. Second execution is queued with wait: true and a long timeout (10s)
+      const waiterPromise = app.flows.executeFlow(throttledFlow.id, { seq: 2 }, undefined, { wait: true, timeoutMs: 10000 });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const startTime = Date.now();
+      // 3. Clear executions
+      app.flows.clearExecutions(throttledFlow.id);
+
+      // Waiter must reject promptly with aborted error (499) rather than waiting 10s for timeout
+      let thrownErr: any;
+      try {
+        await waiterPromise;
+      } catch (err) {
+        thrownErr = err;
+      }
+      const elapsed = Date.now() - startTime;
+      expect(thrownErr).toBeDefined();
+      expect(thrownErr.statusCode).toBe(499);
+      expect(elapsed).toBeLessThan(1500);
+
+      // Verify execution records were removed
+      const remaining = app.flows.getExecutions({ flowId: throttledFlow.id });
+      expect(remaining.totalItems).toBe(0);
+
+      app.flows.deleteFlow(throttledFlow.id);
+    });
+
+    it('should abort queued executions and immediately settle waiters when deleteFlow is called', async () => {
+      const throttledFlow = app.flows.createFlow({
+        name: 'DeleteFlowQueuedFlow',
+        enabled: true,
+        triggerType: 'http',
+        maxConcurrentExecutions: 1,
+        definition: {
+          startAt: 'SlowStep',
+          states: {
+            SlowStep: {
+              type: 'Wait',
+              seconds: 2.0,
+              end: true,
+            },
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      // 1. First execution takes the concurrency slot
+      await app.flows.executeFlow(throttledFlow.id, { seq: 1 }, undefined, { wait: false });
+
+      // 2. Second execution is queued with wait: true and a long timeout (10s)
+      const waiterPromise = app.flows.executeFlow(throttledFlow.id, { seq: 2 }, undefined, { wait: true, timeoutMs: 10000 });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const startTime = Date.now();
+      // 3. Delete flow
+      app.flows.deleteFlow(throttledFlow.id);
+
+      // Waiter must reject promptly with aborted error (499) rather than waiting 10s for timeout
+      let thrownErr: any;
+      try {
+        await waiterPromise;
+      } catch (err) {
+        thrownErr = err;
+      }
+      const elapsed = Date.now() - startTime;
+      expect(thrownErr).toBeDefined();
+      expect(thrownErr.statusCode).toBe(499);
+      expect(elapsed).toBeLessThan(1500);
+    });
+
+    it('should not resurrect execution records when clearExecutions is called during an actively running execution', async () => {
+      const activeFlow = app.flows.createFlow({
+        name: 'ClearActiveRunningResurrectFlow',
+        enabled: true,
+        triggerType: 'http',
+        definition: {
+          startAt: 'SlowStep',
+          states: {
+            SlowStep: {
+              type: 'Wait',
+              seconds: 0.25,
+              end: true,
+            },
+          },
+        },
+      });
+
+      const runningExec = await app.flows.executeFlow(activeFlow.id, { test: 1 }, undefined, { wait: false });
+      expect(runningExec.status).toBe('running');
+
+      // Clear executions while runner is actively in flight
+      app.flows.clearExecutions(activeFlow.id);
+      expect(app.flows.getExecutionById(runningExec.id)).toBeNull();
+
+      // Wait for the runner's Wait timer to finish and terminate
+      await new Promise((r) => setTimeout(r, 400));
+
+      // Record must not be resurrected in SQLite by saveExecution
+      expect(app.flows.getExecutionById(runningExec.id)).toBeNull();
+      const list = app.flows.getExecutions({ flowId: activeFlow.id });
+      expect(list.totalItems).toBe(0);
+
+      app.flows.deleteFlow(activeFlow.id);
+    });
+
+    it('should not resurrect execution records when deleteFlow is called during an actively running execution', async () => {
+      const activeFlow = app.flows.createFlow({
+        name: 'DeleteActiveRunningResurrectFlow',
+        enabled: true,
+        triggerType: 'http',
+        definition: {
+          startAt: 'SlowStep',
+          states: {
+            SlowStep: {
+              type: 'Wait',
+              seconds: 0.25,
+              end: true,
+            },
+          },
+        },
+      });
+
+      const runningExec = await app.flows.executeFlow(activeFlow.id, { test: 1 }, undefined, { wait: false });
+      expect(runningExec.status).toBe('running');
+
+      // Delete flow while runner is actively in flight
+      app.flows.deleteFlow(activeFlow.id);
+      expect(app.flows.getExecutionById(runningExec.id)).toBeNull();
+
+      // Wait for runner to complete
+      await new Promise((r) => setTimeout(r, 400));
+
+      // Record must not be resurrected
+      expect(app.flows.getExecutionById(runningExec.id)).toBeNull();
+    });
+  });
 });

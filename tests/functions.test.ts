@@ -1240,6 +1240,23 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const testBodyArea = doc.getElementById('editor-test-body') as HTMLTextAreaElement;
       expect(testBodyArea).not.toBeNull();
 
+      // Verify simulated caller role and auth controls
+      const authSelect = doc.getElementById('editor-test-auth') as HTMLSelectElement;
+      expect(authSelect).not.toBeNull();
+      expect(authSelect.innerHTML).toContain('Explicit Mock Auth Object');
+
+      win.toggleEditorTestAuthCustom('custom');
+      expect((doc.getElementById('editor-test-custom-auth-row') as HTMLElement).style.display).toBe('block');
+      expect((doc.getElementById('editor-test-mock-auth-row') as HTMLElement).style.display).toBe('none');
+
+      win.toggleEditorTestAuthCustom('mock');
+      expect((doc.getElementById('editor-test-custom-auth-row') as HTMLElement).style.display).toBe('none');
+      expect((doc.getElementById('editor-test-mock-auth-row') as HTMLElement).style.display).toBe('block');
+
+      win.toggleEditorTestAuthCustom('none');
+      expect((doc.getElementById('editor-test-custom-auth-row') as HTMLElement).style.display).toBe('none');
+      expect((doc.getElementById('editor-test-mock-auth-row') as HTMLElement).style.display).toBe('none');
+
       // Switch to Configuration Tab
       win.switchFunctionEditorTab('config');
       expect(win.functionsState.editorTab).toBe('config');
@@ -1373,4 +1390,507 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(data.fetchedAmount).toBe(88);
     });
   });
+
+  describe('8. Syntax Flexibility, Lifecycle Safety & Cross-System Referential Integrity', () => {
+    it('should execute top-level named function declarations without export default', async () => {
+      const createRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/functions',
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: {
+          name: 'named-declaration-fn',
+          code: `
+            async function handler(core, ctx) {
+              return { success: true, message: 'Executed via named function declaration' };
+            }
+          `,
+          enabled: true,
+          authPolicy: 'public',
+          methods: ['GET', 'POST'],
+        },
+      });
+      expect(createRes.statusCode).toBe(201);
+
+      const invokeRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/functions/named-declaration-fn/invoke',
+        payload: {},
+      });
+      expect(invokeRes.statusCode).toBe(200);
+      expect(invokeRes.json()).toEqual({ success: true, message: 'Executed via named function declaration' });
+    });
+
+    it('should not let a leading named helper override an explicit CommonJS export', async () => {
+      // 1. function helper() { return 1; } module.exports = async function() { return 2; }
+      const cjsFn = app.functions.createFunction({
+        name: 'helper-with-cjs-export',
+        code: `
+          function helper() {
+            return { from: 'helper', value: 1 };
+          }
+          module.exports = async function(core, ctx) {
+            return { from: 'module.exports', value: 2 };
+          };
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+      });
+
+      const res1 = await app.server.inject({
+        method: 'POST',
+        url: `/api/functions/${cjsFn.id}/invoke`,
+        payload: {},
+      });
+      expect(res1.statusCode).toBe(200);
+      expect(res1.json()).toEqual({ from: 'module.exports', value: 2 });
+
+      // 2. Helper with exports.default export
+      const cjsDefaultFn = app.functions.createFunction({
+        name: 'helper-with-exports-default',
+        code: `
+          function helper() {
+            return { from: 'helper', value: 1 };
+          }
+          exports.default = async function(core, ctx) {
+            return { from: 'exports.default', value: 3 };
+          };
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+      });
+
+      const res2 = await app.server.inject({
+        method: 'POST',
+        url: `/api/functions/${cjsDefaultFn.id}/invoke`,
+        payload: {},
+      });
+      expect(res2.statusCode).toBe(200);
+      expect(res2.json()).toEqual({ from: 'exports.default', value: 3 });
+
+      // 3. Leading comments mentioning module.exports still correctly infers named entry point
+      const commentFn = app.functions.createFunction({
+        name: 'comment-mentioning-cjs',
+        code: `
+          // Note: do not use module.exports here
+          /* exports.handler is also not used */
+          async function mainHandler(core, ctx) {
+            return { from: 'mainHandler', success: true };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['POST'],
+      });
+
+      const res3 = await app.server.inject({
+        method: 'POST',
+        url: `/api/functions/${commentFn.id}/invoke`,
+        payload: {},
+      });
+      expect(res3.statusCode).toBe(200);
+      expect(res3.json()).toEqual({ from: 'mainHandler', success: true });
+
+      app.functions.deleteFunction(cjsFn.id);
+      app.functions.deleteFunction(cjsDefaultFn.id);
+      app.functions.deleteFunction(commentFn.id);
+    });
+
+    it('should safely evaluate payloads containing U+2028 and U+2029 line/paragraph separators', async () => {
+      const createRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/functions',
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: {
+          name: 'unicode-separator-fn',
+          code: `
+            export default async function(core, ctx) {
+              return { echo: ctx.request.body.text };
+            }
+          `,
+          enabled: true,
+          authPolicy: 'public',
+          methods: ['POST'],
+        },
+      });
+      expect(createRes.statusCode).toBe(201);
+
+      const invokeRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/functions/unicode-separator-fn/invoke',
+        payload: { text: "line 1\u2028line 2\u2029paragraph 2" },
+      });
+      expect(invokeRes.statusCode).toBe(200);
+      expect(invokeRes.json().echo).toContain('line 1');
+      expect(invokeRes.json().echo).toContain('line 2');
+    });
+
+    it('should automatically synchronize referenced Task states in flows when a function is renamed', async () => {
+      // 1. Create a function
+      const fn = app.functions.createFunction({
+        name: 'flow-target-rename-initial',
+        code: 'export default async function(core, ctx) { return { ok: true }; }',
+        enabled: true,
+        authPolicy: 'public',
+      });
+
+      // 2. Create a flow referencing this function
+      const flow = app.flows.createFlow({
+        name: 'DependentFlowRenameTest',
+        definition: {
+          startAt: 'TaskStep',
+          states: {
+            TaskStep: {
+              type: 'Task',
+              function: 'flow-target-rename-initial',
+              end: true,
+            },
+          },
+        },
+      });
+
+      // 3. Rename the function
+      app.functions.updateFunction(fn.id, {
+        name: 'flow-target-renamed-final',
+      });
+
+      // 4. Verify the flow definition in DB now references the new function name
+      const reloadedFlow = app.flows.getFlowById(flow.id);
+      expect(reloadedFlow).toBeDefined();
+      expect((reloadedFlow!.definition.states.TaskStep as any).function).toBe('flow-target-renamed-final');
+    });
+
+    it('should abort record creation with 504 Gateway Timeout when a beforeCreate hook times out', async () => {
+      // Create test collection
+      app.schema.createCollection({
+        name: 'timeout_test_orders',
+        type: 'base',
+        schema: [
+          { name: 'item', type: 'text' },
+        ],
+        createRule: '',
+        listRule: '',
+      });
+
+      // Create a beforeCreate function hook that hangs/times out
+      app.functions.createFunction({
+        name: 'hanging-before-hook',
+        code: `
+          export default async function(core, ctx) {
+            await new Promise(() => {});
+            return { ok: true };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        timeoutMs: 150,
+        eventTrigger: 'timeout_test_orders:beforeCreate',
+      });
+
+      // Attempt creating record in collection - must reject with 504 and NOT write record
+      let caughtErr: any;
+      try {
+        await app.records.create('timeout_test_orders', { item: 'Widget A' }, { isAdmin: true, id: 'admin' });
+      } catch (err: any) {
+        caughtErr = err;
+      }
+
+      expect(caughtErr).toBeDefined();
+      expect(caughtErr.statusCode).toBe(504);
+      expect(caughtErr.message).toContain("timed out");
+
+      // Verify no records were saved in collection
+      const list = await app.records.getList('timeout_test_orders');
+      expect(list.totalItems).toBe(0);
+    });
+
+    it('should respect simulated custom or unauthenticated auth contexts in function test runner', async () => {
+      // Create a function that reflects back ctx.auth
+      const fn = app.functions.createFunction({
+        name: 'auth-inspector-fn',
+        code: `
+          export default async function(core, ctx) {
+            return {
+              auth: ctx.auth
+            };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+      });
+
+      // Test with custom simulated auth passed via testFunction
+      const testRes = await app.functions.testFunction(
+        fn.id,
+        {
+          auth: { id: 'simulated_user_99', role: 'customer' },
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(testRes.status).toBe('success');
+      expect(testRes.body.auth).toEqual({ id: 'simulated_user_99', role: 'customer' });
+
+      // Test with explicit null auth (public test)
+      const testNullRes = await app.functions.testFunction(
+        fn.id,
+        {
+          auth: null,
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(testNullRes.status).toBe('success');
+      expect(testNullRes.body.auth).toBeNull();
+    });
+
+    it('should preserve full authenticated actor for normal executions while allowing mock auth overrides in testFunction', async () => {
+      // 1. Create an admin-only collection (listRule: null)
+      app.schema.createCollection({
+        name: 'secret_vault',
+        type: 'base',
+        schema: [{ name: 'secretKey', type: 'text' }],
+        listRule: null,
+        viewRule: null,
+      });
+
+      // Insert record as admin
+      await app.records.create('secret_vault', { secretKey: 'TOP_SECRET_42' }, { isAdmin: true, id: 'admin' });
+
+      // Create a function that queries the admin-only collection
+      const vaultFn = app.functions.createFunction({
+        name: 'vault-reader-fn',
+        code: `
+          export default async function(core, ctx) {
+            const list = await core.sdk.collection('secret_vault').list();
+            return {
+              totalItems: list.totalItems,
+              items: list.items,
+            };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+      });
+
+      // 2. Normal execution invoked with admin actor must preserve isAdmin rule bypass
+      const adminExec = await app.functions.executeFunction(vaultFn.id, undefined, {
+        id: 'admin_user',
+        isAdmin: true,
+      });
+      expect(adminExec.status).toBe('success');
+      expect(adminExec.body.totalItems).toBe(1);
+
+      // 3. Normal execution invoked with API key missing required scope must be rejected
+      const apiKeyExec = await app.functions.executeFunction(vaultFn.id, undefined, {
+        id: 'api_key_user',
+        isApiKey: true,
+        scopes: ['other_collection:read'],
+      });
+      expect(apiKeyExec.status).toBe('error');
+      expect(apiKeyExec.error).toContain('API Key missing required scope');
+
+      // 4. In testFunction: explicit mock auth with null (public) must override admin actor and reject admin-only list
+      const mockPublicTest = await app.functions.testFunction(
+        vaultFn.id,
+        { auth: null },
+        { id: 'admin_user', isAdmin: true }
+      );
+      expect(mockPublicTest.status).toBe('error');
+      expect(mockPublicTest.error).toContain('not allowed to list records');
+
+      // 5. In testFunction without mock auth: calling admin actor is preserved and list succeeds
+      const adminTest = await app.functions.testFunction(
+        vaultFn.id,
+        {},
+        { id: 'admin_user', isAdmin: true }
+      );
+      expect(adminTest.status).toBe('success');
+      expect(adminTest.body.totalItems).toBe(1);
+    });
+
+    it('should resolve and verify nested authorization headers server-side and reject unverified tokens in testFunction', async () => {
+      // 1. Function returning ctx.auth and querying orders collection (listRule: owner = @request.auth.id)
+      const authEchoFn = app.functions.createFunction({
+        name: 'auth-echo-fn',
+        code: `
+          export default async function(core, ctx) {
+            let orderCount = 0;
+            try {
+              const res = await core.sdk.collection('orders').list();
+              orderCount = res.totalItems;
+            } catch (e) {
+              orderCount = -1;
+            }
+            return {
+              auth: ctx.auth,
+              orderCount,
+            };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+      });
+
+      // Insert an order owned by userId
+      await app.records.create('orders', {
+        title: 'User Widget',
+        amount: 25,
+        owner: userId,
+      }, { isAdmin: true, id: 'admin' });
+
+      // 2. Verified JWT passed in Authorization header: resolves real claims and reads owned order
+      const validTokenRes = await app.functions.testFunction(
+        authEchoFn.id,
+        {
+          headers: { authorization: `Bearer ${userToken}` },
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(validTokenRes.status).toBe('success');
+      expect(validTokenRes.body.auth.id).toBe(userId);
+      expect(validTokenRes.body.orderCount).toBeGreaterThan(0);
+
+      // 3. Forged / invalid JWT in Authorization header: resolved to null and fails ownership rule,
+      // even if fabricated mock auth is passed in request body
+      const forgedTokenRes = await app.functions.testFunction(
+        authEchoFn.id,
+        {
+          headers: { authorization: 'Bearer invalid.forged.jwt' },
+          auth: { id: 'custom-user', role: 'admin', isAdmin: true },
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(forgedTokenRes.status).toBe('success');
+      expect(forgedTokenRes.body.auth).toBeNull();
+      expect(forgedTokenRes.body.orderCount).toBe(0); // Filtered out by owner = @request.auth.id rule
+
+      // 4. Function with authPolicy: 'auth' rejects invalid Authorization header
+      const protectedFn = app.functions.createFunction({
+        name: 'protected-auth-fn',
+        code: `export default async function(core, ctx) { return { ok: true }; }`,
+        enabled: true,
+        authPolicy: 'auth',
+      });
+
+      const invalidPolicyRes = await app.functions.testFunction(
+        protectedFn.id,
+        {
+          headers: { authorization: 'Bearer fake_token' },
+          auth: { id: 'custom-user', role: 'user' },
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(invalidPolicyRes.status).toBe('error');
+      expect(invalidPolicyRes.error).toContain('Authentication token required');
+
+      // Valid token satisfies authPolicy: 'auth'
+      const validPolicyRes = await app.functions.testFunction(
+        protectedFn.id,
+        {
+          headers: { authorization: `Bearer ${userToken}` },
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(validPolicyRes.status).toBe('success');
+      expect(validPolicyRes.body.ok).toBe(true);
+
+      // 5. Function with authPolicy: 'apiKey' verified via ApiKey header
+      const apiKeyResult = app.apiKeys.createKey({
+        name: 'Test Service Key',
+        role: 'user',
+        scopes: ['functions:invoke'],
+      });
+      const apiKeyProtectedFn = app.functions.createFunction({
+        name: 'apikey-protected-fn',
+        code: `export default async function(core, ctx) { return { isApiKey: ctx.auth?.isApiKey, scopes: ctx.auth?.scopes }; }`,
+        enabled: true,
+        authPolicy: 'apiKey',
+      });
+
+      const apiKeyRes = await app.functions.testFunction(
+        apiKeyProtectedFn.id,
+        {
+          headers: { authorization: `ApiKey ${apiKeyResult.secretKey}` },
+        },
+        { id: 'admin_caller', isAdmin: true }
+      );
+      expect(apiKeyRes.status).toBe('success');
+      expect(apiKeyRes.body.isApiKey).toBe(true);
+      expect(apiKeyRes.body.scopes).toContain('functions:invoke');
+
+      // HTTP endpoint inject verification: POST /api/functions/:id/test
+      const httpTestRes = await app.server.inject({
+        method: 'POST',
+        url: `/api/functions/${protectedFn.id}/test`,
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: {
+          headers: { authorization: 'Bearer forged.token.attempt' },
+          auth: { id: 'custom-user', role: 'user' },
+        },
+      });
+      expect(httpTestRes.statusCode).toBe(200);
+      const httpTestData = httpTestRes.json();
+      expect(httpTestData.status).toBe('error');
+      expect(httpTestData.error).toContain('Authentication token required');
+    });
+
+    it('should detect circular recursion when testFunction re-enters its own lifecycle hook and enforce 508 status', async () => {
+      const hookLoopFn = app.functions.createFunction({
+        name: 'test-fn-reentrant-hook',
+        code: `
+          export default async function(core, context) {
+            // Re-enters its own hook via orders:beforeCreate
+            await core.sdk.collection('orders').create({ title: 'Loop from testFunction', amount: 99 });
+            return { status: 200, done: true };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'public',
+        methods: ['*'],
+        eventTrigger: 'orders:beforeCreate',
+        timeoutMs: 1500,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: true,
+        env: {},
+      });
+
+      const testRes = await app.functions.testFunction(
+        hookLoopFn.id,
+        {},
+        { id: 'admin_test', isAdmin: true }
+      );
+
+      // The hook execution failed with 508 circular recursion error
+      expect(testRes.status).toBe('error');
+      expect(testRes.error).toMatch(/Circular recursion detected.*test-fn-reentrant-hook.*already active in call stack/);
+
+      // Also verify direct cyclic invocation in testFunction throws 508 AppError
+      const storage = (app.functions as any).executionStorage;
+      await expect(
+        storage.run(
+          { depth: 1, activeFns: new Set([hookLoopFn.id]) },
+          () => app.functions.testFunction(hookLoopFn.id, {}, { id: 'admin_test', isAdmin: true })
+        )
+      ).rejects.toMatchObject({
+        statusCode: 508,
+        message: expect.stringContaining(`Circular recursion detected: function 'test-fn-reentrant-hook' already active in call stack`),
+      });
+
+      // Verify configured depth limit (maxRecursionDepth) throws 508 AppError
+      await expect(
+        storage.run(
+          { depth: 11, activeFns: new Set() },
+          () => app.functions.testFunction(hookLoopFn.id, {}, { id: 'admin_test', isAdmin: true })
+        )
+      ).rejects.toMatchObject({
+        statusCode: 508,
+        message: expect.stringContaining(`Maximum function recursion depth of ${app.functions.getMaxRecursionDepth()} exceeded`),
+      });
+
+      app.functions.deleteFunction(hookLoopFn.id);
+    });
+
+  });
+
 });

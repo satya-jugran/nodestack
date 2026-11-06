@@ -221,7 +221,10 @@ export class SucceedStateHandler implements IStateHandler<SucceedState> {
 
 export class FailStateHandler implements IStateHandler<FailState> {
   public async execute(state: FailState, context: FlowStateContext): Promise<StateExecutionResult> {
-    const errorMsg = state.error || state.cause || `State machine failed at step '${context.stateName}'`;
+    const errorParts = [state.error, state.cause].filter(Boolean);
+    const errorMsg = errorParts.length > 0
+      ? errorParts.join(': ')
+      : `State machine failed at step '${context.stateName}'`;
     return {
       payload: context.payload,
       isEnd: true,

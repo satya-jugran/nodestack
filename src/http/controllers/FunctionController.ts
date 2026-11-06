@@ -4,13 +4,28 @@ import { AppError, ForbiddenError, UnauthorizedError } from '../../core/errors/A
 import { FunctionService } from '../../functions/FunctionService';
 import { CreateFunctionDto, UpdateFunctionDto, FunctionRequestContext } from '../../functions/types';
 
+import type { AuthService } from '../../auth/AuthService';
+import type { ApiKeyService } from '../../auth/ApiKeyService';
+
 export class FunctionController extends BaseController {
-  constructor(private functionService?: FunctionService) {
+  constructor(
+    private functionService?: FunctionService,
+    private authService?: AuthService,
+    private apiKeyService?: ApiKeyService
+  ) {
     super();
   }
 
   private getFunctionsService(req: any): FunctionService {
     return req?.appScope?.functions || this.functionService;
+  }
+
+  private getAuthService(req: any): AuthService | undefined {
+    return req?.appScope?.auth || this.authService;
+  }
+
+  private getApiKeyService(req: any): ApiKeyService | undefined {
+    return req?.appScope?.apiKeys || this.apiKeyService;
   }
 
   // ==========================================
@@ -101,6 +116,11 @@ export class FunctionController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getFunctionsService(req);
+    const authService = this.getAuthService(req);
+    const apiKeyService = this.getApiKeyService(req);
+    if (service && (authService || apiKeyService)) {
+      service.setAuthServices(authService, apiKeyService);
+    }
     try {
       const result = await service.testFunction(
         req.params.id,

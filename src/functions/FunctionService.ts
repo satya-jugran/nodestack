@@ -25,6 +25,8 @@ import { AppError, NotFoundError, ForbiddenError, UnauthorizedError, ValidationE
 import { FlowValidator } from '../flows/FlowValidator';
 import type { FlowService } from '../flows/FlowService';
 import type { QueueService } from '../queue/QueueService';
+import type { AuthService, AuthClaims } from '../auth/AuthService';
+import type { ApiKeyService } from '../auth/ApiKeyService';
 
 export class FunctionConcurrencyLimitError extends AppError {
   constructor(message = 'Serverless function concurrency limit reached. Please retry shortly.') {
@@ -38,6 +40,8 @@ export interface FunctionServiceOptions {
   maxRecursionDepth?: number;
   flowService?: FlowService;
   queueService?: QueueService;
+  authService?: AuthService;
+  apiKeyService?: ApiKeyService;
 }
 
 export class FunctionService {
@@ -48,6 +52,8 @@ export class FunctionService {
   private executionStorage = new AsyncLocalStorage<{ depth: number; activeFns: Set<string> }>();
   private flowService?: FlowService;
   private queueService?: QueueService;
+  private authService?: AuthService;
+  private apiKeyService?: ApiKeyService;
 
   constructor(
     private db: DatabaseService,
@@ -63,6 +69,8 @@ export class FunctionService {
     this.maxRecursionDepth = options.maxRecursionDepth || 5;
     this.flowService = options.flowService;
     this.queueService = options.queueService;
+    this.authService = options.authService;
+    this.apiKeyService = options.apiKeyService;
     this.initTables();
   }
 
@@ -288,6 +296,24 @@ export class FunctionService {
       const tableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_queues'").get();
       if (tableExists) {
         this.db.prepare('UPDATE _queues SET targetFunction = ? WHERE targetFunction = ?').run(name, current.name);
+      }
+
+      const flowsTableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_flows'").get();
+      if (flowsTableExists) {
+        const rows = this.db.prepare('SELECT id, definition FROM _flows').all() as any[];
+        for (const row of rows) {
+          try {
+            const def = JSON.parse(row.definition);
+            const renamed = FlowValidator.renameReferencedFunction(def, current.name, name);
+            if (renamed) {
+              this.db.prepare('UPDATE _flows SET definition = ?, updated = ? WHERE id = ?').run(
+                JSON.stringify(def),
+                now,
+                row.id
+              );
+            }
+          } catch {}
+        }
       }
     }
 
@@ -553,6 +579,13 @@ export class FunctionService {
     const currentDepth = (parentStore?.depth || 0) + 1;
     const activeFns = parentStore?.activeFns ? new Set(parentStore.activeFns) : new Set<string>();
 
+    if (currentDepth > this.maxRecursionDepth || activeFns.has(fn.id)) {
+      const errorMsg = activeFns.has(fn.id)
+        ? `Circular recursion detected: function '${fn.name}' already active in call stack`
+        : `Maximum function recursion depth of ${this.maxRecursionDepth} exceeded`;
+      throw new AppError(errorMsg, 508);
+    }
+
     this.activeExecutions++;
     const nextActiveFns = new Set(activeFns);
     nextActiveFns.add(fn.id);
@@ -589,6 +622,109 @@ export class FunctionService {
     }
   }
 
+  public setAuthServices(authService?: AuthService, apiKeyService?: ApiKeyService): void {
+    if (authService) this.authService = authService;
+    if (apiKeyService) this.apiKeyService = apiKeyService;
+  }
+
+  public hasAuthServices(): boolean {
+    return Boolean(this.authService || this.apiKeyService);
+  }
+
+  public resolveAuthFromHeaders(headers: Record<string, any> = {}): { hasAuthHeader: boolean; resolvedAuth: any } {
+    let authHeader: string | undefined;
+    let xApiKey: string | undefined;
+
+    for (const [k, v] of Object.entries(headers)) {
+      const lower = k.toLowerCase();
+      if (lower === 'authorization' && typeof v === 'string') {
+        authHeader = v;
+      } else if ((lower === 'x-api-key' || lower === 'x-apikey') && typeof v === 'string') {
+        xApiKey = v;
+      }
+    }
+
+    if (xApiKey && xApiKey.trim()) {
+      const key = xApiKey.trim();
+      if (this.apiKeyService) {
+        const result = this.apiKeyService.verifyKey(key);
+        if (result.valid && result.apiKey) {
+          const isSuperAdmin = result.apiKey.role === 'admin' || result.apiKey.scopes.includes('*') || result.apiKey.scopes.includes('admin:*');
+          return {
+            hasAuthHeader: true,
+            resolvedAuth: {
+              id: result.apiKey.id,
+              email: `${result.apiKey.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}@service.nodestack.local`,
+              collection: '_api_keys',
+              tokenKey: result.apiKey.id,
+              isAdmin: isSuperAdmin,
+              isApiKey: true,
+              apiKeyId: result.apiKey.id,
+              apiKeyName: result.apiKey.name,
+              scopes: result.apiKey.scopes,
+              allowedIps: result.apiKey.allowedIps,
+            },
+          };
+        }
+      }
+      return { hasAuthHeader: true, resolvedAuth: null };
+    }
+
+    if (authHeader && authHeader.trim()) {
+      const headerVal = authHeader.trim();
+      let token: string | undefined;
+      let isApiKeyHeader = false;
+
+      if (headerVal.startsWith('Bearer nsk_') || headerVal.startsWith('bearer nsk_') || headerVal.startsWith('ApiKey ') || headerVal.startsWith('apikey ')) {
+        token = headerVal.substring(7).trim();
+        isApiKeyHeader = true;
+      } else if (headerVal.toLowerCase().startsWith('bearer ')) {
+        token = headerVal.substring(7).trim();
+      } else {
+        token = headerVal;
+      }
+
+      if (token) {
+        if (isApiKeyHeader || token.startsWith('nsk_')) {
+          if (this.apiKeyService) {
+            const result = this.apiKeyService.verifyKey(token);
+            if (result.valid && result.apiKey) {
+              const isSuperAdmin = result.apiKey.role === 'admin' || result.apiKey.scopes.includes('*') || result.apiKey.scopes.includes('admin:*');
+              return {
+                hasAuthHeader: true,
+                resolvedAuth: {
+                  id: result.apiKey.id,
+                  email: `${result.apiKey.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}@service.nodestack.local`,
+                  collection: '_api_keys',
+                  tokenKey: result.apiKey.id,
+                  isAdmin: isSuperAdmin,
+                  isApiKey: true,
+                  apiKeyId: result.apiKey.id,
+                  apiKeyName: result.apiKey.name,
+                  scopes: result.apiKey.scopes,
+                  allowedIps: result.apiKey.allowedIps,
+                },
+              };
+            }
+          }
+          return { hasAuthHeader: true, resolvedAuth: null };
+        }
+
+        if (this.authService) {
+          try {
+            const claims = this.authService.verifyToken(token);
+            return { hasAuthHeader: true, resolvedAuth: claims };
+          } catch {
+            return { hasAuthHeader: true, resolvedAuth: null };
+          }
+        }
+      }
+      return { hasAuthHeader: true, resolvedAuth: null };
+    }
+
+    return { hasAuthHeader: false, resolvedAuth: undefined };
+  }
+
   public async testFunction(
     id: string,
     mockRequest: Partial<FunctionRequestContext> = {},
@@ -599,6 +735,23 @@ export class FunctionService {
       throw new NotFoundError(`Function '${id}' not found`);
     }
 
+    const rawHeaders = mockRequest.headers || {};
+    const { hasAuthHeader, resolvedAuth } = this.resolveAuthFromHeaders(rawHeaders);
+
+    let effectiveAuth: any;
+    let effectiveActor: any;
+
+    if (hasAuthHeader) {
+      effectiveAuth = resolvedAuth;
+      effectiveActor = resolvedAuth;
+    } else if (mockRequest.auth !== undefined) {
+      effectiveAuth = mockRequest.auth;
+      effectiveActor = mockRequest.auth;
+    } else {
+      effectiveAuth = actor ? { id: actor.id, role: actor.isAdmin ? 'admin' : (actor.isApiKey ? 'apiKey' : 'user'), email: actor.email } : null;
+      effectiveActor = actor;
+    }
+
     const requestCtx: FunctionRequestContext = {
       method: mockRequest.method || 'POST',
       path: mockRequest.path || `/api/functions/${fn.name}`,
@@ -606,21 +759,55 @@ export class FunctionService {
       headers: mockRequest.headers || { 'content-type': 'application/json' },
       body: mockRequest.body || {},
       params: mockRequest.params || {},
-      auth: mockRequest.auth !== undefined ? mockRequest.auth : (actor ? { id: actor.id, role: actor.isAdmin ? 'admin' : 'user', email: actor.email } : null),
+      auth: effectiveAuth,
     };
+
+    if (fn.authPolicy && fn.authPolicy !== 'public') {
+      try {
+        this.verifyAuthPolicy(fn, effectiveActor);
+      } catch (err: any) {
+        return {
+          status: 'error',
+          statusCode: err.statusCode || 401,
+          error: err.message,
+          durationMs: 0,
+          logs: [`[AuthError] ${err.message}`],
+          memoryUsedMb: 0,
+        };
+      }
+    }
 
     if (this.activeExecutions >= this.maxConcurrent) {
       throw new AppError('Serverless function concurrency limit reached. Please retry shortly.', 429);
     }
 
+    const parentStore = this.executionStorage.getStore();
+    const currentDepth = (parentStore?.depth || 0) + 1;
+    const activeFns = parentStore?.activeFns ? new Set(parentStore.activeFns) : new Set<string>();
+
+    if (currentDepth > this.maxRecursionDepth || activeFns.has(fn.id)) {
+      const errorMsg = activeFns.has(fn.id)
+        ? `Circular recursion detected: function '${fn.name}' already active in call stack`
+        : `Maximum function recursion depth of ${this.maxRecursionDepth} exceeded`;
+      throw new AppError(errorMsg, 508);
+    }
+
     this.activeExecutions++;
+    const nextActiveFns = new Set(activeFns);
+    nextActiveFns.add(fn.id);
+
     let result: FunctionExecutionResult;
     try {
-      const context = this.buildFunctionContext(fn, requestCtx, undefined, actor);
-      result = await this.runner.execute(fn.code, context, {
-        timeoutMs: fn.timeoutMs,
-        memoryLimitMb: fn.memoryLimitMb,
-      });
+      const context = this.buildFunctionContext(fn, requestCtx, undefined, effectiveActor);
+      result = await this.executionStorage.run(
+        { depth: currentDepth, activeFns: nextActiveFns },
+        async () => {
+          return await this.runner.execute(fn.code, context, {
+            timeoutMs: fn.timeoutMs,
+            memoryLimitMb: fn.memoryLimitMb,
+          });
+        }
+      );
     } finally {
       this.activeExecutions = Math.max(0, this.activeExecutions - 1);
       this.queueService?.wakeAllWorkers();
@@ -637,7 +824,7 @@ export class FunctionService {
       responsePayload: JSON.stringify(result.body ?? null),
       logs: result.logs.join('\n'),
       error: result.error,
-      actorId: actor?.id || undefined,
+      actorId: effectiveActor?.id || undefined,
     });
 
     return result;
@@ -754,6 +941,10 @@ export class FunctionService {
         actorId: eventCtx.auth?.id || undefined,
       });
 
+      if (result.status === 'timeout' && eventCtx.isBefore) {
+        throw new AppError(result.error || `Before-hook function '${fn.name}' timed out`, 504);
+      }
+
       if (result.status === 'error' && eventCtx.isBefore) {
         const isRecursion = result.error?.includes('recursion');
         throw new AppError(result.error || `Function '${fn.name}' failed`, isRecursion ? 508 : 500);
@@ -869,7 +1060,9 @@ export class FunctionService {
     actor?: any
   ): FunctionHostServices {
     // If elevated is true, run as service-role (bypassing user rules)
-    const effectiveAuth = fn.elevated ? { isAdmin: true, id: 'service-role' } : (actor || requestCtx?.auth || null);
+    const effectiveAuth = fn.elevated
+      ? { isAdmin: true, id: 'service-role' }
+      : (actor || null);
 
     const safeFetch = SsrfGuard.createGuardedFetch(fn.allowedDomains, fn.timeoutMs);
 
@@ -1035,7 +1228,7 @@ export class FunctionService {
         request: requestCtx,
         event: eventCtx,
         env: fn.env || {},
-        auth: effectiveAuth,
+        auth: (requestCtx && requestCtx.auth !== undefined) ? requestCtx.auth : (effectiveAuth || null),
       },
     };
   }

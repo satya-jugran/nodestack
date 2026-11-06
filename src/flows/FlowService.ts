@@ -43,6 +43,15 @@ export class FlowService {
   private activeExecutionClaims = new Set<string>();
   private pendingExecutionAdmissions = new Set<string>();
   private executionWaiters = new Map<string, ExecutionWaiter>();
+  private suppressedExecutionWrites = new Set<string>();
+
+  private suppressExecutionWrites(executionId: string): void {
+    this.suppressedExecutionWrites.add(executionId);
+    const timer = setTimeout(() => {
+      this.suppressedExecutionWrites.delete(executionId);
+    }, 60000);
+    timer.unref?.();
+  }
 
   constructor(
     private db: DatabaseService,
@@ -117,6 +126,8 @@ export class FlowService {
           input TEXT,
           output TEXT,
           error TEXT,
+          errorName TEXT,
+          errorCode TEXT,
           durationMs INTEGER NOT NULL,
           stepLogs TEXT,
           actorId TEXT,
@@ -138,6 +149,12 @@ export class FlowService {
       // Migration safeguards for existing databases
       try {
         this.db.exec('ALTER TABLE _flows ADD COLUMN maxConcurrentExecutions INTEGER DEFAULT NULL');
+      } catch {}
+      try {
+        this.db.exec('ALTER TABLE _flow_executions ADD COLUMN errorName TEXT');
+      } catch {}
+      try {
+        this.db.exec('ALTER TABLE _flow_executions ADD COLUMN errorCode TEXT');
       } catch {}
       try {
         this.db.exec('ALTER TABLE _flow_executions ADD COLUMN checkpoint TEXT');
@@ -359,6 +376,10 @@ export class FlowService {
       this.saveExecution(finalExecution);
       this.settleWaiter(exec.id, finalExecution);
     } catch (err: any) {
+      if (this.suppressedExecutionWrites.has(exec.id)) {
+        this.settleWaiter(exec.id, undefined, err);
+        return;
+      }
       const current = this.getExecutionById(exec.id);
       if (current?.status === 'aborted') {
         this.settleWaiter(exec.id, undefined, err);
@@ -389,6 +410,7 @@ export class FlowService {
       this.releaseClaim(exec.id, claimToken);
       this.activeExecutionClaims.delete(exec.id);
       this.activeAbortControllers.delete(exec.id);
+      this.suppressedExecutionWrites.delete(exec.id);
     }
   }
 
@@ -627,6 +649,17 @@ export class FlowService {
       throw new NotFoundError(`Flow '${id}' not found`);
     }
 
+    // Abort active and queued in-flight executions for this flow
+    try {
+      const active = this.db.prepare("SELECT id FROM _flow_executions WHERE flowId = ? AND status IN ('running', 'queued')").all(id) as any[];
+      for (const r of active) {
+        this.suppressExecutionWrites(r.id);
+        try {
+          this.abortExecution(r.id, `Flow '${id}' was deleted`);
+        } catch {}
+      }
+    } catch {}
+
     if (this.queueService) {
       const queueName = FlowService.getFlowQueueName(id);
       void this.queueService.deleteQueue(queueName).catch(() => {});
@@ -859,6 +892,9 @@ export class FlowService {
           this.saveExecution(execution);
           return execution;
         } catch (err: any) {
+          if (this.suppressedExecutionWrites.has(executionId)) {
+            throw err;
+          }
           const existing = this.getExecutionById(executionId);
           if (existing?.status === 'aborted') {
             throw err;
@@ -887,6 +923,7 @@ export class FlowService {
           this.releaseClaim(executionId, claimToken);
           this.activeExecutionClaims.delete(executionId);
           this.activeAbortControllers.delete(executionId);
+          this.suppressedExecutionWrites.delete(executionId);
         }
       })();
 
@@ -1033,6 +1070,10 @@ export class FlowService {
       this.settleWaiter(executionId, finalExecution);
       return finalExecution;
     } catch (err: any) {
+      if (this.suppressedExecutionWrites.has(executionId)) {
+        this.settleWaiter(executionId, undefined, err);
+        throw err;
+      }
       const current = this.getExecutionById(executionId);
       if (current?.status === 'aborted') {
         this.settleWaiter(executionId, undefined, err);
@@ -1074,6 +1115,7 @@ export class FlowService {
       this.releaseClaim(executionId, claimToken);
       this.activeExecutionClaims.delete(executionId);
       this.activeAbortControllers.delete(executionId);
+      this.suppressedExecutionWrites.delete(executionId);
       if (this.queueService) {
         void this.checkAndCleanupDrainedFlowQueue(flow.id, job.queue);
       }
@@ -1139,6 +1181,11 @@ export class FlowService {
    * Atomically persists the step logs and execution state after each transition.
    */
   public persistCheckpoint(executionId: string, event: FlowStepTransitionEvent, claimToken?: string): void {
+    if (this.suppressedExecutionWrites.has(executionId)) {
+      const cancelErr = new AppError('Execution has been aborted', 499);
+      (cancelErr as any).status = 'cancelled';
+      throw cancelErr;
+    }
     const controller = this.activeAbortControllers.get(executionId);
     if (controller?.signal.aborted) {
       const cancelErr = new AppError('Execution has been aborted', 499);
@@ -1550,6 +1597,9 @@ export class FlowService {
             this.saveExecution(mergedExecution);
             return mergedExecution;
           } catch (err: any) {
+            if (this.suppressedExecutionWrites.has(exec.id)) {
+              throw err;
+            }
             const existing = this.getExecutionById(executionId);
             if (existing?.status === 'aborted') {
               throw err;
@@ -1579,6 +1629,7 @@ export class FlowService {
             this.releaseClaim(executionId, claimToken);
             this.activeExecutionClaims.delete(executionId);
             this.activeAbortControllers.delete(executionId);
+            this.suppressedExecutionWrites.delete(executionId);
           }
         })();
 
@@ -1593,6 +1644,7 @@ export class FlowService {
       } finally {
         if (!claimed) {
           this.activeExecutionClaims.delete(executionId);
+          this.suppressedExecutionWrites.delete(executionId);
         }
       }
     } finally {
@@ -1609,13 +1661,29 @@ export class FlowService {
       throw new AppError(`Invalid recovery strategy '${strategy}'. Must be 'abort' or 'resume'.`, 400);
     }
 
-    try {
-      this.db.prepare("UPDATE _flow_executions SET claimToken = NULL WHERE status IN ('running', 'queued')").run();
-    } catch {}
+    const activeIds = Array.from(new Set([...this.activeExecutionClaims, ...this.pendingExecutionAdmissions]));
+    if (activeIds.length > 0) {
+      const placeholders = activeIds.map(() => '?').join(',');
+      try {
+        this.db.prepare(`UPDATE _flow_executions SET claimToken = NULL WHERE status IN ('running', 'queued') AND id NOT IN (${placeholders})`).run(...activeIds);
+      } catch {}
+    } else {
+      try {
+        this.db.prepare("UPDATE _flow_executions SET claimToken = NULL WHERE status IN ('running', 'queued')").run();
+      } catch {}
+    }
 
-    const orphanedRows = this.db
-      .prepare("SELECT * FROM _flow_executions WHERE status = 'running'")
-      .all() as any[];
+    let orphanedRows: any[];
+    if (activeIds.length > 0) {
+      const placeholders = activeIds.map(() => '?').join(',');
+      orphanedRows = this.db
+        .prepare(`SELECT * FROM _flow_executions WHERE status = 'running' AND id NOT IN (${placeholders})`)
+        .all(...activeIds) as any[];
+    } else {
+      orphanedRows = this.db
+        .prepare("SELECT * FROM _flow_executions WHERE status = 'running'")
+        .all() as any[];
+    }
 
     const recovered: FlowExecution[] = [];
 
@@ -1660,9 +1728,17 @@ export class FlowService {
     // Reconcile and drain any 'queued' executions waiting in _flow_executions
     if (this.queueService) {
       this.syncAllFlowQueues();
-      const queuedRows = this.db
-        .prepare("SELECT * FROM _flow_executions WHERE status = 'queued' ORDER BY queuedAt ASC, startedAt ASC")
-        .all() as any[];
+      let queuedRows: any[];
+      if (activeIds.length > 0) {
+        const placeholders = activeIds.map(() => '?').join(',');
+        queuedRows = this.db
+          .prepare(`SELECT * FROM _flow_executions WHERE status = 'queued' AND id NOT IN (${placeholders}) ORDER BY queuedAt ASC, startedAt ASC`)
+          .all(...activeIds) as any[];
+      } else {
+        queuedRows = this.db
+          .prepare("SELECT * FROM _flow_executions WHERE status = 'queued' ORDER BY queuedAt ASC, startedAt ASC")
+          .all() as any[];
+      }
 
       for (const row of queuedRows) {
         const exec = this.mapRowToExecution(row);
@@ -1792,8 +1868,22 @@ export class FlowService {
   }
 
   public clearExecutions(flowId?: string): boolean {
-    if (flowId) {
-      this.db.prepare('DELETE FROM _flow_executions WHERE flowId = ?').run(flowId);
+    const targetFlowId = flowId ? (this.getFlowById(flowId)?.id || this.getFlowByName(flowId)?.id || flowId) : undefined;
+    try {
+      const query = targetFlowId
+        ? "SELECT id FROM _flow_executions WHERE flowId = ? AND status IN ('running', 'queued')"
+        : "SELECT id FROM _flow_executions WHERE status IN ('running', 'queued')";
+      const active = (targetFlowId ? this.db.prepare(query).all(targetFlowId) : this.db.prepare(query).all()) as any[];
+      for (const r of active) {
+        this.suppressExecutionWrites(r.id);
+        try {
+          this.abortExecution(r.id, targetFlowId ? `Executions cleared for flow '${targetFlowId}'` : 'Executions cleared');
+        } catch {}
+      }
+    } catch {}
+
+    if (targetFlowId) {
+      this.db.prepare('DELETE FROM _flow_executions WHERE flowId = ?').run(targetFlowId);
     } else {
       this.db.prepare('DELETE FROM _flow_executions').run();
     }
@@ -1802,19 +1892,26 @@ export class FlowService {
 
   private saveExecution(exec: FlowExecution): void {
     try {
+      if (this.suppressedExecutionWrites.has(exec.id)) {
+        return;
+      }
+
       if (exec.status !== 'aborted') {
         const existing = this.db.prepare('SELECT status FROM _flow_executions WHERE id = ?').get(exec.id) as any;
         if (existing && existing.status === 'aborted') {
+          return;
+        }
+        if (!existing && exec.status !== 'running' && exec.status !== 'queued') {
           return;
         }
       }
 
       this.db.prepare(`
         INSERT OR REPLACE INTO _flow_executions (
-          id, flowId, flowName, status, input, output, error, durationMs,
+          id, flowId, flowName, status, input, output, error, errorName, errorCode, durationMs,
           stepLogs, actorId, actor, queuedAt, jobId, startedAt, finishedAt, checkpoint, claimToken
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         exec.id,
         exec.flowId,
@@ -1823,6 +1920,8 @@ export class FlowService {
         exec.input !== undefined ? JSON.stringify(exec.input) : null,
         exec.output !== undefined ? JSON.stringify(exec.output) : null,
         exec.error || null,
+        exec.errorName || null,
+        exec.errorCode || null,
         exec.durationMs,
         JSON.stringify(exec.stepLogs),
         exec.actorId,
@@ -1866,6 +1965,8 @@ export class FlowService {
       input: row.input ? JSON.parse(row.input) : null,
       output: row.output ? JSON.parse(row.output) : null,
       error: row.error || undefined,
+      errorName: row.errorName || undefined,
+      errorCode: row.errorCode || undefined,
       durationMs: row.durationMs,
       stepLogs: row.stepLogs ? JSON.parse(row.stepLogs) : [],
       actorId: row.actorId,

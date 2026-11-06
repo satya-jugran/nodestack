@@ -186,7 +186,14 @@ export class FlowController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getFlowsService(req);
-    const flowId = req.params?.id || req.query.flowId;
+    const rawFlowId = req.params?.id || req.query.flowId;
+    let flowId = rawFlowId;
+    if (rawFlowId) {
+      const resolved = service.getFlowById(rawFlowId) || service.getFlowByName(rawFlowId);
+      if (resolved) {
+        flowId = resolved.id;
+      }
+    }
     const page = req.query.page ? parseInt(req.query.page, 10) : 1;
     const perPage = req.query.perPage ? parseInt(req.query.perPage, 10) : 20;
 
@@ -227,7 +234,14 @@ export class FlowController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getFlowsService(req);
-    const flowId = req.params?.id;
+    const rawFlowId = req.params?.id;
+    let flowId = rawFlowId;
+    if (rawFlowId) {
+      const resolved = service.getFlowById(rawFlowId) || service.getFlowByName(rawFlowId);
+      if (resolved) {
+        flowId = resolved.id;
+      }
+    }
     service.clearExecutions(flowId);
     this.ok(reply, { success: true, message: 'Executions cleared' });
   }

@@ -725,6 +725,18 @@ function renderWorkbenchConfigPane(fn, isNew, allowedDomainsString, envString) {
             Triggers & Invocation
           </div>
           <div>
+            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px;">Allowed HTTP Methods</label>
+            <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;" id="fn-editor-methods-group">
+              ${['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map(m => `
+                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
+                  <input type="checkbox" class="fn-editor-method-cb" value="${m}" ${(fn.methods || ['GET', 'POST']).includes(m) ? 'checked' : ''} style="cursor: pointer;">
+                  <span>${m}</span>
+                </label>
+              `).join('')}
+            </div>
+            <span style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display: block;">Allowed HTTP methods for external API invocation routes.</span>
+          </div>
+          <div>
             <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px;">Database Lifecycle Hook Trigger</label>
             <input type="text" id="fn-editor-hook" class="input" value="${escapeHtml(fn.eventTrigger || '')}" placeholder="e.g. orders:beforeCreate or articles:afterUpdate" style="width: 100%; font-size: 12px; font-family: monospace;">
             <span style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display: block;">
@@ -925,9 +937,15 @@ async function saveFunctionEditor() {
       }
     }
 
+    const methodCbs = document.querySelectorAll('.fn-editor-method-cb:checked');
+    const methods = methodCbs.length > 0
+      ? Array.from(methodCbs).map(cb => cb.value)
+      : (fn.methods || ['GET', 'POST']);
+
     const payload = {
       description,
       authPolicy,
+      methods,
       eventTrigger: eventTrigger || null,
       timeoutMs,
       memoryLimitMb,

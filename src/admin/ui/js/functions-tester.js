@@ -53,14 +53,20 @@ function renderWorkbenchTestPane(fn, isNew) {
             <select id="editor-test-auth" class="input" style="width: 100%;" onchange="toggleEditorTestAuthCustom(this.value)">
               <option value="none">Public (No Authorization Header)</option>
               <option value="admin">Current Admin Session (Bearer Token)</option>
-              <option value="custom">Custom Token...</option>
+              <option value="custom">Custom Token (Verified JWT / API Key)...</option>
+              <option value="mock">Explicit Mock Auth Object (JSON)...</option>
             </select>
           </div>
         </div>
 
         <div id="editor-test-custom-auth-row" style="display: none;">
           <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px;">Custom Token (JWT / API Key)</label>
-          <input type="text" id="editor-test-custom-token" class="input" placeholder="eyJhbGciOi..." style="width: 100%; font-family: monospace; font-size: 11px;">
+          <input type="text" id="editor-test-custom-token" class="input" placeholder="eyJhbGciOi... or nsk_live_..." style="width: 100%; font-family: monospace; font-size: 11px;">
+        </div>
+
+        <div id="editor-test-mock-auth-row" style="display: none;">
+          <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px;">Mock Auth Object (JSON)</label>
+          <textarea id="editor-test-mock-auth" style="width: 100%; height: 60px; font-family: monospace; font-size: 11px; padding: 8px; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-input); color: var(--text-main);" placeholder='{ "id": "usr_simulated", "role": "user" }'>{ "id": "usr_simulated", "role": "user" }</textarea>
         </div>
 
         <div>
@@ -147,8 +153,10 @@ function setEditorTestSampleBody(type) {
 }
 
 function toggleEditorTestAuthCustom(val) {
-  const row = document.getElementById('editor-test-custom-auth-row');
-  if (row) row.style.display = val === 'custom' ? 'block' : 'none';
+  const tokenRow = document.getElementById('editor-test-custom-auth-row');
+  if (tokenRow) tokenRow.style.display = val === 'custom' ? 'block' : 'none';
+  const mockRow = document.getElementById('editor-test-mock-auth-row');
+  if (mockRow) mockRow.style.display = val === 'mock' ? 'block' : 'none';
 }
 
 // ==========================================
@@ -198,10 +206,39 @@ async function executeFunctionEditorTest() {
       }
     }
 
-    if (authType === 'admin' && typeof state !== 'undefined' && state.token) {
-      headers['authorization'] = `Bearer ${state.token}`;
-    } else if (authType === 'custom' && customAuthToken) {
-      headers['authorization'] = `Bearer ${customAuthToken.trim()}`;
+    let mockAuth = undefined;
+    if (authType === 'none') {
+      mockAuth = null;
+    } else if (authType === 'admin') {
+      if (typeof state !== 'undefined' && state.token) {
+        headers['authorization'] = `Bearer ${state.token}`;
+      }
+      mockAuth = { id: (typeof state !== 'undefined' && state.user?.id) || 'admin', role: 'admin', isAdmin: true };
+    } else if (authType === 'custom') {
+      const customAuthToken = document.getElementById('editor-test-custom-token')?.value || '';
+      const token = customAuthToken.trim();
+      if (token) {
+        if (token.startsWith('nsk_')) {
+          headers['authorization'] = `ApiKey ${token}`;
+        } else if (token.toLowerCase().startsWith('bearer ') || token.toLowerCase().startsWith('apikey ')) {
+          headers['authorization'] = token;
+        } else {
+          headers['authorization'] = `Bearer ${token}`;
+        }
+      }
+      // Resolved server-side into verified auth claims from the Authorization header.
+      // Do not send fabricated mockAuth so invalid tokens are rejected and real claims are preserved.
+    } else if (authType === 'mock') {
+      const mockRaw = document.getElementById('editor-test-mock-auth')?.value.trim();
+      if (mockRaw) {
+        try {
+          mockAuth = JSON.parse(mockRaw);
+        } catch {
+          throw new Error('Mock auth must be valid JSON');
+        }
+      } else {
+        mockAuth = null;
+      }
     }
 
     const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
@@ -209,10 +246,15 @@ async function executeFunctionEditorTest() {
       ? `/api/apps/${slug}/functions/${fn.id}/test`
       : `/api/functions/${fn.id}/test`;
 
+    const payload = { method, body, headers };
+    if (mockAuth !== undefined) {
+      payload.auth = mockAuth;
+    }
+
     const res = await api(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method, body, headers }),
+      body: JSON.stringify(payload),
     });
 
     if (outputEmpty) outputEmpty.style.display = 'none';

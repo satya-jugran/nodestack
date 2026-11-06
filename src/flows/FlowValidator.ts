@@ -1,5 +1,6 @@
 import { FlowDefinition, FlowState, ChoiceRule, FlowTriggerType } from './types';
 import { AppError } from '../core/errors/AppError';
+import { FlowPathMapper } from './utils/FlowPathMapper';
 
 export class FlowValidator {
   public static validate(def: FlowDefinition, contextPath: string = ''): void {
@@ -161,6 +162,7 @@ export class FlowValidator {
         break;
 
       case 'Map':
+        this.validatePath(name, 'itemsPath', state.itemsPath, contextPath);
         if (!state.itemsPath || !state.itemsPath.startsWith('$')) {
           throw new AppError(`${prefix}Map state '${name}': itemsPath must be a valid JSONPath starting with '$'`, 400);
         }
@@ -187,8 +189,12 @@ export class FlowValidator {
             throw new AppError(`${prefix}Loop state '${name}': maxIterations must be a positive integer >= 1`, 400);
           }
         }
-        if (state.condition) {
-          this.validateChoiceRule(name, 0, state.condition, allKeys, true, 'condition', false, contextPath);
+        if (!state.condition || typeof state.condition !== 'object') {
+          throw new AppError(`${prefix}Loop state '${name}' must specify a condition choice rule`, 400);
+        }
+        this.validateChoiceRule(name, 0, state.condition, allKeys, true, 'condition', false, contextPath);
+        if (!state.next && !state.end) {
+          throw new AppError(`${prefix}Loop state '${name}' must specify either 'next' or 'end: true'`, 400);
         }
         break;
 
@@ -245,6 +251,9 @@ export class FlowValidator {
     if (path !== undefined && path !== null) {
       if (typeof path !== 'string' || (path !== '' && !path.startsWith('$'))) {
         throw new AppError(`${prefix}State '${stateName}': ${propName} must be a valid JSONPath starting with '$'`, 400);
+      }
+      if (FlowPathMapper.isUnsafePath(path)) {
+        throw new AppError(`${prefix}State '${stateName}': ${propName} contains forbidden segments (__proto__, constructor, prototype)`, 400);
       }
     }
   }
@@ -308,6 +317,13 @@ export class FlowValidator {
           400
         );
       }
+    }
+
+    if (rule.variable && FlowPathMapper.isUnsafePath(rule.variable)) {
+      throw new AppError(
+        `${prefix}State '${stateName}': ${pathPrefix} variable contains forbidden segments (__proto__, constructor, prototype)`,
+        400
+      );
     }
 
     // Strict type checks for condition operators
@@ -450,5 +466,47 @@ export class FlowValidator {
 
     scanStates(states);
     return referenced;
+  }
+  /**
+   * Recursively renames all references to a function in a flow definition
+   */
+  public static renameReferencedFunction(
+    defOrStates: FlowDefinition | Record<string, FlowState> | null | undefined,
+    oldName: string,
+    newName: string
+  ): boolean {
+    if (!defOrStates || typeof defOrStates !== 'object') {
+      return false;
+    }
+
+    const states: Record<string, FlowState> =
+      (defOrStates as FlowDefinition).states || (defOrStates as Record<string, FlowState>);
+    if (!states || typeof states !== 'object') {
+      return false;
+    }
+
+    let modified = false;
+
+    function mutateStates(stateRecord: Record<string, any>) {
+      if (!stateRecord || typeof stateRecord !== 'object') return;
+      for (const state of Object.values(stateRecord)) {
+        if (!state || typeof state !== 'object') continue;
+        if (state.type === 'Task' && state.function === oldName) {
+          state.function = newName;
+          modified = true;
+        } else if (state.type === 'Map' && state.iterator && typeof state.iterator === 'object' && state.iterator.states) {
+          mutateStates(state.iterator.states);
+        } else if (state.type === 'Parallel' && Array.isArray(state.branches)) {
+          for (const branch of state.branches) {
+            if (branch && typeof branch === 'object' && branch.states) {
+              mutateStates(branch.states);
+            }
+          }
+        }
+      }
+    }
+
+    mutateStates(states);
+    return modified;
   }
 }

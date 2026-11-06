@@ -284,8 +284,9 @@ function handleAddStepSubmit(e) {
     newStep = {
       type: 'Loop',
       target: '',
-      condition: { variable: '$.counter', numericLessThan: 10, next: '' },
+      condition: { variable: '$.counter', numericLessThan: 10 },
       maxIterations: 100,
+      ...defaultEndProp,
     };
   } else if (type === 'Parallel') {
     newStep = {

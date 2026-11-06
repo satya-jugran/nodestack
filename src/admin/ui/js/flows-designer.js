@@ -427,8 +427,16 @@ async function runFlowTest() {
     }
   }
 
-  const flowId = designerState.activeFlow?.id;
-  if (!flowId) return;
+  const flow = designerState.activeFlow;
+  if (!flow || !flow.id) return;
+
+  // Validate and persist edits before execution so server runs the up-to-date definition
+  const saved = await saveFlowChanges({ silent: true });
+  if (!saved) {
+    return;
+  }
+
+  const flowId = designerState.activeFlow.id;
 
   try {
     const base = getDesignerFlowsApiBase();
@@ -612,8 +620,23 @@ function updateParallelBranchFunction(stepName, branchIdx, fnName) {
 function updateLoopCondition(stepName, prop, val) {
   const step = designerState.activeFlow?.definition?.states?.[stepName];
   if (!step) return;
-  if (!step.condition) step.condition = { variable: '$.counter', next: step.target };
-  step.condition[prop] = val;
+  if (!step.condition) step.condition = { variable: '$.counter' };
+  if (prop === 'variable') {
+    let cleanVal = String(val || '').trim();
+    if (cleanVal && !cleanVal.startsWith('$')) {
+      cleanVal = cleanVal.startsWith('[') ? '$' + cleanVal : '$.' + cleanVal;
+    }
+    step.condition.variable = cleanVal;
+  } else if (prop === 'numericLessThan') {
+    const num = typeof val === 'number' ? val : parseFloat(val);
+    if (isNaN(num)) {
+      delete step.condition.numericLessThan;
+    } else {
+      step.condition.numericLessThan = num;
+    }
+  } else {
+    step.condition[prop] = val;
+  }
 }
 
 function updatePassResult(stepName, jsonStr) {
@@ -868,6 +891,12 @@ function validateFlowDefinitionClient(def) {
           return `Loop step "${name}" max iterations must be a positive number.`;
         }
       }
+      if (!state.condition || typeof state.condition !== 'object') {
+        return `Loop step "${name}" must specify a condition choice rule.`;
+      }
+      if (!state.next && !state.end) {
+        return `Loop step "${name}" must configure "Then Go To" or mark as "End State".`;
+      }
     } else if (state.type === 'Wait') {
       if (typeof state.seconds !== 'number' || isNaN(state.seconds) || state.seconds < 0) {
         return `Wait step "${name}" seconds delay must be a non-negative number.`;
@@ -942,18 +971,41 @@ function selectStepFromDiagram(name) {
 }
 
 function switchDesignerMode(mode) {
+  if (designerState.activeMode === 'code' && designerState.cmDslEditor) {
+    try {
+      const parsed = JSON.parse(designerState.cmDslEditor.getValue());
+      const validationError = validateFlowDefinitionClient(parsed);
+      if (validationError) {
+        toast('DSL Validation Warning: ' + validationError, 'warning');
+      } else {
+        designerState.activeFlow.definition = parsed;
+      }
+    } catch (e) {
+      toast('Invalid JSON in editor: ' + e.message, 'warning');
+    }
+  }
   designerState.activeMode = mode;
   renderFlowDesignerWorkbench(designerState.activeFlow);
 }
 
-async function saveFlowChanges() {
+async function saveFlowChanges(options = {}) {
   const flow = designerState.activeFlow;
-  if (!flow || !flow.id) return;
+  if (!flow || !flow.id) return false;
+
+  if (designerState.activeMode === 'code' && designerState.cmDslEditor) {
+    try {
+      const parsed = JSON.parse(designerState.cmDslEditor.getValue());
+      flow.definition = parsed;
+    } catch (e) {
+      toast('Invalid JSON in DSL editor: ' + e.message, 'error');
+      return false;
+    }
+  }
 
   const validationError = validateFlowDefinitionClient(flow.definition);
   if (validationError) {
     toast('Validation Error: ' + validationError, 'error');
-    return;
+    return false;
   }
 
   try {
@@ -981,9 +1033,13 @@ async function saveFlowChanges() {
       updateBreadcrumbs();
     }
 
-    toast('Flow changes saved successfully!', 'success');
+    if (!options || !options.silent) {
+      toast('Flow changes saved successfully!', 'success');
+    }
+    return true;
   } catch (err) {
     toast('Failed to save flow: ' + (err.message || err), 'error');
+    return false;
   }
 }
 
