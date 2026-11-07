@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:d5692968282684724a546fd837147bd75aeda1071e6848b8eed743f858d899e1",
+  "pageVersion": "sha256:1f69d94ca90205bbd853dd4455fc4367df4f7ad569973bdb09b6e3539821a013",
   "claims": [
     {
       "id": "claim_b690f0f49d864dcbad52372147d84577",
@@ -66,13 +66,13 @@
         },
         {
           "resource": "repo://packages/client/src/index.ts",
-          "version": "repo-file-v1:sha256:3fb075276e422143f970ac82b06584c915c1fabd6edc9df0297cf1b57d7bd16f"
+          "version": "repo-file-v1:sha256:a601dc725294f340ffbe1fe082ccf99c7d8205c2d682d2018a656863946afd69"
         }
       ]
     }
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-05T17:08:40.212Z"
+    "at": "2026-11-07T08:27:51.831Z"
   }
 }

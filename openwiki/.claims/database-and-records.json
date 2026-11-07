@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:fc3a715751f132cfb36fd905d11ff5db0b6eee946eac9e257c866bd6b63917d1",
+  "pageVersion": "sha256:296a6f48938a9853c716b38e73f29668fc04cfb93e02a33ff2d7b769efaa7026",
   "claims": [
     {
       "id": "claim_94d5e801b563413891e89f45f2242afe",
@@ -46,7 +46,7 @@
       "evidence": [
         {
           "resource": "repo://src/schema/OpenApiGenerator.ts",
-          "version": "repo-file-v1:sha256:737101e0b973f8e18236ce6f1e4e83f148b706d35a1baf3e676506f2aaf855a3"
+          "version": "repo-file-v1:sha256:75daf9a9aae70a53b3ff839d3d99f2513ffab8bbe78b21db563e34ada307fd92"
         },
         {
           "resource": "repo://src/schema/SchemaInferenceService.ts",
@@ -79,6 +79,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-05T17:08:40.212Z"
+    "at": "2026-11-07T08:27:51.831Z"
   }
 }

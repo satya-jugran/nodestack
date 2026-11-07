@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:c54cfd6b6dd05ef00313ad7057aa04f52a36bdf5a10954f78c83097f72bbbab0",
+  "pageVersion": "sha256:2475be8d1116bb421bce093e7c9f781cb4d40b5ea1076faf77dca99847b11bf9",
   "claims": [
     {
       "id": "claim_d8170633bd4a4cb798aa45ef105ae15f",
@@ -28,7 +28,7 @@
       "evidence": [
         {
           "resource": "repo://src/webhooks/WebhookService.ts",
-          "version": "repo-file-v1:sha256:0f13a744ab396ecdbc026a7b4a7182a51ec573c2fabdf80231c664e2d29055fb"
+          "version": "repo-file-v1:sha256:739ef5327339e17ca74d067b2187a691a4e97a8e000a2a2acf1ecac9c09cfc8e"
         }
       ]
     },
@@ -69,6 +69,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-05T17:08:40.212Z"
+    "at": "2026-11-07T08:27:51.831Z"
   }
 }

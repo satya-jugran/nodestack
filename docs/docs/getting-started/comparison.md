@@ -81,7 +81,7 @@ This guide provides an objective architectural comparison to help you evaluate w
 
 ### 5. Workflow Orchestration & Business Logic
 
-* **NodeStack (v2.3.0)** includes an embedded state machine engine (**Function Flows**). You can visually build or define JSON state machines with 9 state types (`Task`, `Choice`, `Map`, `Parallel`, `Loop`, `Pass`, `Wait`, `Succeed`, `Fail`), trigger them synchronously via HTTP or asynchronously on database lifecycle events (`<collection>:afterCreate`), and leverage automated retries and function-flow referential integrity protection.
+* **NodeStack (v2.4.0)** includes an embedded state machine engine (**Function Flows**) and a durable background **Queues Subsystem**. You can visually build or define JSON state machines with 9 state types (`Task`, `Choice`, `Map`, `Parallel`, `Loop`, `Pass`, `Wait`, `Succeed`, `Fail`), throttle concurrency via system queues, publish messages with strict FIFO partition ordering, bind queues directly to sandboxed serverless functions, and leverage automated retries and dead-letter queues (DLQ).
 * **PocketBase** has no workflow orchestration subsystem; multi-step business logic requires writing custom Go code or procedural JavaScript hooks with manual error recovery.
 * **Supabase** does not provide an integrated workflow engine; multi-step orchestration requires provisioning external systems like Temporal, AWS Step Functions, or custom `pg_cron` jobs.
 

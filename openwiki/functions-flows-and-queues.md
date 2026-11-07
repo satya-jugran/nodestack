@@ -4,7 +4,7 @@ title: "Serverless Functions, Workflows & Queues"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-05T17:08:40.212Z
+    at: 2026-11-07T08:27:51.831Z
 sources:
   - id: openwiki-source-e69860785030352a5a6b3062
     resource: repo://src/flows/FlowEngine.ts
@@ -30,7 +30,7 @@ sources:
     resource: repo://src/queue/drivers/SqliteQueueDriver.ts
   - id: openwiki-source-75c9cc054eb2d6fc3f07ef6a
     resource: repo://src/queue/QueueService.ts
-generated: { by: "antigravity", at: "2026-11-05T17:08:40.212Z" }
+generated: { by: "antigravity", at: "2026-11-07T08:27:51.831Z" }
 ---
 
 # Serverless Functions, Workflows & Queues
@@ -154,6 +154,8 @@ NodeStack's Flow Engine implements an Amazon States Language (ASL)-compatible wo
 - **Stateless DB-Driven Architecture**: All durable configuration (`concurrency`, `visibilityTimeoutSeconds`, `maxAttempts`, `backoffDelayMs`, `deadLetterQueue`, `targetFunction`) and job leases live in SQLite. Idle queues consume zero memory; `QueueService` only wakes queues that have due `'queued'` jobs (`getQueuesWithPendingJobs()`).
 - **Atomic Claiming & Priority Ordering (`claim`)**:
   - Inside a SQLite transaction, `SqliteQueueDriver.claim()` checks active `'processing'` jobs with unexpired leases against `_queues.concurrency`, selects due `'queued'` candidates ordered by `priority DESC, availableAt ASC, rowid ASC`, assigns a unique `claimToken` (`crypto.randomUUID()`) and `leaseExpiresAt`, and increments `attempts`.
+- **Strict FIFO Partition Ordering (`strictOrder`)**:
+  - When `strictOrder: true` is configured, messages sharing the same `groupKey` (partition key) execute in strict sequential FIFO order. Head-of-line blocking is isolated per partition without stalling independent partition groups. Poison messages in a strict partition can be unblocked via `forceSkip()`.
 - **Deduplication & Delayed Jobs (`send` / `sendBatch`)**:
   - If `deduplicationId` is provided and an active (`'queued'` or `'processing'`) job with the same `(queue, deduplicationId)` already exists, `send()` returns the existing job without inserting a duplicate.
   - `delaySeconds` schedules future execution via `availableAt`, managed by a single coalesced timer (`scheduleDelayedAt`).

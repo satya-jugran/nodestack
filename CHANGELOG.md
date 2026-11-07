@@ -7,6 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.4.0] - 2026-11-07
+
+Release v2.4.0 introduces **NodeStack Queues**—an embedded, transactional background message queue and worker subsystem backed by SQLite with atomic claiming, lease renewal, retries, dead-letter queues (DLQ), strict partition FIFO ordering, and direct serverless function binding; delivers **Flow Execution Concurrency Throttling** using system queues; adds an interactive **Admin UI Queues Manager** with system queue filtering, payload drawers, and DLQ re-drive; exposes `client.queue(name)` in `nodestack-client` and `core.sdk.queue` inside QuickJS sandboxes; introduces an **Agent OpenWiki Evidence Index** for AI developer tooling; decommissions the legacy demo state subsystem in favor of the unified `SnapshotService`; and hardens security, execution state consistency, and path traversal protections.
+
+### Added
+
+#### 1. Transactional Queues Subsystem (`QueueService.ts`, `SqliteQueueDriver.ts`, `IQueueDriver.ts`)
+* **SQLite Queue Driver Engine**:
+  * Embedded, persistent queue architecture powered by SQLite tables (`_queues`, `_queue_messages`) with full ACID transactions.
+  * Lock-free atomic message claiming with configurable lease timeouts (`visibilityTimeoutSeconds`).
+  * Automatic orphan worker recovery and dead worker reclamation on server startup.
+  * Configurable exponential retry backoff (`backoffDelayMs`) and Dead-Letter Queue (`deadLetterQueue`) isolation when `maxAttempts` is reached.
+* **Strict FIFO Partition Ordering (`partitionKey` / `groupKey`)**:
+  * Implemented strict sequential FIFO partition ordering to ensure messages within the same partition key process strictly in series.
+  * Guarantees head-of-line ordering without blocking independent partitions.
+  * Added `forceSkip` API to unblock partitions on persistent poison messages when necessary.
+* **Worker Security & Leases**:
+  * Cryptographic `claimToken` generated per claimed lease, preventing unauthorized mutations or completions from expired or foreign workers.
+  * Worker lease extension via the `touch` API for long-running batch operations.
+
+#### 2. Serverless Function Queue Binding & QuickJS Sandbox Bridge
+* **Function-Queue Event Consumers (`targetFunction`)**:
+  * Direct queue-to-function binding for automatic message execution in sandboxed QuickJS WebAssembly runtimes.
+  * Automatic `ack` on clean returns (saving function output to `message.result`) and `nack` with exponential backoff on exceptions.
+  * Function capacity coordination with worker claiming to respect function concurrency.
+  * Automatic synchronization of `targetFunction` when serverless functions are renamed.
+* **QuickJS Bridge Integration (`QuickJsWasmRuntime.ts`)**:
+  * Exposed `core.sdk.queue(name)` and `core.queue` methods (`enqueue`, `getMessage`, etc.) inside function guest sandboxes.
+  * Added system queue protection to prevent guest code from tampering with internal orchestration queues.
+
+#### 3. Flow Execution Concurrency Throttling & Lifecycle Safety
+* **Queue-Backed Flow Concurrency Limits (`FlowService.ts`)**:
+  * Added concurrency throttling for Function Flows using per-flow system queues (`_flow_{flowId}`).
+  * Automatic draining of queued executions upon concurrency limit removal or increase.
+  * Transparent routing of paused and resumed executions through queue workers.
+* **Flow State Integrity**:
+  * Aborts pending queued executions prior to deleting execution history.
+  * Suppressed post-completion writes and reconciliations for already-deleted running executions.
+  * Preserved subflow error identity and causal trace hierarchy on nested flow failures.
+  * Preserved root loop condition paths in complex flows.
+  * Hardened `FlowPathMapper` against path traversal and unsafe path manipulation.
+
+#### 4. Admin UI Queues Manager & Overview Dashboards (`queues.js`)
+* **Live Queues Dashboard**:
+  * Dedicated Queues view in the Admin UI with live metrics for active, queued, processing, completed, failed, and dead-letter jobs.
+  * System queue toggle to inspect internal flow throttling queues alongside user queues.
+  * Interactive message drawer with raw JSON payload formatting, execution logs, and timing metrics.
+  * One-click Dead-Letter Queue (DLQ) re-drive, message retry, and job deletion.
+* **Overview Dashboard Metrics**:
+  * Added real-time summary status cards for active Flows and Queues on the main Overview page.
+* **Spatial Navigation Polish**:
+  * Top-level sidebar navigation resets route and tab states cleanly to default views.
+
+#### 5. First-Party Client SDK Support (`nodestack-client`)
+* **Typed Queue Service (`packages/client/src/services/QueueService.ts`)**:
+  * Added `client.queue(name)` for producing and consuming background messages.
+  * Full support for `send()`, `claim()`, `ack()` / `complete()`, `nack()` / `fail()`, `touch()`, `forceSkip()`, `retry()`, `getConfig()`, and `delete()`.
+
+#### 6. Agent OpenWiki Evidence Index & Documentation
+* **OpenWiki Integration (`openwiki/`, `AGENTS.md`)**:
+  * Added verifiable architecture and domain claim indices for AI coding agents and developer tooling.
+* **Official Queues Documentation**:
+  * Published [Queues Overview](docs/docs/queues/overview.md) and [Workers & Function Integration](docs/docs/queues/workers-and-functions.md).
+  * Updated REST API Reference (`docs/docs/api-reference/rest-api.md`) with all `/api/queues` endpoints.
+
+### Changed
+* **Decommissioned Legacy Demo State Subsystem**:
+  * Completely removed deprecated `DemoService`, `DemoController`, and `/api/demo/*` endpoints in favor of the formal, atomic `SnapshotService` (`/api/snapshots/*`).
+  * Removed `client.demo` from `nodestack-client` and updated Admin UI scripts from `demo.js` to `snapshots.js`.
+* **QuickJS Exports Normalization**:
+  * Normalized function export resolution to prioritize standard CommonJS (`module.exports`) exports over legacy named helpers.
+
+### Fixed
+* **Snapshot Restore Protection & Queue Reconciliation**:
+  * Protected snapshot restore endpoints from `ChaosMiddleware` disruptions.
+  * Reconciles queue state and restarts workers cleanly following a snapshot rollback.
+* **Function Test Token Verification**:
+  * Enforced server-side verification of function test runner authorization tokens.
+* **Execution & Worker Bug Fixes**:
+  * Prevented DLQ retry duplication and reclaimed dead workers on initial startup.
+  * Defaulted implicit queue concurrency to 0 to prevent unconfigured runaway claiming.
+  * Aligned test runner recursion guard behavior in function workbenches.
+
+---
+
 ## [2.3.0] - 2026-11-03
 
 Release v2.3.0 introduces **Serverless Function Flows**—an embedded, high-performance workflow orchestration and state machine subsystem executing directly within the NodeStack engine without external dependencies; delivers a dedicated **Visual Flow Designer & Declarative Code DSL** with real-time two-way synchronization in the Admin Portal; adds **Referential Integrity Enforcement** between flows and serverless functions; upgrades `nodestack-client` with full flow execution support; and enhances Admin UI accessibility and light theme contrast across all confirmation dialogs.

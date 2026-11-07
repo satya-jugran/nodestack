@@ -4,7 +4,7 @@ title: "HTTP Server, REST Controllers & Admin UI"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-05T17:08:40.212Z
+    at: 2026-11-07T08:27:51.831Z
 sources:
   - id: openwiki-source-4bb0492330e9cc8fed4432fd
     resource: repo://src/admin/AdminUIBundler.ts

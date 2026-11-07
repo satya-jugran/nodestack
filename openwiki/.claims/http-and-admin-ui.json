@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:0acd78d185a1bc3ac7152f476fa2b4542d60b0809da5c0b725af748096c23f58",
+  "pageVersion": "sha256:e28a0b22bad9a0156453f932c1c97e425dfff4391ae1859c4c49483fac9e6d6b",
   "claims": [
     {
       "id": "claim_8a8b9d89e7b340a4b9bb2285225cdc4e",
@@ -8,7 +8,7 @@
       "evidence": [
         {
           "resource": "repo://src/http/HttpServer.ts",
-          "version": "repo-file-v1:sha256:cc3d81a485be48163a02685fea60d3702b19acc3d9b2c49a761334629c386905"
+          "version": "repo-file-v1:sha256:4b2ca7ebd94fece677f1fa327e16d8676b8f705fe605f48d98d18de1fdad4c1a"
         },
         {
           "resource": "repo://src/http/controllers/BaseController.ts",
@@ -71,6 +71,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-05T17:08:40.212Z"
+    "at": "2026-11-07T08:27:51.831Z"
   }
 }

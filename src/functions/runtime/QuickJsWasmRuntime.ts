@@ -324,7 +324,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
           Object.assign(queueBridge, createQueueClient(null));
 
           globalThis.core = {
-            version: '2.3.0',
+            version: '2.4.0',
             sdk: {
               collection: function(colName) {
                 return {

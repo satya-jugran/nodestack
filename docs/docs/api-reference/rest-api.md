@@ -122,6 +122,28 @@ GET /_/openapi.json
 | `DELETE` | `/api/flows/:id/executions` | Clear execution history records for a specific flow (Superuser). |
 | Any | `/api/apps/:appId/flows/*` | Access flow management and execution endpoints scoped to a tenant application. |
 
+### Queues & Background Workers
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/queues` | List all registered queues with concurrency, lease timeouts, and strict order settings (Superuser). |
+| `POST` | `/api/queues` | Create or update a queue configuration (`name`, `concurrency`, `visibilityTimeoutSeconds`, `maxAttempts`, `targetFunction`, `strictOrder`) (Superuser). |
+| `GET` | `/api/queues/:name` | Retrieve configuration and metadata for a specific queue (Superuser). |
+| `DELETE` | `/api/queues/:name` | Delete a queue and purge its messages (Superuser). |
+| `GET` | `/api/queues/stats` | Retrieve aggregate queue metrics: queued, processing, completed, failed, and dead-letter counts. |
+| `GET` | `/api/queues/messages` | Query paginated messages across all queues with status and queue filters (Superuser). |
+| `GET` | `/api/queues/messages/:id` | Retrieve detailed payload, status, attempts, and execution logs for a message. |
+| `POST` | `/api/queues/:name/messages` | Publish / enqueue a new message (`payload`, `groupKey`, `delaySeconds`, `priority`, `maxAttempts`). |
+| `GET` | `/api/queues/:name/messages` | List paginated messages for a specific queue. |
+| `POST` | `/api/queues/:name/messages/:id/ack` | Acknowledge job completion (`result`, `claimToken`). |
+| `POST` | `/api/queues/:name/messages/:id/nack` | Mark job failure to schedule retry or dead-letter (`error`, `claimToken`). |
+| `POST` | `/api/queues/:name/messages/:id/touch` | Extend lease visibility timeout heartbeat for an active worker (`claimToken`). |
+| `POST` | `/api/queues/:name/messages/:id/skip` | Force-skip a failed or blocking message in a strict FIFO partition. |
+| `POST` | `/api/queues/:name/messages/:id/retry` | Manually retry a failed or dead-letter message. |
+| `POST` | `/api/queues/:name/dlq/retry` | Re-drive all dead-letter messages back into the active queue. |
+| `DELETE` | `/api/queues/:name/messages/:id` | Delete a specific queue message. |
+| `DELETE` | `/api/queues/:name/purge` | Purge all messages from a queue (Superuser). |
+| Any | `/api/apps/:appId/queues/*` | Route any queue operation to a specific application tenant. |
+
 ### Applications & Multi-Tenancy
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |

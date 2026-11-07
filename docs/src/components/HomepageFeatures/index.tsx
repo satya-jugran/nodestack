@@ -19,11 +19,11 @@ const FeatureList: FeatureItem[] = [
     ),
   },
   {
-    title: 'Serverless Functions & Flows',
-    badge: 'v2.3.0',
+    title: 'Queues, Functions & Flows',
+    badge: 'v2.4.0',
     description: (
       <>
-        Visual state machine orchestration, declarative Code DSL, and QuickJS-Wasm serverless execution with sub-millisecond cold starts and live IDE workbench.
+        Transactional SQLite queues with strict FIFO partitions, visual state machine flow orchestration, and sandboxed QuickJS-Wasm serverless execution.
       </>
     ),
   },

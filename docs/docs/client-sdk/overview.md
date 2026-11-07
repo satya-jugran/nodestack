@@ -118,3 +118,42 @@ await client.snapshots.restore(snapshot.id);
 ```
 
 For more details, see the [Application Snapshots Guide](../core-concepts/snapshots.md).
+
+---
+
+## Background Queues & Workers
+
+Produce and consume durable background queue messages with `client.queue(name)`:
+
+```typescript
+// Access a named queue
+const emailQueue = client.queue('transactional-emails');
+
+// 1. Enqueue a message with priority and partition group key
+const message = await emailQueue.send({
+  to: 'alice@example.com',
+  subject: 'Order Confirmation',
+  orderId: 'ord_123'
+}, {
+  groupKey: 'customer:cust_456', // Strict FIFO partition
+  priority: 10,
+  delaySeconds: 0
+});
+
+// 2. Claim and process messages in a worker loop
+const jobs = await emailQueue.claim(5);
+for (const job of jobs) {
+  try {
+    // Extend lease heartbeat if needed
+    await emailQueue.touch(job.id, job.claimToken);
+
+    // Complete job
+    await emailQueue.complete(job.id, { sent: true }, job.claimToken);
+  } catch (err: any) {
+    // Fail job and trigger automatic backoff retry or DLQ
+    await emailQueue.fail(job.id, err.message, job.claimToken);
+  }
+}
+```
+
+For more details, see the [Queues Overview](../queues/overview.md) and [Workers & Functions](../queues/workers-and-functions.md) guides.

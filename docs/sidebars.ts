@@ -85,6 +85,15 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Queues & Workers',
+      collapsed: false,
+      items: [
+        'queues/overview',
+        'queues/workers-and-functions',
+      ],
+    },
+    {
+      type: 'category',
       label: 'TypeScript Server SDK',
       collapsed: true,
       items: [

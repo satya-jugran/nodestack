@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:50dbbe9b0d8156d4ccfe2f2e1a7e8e73933783f5ffdbef59d5d309aa775baf2d",
+  "pageVersion": "sha256:2305ddc51d0b04f3e6995e12b4d918ffe2c2f82a56f1c5568d1a1de95d11f6e0",
   "claims": [
     {
       "id": "claim_e0a4841e457a4b0cbe35115f2034eb88",
@@ -8,11 +8,11 @@
       "evidence": [
         {
           "resource": "repo://package.json",
-          "version": "repo-file-v1:sha256:9fa66b3e4270c6e4ef0b073823b62b6de06042c09f8e63bd3e09f8eced05f3cf"
+          "version": "repo-file-v1:sha256:57bb67a63546890a970c351fbac7f1144a400acfe31462dadd2ab17de92d025d"
         },
         {
           "resource": "repo://src/cli/cli.ts",
-          "version": "repo-file-v1:sha256:1a8ea80f23c08051a6f176b81c22b14d4f680c42b0f94326e8f5f03f1686216f"
+          "version": "repo-file-v1:sha256:a094a89be6374d501c5d4918d70c012a09feecac1b89343f86e3e8374666f264"
         }
       ]
     },
@@ -22,7 +22,7 @@
       "evidence": [
         {
           "resource": "repo://src/NodeStack.ts",
-          "version": "repo-file-v1:sha256:8069a908d440bbee0790e612492c16a2cee8a1e5a4409deb45d8ffa169cb428e"
+          "version": "repo-file-v1:sha256:1c28ddb39591935ebab2e346c61bbca596ac10de40be1d20dde7ad4d08750f6a"
         },
         {
           "resource": "repo://src/index.ts",
@@ -40,7 +40,7 @@
       "evidence": [
         {
           "resource": "repo://src/cli/cli.ts",
-          "version": "repo-file-v1:sha256:1a8ea80f23c08051a6f176b81c22b14d4f680c42b0f94326e8f5f03f1686216f"
+          "version": "repo-file-v1:sha256:a094a89be6374d501c5d4918d70c012a09feecac1b89343f86e3e8374666f264"
         },
         {
           "resource": "repo://src/core/config/ConfigService.ts",
@@ -58,7 +58,7 @@
       "evidence": [
         {
           "resource": "repo://package.json",
-          "version": "repo-file-v1:sha256:9fa66b3e4270c6e4ef0b073823b62b6de06042c09f8e63bd3e09f8eced05f3cf"
+          "version": "repo-file-v1:sha256:57bb67a63546890a970c351fbac7f1144a400acfe31462dadd2ab17de92d025d"
         },
         {
           "resource": "repo://src/cli/sea-entry.ts",
@@ -69,6 +69,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-05T17:08:40.212Z"
+    "at": "2026-11-07T08:27:51.831Z"
   }
 }
