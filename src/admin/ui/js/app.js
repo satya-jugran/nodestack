@@ -165,12 +165,13 @@ async function parseUrlAndNavigate(initial = false) {
       }
     }
   } else if (root === 'queues') {
+    const isMessages = parts[1] === 'messages' || parts[1] === 'jobs';
     if (typeof queuesState !== 'undefined') {
-      queuesState.subTab = (parts[1] === 'jobs') ? 'jobs' : 'queues';
+      queuesState.subTab = isMessages ? 'messages' : 'queues';
     }
     await selectNav('queues', false);
-    if (parts[1] === 'jobs') {
-      if (typeof switchQueuesTab === 'function') switchQueuesTab('jobs', false);
+    if (isMessages) {
+      if (typeof switchQueuesTab === 'function') switchQueuesTab('messages', false);
     } else {
       if (typeof switchQueuesTab === 'function') switchQueuesTab('queues', false);
     }

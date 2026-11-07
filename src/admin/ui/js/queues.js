@@ -1,7 +1,7 @@
 // Queues Manager Module for NodeStack Admin UI
 
 let queuesState = {
-  subTab: 'queues', // 'queues' | 'jobs'
+  subTab: 'queues', // 'queues' | 'messages'
   includeSystem: false,
   queues: [],
   functionsList: [],
@@ -14,7 +14,16 @@ let queuesState = {
     dead_letter: 0,
     total: 0,
   },
+  messages: [],
   jobs: [],
+  messageFilter: {
+    queue: '',
+    status: 'all',
+    page: 1,
+    perPage: 25,
+    totalItems: 0,
+    totalPages: 1,
+  },
   jobFilter: {
     queue: '',
     status: 'all',
@@ -25,6 +34,7 @@ let queuesState = {
   },
   activeQueueForEdit: null,
 };
+queuesState.jobFilter = queuesState.messageFilter;
 
 if (typeof window !== 'undefined') {
   window.queuesState = queuesState;
@@ -60,13 +70,13 @@ function renderQueuesView() {
             </svg>
             Queues Manager
           </h2>
-          <p>Configure SQLite-backed message queues, bind Serverless Function workers, manage concurrency, and inspect jobs & Dead-Letter Queues.</p>
+          <p>Configure SQLite-backed message queues, bind Serverless Function workers, manage concurrency, and inspect messages & Dead-Letter Queues.</p>
         </div>
         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-          <button class="btn btn-secondary btn-sm" id="btn-cleanup-queues" onclick="handleCleanupOldQueueJobs()" title="Prune terminal completed/failed jobs older than retention window">
-            🧹 Cleanup Old Jobs
+          <button class="btn btn-secondary btn-sm" id="btn-cleanup-queues" onclick="handleCleanupOldQueueMessages()" title="Prune terminal completed/failed messages older than retention window">
+            🧹 Cleanup Old Messages
           </button>
-          <button class="btn btn-secondary btn-sm" id="btn-refresh-queues" onclick="refreshQueuesView()" title="Refresh Queues & Jobs">
+          <button class="btn btn-secondary btn-sm" id="btn-refresh-queues" onclick="refreshQueuesView()" title="Refresh Queues & Messages">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Refresh
           </button>
@@ -92,7 +102,7 @@ function renderQueuesView() {
           <div class="webhook-stat-value" style="color: #fbbf24;" id="q-stat-processing">0</div>
         </div>
         <div class="webhook-stat-card">
-          <span class="webhook-stat-label">Completed Jobs</span>
+          <span class="webhook-stat-label">Completed Messages</span>
           <div class="webhook-stat-value" style="color: var(--accent-success);" id="q-stat-completed">0</div>
         </div>
         <div class="webhook-stat-card">
@@ -108,9 +118,9 @@ function renderQueuesView() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
             Configured Queues
           </button>
-          <button class="webhook-tab-btn ${queuesState.subTab === 'jobs' ? 'active' : ''}" id="tab-btn-queues-jobs" onclick="switchQueuesTab('jobs')">
+          <button class="webhook-tab-btn ${queuesState.subTab === 'messages' || queuesState.subTab === 'jobs' ? 'active' : ''}" id="tab-btn-queues-messages" data-legacy-id="tab-btn-queues-jobs" onclick="switchQueuesTab('messages')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            Job Inspector
+            Messages Inspector
           </button>
         </div>
 
@@ -131,7 +141,7 @@ function renderQueuesView() {
   if (queuesState.subTab === 'queues') {
     loadQueuesList();
   } else {
-    loadQueueJobsList();
+    loadQueueMessagesList();
   }
 }
 
@@ -140,40 +150,42 @@ async function refreshQueuesView() {
   if (queuesState.subTab === 'queues') {
     await loadQueuesList();
   } else {
-    await loadQueueJobsList();
+    await loadQueueMessagesList();
   }
   if (typeof toast === 'function') toast('Queues updated', 'info');
 }
 
 function toggleIncludeSystemQueues(checked) {
   queuesState.includeSystem = Boolean(checked);
-  if (!queuesState.includeSystem && queuesState.jobFilter.queue && queuesState.jobFilter.queue.startsWith('_system:')) {
-    queuesState.jobFilter.queue = '';
+  const filter = queuesState.messageFilter || queuesState.jobFilter;
+  if (!queuesState.includeSystem && filter && filter.queue && filter.queue.startsWith('_system:')) {
+    filter.queue = '';
   }
   loadQueueStats();
   if (queuesState.subTab === 'queues') {
     loadQueuesList();
   } else {
-    loadQueueJobsList();
+    loadQueueMessagesList();
   }
 }
 
 function switchQueuesTab(tab, pushState = true) {
-  queuesState.subTab = tab;
+  const isMessages = tab === 'messages' || tab === 'jobs';
+  queuesState.subTab = isMessages ? 'messages' : 'queues';
   const btnList = document.getElementById('tab-btn-queues-list');
-  const btnJobs = document.getElementById('tab-btn-queues-jobs');
-  if (btnList) btnList.classList.toggle('active', tab === 'queues');
-  if (btnJobs) btnJobs.classList.toggle('active', tab === 'jobs');
+  const btnMessages = document.getElementById('tab-btn-queues-messages') || document.getElementById('tab-btn-queues-jobs');
+  if (btnList) btnList.classList.toggle('active', !isMessages);
+  if (btnMessages) btnMessages.classList.toggle('active', isMessages);
 
   if (pushState && typeof updateUrl === 'function') {
-    const path = tab === 'jobs' ? '/_/queues/jobs' : '/_/queues';
+    const path = isMessages ? '/_/queues/messages' : '/_/queues';
     updateUrl(path);
   }
 
-  if (tab === 'queues') {
-    loadQueuesList();
+  if (isMessages) {
+    loadQueueMessagesList();
   } else {
-    loadQueueJobsList();
+    loadQueuesList();
   }
   if (typeof updateBreadcrumbs === 'function') updateBreadcrumbs();
 }
@@ -233,7 +245,11 @@ async function loadQueuesList() {
     const queues = await api(`${prefix}${includeParam}`);
     queuesState.queues = Array.isArray(queues) ? queues : [];
 
-    const userQueuesCount = queuesState.queues.filter(q => !q.isSystem).length;
+    const displayQueues = (queuesState.queues || []).filter(q =>
+      queuesState.includeSystem || (!q.isSystem && !q.name.startsWith('_system:'))
+    );
+
+    const userQueuesCount = (queuesState.queues || []).filter(q => !q.isSystem && !q.name.startsWith('_system:')).length;
     const sidebarBadge = document.getElementById('sidebar-queues-count');
     if (sidebarBadge) {
       sidebarBadge.textContent = String(userQueuesCount);
@@ -246,16 +262,16 @@ async function loadQueuesList() {
     }
     const elQueues = document.getElementById('q-stat-queues');
     if (elQueues) {
-      elQueues.textContent = String(userQueuesCount);
+      elQueues.textContent = String(queuesState.includeSystem ? (queuesState.queues || []).length : userQueuesCount);
     }
 
-    if (queuesState.queues.length === 0) {
+    if (displayQueues.length === 0) {
       content.innerHTML = `
         <div style="text-align:center; padding: 4rem 2rem; background: var(--bg-card); border: 1px dashed var(--border-subtle); border-radius: 8px;">
           <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">📬</div>
           <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem; color: var(--text-main);">No Queues Configured Yet</h3>
           <p style="margin: 0 0 1.5rem 0; font-size: 0.85rem; color: var(--text-muted); max-width: 520px; margin-left: auto; margin-right: auto;">
-            Create a persistent background queue to process jobs asynchronously, bind a Serverless Function worker (<code>targetFunction</code>), or throttle concurrency with automatic retries and Dead-Letter Queues.
+            Create a persistent background queue to process messages asynchronously, bind a Serverless Function worker (<code>targetFunction</code>), or throttle concurrency with automatic retries and Dead-Letter Queues.
           </p>
           <button class="btn btn-primary btn-sm" onclick="openCreateQueueDrawer()">+ Create Your First Queue</button>
         </div>
@@ -264,19 +280,19 @@ async function loadQueuesList() {
     }
 
     content.innerHTML = `
-      <div class="webhook-table-wrapper">
-        <table class="webhook-table">
+      <div class="webhook-table-wrapper" style="overflow-x: auto; width: 100%;">
+        <table class="webhook-table" style="min-width: 1160px; width: 100%; border-collapse: collapse;">
           <thead>
             <tr>
-              <th style="min-width: 180px; width: 22%;">Queue Name</th>
-              <th style="min-width: 160px; width: 20%;">Worker Binding</th>
-              <th style="min-width: 170px; width: 20%;">Policy & Concurrency</th>
-              <th style="min-width: 190px; width: 20%;">Live Job Counts</th>
-              <th style="min-width: 210px; width: 18%; text-align: right; white-space: nowrap;">Actions</th>
+              <th style="min-width: 220px; width: 22%;">Queue Name</th>
+              <th style="min-width: 150px; width: 15%;">Worker Binding</th>
+              <th style="min-width: 180px; width: 18%;">Policy & Concurrency</th>
+              <th style="min-width: 170px; width: 17%;">Live Message Counts</th>
+              <th style="min-width: 360px; width: 28%; text-align: right; white-space: nowrap;">Actions</th>
             </tr>
           </thead>
           <tbody>
-            ${queuesState.queues.map(q => {
+            ${displayQueues.map(q => {
               const s = q.stats || { queued: 0, processing: 0, completed: 0, failed: 0, deadLetter: 0, dead_letter: 0 };
               const qDlq = (s.dead_letter !== undefined ? s.dead_letter : s.deadLetter) || 0;
               const isDlqTarget = (queuesState.queues || []).some(other => other.deadLetterQueue === q.name);
@@ -291,6 +307,7 @@ async function loadQueuesList() {
                       <div style="min-width: 0;">
                         <div style="font-weight: 600; color: var(--text-main); font-family: var(--font-mono); font-size: 12.5px; word-break: break-all;">
                           ${escapeHtml(q.name)}
+                          ${q.strictOrder ? '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 10px; margin-left: 6px; font-family: var(--font-sans);" title="Strict Head-of-Line FIFO Ordering & Group Blocking">Strict FIFO</span>' : ''}
                         </div>
                         <div style="font-size: 11px; color: var(--text-muted);">
                           ${isSys ? 'System Queue' : isDlqTarget ? 'Dead-Letter Queue (DLQ)' : 'User Queue'}
@@ -321,28 +338,28 @@ async function loadQueuesList() {
                   </td>
                   <td>
                     <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11px;">
-                      <span class="badge badge-get" title="Queued jobs">${s.queued || 0} queued</span>
-                      ${(s.processing || 0) > 0 ? `<span class="badge badge-post" title="Processing jobs">${s.processing} active</span>` : ''}
-                      <span style="color: var(--text-muted);" title="Completed jobs">${s.completed || 0} done</span>
+                      <span class="badge badge-get" title="Queued messages">${s.queued || 0} queued</span>
+                      ${(s.processing || 0) > 0 ? `<span class="badge badge-post" title="Processing messages">${s.processing} active</span>` : ''}
+                      <span style="color: var(--text-muted);" title="Completed messages">${s.completed || 0} done</span>
                       ${(qDlq + (s.failed || 0)) > 0 ? `
-                        <span class="badge badge-delete" title="Dead-letter / Failed jobs">${qDlq + (s.failed || 0)} DLQ/err</span>
+                        <span class="badge badge-delete" title="Dead-letter / Failed messages">${qDlq + (s.failed || 0)} DLQ/err</span>
                       ` : isDlqTarget && (s.queued || 0) > 0 ? `
-                        <span class="badge badge-delete" title="Forwarded Dead-Letter jobs waiting in DLQ">${s.queued} DLQ jobs</span>
+                        <span class="badge badge-delete" title="Forwarded Dead-Letter messages waiting in DLQ">${s.queued} DLQ messages</span>
                       ` : ''}
                     </div>
                   </td>
-                  <td style="text-align: right; white-space: nowrap;">
-                    <div style="display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;">
+                  <td style="text-align: right; white-space: nowrap; min-width: 360px;">
+                    <div style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap;">
                       ${!isSys ? `
                         <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="openSendMessageDrawer(this.getAttribute('data-name'))" title="Enqueue Message into Queue" style="padding: 3px 8px; font-size: 11px;">
                           ✉ Send
                         </button>
                       ` : ''}
-                      <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="inspectQueueJobs(this.getAttribute('data-name'))" title="Inspect Jobs in Queue" style="padding: 3px 8px; font-size: 11px;">
-                        Jobs
+                      <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="inspectQueueMessages(this.getAttribute('data-name'))" title="Inspect Messages in Queue" style="padding: 3px 8px; font-size: 11px;">
+                        Messages
                       </button>
                       ${(qDlq > 0 || (isDlqTarget && (s.queued || 0) > 0)) ? `
-                        <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="handleRetryQueueDlq(this.getAttribute('data-name'))" title="${isDlqTarget ? 'Replay Forwarded DLQ Jobs to Original Queue' : 'Retry Dead-Letter Jobs'}" style="padding: 3px 8px; font-size: 11px; color: #fbbf24;">
+                        <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="handleRetryQueueDlq(this.getAttribute('data-name'))" title="${isDlqTarget ? 'Replay Forwarded DLQ Messages to Original Queue' : 'Retry Dead-Letter Messages'}" style="padding: 3px 8px; font-size: 11px; color: #fbbf24;">
                           ↻ DLQ
                         </button>
                       ` : ''}
@@ -350,10 +367,10 @@ async function loadQueuesList() {
                         <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="openEditQueueDrawer(this.getAttribute('data-name'))" title="Edit Queue Configuration" style="padding: 3px 8px; font-size: 11px;">
                           Edit
                         </button>
-                        <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="handlePurgeQueue(this.getAttribute('data-name'))" title="Purge All Jobs in Queue" style="padding: 3px 8px; font-size: 11px;">
+                        <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="handlePurgeQueue(this.getAttribute('data-name'))" title="Purge All Messages in Queue" style="padding: 3px 8px; font-size: 11px;">
                           Purge
                         </button>
-                        <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="handleDeleteQueue(this.getAttribute('data-name'))" title="Delete Queue" style="padding: 3px 6px; font-size: 11px; color: var(--accent-danger);">
+                        <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="handleDeleteQueue(this.getAttribute('data-name'))" title="Delete Queue" style="padding: 3px 7px; font-size: 11px; color: var(--accent-danger);">
                           ✕
                         </button>
                       ` : ''}
@@ -371,26 +388,28 @@ async function loadQueuesList() {
   }
 }
 
-function inspectQueueJobs(queueName) {
-  queuesState.jobFilter.queue = queueName || '';
-  queuesState.jobFilter.page = 1;
-  switchQueuesTab('jobs');
+function inspectQueueMessages(queueName) {
+  const f = queuesState.messageFilter || queuesState.jobFilter;
+  f.queue = queueName || '';
+  f.page = 1;
+  switchQueuesTab('messages');
 }
+const inspectQueueJobs = inspectQueueMessages;
 
 // ==========================================
-// Job Inspector Subtab
+// Message Inspector Subtab
 // ==========================================
 
-async function loadQueueJobsList() {
+async function loadQueueMessagesList() {
   const content = document.getElementById('queues-tab-content');
   if (!content) return;
 
-  const f = queuesState.jobFilter;
+  const f = queuesState.messageFilter || queuesState.jobFilter;
   if (!queuesState.includeSystem && f.queue && f.queue.startsWith('_system:')) {
     f.queue = '';
   }
   const knownQueues = (queuesState.queues || [])
-    .filter(q => queuesState.includeSystem || !q.name.startsWith('_system:'))
+    .filter(q => queuesState.includeSystem || (!q.isSystem && !q.name.startsWith('_system:')))
     .map(q => q.name);
   if (f.queue && !knownQueues.includes(f.queue) && (queuesState.includeSystem || !f.queue.startsWith('_system:'))) {
     knownQueues.unshift(f.queue);
@@ -399,12 +418,12 @@ async function loadQueueJobsList() {
   content.innerHTML = `
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 1rem; background: var(--bg-card); border: 1px solid var(--border-subtle); padding: 10px 14px; border-radius: 8px;">
       <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px;">
-        <select id="q-filter-queue" class="form-select" style="width: auto; padding: 4px 10px; font-size: 12px;" onchange="handleQueueJobFilterChange()">
+        <select id="q-filter-queue" class="form-select" style="width: auto; padding: 4px 10px; font-size: 12px;" onchange="handleQueueMessageFilterChange()">
           <option value="">All Queues</option>
           ${knownQueues.map(qName => `<option value="${escapeHtml(qName)}" ${f.queue === qName ? 'selected' : ''}>${escapeHtml(qName)}</option>`).join('')}
         </select>
 
-        <select id="q-filter-status" class="form-select" style="width: auto; padding: 4px 10px; font-size: 12px;" onchange="handleQueueJobFilterChange()">
+        <select id="q-filter-status" class="form-select" style="width: auto; padding: 4px 10px; font-size: 12px;" onchange="handleQueueMessageFilterChange()">
           <option value="all" ${f.status === 'all' ? 'selected' : ''}>All Statuses</option>
           <option value="queued" ${f.status === 'queued' ? 'selected' : ''}>Queued</option>
           <option value="processing" ${f.status === 'processing' ? 'selected' : ''}>Processing</option>
@@ -414,7 +433,7 @@ async function loadQueueJobsList() {
         </select>
 
         ${(f.queue || f.status !== 'all') ? `
-          <button class="btn btn-secondary btn-sm" onclick="clearQueueJobFilters()" style="padding: 4px 8px; font-size: 11px;">Clear Filters</button>
+          <button class="btn btn-secondary btn-sm" onclick="clearQueueMessageFilters()" style="padding: 4px 8px; font-size: 11px;">Clear Filters</button>
         ` : ''}
       </div>
 
@@ -427,8 +446,8 @@ async function loadQueueJobsList() {
       </div>
     </div>
 
-    <div id="queue-jobs-table-area">
-      <div style="text-align:center; padding: 2rem; color: var(--text-muted);">Loading jobs...</div>
+    <div id="queue-messages-table-area">
+      <div style="text-align:center; padding: 2rem; color: var(--text-muted);">Loading messages...</div>
     </div>
   `;
 
@@ -441,67 +460,68 @@ async function loadQueueJobsList() {
     if (f.status && f.status !== 'all') params.set('status', f.status);
     if (queuesState.includeSystem) params.set('includeSystem', 'true');
 
-    const res = await api(`${prefix}/jobs?${params.toString()}`);
+    const res = await api(`${prefix}/messages?${params.toString()}`);
     const items = (res && Array.isArray(res.items)) ? res.items : [];
+    queuesState.messages = items;
     queuesState.jobs = items;
     f.totalItems = res?.totalItems || items.length;
     f.totalPages = Math.max(1, res?.totalPages || 1);
 
-    const tableArea = document.getElementById('queue-jobs-table-area');
+    const tableArea = document.getElementById('queue-messages-table-area') || document.getElementById('queue-jobs-table-area');
     if (!tableArea) return;
 
     if (items.length === 0) {
       tableArea.innerHTML = `
         <div style="text-align:center; padding: 3rem 1.5rem; background: var(--bg-card); border: 1px dashed var(--border-subtle); border-radius: 8px; color: var(--text-muted);">
-          No jobs found matching the current filters.
+          No messages found matching the current filters.
         </div>
       `;
       return;
     }
 
     tableArea.innerHTML = `
-      <div class="webhook-table-wrapper">
-        <table class="webhook-table">
+      <div class="webhook-table-wrapper" style="overflow-x: auto; width: 100%;">
+        <table class="webhook-table" style="min-width: 1040px; width: 100%;">
           <thead>
             <tr>
-              <th style="width: 140px;">Job ID</th>
-              <th style="width: 160px;">Queue</th>
-              <th style="width: 120px;">Status</th>
-              <th style="width: 100px;">Attempts</th>
-              <th>Payload / Error Preview</th>
-              <th style="width: 150px;">Created</th>
-              <th style="width: 110px; text-align: right;">Actions</th>
+              <th style="width: 150px; min-width: 150px;">Message ID</th>
+              <th style="width: 160px; min-width: 150px;">Queue</th>
+              <th style="width: 120px; min-width: 110px;">Status</th>
+              <th style="width: 100px; min-width: 90px;">Attempts</th>
+              <th style="min-width: 260px;">Payload / Error Preview</th>
+              <th style="width: 150px; min-width: 140px;">Created</th>
+              <th style="width: 110px; min-width: 100px; text-align: right;">Actions</th>
             </tr>
           </thead>
           <tbody>
-            ${items.map(job => {
-              const statusBadge = renderQueueJobStatusBadge(job.status);
-              const payloadPreview = typeof job.payload === 'string' ? job.payload : JSON.stringify(job.payload ?? {});
+            ${items.map(msg => {
+              const statusBadge = renderQueueMessageStatusBadge(msg.status);
+              const payloadPreview = typeof msg.payload === 'string' ? msg.payload : JSON.stringify(msg.payload ?? {});
               const shortPreview = payloadPreview.length > 90 ? payloadPreview.slice(0, 90) + '…' : payloadPreview;
 
               return `
-                <tr data-job-id="${escapeHtml(job.id)}">
+                <tr data-message-id="${escapeHtml(msg.id)}" data-job-id="${escapeHtml(msg.id)}">
                   <td>
-                    <span class="id-pill" style="cursor: pointer;" data-id="${escapeHtml(job.id)}" onclick="openQueueJobDetailDrawer(this.getAttribute('data-id'))" title="Click to inspect job">${escapeHtml(job.id)}</span>
+                    <span class="id-pill" style="cursor: pointer;" data-id="${escapeHtml(msg.id)}" onclick="openQueueMessageDetailDrawer(this.getAttribute('data-id'))" title="Click to inspect message">${escapeHtml(msg.id)}</span>
                   </td>
                   <td>
-                    <span style="font-family: var(--font-mono); font-size: 12px; font-weight: 600;">${escapeHtml(job.queue)}</span>
-                    ${job.groupKey ? `<div style="font-size: 10.5px; color: var(--text-muted);">Group: ${escapeHtml(job.groupKey)}</div>` : ''}
+                    <span style="font-family: var(--font-mono); font-size: 12px; font-weight: 600;">${escapeHtml(msg.queue)}</span>
+                    ${msg.groupKey ? `<div style="font-size: 10.5px; color: var(--text-muted);">Group: ${escapeHtml(msg.groupKey)}</div>` : ''}
                   </td>
                   <td>${statusBadge}</td>
                   <td style="font-family: var(--font-mono); font-size: 12px;">
-                    ${job.attempts || 0} / ${job.maxAttempts || 3}
-                    ${job.priority ? `<div style="font-size: 10px; color: var(--text-muted);">Prio: ${job.priority}</div>` : ''}
+                    ${msg.attempts || 0} / ${msg.maxAttempts === 0 ? '∞ (infinite)' : (msg.maxAttempts || 3)}
+                    ${msg.priority ? `<div style="font-size: 10px; color: var(--text-muted);">Prio: ${msg.priority}</div>` : ''}
                   </td>
                   <td style="max-width: 320px;">
                     <code style="font-size: 11.5px; color: var(--text-main); word-break: break-all;">${escapeHtml(shortPreview)}</code>
-                    ${(job.error || job.lastError) ? `<div style="font-size: 11px; color: var(--accent-danger); margin-top: 2px;">⚠️ ${escapeHtml(job.error || job.lastError)}</div>` : ''}
+                    ${(msg.error || msg.lastError) ? `<div style="font-size: 11px; color: var(--accent-danger); margin-top: 2px;">⚠️ ${escapeHtml(msg.error || msg.lastError)}</div>` : ''}
                   </td>
                   <td style="font-size: 11.5px; color: var(--text-muted); white-space: nowrap;">
-                    ${job.created ? new Date(job.created).toLocaleString() : '--'}
+                    ${msg.created ? new Date(msg.created).toLocaleString() : '--'}
                   </td>
                   <td style="text-align: right; white-space: nowrap;">
-                    <button class="btn btn-secondary btn-sm" data-id="${escapeHtml(job.id)}" onclick="openQueueJobDetailDrawer(this.getAttribute('data-id'))" style="padding: 3px 8px; font-size: 11px;">
+                    <button class="btn btn-secondary btn-sm" data-id="${escapeHtml(msg.id)}" onclick="openQueueMessageDetailDrawer(this.getAttribute('data-id'))" style="padding: 3px 8px; font-size: 11px;">
                       Inspect
                     </button>
                   </td>
@@ -513,52 +533,60 @@ async function loadQueueJobsList() {
       </div>
 
       <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.85rem; font-size: 12px; color: var(--text-muted);">
-        <span>Showing page ${f.page} of ${f.totalPages} (${f.totalItems} total jobs)</span>
+        <span>Showing page ${f.page} of ${f.totalPages} (${f.totalItems} total messages)</span>
         <div style="display: flex; gap: 6px;">
-          <button class="btn btn-secondary btn-sm" ${f.page <= 1 ? 'disabled' : ''} onclick="changeQueueJobPage(-1)">Previous</button>
-          <button class="btn btn-secondary btn-sm" ${f.page >= f.totalPages ? 'disabled' : ''} onclick="changeQueueJobPage(1)">Next</button>
+          <button class="btn btn-secondary btn-sm" ${f.page <= 1 ? 'disabled' : ''} onclick="changeQueueMessagePage(-1)">Previous</button>
+          <button class="btn btn-secondary btn-sm" ${f.page >= f.totalPages ? 'disabled' : ''} onclick="changeQueueMessagePage(1)">Next</button>
         </div>
       </div>
     `;
   } catch (err) {
-    const tableArea = document.getElementById('queue-jobs-table-area');
+    const tableArea = document.getElementById('queue-messages-table-area') || document.getElementById('queue-jobs-table-area');
     if (tableArea) {
-      tableArea.innerHTML = `<div style="color: var(--accent-danger); padding: 2rem; text-align: center;">Failed to load jobs: ${escapeHtml(err.message || String(err))}</div>`;
+      tableArea.innerHTML = `<div style="color: var(--accent-danger); padding: 2rem; text-align: center;">Failed to load messages: ${escapeHtml(err.message || String(err))}</div>`;
     }
   }
 }
 
-function renderQueueJobStatusBadge(status) {
+function renderQueueMessageStatusBadge(status) {
   const s = (status || 'queued').toLowerCase();
   if (s === 'completed') return `<span class="badge badge-get">COMPLETED</span>`;
   if (s === 'processing') return `<span class="badge badge-post">PROCESSING</span>`;
   if (s === 'dead_letter' || s === 'failed') return `<span class="badge badge-delete">${escapeHtml(s.toUpperCase())}</span>`;
   return `<span class="badge" style="background: rgba(96, 165, 250, 0.15); color: #60a5fa; border: 1px solid rgba(96, 165, 250, 0.3);">QUEUED</span>`;
 }
+const renderQueueJobStatusBadge = renderQueueMessageStatusBadge;
 
-function handleQueueJobFilterChange() {
+function handleQueueMessageFilterChange() {
   const qEl = document.getElementById('q-filter-queue');
   const sEl = document.getElementById('q-filter-status');
-  if (qEl) queuesState.jobFilter.queue = qEl.value;
-  if (sEl) queuesState.jobFilter.status = sEl.value;
-  queuesState.jobFilter.page = 1;
-  loadQueueJobsList();
+  const f = queuesState.messageFilter || queuesState.jobFilter;
+  if (qEl) f.queue = qEl.value;
+  if (sEl) f.status = sEl.value;
+  f.page = 1;
+  loadQueueMessagesList();
 }
+const handleQueueJobFilterChange = handleQueueMessageFilterChange;
 
-function clearQueueJobFilters() {
-  queuesState.jobFilter.queue = '';
-  queuesState.jobFilter.status = 'all';
-  queuesState.jobFilter.page = 1;
-  loadQueueJobsList();
+function clearQueueMessageFilters() {
+  const f = queuesState.messageFilter || queuesState.jobFilter;
+  f.queue = '';
+  f.status = 'all';
+  f.page = 1;
+  loadQueueMessagesList();
 }
+const clearQueueJobFilters = clearQueueMessageFilters;
 
-function changeQueueJobPage(delta) {
-  const next = queuesState.jobFilter.page + delta;
-  if (next >= 1 && next <= queuesState.jobFilter.totalPages) {
-    queuesState.jobFilter.page = next;
-    loadQueueJobsList();
+function changeQueueMessagePage(delta) {
+  const f = queuesState.messageFilter || queuesState.jobFilter;
+  const next = f.page + delta;
+  if (next >= 1 && next <= f.totalPages) {
+    f.page = next;
+    loadQueueMessagesList();
   }
 }
+const changeQueueJobPage = changeQueueMessagePage;
+const loadQueueJobsList = loadQueueMessagesList;
 
 // ==========================================
 // Slide-Over Drawer: Create / Configure Queue
@@ -622,9 +650,12 @@ async function openCreateQueueDrawer(queueToEdit = null) {
   const isEdit = Boolean(queueToEdit && queueToEdit.name);
   const nameVal = isEdit ? queueToEdit.name : '';
   const concurrencyVal = isEdit && queueToEdit.concurrency !== null && queueToEdit.concurrency !== undefined && queueToEdit.concurrency > 0 ? queueToEdit.concurrency : '';
-  const maxAttemptsVal = isEdit && queueToEdit.maxAttempts !== undefined ? queueToEdit.maxAttempts : 3;
+  const strictOrderVal = isEdit ? Boolean(queueToEdit.strictOrder) : false;
+  const defaultMaxAttempts = strictOrderVal ? 0 : 3;
+  const maxAttemptsVal = isEdit && queueToEdit.maxAttempts !== undefined ? queueToEdit.maxAttempts : defaultMaxAttempts;
   const visTimeoutVal = isEdit && queueToEdit.visibilityTimeoutSeconds !== undefined ? queueToEdit.visibilityTimeoutSeconds : 30;
-  const backoffVal = isEdit && queueToEdit.backoffDelayMs !== undefined ? queueToEdit.backoffDelayMs : 1000;
+  const defaultBackoff = strictOrderVal ? 0 : 1000;
+  const backoffVal = isEdit && queueToEdit.backoffDelayMs !== undefined ? queueToEdit.backoffDelayMs : defaultBackoff;
   const dlqVal = isEdit && queueToEdit.deadLetterQueue ? queueToEdit.deadLetterQueue : '';
   const targetFnVal = isEdit && queueToEdit.targetFunction ? queueToEdit.targetFunction : '';
 
@@ -705,7 +736,7 @@ async function openCreateQueueDrawer(queueToEdit = null) {
                   placeholder="Unbounded (blank)"
                   value="${escapeHtml(String(concurrencyVal))}"
                 />
-                <div style="font-size: 11px; color: var(--text-muted);">Max parallel jobs (blank = unlimited)</div>
+                <div style="font-size: 11px; color: var(--text-muted);">Max parallel messages (blank = unlimited)</div>
               </div>
 
               <div class="form-group">
@@ -745,6 +776,21 @@ async function openCreateQueueDrawer(queueToEdit = null) {
                   value="${escapeHtml(String(backoffVal))}"
                 />
                 <div style="font-size: 11px; color: var(--text-muted);">Base retry backoff in milliseconds</div>
+              </div>
+            </div>
+            <div class="form-group" style="margin-top: 0.85rem; padding-top: 0.85rem; border-top: 1px solid var(--border-subtle);">
+              <label class="form-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+                <input
+                  type="checkbox"
+                  id="queue-input-strict-order"
+                  ${strictOrderVal ? 'checked' : ''}
+                  onchange="handleStrictOrderToggle(this.checked)"
+                  style="cursor: pointer; width: 16px; height: 16px;"
+                />
+                <span style="font-weight: 600; color: var(--text-main);">Strict Ordering (Head-of-Line FIFO & Group Blocking)</span>
+              </label>
+              <div style="font-size: 11px; color: var(--text-muted); margin-left: 24px;">
+                Enforces strict ordering per partition (<code>groupKey</code> or whole queue). A failed/unacked message blocks subsequent messages in its group until Acked or dead-lettered.
               </div>
             </div>
           </div>
@@ -796,6 +842,13 @@ async function openEditQueueDrawer(queueName) {
   }
 }
 
+function handleStrictOrderToggle(checked) {
+  const backoffEl = document.getElementById('queue-input-backoff');
+  if (backoffEl && (!queuesState.activeQueueForEdit || backoffEl.value === '1000' || backoffEl.value === '0')) {
+    backoffEl.value = checked ? '0' : '1000';
+  }
+}
+
 async function submitQueueForm() {
   const nameEl = document.getElementById('queue-input-name');
   const targetFnEl = document.getElementById('queue-input-target-fn');
@@ -804,6 +857,7 @@ async function submitQueueForm() {
   const visEl = document.getElementById('queue-input-vis-timeout');
   const backoffEl = document.getElementById('queue-input-backoff');
   const dlqEl = document.getElementById('queue-input-dlq');
+  const strictEl = document.getElementById('queue-input-strict-order');
   const saveBtn = document.getElementById('btn-save-queue');
 
   const name = (nameEl?.value || '').trim();
@@ -825,6 +879,7 @@ async function submitQueueForm() {
   const backoffDelayMs = Math.max(0, parseInt(backoffEl?.value || '1000', 10) || 0);
   const deadLetterQueue = (dlqEl?.value || '').trim() || null;
   const targetFunction = (targetFnEl?.value || '').trim() || null;
+  const strictOrder = Boolean(strictEl?.checked);
 
   if (saveBtn) {
     saveBtn.disabled = true;
@@ -843,6 +898,7 @@ async function submitQueueForm() {
         backoffDelayMs,
         deadLetterQueue,
         targetFunction,
+        strictOrder,
       }),
     });
 
@@ -927,7 +983,7 @@ function openSendMessageDrawer(queueName) {
             <div class="form-group">
               <label class="form-label" for="send-msg-dedup">Deduplication ID (Optional)</label>
               <input type="text" id="send-msg-dedup" class="form-input" placeholder="e.g. order-123-confirmation" />
-              <div style="font-size: 11px; color: var(--text-muted);">Prevents duplicate active jobs with the same deduplication key</div>
+              <div style="font-size: 11px; color: var(--text-muted);">Prevents duplicate active messages with the same deduplication key</div>
             </div>
           </div>
         </div>
@@ -984,7 +1040,7 @@ async function submitSendQueueMessage() {
     if (queuesState.subTab === 'queues') {
       await loadQueuesList();
     } else {
-      await loadQueueJobsList();
+      await loadQueueMessagesList();
     }
   } catch (err) {
     if (typeof toast === 'function') toast(err.message || 'Failed to enqueue message', 'error');
@@ -999,66 +1055,64 @@ async function submitSendQueueMessage() {
 // Queue Actions: Retry DLQ, Purge, Delete, Cleanup
 // ==========================================
 
-async function handleRequeueJob(jobId, queueName) {
+async function handleRequeueMessage(messageId, queueName) {
   try {
     const prefix = getQueuesApiPrefix();
-    const endpoint = queueName
-      ? `${prefix}/${encodeURIComponent(queueName)}/jobs/${encodeURIComponent(jobId)}/retry`
-      : `${prefix}/jobs/${encodeURIComponent(jobId)}/retry`;
+    const endpoint = `${prefix}/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(messageId)}/retry`;
     await api(endpoint, {
       method: 'POST',
       body: JSON.stringify({}),
     });
     if (typeof toast === 'function') {
-      toast(`Job "${jobId}" retried / requeued successfully`, 'success');
+      toast(`Message "${messageId}" retried / requeued successfully`, 'success');
     }
     closeQueueDrawer();
     await refreshQueuesView();
   } catch (err) {
-    if (typeof toast === 'function') toast(err.message || 'Failed to retry job', 'error');
+    if (typeof toast === 'function') toast(err.message || 'Failed to retry message', 'error');
   }
 }
 
-const handleRetryJob = handleRequeueJob;
+const handleRequeueJob = handleRequeueMessage;
+const handleRetryJob = handleRequeueMessage;
 const handleRetrySingleJob = handleRequeueJob;
 
-async function handleDeleteQueueJob(jobId, queueName) {
-  const safeId = typeof escapeHtml === 'function' ? escapeHtml(jobId) : jobId;
+async function handleDeleteQueueMessage(messageId, queueName) {
+  const safeId = typeof escapeHtml === 'function' ? escapeHtml(messageId) : messageId;
   const confirmed = typeof showConfirmDialog === 'function'
     ? await showConfirmDialog({
-        title: 'Delete / Cancel Job',
-        message: `Are you sure you want to delete / cancel job <strong style="color: var(--text-heading); font-family: var(--font-mono);">${safeId}</strong>?`,
-        messageText: `Are you sure you want to delete / cancel job "${jobId}"?`,
-        warning: 'This action cannot be undone. The job will be permanently removed from the queue.',
+        title: 'Delete / Cancel Message',
+        message: `Are you sure you want to delete / cancel message <strong style="color: var(--text-heading); font-family: var(--font-mono);">${safeId}</strong>?`,
+        messageText: `Are you sure you want to delete / cancel message "${messageId}"?`,
+        warning: 'This action cannot be undone. The message will be permanently removed from the queue.',
         warningType: 'danger',
-        confirmText: 'Delete Job',
+        confirmText: 'Delete Message',
         cancelText: 'Cancel',
         variant: 'danger',
         icon: '🗑️',
       })
-    : confirm(`Are you sure you want to delete / cancel job "${jobId}"?`);
+    : confirm(`Are you sure you want to delete / cancel message "${messageId}"?`);
 
   if (!confirmed) return;
 
   try {
     const prefix = getQueuesApiPrefix();
-    const endpoint = queueName
-      ? `${prefix}/${encodeURIComponent(queueName)}/jobs/${encodeURIComponent(jobId)}`
-      : `${prefix}/jobs/${encodeURIComponent(jobId)}`;
+    const endpoint = `${prefix}/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(messageId)}`;
     await api(endpoint, {
       method: 'DELETE',
     });
     if (typeof toast === 'function') {
-      toast(`Job "${jobId}" deleted / cancelled successfully`, 'success');
+      toast(`Message "${messageId}" deleted / cancelled successfully`, 'success');
     }
     closeQueueDrawer();
     await refreshQueuesView();
   } catch (err) {
-    if (typeof toast === 'function') toast(err.message || 'Failed to delete job', 'error');
+    if (typeof toast === 'function') toast(err.message || 'Failed to delete message', 'error');
   }
 }
 
-const handleCancelQueueJob = handleDeleteQueueJob;
+const handleDeleteQueueJob = handleDeleteQueueMessage;
+const handleCancelQueueJob = handleDeleteQueueMessage;
 const handleCancelJob = handleDeleteQueueJob;
 
 async function handleRetryQueueDlq(queueName) {
@@ -1069,7 +1123,7 @@ async function handleRetryQueueDlq(queueName) {
       body: JSON.stringify({ limit: 100 }),
     });
     if (typeof toast === 'function') {
-      toast(`Retried ${res?.retriedCount || 0} dead-letter jobs in "${queueName}"`, 'success');
+      toast(`Retried ${res?.retriedCount || 0} dead-letter messages in "${queueName}"`, 'success');
     }
     await refreshQueuesView();
   } catch (err) {
@@ -1080,16 +1134,16 @@ async function handleRetryQueueDlq(queueName) {
 async function handlePurgeQueue(queueName) {
   const confirmed = typeof showConfirmDialog === 'function'
     ? await showConfirmDialog({
-        title: 'Purge Queue Jobs',
-        message: `Are you sure you want to purge all jobs in queue <strong style="color: var(--text-heading); font-family: var(--font-mono);">${escapeHtml(queueName)}</strong>?`,
-        warning: 'This will permanently delete all queued, processing, completed, and dead-letter jobs in this queue.',
+        title: 'Purge Queue Messages',
+        message: `Are you sure you want to purge all messages in queue <strong style="color: var(--text-heading); font-family: var(--font-mono);">${escapeHtml(queueName)}</strong>?`,
+        warning: 'This will permanently delete all queued, processing, completed, and dead-letter messages in this queue.',
         warningType: 'warning',
-        confirmText: 'Purge Jobs',
+        confirmText: 'Purge Messages',
         cancelText: 'Cancel',
         variant: 'warning',
         icon: '⚠️',
       })
-    : confirm(`Purge all jobs in queue "${queueName}"?`);
+    : confirm(`Purge all messages in queue "${queueName}"?`);
 
   if (!confirmed) return;
 
@@ -1099,7 +1153,7 @@ async function handlePurgeQueue(queueName) {
       method: 'DELETE',
     });
     if (typeof toast === 'function') {
-      toast(`Purged ${res?.purgedCount || 0} jobs from "${queueName}"`, 'success');
+      toast(`Purged ${res?.purgedCount || 0} messages from "${queueName}"`, 'success');
     }
     await refreshQueuesView();
   } catch (err) {
@@ -1112,14 +1166,14 @@ async function handleDeleteQueue(queueName) {
     ? await showConfirmDialog({
         title: 'Delete Queue',
         message: `Are you sure you want to delete queue <strong style="color: var(--text-heading); font-family: var(--font-mono);">${escapeHtml(queueName)}</strong>?`,
-        warning: 'This action cannot be undone. Both the queue configuration and all associated jobs will be removed.',
+        warning: 'This action cannot be undone. Both the queue configuration and all associated messages will be removed.',
         warningType: 'danger',
         confirmText: 'Delete Queue',
         cancelText: 'Cancel',
         variant: 'danger',
         icon: '⚠️',
       })
-    : confirm(`Delete queue "${queueName}" and all its jobs?`);
+    : confirm(`Delete queue "${queueName}" and all its messages?`);
 
   if (!confirmed) return;
 
@@ -1135,7 +1189,8 @@ async function handleDeleteQueue(queueName) {
   }
 }
 
-async function handleCleanupOldQueueJobs() {
+async function handleCleanupOldQueueMessages() {
+
   try {
     const prefix = getQueuesApiPrefix();
     const res = await api(`${prefix}/cleanup`, {
@@ -1143,42 +1198,50 @@ async function handleCleanupOldQueueJobs() {
       body: JSON.stringify({}),
     });
     if (typeof toast === 'function') {
-      toast(`Cleaned up ${res?.prunedCount || 0} expired terminal jobs`, 'success');
+      toast(`Cleaned up ${res?.prunedCount || 0} expired terminal messages`, 'success');
     }
     await refreshQueuesView();
   } catch (err) {
-    if (typeof toast === 'function') toast(err.message || 'Failed to cleanup jobs', 'error');
+    if (typeof toast === 'function') toast(err.message || 'Failed to cleanup messages', 'error');
   }
 }
 
 // ==========================================
-// Slide-Over Drawer: Job Detail Inspection
+// Slide-Over Drawer: Message Detail Inspection
 // ==========================================
 
-async function openQueueJobDetailDrawer(jobId) {
+async function openQueueMessageDetailDrawer(messageId) {
   try {
     const prefix = getQueuesApiPrefix();
-    const job = await api(`${prefix}/jobs/${encodeURIComponent(jobId)}`);
-    if (!job) return;
+    const msg = await api(`${prefix}/messages/${encodeURIComponent(messageId)}`);
+    if (!msg) return;
 
     const root = ensureDrawerRoot();
-    const isSys = Boolean(job.queue && job.queue.startsWith('_system:'));
+    const isSys = Boolean(msg.queue && msg.queue.startsWith('_system:'));
+    let queueConfig = queuesState.queues.find(q => q.name === msg.queue);
+    if (!queueConfig && msg.queue) {
+      try {
+        queueConfig = await api(`${prefix}/${encodeURIComponent(msg.queue)}`);
+      } catch {}
+    }
+    const isStrictOrder = Boolean(queueConfig?.strictOrder);
     const isForwardedDlq = Boolean(
-      job.originalJobId ||
-      (job.payload && typeof job.payload === 'object' && job.payload.originalJobId && job.payload.originalQueue)
+      msg.originalMessageId ||
+      msg.originalJobId ||
+      (msg.payload && typeof msg.payload === 'object' && (msg.payload.originalMessageId || msg.payload.originalJobId) && msg.payload.originalQueue)
     );
-    const origId = job.originalJobId || (job.payload && job.payload.originalJobId);
-    const origQueue = (job.payload && job.payload.originalQueue) || '';
+    const origId = msg.originalMessageId || msg.originalJobId || (msg.payload && (msg.payload.originalMessageId || msg.payload.originalJobId));
+    const origQueue = (msg.payload && msg.payload.originalQueue) || '';
 
     root.innerHTML = `
       <div id="queue-drawer-backdrop" class="drawer-backdrop" onclick="closeQueueDrawer()" aria-hidden="true"></div>
       <aside id="queue-drawer-panel" class="record-drawer webhook-drawer" role="dialog" aria-modal="true" tabindex="-1" onkeydown="if(event.key==='Escape'){event.preventDefault();if(event.stopPropagation)event.stopPropagation();closeQueueDrawer();}">
         <div class="drawer-header">
           <div class="drawer-title-area">
-            ${renderQueueJobStatusBadge(job.status)}
+            ${renderQueueMessageStatusBadge(msg.status)}
             <div>
-              <h3 class="drawer-title" style="margin:0; font-size:1.02rem; font-family: var(--font-mono);">${escapeHtml(job.id)}</h3>
-              <span style="font-size:11px; color:var(--text-muted);">Queue: <strong>${escapeHtml(job.queue)}</strong> • Attempt ${job.attempts || 0}/${job.maxAttempts || 3}</span>
+              <h3 class="drawer-title" style="margin:0; font-size:1.02rem; font-family: var(--font-mono);">${escapeHtml(msg.id)}</h3>
+              <span style="font-size:11px; color:var(--text-muted);">Queue: <strong>${escapeHtml(msg.queue)}</strong> • Attempt ${msg.attempts || 0}/${msg.maxAttempts === 0 ? '∞ (infinite)' : (msg.maxAttempts || 3)}</span>
             </div>
           </div>
           <div class="drawer-header-actions">
@@ -1188,29 +1251,29 @@ async function openQueueJobDetailDrawer(jobId) {
 
         <div class="drawer-body">
           <div>
-            <div class="drawer-section-title">Job Metadata</div>
+            <div class="drawer-section-title">Message Metadata</div>
             <div class="drawer-card">
               <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:10px; font-size:12px;">
                 <div>
                   <span style="font-size:10px; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Status</span>
-                  <strong>${escapeHtml((job.status || '').toUpperCase())}</strong>
+                  <strong>${escapeHtml((msg.status || '').toUpperCase())}</strong>
                 </div>
                 <div>
                   <span style="font-size:10px; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Priority</span>
-                  <span>${job.priority || 0}</span>
+                  <span>${msg.priority || 0}</span>
                 </div>
                 <div>
                   <span style="font-size:10px; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Created</span>
-                  <span>${job.created ? new Date(job.created).toLocaleString() : '--'}</span>
+                  <span>${msg.created ? new Date(msg.created).toLocaleString() : '--'}</span>
                 </div>
                 <div>
                   <span style="font-size:10px; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Completed</span>
-                  <span>${job.completedAt || job.finishedAt ? new Date(job.completedAt || job.finishedAt).toLocaleString() : '--'}</span>
+                  <span>${msg.completedAt || msg.finishedAt ? new Date(msg.completedAt || msg.finishedAt).toLocaleString() : '--'}</span>
                 </div>
-                ${job.forwardedToJobId ? `
+                ${(msg.forwardedToMessageId || msg.forwardedToJobId) ? `
                   <div>
                     <span style="font-size:10px; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Forwarded DLQ ID</span>
-                    <span style="font-family: var(--font-mono); font-size:11px; color:#fbbf24;">${escapeHtml(job.forwardedToJobId)}</span>
+                    <span style="font-family: var(--font-mono); font-size:11px; color:#fbbf24;">${escapeHtml(msg.forwardedToMessageId || msg.forwardedToJobId)}</span>
                   </div>
                 ` : ''}
                 ${isForwardedDlq ? `
@@ -1225,47 +1288,47 @@ async function openQueueJobDetailDrawer(jobId) {
 
           ${isForwardedDlq ? `
             <div style="background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-radius:6px; padding:10px 14px; font-size:12px; color: #fbbf24; margin-top: 10px;">
-              <strong>Forwarded DLQ Job:</strong> This job was forwarded from queue <strong>${escapeHtml(origQueue || '--')}</strong> (Original ID: <code>${escapeHtml(origId || '--')}</code>).
-              ${job.payload && job.payload.error ? `<div style="margin-top: 4px; color: var(--accent-danger);"><strong>Failure Reason:</strong> ${escapeHtml(job.payload.error)}</div>` : ''}
+              <strong>Forwarded DLQ Message:</strong> This message was forwarded from queue <strong>${escapeHtml(origQueue || '--')}</strong> (Original ID: <code>${escapeHtml(origId || '--')}</code>).
+              ${msg.payload && msg.payload.error ? `<div style="margin-top: 4px; color: var(--accent-danger);"><strong>Failure Reason:</strong> ${escapeHtml(msg.payload.error)}</div>` : ''}
             </div>
           ` : ''}
 
-          ${(job.error || job.lastError) ? `
+          ${(msg.error || msg.lastError) ? `
             <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 14px; font-size:12px; color: var(--accent-danger);">
-              <strong>Error:</strong> ${escapeHtml(job.error || job.lastError)}
+              <strong>Error:</strong> ${escapeHtml(msg.error || msg.lastError)}
             </div>
           ` : ''}
 
           <div>
-            <div class="drawer-section-title">Job Payload</div>
+            <div class="drawer-section-title">Message Payload</div>
             <div class="drawer-json-container">
               <div class="drawer-json-bar">
                 <span>JSON Payload</span>
               </div>
-              <pre class="drawer-json-pre"><code>${escapeHtml(JSON.stringify(job.payload, null, 2))}</code></pre>
+              <pre class="drawer-json-pre"><code>${escapeHtml(JSON.stringify(msg.payload, null, 2))}</code></pre>
             </div>
           </div>
 
-          ${job.result !== undefined && job.result !== null ? `
+          ${msg.result !== undefined && msg.result !== null ? `
             <div>
               <div class="drawer-section-title">Worker Execution Result</div>
               <div class="drawer-json-container">
                 <div class="drawer-json-bar">
                   <span style="color: #34d399; font-weight: 700;">Result</span>
                 </div>
-                <pre class="drawer-json-pre"><code>${escapeHtml(JSON.stringify(job.result, null, 2))}</code></pre>
+                <pre class="drawer-json-pre"><code>${escapeHtml(JSON.stringify(msg.result, null, 2))}</code></pre>
               </div>
             </div>
           ` : ''}
 
-          ${job.executionLogs ? `
+          ${msg.executionLogs ? `
             <div>
               <div class="drawer-section-title">Captured Worker Logs</div>
               <div class="drawer-json-container">
                 <div class="drawer-json-bar">
-                  <span style="color: #38bdf8; font-weight: 700;">Worker Output ${job.executionDurationMs ? `(${job.executionDurationMs}ms)` : ''}</span>
+                  <span style="color: #38bdf8; font-weight: 700;">Worker Output ${msg.executionDurationMs ? `(${msg.executionDurationMs}ms)` : ''}</span>
                 </div>
-                <pre class="drawer-json-pre" style="color: #38bdf8; white-space: pre-wrap; font-family: 'JetBrains Mono', Consolas, Monaco, monospace; font-size: 11.5px; line-height: 1.5; padding: 12px; background: #0f172a; margin: 0;"><code>${escapeHtml(job.executionLogs)}</code></pre>
+                <pre class="drawer-json-pre" style="color: #38bdf8; white-space: pre-wrap; font-family: 'JetBrains Mono', Consolas, Monaco, monospace; font-size: 11.5px; line-height: 1.5; padding: 12px; background: #0f172a; margin: 0;"><code>${escapeHtml(msg.executionLogs)}</code></pre>
               </div>
             </div>
           ` : ''}
@@ -1277,25 +1340,30 @@ async function openQueueJobDetailDrawer(jobId) {
 
         <div class="drawer-footer" style="padding:1rem 1.5rem; border-top:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center; background:var(--bg-card); flex-shrink:0;">
           <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            ${!isSys && job.status === 'processing' ? `
-              <button class="btn btn-primary btn-sm" id="btn-job-ack" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleAckQueueJob(this.getAttribute('data-queue'), this.getAttribute('data-id'))">✓ ACK (Complete)</button>
-              <button class="btn btn-secondary btn-sm" id="btn-job-nack" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleNackQueueJob(this.getAttribute('data-queue'), this.getAttribute('data-id'))">✕ NACK (Fail)</button>
+            ${!isSys && msg.status === 'processing' ? `
+              <button class="btn btn-primary btn-sm" id="btn-message-ack" data-legacy-id="btn-job-ack" data-queue="${escapeHtml(msg.queue)}" data-id="${escapeHtml(msg.id)}" onclick="handleAckQueueMessage(this.getAttribute('data-queue'), this.getAttribute('data-id'))">✓ ACK (Complete)</button>
+              <button class="btn btn-secondary btn-sm" id="btn-message-nack" data-legacy-id="btn-job-nack" data-queue="${escapeHtml(msg.queue)}" data-id="${escapeHtml(msg.id)}" onclick="handleNackQueueMessage(this.getAttribute('data-queue'), this.getAttribute('data-id'))">✕ NACK (Fail)</button>
+            ` : ''}
+            ${!isSys && isStrictOrder && (msg.status === 'queued' || msg.status === 'processing') ? `
+              <button class="btn btn-secondary btn-sm" id="btn-force-skip-message" data-queue="${escapeHtml(msg.queue)}" data-id="${escapeHtml(msg.id)}" onclick="handleForceSkipQueueMessage(this.getAttribute('data-queue'), this.getAttribute('data-id'))" style="color: #f59e0b; border-color: rgba(245, 158, 11, 0.4);" title="Force skip this blocking head-of-line message to DLQ to unblock pending messages">
+                ⚠️ Force Skip to DLQ
+              </button>
             ` : ''}
             ${!isSys && isForwardedDlq ? `
-              <button class="btn btn-primary btn-sm" id="btn-job-retry" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleRequeueJob(this.getAttribute('data-id'), this.getAttribute('data-queue'))">
+              <button class="btn btn-primary btn-sm" id="btn-message-retry" data-legacy-id="btn-job-retry" data-queue="${escapeHtml(msg.queue)}" data-id="${escapeHtml(msg.id)}" onclick="handleRequeueMessage(this.getAttribute('data-id'), this.getAttribute('data-queue'))">
                 ↻ Replay to "${escapeHtml(origQueue || 'Original Queue')}"
               </button>
-            ` : !isSys && (job.status === 'dead_letter' || job.status === 'failed') ? `
-              <button class="btn btn-primary btn-sm" id="btn-job-retry" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleRequeueJob(this.getAttribute('data-id'), this.getAttribute('data-queue'))" title="Retry this single job">
-                ↻ Retry Job
+            ` : !isSys && (msg.status === 'dead_letter' || msg.status === 'failed') ? `
+              <button class="btn btn-primary btn-sm" id="btn-message-retry" data-legacy-id="btn-job-retry" data-queue="${escapeHtml(msg.queue)}" data-id="${escapeHtml(msg.id)}" onclick="handleRequeueMessage(this.getAttribute('data-id'), this.getAttribute('data-queue'))" title="Retry this single message">
+                ↻ Retry Message
               </button>
-              <button class="btn btn-secondary btn-sm" id="btn-retry-all-dlq" data-queue="${escapeHtml(job.queue)}" onclick="handleRetryQueueDlq(this.getAttribute('data-queue')); closeQueueDrawer();" title="Retry all dead-letter jobs in this queue">
+              <button class="btn btn-secondary btn-sm" id="btn-retry-all-dlq" data-queue="${escapeHtml(msg.queue)}" onclick="handleRetryQueueDlq(this.getAttribute('data-queue')); closeQueueDrawer();" title="Retry all dead-letter messages in this queue">
                 ↻ Retry All Queue DLQ
               </button>
             ` : ''}
             ${!isSys ? `
-              <button class="btn btn-danger btn-sm" id="btn-job-delete" data-queue="${escapeHtml(job.queue)}" data-id="${escapeHtml(job.id)}" onclick="handleDeleteQueueJob(this.getAttribute('data-id'), this.getAttribute('data-queue'))" style="color: var(--accent-danger); border-color: rgba(239, 68, 68, 0.35);" title="Delete / Cancel this individual job">
-                🗑 Delete / Cancel Job
+              <button class="btn btn-danger btn-sm" id="btn-message-delete" data-legacy-id="btn-job-delete" data-queue="${escapeHtml(msg.queue)}" data-id="${escapeHtml(msg.id)}" onclick="handleDeleteQueueMessage(this.getAttribute('data-id'), this.getAttribute('data-queue'))" style="color: var(--accent-danger); border-color: rgba(239, 68, 68, 0.35);" title="Delete / Cancel this individual message">
+                🗑 Delete / Cancel Message
               </button>
             ` : ''}
           </div>
@@ -1306,39 +1374,76 @@ async function openQueueJobDetailDrawer(jobId) {
 
     animateQueueDrawerOpen();
   } catch (err) {
-    if (typeof toast === 'function') toast('Failed to load job details: ' + err.message, 'error');
+    if (typeof toast === 'function') toast('Failed to load message details: ' + err.message, 'error');
   }
 }
 
-async function handleAckQueueJob(queueName, jobId) {
+
+async function handleForceSkipQueueMessage(queueName, messageId) {
+  const safeId = typeof escapeHtml === 'function' ? escapeHtml(messageId) : messageId;
+  const confirmed = typeof showConfirmDialog === 'function'
+    ? await showConfirmDialog({
+        title: 'Force Skip Message to DLQ?',
+        message: `Are you sure you want to force-skip message <strong style="color: var(--text-heading); font-family: var(--font-mono);">${safeId}</strong> to the Dead-Letter Queue?`,
+        messageText: `Are you sure you want to force-skip message "${messageId}" to DLQ?`,
+        warning: 'In strict-ordered queues, this bypasses the head-of-line block and immediately allows pending messages to resume processing.',
+        warningType: 'warning',
+        confirmText: 'Force Skip to DLQ',
+        cancelText: 'Cancel',
+        variant: 'danger',
+        icon: '⚠️',
+      })
+    : confirm(`Force-skip message "${messageId}" to DLQ to unblock strict queue?`);
+
+  if (!confirmed) return;
+
   try {
     const prefix = getQueuesApiPrefix();
-    await api(`${prefix}/${encodeURIComponent(queueName)}/jobs/${encodeURIComponent(jobId)}/ack`, {
+    await api(`${prefix}/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(messageId)}/skip`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: 'Force-skipped to DLQ by operator via Admin UI' }),
+    });
+    if (typeof toast === 'function') {
+      toast(`Message "${messageId}" skipped to DLQ`, 'warning');
+    }
+    closeQueueDrawer();
+    await refreshQueuesView();
+  } catch (err) {
+    if (typeof toast === 'function') toast(err.message || 'Failed to force-skip message', 'error');
+  }
+}
+
+async function handleAckQueueMessage(queueName, messageId) {
+  try {
+    const prefix = getQueuesApiPrefix();
+    await api(`${prefix}/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(messageId)}/ack`, {
       method: 'POST',
       body: JSON.stringify({}),
     });
-    if (typeof toast === 'function') toast('Job marked completed (ACK)', 'success');
+    if (typeof toast === 'function') toast('Message marked completed (ACK)', 'success');
     closeQueueDrawer();
     await refreshQueuesView();
   } catch (err) {
-    if (typeof toast === 'function') toast(err.message || 'Failed to ACK job', 'error');
+    if (typeof toast === 'function') toast(err.message || 'Failed to ACK message', 'error');
   }
 }
+const handleAckQueueJob = handleAckQueueMessage;
 
-async function handleNackQueueJob(queueName, jobId) {
+async function handleNackQueueMessage(queueName, messageId) {
   try {
     const prefix = getQueuesApiPrefix();
-    await api(`${prefix}/${encodeURIComponent(queueName)}/jobs/${encodeURIComponent(jobId)}/nack`, {
+    await api(`${prefix}/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(messageId)}/nack`, {
       method: 'POST',
       body: JSON.stringify({ error: 'Rejected manually from Admin UI' }),
     });
-    if (typeof toast === 'function') toast('Job rejected (NACK)', 'info');
+    if (typeof toast === 'function') toast('Message rejected (NACK)', 'info');
     closeQueueDrawer();
     await refreshQueuesView();
   } catch (err) {
-    if (typeof toast === 'function') toast(err.message || 'Failed to NACK job', 'error');
+    if (typeof toast === 'function') toast(err.message || 'Failed to NACK message', 'error');
   }
 }
+const handleNackQueueJob = handleNackQueueMessage;
 
 function closeQueueDrawer() {
   if (typeof window !== 'undefined') {
@@ -1361,6 +1466,8 @@ const openCreateQueueModal = openCreateQueueDrawer;
 const openEditQueueModal = openEditQueueDrawer;
 const openSendMessageModal = openSendMessageDrawer;
 const closeQueueModal = closeQueueDrawer;
+const openQueueJobDetailDrawer = openQueueMessageDetailDrawer;
+const handleCleanupOldQueueJobs = handleCleanupOldQueueMessages;
 
 if (typeof window !== 'undefined') {
   window.renderQueuesView = renderQueuesView;
@@ -1369,11 +1476,16 @@ if (typeof window !== 'undefined') {
   window.toggleIncludeSystemQueues = toggleIncludeSystemQueues;
   window.loadQueueStats = loadQueueStats;
   window.loadQueuesList = loadQueuesList;
-  window.loadQueueJobsList = loadQueueJobsList;
-  window.inspectQueueJobs = inspectQueueJobs;
-  window.handleQueueJobFilterChange = handleQueueJobFilterChange;
-  window.clearQueueJobFilters = clearQueueJobFilters;
-  window.changeQueueJobPage = changeQueueJobPage;
+  window.loadQueueMessagesList = loadQueueMessagesList;
+  window.loadQueueJobsList = loadQueueMessagesList;
+  window.inspectQueueMessages = inspectQueueMessages;
+  window.inspectQueueJobs = inspectQueueMessages;
+  window.handleQueueMessageFilterChange = handleQueueMessageFilterChange;
+  window.handleQueueJobFilterChange = handleQueueMessageFilterChange;
+  window.clearQueueMessageFilters = clearQueueMessageFilters;
+  window.clearQueueJobFilters = clearQueueMessageFilters;
+  window.changeQueueMessagePage = changeQueueMessagePage;
+  window.changeQueueJobPage = changeQueueMessagePage;
   window.openCreateQueueDrawer = openCreateQueueDrawer;
   window.openEditQueueDrawer = openEditQueueDrawer;
   window.openCreateQueueModal = openCreateQueueModal;
@@ -1385,17 +1497,25 @@ if (typeof window !== 'undefined') {
   window.closeQueueDrawer = closeQueueDrawer;
   window.closeQueueModal = closeQueueModal;
   window.handleRetryQueueDlq = handleRetryQueueDlq;
-  window.handleRequeueJob = handleRequeueJob;
-  window.handleRetryJob = handleRetryJob;
-  window.handleRetrySingleJob = handleRetrySingleJob;
-  window.handleDeleteQueueJob = handleDeleteQueueJob;
-  window.handleCancelQueueJob = handleCancelQueueJob;
-  window.handleCancelJob = handleCancelJob;
+  window.handleRequeueMessage = handleRequeueMessage;
+  window.handleRequeueJob = handleRequeueMessage;
+  window.handleRetryJob = handleRequeueMessage;
+  window.handleRetrySingleJob = handleRequeueMessage;
+  window.handleDeleteQueueMessage = handleDeleteQueueMessage;
+  window.handleDeleteQueueJob = handleDeleteQueueMessage;
+  window.handleCancelQueueJob = handleDeleteQueueMessage;
+  window.handleCancelJob = handleDeleteQueueMessage;
   window.handleQueueDrawerKeyDown = handleQueueDrawerKeyDown;
   window.handlePurgeQueue = handlePurgeQueue;
   window.handleDeleteQueue = handleDeleteQueue;
-  window.handleCleanupOldQueueJobs = handleCleanupOldQueueJobs;
-  window.openQueueJobDetailDrawer = openQueueJobDetailDrawer;
-  window.handleAckQueueJob = handleAckQueueJob;
-  window.handleNackQueueJob = handleNackQueueJob;
+  window.handleCleanupOldQueueMessages = typeof handleCleanupOldQueueMessages !== 'undefined' ? handleCleanupOldQueueMessages : handleCleanupOldQueueJobs;
+  window.handleCleanupOldQueueJobs = typeof handleCleanupOldQueueMessages !== 'undefined' ? handleCleanupOldQueueMessages : handleCleanupOldQueueJobs;
+  window.openQueueMessageDetailDrawer = openQueueMessageDetailDrawer;
+  window.openQueueJobDetailDrawer = openQueueMessageDetailDrawer;
+  window.handleForceSkipQueueMessage = handleForceSkipQueueMessage;
+  window.handleForceSkipMessage = handleForceSkipQueueMessage;
+  window.handleAckQueueMessage = handleAckQueueMessage;
+  window.handleAckQueueJob = handleAckQueueMessage;
+  window.handleNackQueueMessage = handleNackQueueMessage;
+  window.handleNackQueueJob = handleNackQueueMessage;
 }

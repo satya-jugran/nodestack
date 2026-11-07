@@ -541,9 +541,9 @@ export class FunctionService {
   /**
    * Executes a serverless function bound as a Queue worker (targetFunction).
    */
-  public async executeQueueJob(
+  public async executeQueueMessage(
     functionIdOrName: string,
-    job: { id: string; queue: string; payload: any; attempts: number; maxAttempts: number; groupKey?: string | null },
+    message: { id: string; queue: string; payload: any; attempts: number; maxAttempts: number; groupKey?: string | null },
     actor?: any
   ): Promise<FunctionExecutionResult> {
     const fn = this.getFunctionById(functionIdOrName) || this.getFunctionByName(functionIdOrName);
@@ -561,17 +561,20 @@ export class FunctionService {
 
     const requestCtx: FunctionRequestContext = {
       method: 'POST',
-      path: `/api/queues/${job.queue}`,
+      path: `/api/queues/${message.queue}`,
       query: {},
       headers: {
         'content-type': 'application/json',
-        'x-queue-name': job.queue,
-        'x-job-id': job.id,
-        'x-queue-job-id': job.id,
-        'x-job-attempts': String(job.attempts),
+        'x-queue-name': message.queue,
+        'x-message-id': message.id,
+        'x-queue-message-id': message.id,
+        'x-job-id': message.id,
+        'x-queue-job-id': message.id,
+        'x-message-attempts': String(message.attempts),
+        'x-job-attempts': String(message.attempts),
       },
-      body: job.payload,
-      params: { queue: job.queue, jobId: job.id },
+      body: message.payload,
+      params: { queue: message.queue, messageId: message.id, jobId: message.id },
       auth: actor ? { id: actor.id, role: actor.isAdmin ? 'admin' : 'user' } : null,
     };
 
@@ -604,15 +607,15 @@ export class FunctionService {
       this.recordLog({
         functionId: fn.id,
         functionName: fn.name,
-        trigger: `queue:${job.queue}`,
+        trigger: `queue:${message.queue}`,
         status: result.status,
         statusCode: result.statusCode,
         durationMs: result.durationMs,
-        requestPayload: JSON.stringify(job.payload ?? null),
+        requestPayload: JSON.stringify(message.payload ?? null),
         responsePayload: JSON.stringify(result.body ?? null),
         logs: result.logs.join('\n'),
         error: result.error,
-        actorId: actor?.id || `job:${job.id}`,
+        actorId: actor?.id || `msg:${message.id}`,
       });
 
       return result;
@@ -1148,67 +1151,67 @@ export class FunctionService {
         const limit = Math.max(1, Math.min(options?.limit ?? 1, 50));
         return await this.queueService.claim(queueName.trim(), visibility, limit, `fn_worker_${fn.id}`);
       },
-      complete: async (jobId: string, result?: any, claimToken?: string) => {
+      complete: async (messageId: string, result?: any, claimToken?: string) => {
         if (!this.queueService) {
           throw new Error('QueueService not available in function context');
         }
-        if (!jobId || typeof jobId !== 'string') {
-          throw new Error('Job ID is required to complete a queue job');
+        if (!messageId || typeof messageId !== 'string') {
+          throw new Error('Message ID is required to complete a queue message');
         }
-        const job = await this.queueService.getJob(jobId);
-        if (!job) {
+        const msg = await this.queueService.getMessage(messageId);
+        if (!msg) {
           return false;
         }
-        if (job.queue.startsWith('_system:')) {
-          throw new Error('Cannot complete jobs belonging to reserved _system:* queues from user functions');
+        if (msg.queue.startsWith('_system:')) {
+          throw new Error('Cannot complete messages belonging to reserved _system:* queues from user functions');
         }
-        return await this.queueService.complete(jobId, result, claimToken);
+        return await this.queueService.complete(messageId, result, claimToken);
       },
-      fail: async (jobId: string, error?: string, options?: { backoffDelayMs?: number; claimToken?: string }) => {
+      fail: async (messageId: string, error?: string, options?: { backoffDelayMs?: number; claimToken?: string }) => {
         if (!this.queueService) {
           throw new Error('QueueService not available in function context');
         }
-        if (!jobId || typeof jobId !== 'string') {
-          throw new Error('Job ID is required to fail a queue job');
+        if (!messageId || typeof messageId !== 'string') {
+          throw new Error('Message ID is required to fail a queue message');
         }
-        const job = await this.queueService.getJob(jobId);
-        if (!job) {
+        const msg = await this.queueService.getMessage(messageId);
+        if (!msg) {
           return { retried: false, deadLettered: false, attempts: 0 };
         }
-        if (job.queue.startsWith('_system:')) {
-          throw new Error('Cannot fail jobs belonging to reserved _system:* queues from user functions');
+        if (msg.queue.startsWith('_system:')) {
+          throw new Error('Cannot fail messages belonging to reserved _system:* queues from user functions');
         }
         const errMsg = error || 'Failed by function worker';
-        return await this.queueService.fail(jobId, errMsg, options?.backoffDelayMs, options?.claimToken);
+        return await this.queueService.fail(messageId, errMsg, options?.backoffDelayMs, options?.claimToken);
       },
-      touch: async (jobId: string, extensionSeconds?: number, claimToken?: string) => {
+      touch: async (messageId: string, extensionSeconds?: number, claimToken?: string) => {
         if (!this.queueService) {
           throw new Error('QueueService not available in function context');
         }
-        if (!jobId || typeof jobId !== 'string') {
-          throw new Error('Job ID is required to touch a queue job');
+        if (!messageId || typeof messageId !== 'string') {
+          throw new Error('Message ID is required to touch a queue message');
         }
-        const job = await this.queueService.getJob(jobId);
-        if (!job) {
+        const msg = await this.queueService.getMessage(messageId);
+        if (!msg) {
           return false;
         }
-        if (job.queue.startsWith('_system:')) {
-          throw new Error('Cannot touch jobs belonging to reserved _system:* queues from user functions');
+        if (msg.queue.startsWith('_system:')) {
+          throw new Error('Cannot touch messages belonging to reserved _system:* queues from user functions');
         }
-        return await this.queueService.touch(jobId, extensionSeconds ?? 30, claimToken);
+        return await this.queueService.touch(messageId, extensionSeconds ?? 30, claimToken);
       },
-      getJob: async (jobId: string) => {
+      getMessage: async (messageId: string) => {
         if (!this.queueService) {
           throw new Error('QueueService not available in function context');
         }
-        if (!jobId || typeof jobId !== 'string') {
+        if (!messageId || typeof messageId !== 'string') {
           return null;
         }
-        const job = await this.queueService.getJob(jobId);
-        if (job && job.queue.startsWith('_system:')) {
+        const msg = await this.queueService.getMessage(messageId);
+        if (msg && msg.queue.startsWith('_system:')) {
           return null;
         }
-        return job;
+        return msg;
       },
     };
 

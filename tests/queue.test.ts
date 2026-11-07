@@ -915,7 +915,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       // Backdate oldJob finishedAt & updated to 10 days ago
       const tenDaysAgo = new Date(Date.now() - 10 * 86400 * 1000).toISOString();
       app.db
-        .prepare('UPDATE _queue_jobs SET finishedAt = ?, updated = ? WHERE id = ?')
+        .prepare('UPDATE _queue_messages SET finishedAt = ?, updated = ? WHERE id = ?')
         .run(tenDaysAgo, tenDaysAgo, oldJob.id);
 
       const deleted = await app.queue.cleanup(7);
@@ -950,7 +950,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       const nowIso = new Date().toISOString();
       app.db
         .prepare(`
-          INSERT INTO _queue_jobs (
+          INSERT INTO _queue_messages (
             id, queue, groupKey, status, payload, result, error,
             attempts, maxAttempts, priority, availableAt, claimedBy,
             leaseExpiresAt, deduplicationId, created, updated, finishedAt
@@ -968,7 +968,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
 
       app.db
         .prepare(`
-          INSERT INTO _queue_jobs (
+          INSERT INTO _queue_messages (
             id, queue, groupKey, status, payload, result, error,
             attempts, maxAttempts, priority, availableAt, claimedBy,
             leaseExpiresAt, deduplicationId, created, updated, finishedAt
@@ -988,7 +988,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       // Verifies immediate startup recovery without waiting 5 minutes for lease expiration
       app.db
         .prepare(`
-          INSERT INTO _queue_jobs (
+          INSERT INTO _queue_messages (
             id, queue, groupKey, status, payload, result, error,
             attempts, maxAttempts, priority, availableAt, claimedBy,
             leaseExpiresAt, deduplicationId, created, updated, finishedAt
@@ -1006,7 +1006,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
 
       app.db
         .prepare(`
-          INSERT INTO _queue_jobs (
+          INSERT INTO _queue_messages (
             id, queue, groupKey, status, payload, result, error,
             attempts, maxAttempts, priority, availableAt, claimedBy,
             leaseExpiresAt, deduplicationId, created, updated, finishedAt
@@ -1076,7 +1076,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       // Insert job in 'processing' status with a 300s future lease claimed by a dead local worker from previous process
       app.db
         .prepare(`
-          INSERT INTO _queue_jobs (
+          INSERT INTO _queue_messages (
             id, queue, groupKey, status, payload, result, error,
             attempts, maxAttempts, priority, availableAt, claimedBy,
             leaseExpiresAt, deduplicationId, created, updated, finishedAt
@@ -1102,14 +1102,14 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
     it('should recreate missing queue tables and indexes on init() after database replacement (pre-queue snapshot restore)', async () => {
       // Simulate database replacement by dropping the queue tables from SQLite
       app.db.exec(`
-        DROP TABLE IF EXISTS _queue_jobs;
+        DROP TABLE IF EXISTS _queue_messages;
         DROP TABLE IF EXISTS _queues;
       `);
 
       // Verify tables no longer exist
       const checkTables = () => {
         return app.db.prepare(`
-          SELECT count(*) as cnt FROM sqlite_master WHERE type='table' AND name IN ('_queues', '_queue_jobs')
+          SELECT count(*) as cnt FROM sqlite_master WHERE type='table' AND name IN ('_queues', '_queue_messages')
         `).get() as { cnt: number };
       };
       expect(checkTables().cnt).toBe(0);
@@ -1218,7 +1218,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(claimedItems[0].status).toBe('processing');
 
       // 5. Complete message via POST /api/queues/:name/jobs/:id/ack
-      const ackRes = await fetch(`${baseUrl}/api/queues/rest-api-queue/jobs/${sentJob.id}/ack`, {
+      const ackRes = await fetch(`${baseUrl}/api/queues/rest-api-queue/messages/${sentJob.id}/ack`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ result: { resized: true } }),
@@ -1238,7 +1238,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(detailData.stats.completed).toBe(1);
 
       // 7. Inspect single job via GET /api/queues/jobs/:id
-      const jobRes = await fetch(`${baseUrl}/api/queues/jobs/${sentJob.id}`, {
+      const jobRes = await fetch(`${baseUrl}/api/queues/messages/${sentJob.id}`, {
         method: 'GET',
         headers,
       });
@@ -1254,13 +1254,13 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       });
 
       // Default GET /api/queues/jobs must exclude _system:* jobs
-      const defaultJobsRes = await fetch(`${baseUrl}/api/queues/jobs?perPage=100`, { headers });
+      const defaultJobsRes = await fetch(`${baseUrl}/api/queues/messages?perPage=100`, { headers });
       expect(defaultJobsRes.status).toBe(200);
       const defaultJobs = await defaultJobsRes.json();
       expect(defaultJobs.items.some((j: any) => j.queue.startsWith('_system:'))).toBe(false);
 
       // GET /api/queues/jobs?includeSystem=true must include _system:* jobs
-      const systemJobsRes = await fetch(`${baseUrl}/api/queues/jobs?includeSystem=true&perPage=100`, { headers });
+      const systemJobsRes = await fetch(`${baseUrl}/api/queues/messages?includeSystem=true&perPage=100`, { headers });
       expect(systemJobsRes.status).toBe(200);
       const systemJobs = await systemJobsRes.json();
       expect(systemJobs.items.some((j: any) => j.queue === '_system:flow:test')).toBe(true);
@@ -1690,7 +1690,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
 
       // Expire lease in SQLite
       const expiredTime = new Date(Date.now() - 5000).toISOString();
-      app.db.prepare('UPDATE _queue_jobs SET leaseExpiresAt = ? WHERE id = ?').run(expiredTime, job.id);
+      app.db.prepare('UPDATE _queue_messages SET leaseExpiresAt = ? WHERE id = ?').run(expiredTime, job.id);
 
       // Reclaim orphaned leases
       const count = await app.queue.reclaimOrphaned(srcName);
@@ -1724,8 +1724,8 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       driver.invalidateInit();
       expect(driver.initialized).toBe(false);
 
-      // Temporarily drop _queues and _queue_jobs to simulate snapshot from before queues existed
-      app.db.exec('DROP TABLE IF EXISTS _queue_jobs;');
+      // Temporarily drop _queues and _queue_messages to simulate snapshot from before queues existed
+      app.db.exec('DROP TABLE IF EXISTS _queue_messages;');
       app.db.exec('DROP TABLE IF EXISTS _queues;');
 
       // Calling resetAfterRestore() must recreate schema and set initialized back to true
@@ -1944,7 +1944,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(dlqItem).toBeDefined();
 
       // 2. Test individual retry of forwarded job in dlqQ via REST API POST /api/queues/:name/jobs/:id/retry
-      const res = await fetch(`${baseUrl}/api/queues/${dlqQ}/jobs/${dlqItem.id}/retry`, {
+      const res = await fetch(`${baseUrl}/api/queues/${dlqQ}/messages/${dlqItem.id}/retry`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${adminToken}`,
@@ -2019,7 +2019,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
 
       const drawer = win.document.getElementById('queue-drawer-panel');
       expect(drawer).not.toBeNull();
-      expect(drawer?.innerHTML).toContain('Forwarded DLQ Job');
+      expect(drawer?.innerHTML).toMatch(/Forwarded DLQ (Message|Job)/);
       expect(drawer?.innerHTML).toContain('↻ Replay to');
 
       // Click Replay from drawer
@@ -2110,10 +2110,10 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       const drawer = win.document.getElementById('queue-drawer-panel');
       expect(drawer).not.toBeNull();
 
-      // Should have Delete / Cancel Job button
-      const deleteBtn = win.document.getElementById('btn-job-delete');
+      // Should have Delete / Cancel Message button
+      const deleteBtn = win.document.getElementById('btn-message-delete') || win.document.getElementById('btn-job-delete');
       expect(deleteBtn).not.toBeNull();
-      expect(deleteBtn.textContent).toContain('Delete / Cancel Job');
+      expect(deleteBtn.textContent).toMatch(/Delete \/ Cancel (Message|Job)/);
 
       // Click Delete / Cancel Job
       await win.handleDeleteQueueJob(job.id, testQ);
@@ -2169,15 +2169,15 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       const drawer = win.document.getElementById('queue-drawer-panel');
       expect(drawer).not.toBeNull();
 
-      // Check single-job Retry button exists and is titled/labeled Retry Job
-      const retryBtn = win.document.getElementById('btn-job-retry');
+      // Check single-job Retry button exists and is titled/labeled Retry Message
+      const retryBtn = win.document.getElementById('btn-message-retry') || win.document.getElementById('btn-job-retry');
       expect(retryBtn).not.toBeNull();
-      expect(retryBtn.textContent).toContain('Retry Job');
+      expect(retryBtn.textContent).toMatch(/Retry (Message|Job)/);
 
-      // Check Delete / Cancel Job button exists
-      const deleteBtn = win.document.getElementById('btn-job-delete');
+      // Check Delete / Cancel Message button exists
+      const deleteBtn = win.document.getElementById('btn-message-delete') || win.document.getElementById('btn-job-delete');
       expect(deleteBtn).not.toBeNull();
-      expect(deleteBtn.textContent).toContain('Delete / Cancel Job');
+      expect(deleteBtn.textContent).toMatch(/Delete \/ Cancel (Message|Job)/);
 
       // Click Retry Job
       await win.handleRequeueJob(job.id, testQ);
@@ -2187,6 +2187,357 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(retriedJob?.status).toBe('queued');
       expect(retriedJob?.attempts).toBe(0);
       expect(win.toast).toHaveBeenCalledWith(expect.stringContaining('requeued successfully'), 'success');
+    });
+  });
+
+
+  describe('7. Strict Ordering, groupKey Head-of-Line Partitioning & Mandatory Ack/Nack', () => {
+    it('should default backoffDelayMs to 0 for strictOrder queues and serialize whole-queue delivery without groupKey', async () => {
+      const q = await app.queue.upsertQueue({
+        name: 'strict-order-test',
+        strictOrder: true,
+      });
+
+      expect(q.strictOrder).toBe(true);
+      expect(q.backoffDelayMs).toBe(0);
+
+      const m1 = await app.queue.send('strict-order-test', { seq: 1 });
+      const m2 = await app.queue.send('strict-order-test', { seq: 2 });
+      const m3 = await app.queue.send('strict-order-test', { seq: 3 });
+
+      // Claim with limit=5: only head-of-line (m1) can be claimed in a strict queue without groupKey
+      const claimed1 = await app.queue.claim('strict-order-test', 30, 5);
+      expect(claimed1.length).toBe(1);
+      expect(claimed1[0].id).toBe(m1.id);
+      expect(claimed1[0].status).toBe('processing');
+
+      // While m1 is processing, claim must return empty (m2 and m3 are blocked)
+      const claimedWhileBusy = await app.queue.claim('strict-order-test', 30, 5);
+      expect(claimedWhileBusy.length).toBe(0);
+
+      // Attempting to complete (Ack) m2 while m2 is still 'queued' must return false
+      const ackQueuedRes = await app.queue.complete(m2.id, { done: true });
+      expect(ackQueuedRes).toBe(false);
+      const m2Check = await app.queue.getJob(m2.id);
+      expect(m2Check?.status).toBe('queued');
+
+      // NACK m1: fails on attempt 1, re-queued immediately since backoffDelayMs=0
+      const failRes = await app.queue.fail(m1.id, 'Temporary worker error');
+      expect(failRes.retried).toBe(true);
+
+      // Next claim should redeliver m1 (same message!), NOT m2
+      const redelivered = await app.queue.claim('strict-order-test', 30, 5);
+      expect(redelivered.length).toBe(1);
+      expect(redelivered[0].id).toBe(m1.id);
+      expect(redelivered[0].attempts).toBe(2);
+
+      // ACK m1
+      const ackRes = await app.queue.complete(m1.id, { ok: true });
+      expect(ackRes).toBe(true);
+
+      // Now m2 is unblocked and claimed
+      const claimed2 = await app.queue.claim('strict-order-test', 30, 5);
+      expect(claimed2.length).toBe(1);
+      expect(claimed2[0].id).toBe(m2.id);
+
+      await app.queue.complete(m2.id);
+
+      // Now m3 is unblocked and claimed
+      const claimed3 = await app.queue.claim('strict-order-test', 30, 5);
+      expect(claimed3.length).toBe(1);
+      expect(claimed3[0].id).toBe(m3.id);
+
+      await app.queue.complete(m3.id);
+    });
+
+    it('should unblock subsequent jobs when a poison job exhausts maxAttempts and moves to dead_letter', async () => {
+      await app.queue.upsertQueue({
+        name: 'strict-poison-test',
+        strictOrder: true,
+        maxAttempts: 2,
+      });
+
+      const p1 = await app.queue.send('strict-poison-test', { poison: true });
+      const p2 = await app.queue.send('strict-poison-test', { poison: false });
+
+      // Claim p1 (attempt 1)
+      const [c1] = await app.queue.claim('strict-poison-test', 30, 5);
+      expect(c1.id).toBe(p1.id);
+
+      // Nack p1 -> retried (attempt 1 of 2)
+      const res1 = await app.queue.fail(p1.id, 'Failure 1');
+      expect(res1.retried).toBe(true);
+
+      // Claim p1 again (attempt 2)
+      const [c2] = await app.queue.claim('strict-poison-test', 30, 5);
+      expect(c2.id).toBe(p1.id);
+      expect(c2.attempts).toBe(2);
+
+      // Nack p1 -> maxAttempts exhausted -> dead_letter
+      const res2 = await app.queue.fail(p1.id, 'Failure 2');
+      expect(res2.deadLettered).toBe(true);
+
+      const p1State = await app.queue.getJob(p1.id);
+      expect(p1State?.status).toBe('dead_letter');
+
+      // Next claim should immediately unblock and claim p2!
+      const [c3] = await app.queue.claim('strict-poison-test', 30, 5);
+      expect(c3).toBeDefined();
+      expect(c3.id).toBe(p2.id);
+      await app.queue.complete(p2.id);
+    });
+
+    it('should strictly order within groupKey partitions and process distinct groups in parallel', async () => {
+      await app.queue.upsertQueue({
+        name: 'strict-group-test',
+        strictOrder: true,
+        concurrency: 10,
+      });
+
+      const a1 = await app.queue.send('strict-group-test', { val: 'A1' }, { groupKey: 'user-A' });
+      const a2 = await app.queue.send('strict-group-test', { val: 'A2' }, { groupKey: 'user-A' });
+
+      const b1 = await app.queue.send('strict-group-test', { val: 'B1' }, { groupKey: 'user-B' });
+      const b2 = await app.queue.send('strict-group-test', { val: 'B2' }, { groupKey: 'user-B' });
+
+      const n1 = await app.queue.send('strict-group-test', { val: 'N1' });
+      const n2 = await app.queue.send('strict-group-test', { val: 'N2' });
+
+      // Claim up to 10 jobs: exactly 3 head-of-line jobs must be claimed (one per partition)
+      const batch1 = await app.queue.claim('strict-group-test', 30, 10);
+      expect(batch1.length).toBe(3);
+
+      const batchIds = batch1.map((j) => j.id);
+      expect(batchIds).toContain(a1.id);
+      expect(batchIds).toContain(b1.id);
+      expect(batchIds).toContain(n1.id);
+      expect(batchIds).not.toContain(a2.id);
+      expect(batchIds).not.toContain(b2.id);
+      expect(batchIds).not.toContain(n2.id);
+
+      // Attempting to claim again while all 3 partitions are in flight returns []
+      const emptyBatch = await app.queue.claim('strict-group-test', 30, 10);
+      expect(emptyBatch.length).toBe(0);
+
+      // NACK a1 and ACK b1 (user-A retries, user-B advances, ungrouped stays processing)
+      await app.queue.fail(a1.id, 'Nack user-A');
+      await app.queue.complete(b1.id, { ack: 'user-B' });
+
+      // Next claim should return [a1 (redelivered to user-A), b2 (next for user-B)]
+      const batch2 = await app.queue.claim('strict-group-test', 30, 10);
+      expect(batch2.length).toBe(2);
+
+      const batch2Ids = batch2.map((j) => j.id);
+      expect(batch2Ids).toContain(a1.id);
+      expect(batch2Ids).toContain(b2.id);
+      expect(batch2Ids).not.toContain(n2.id); // n1 is still processing!
+
+      // Complete a1, b2, and n1
+      await app.queue.complete(a1.id);
+      await app.queue.complete(b2.id);
+      await app.queue.complete(n1.id);
+
+      // Now a2 and n2 can be claimed
+      const batch3 = await app.queue.claim('strict-group-test', 30, 10);
+      expect(batch3.length).toBe(2);
+
+      const batch3Ids = batch3.map((j) => j.id);
+      expect(batch3Ids).toContain(a2.id);
+      expect(batch3Ids).toContain(n2.id);
+
+      await app.queue.complete(a2.id);
+      await app.queue.complete(n2.id);
+    });
+
+    it('should support strict ordering and reject Acking queued jobs via REST API (/api/queues/*)', async () => {
+      // Create queue with strictOrder via REST API
+      const createResp = await fetch(`${baseUrl}/api/queues`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'rest-strict-queue',
+          strictOrder: true,
+        }),
+      });
+      expect(createResp.status).toBe(201);
+      const createData = await createResp.json();
+      expect(createData.strictOrder).toBe(true);
+      expect(createData.backoffDelayMs).toBe(0);
+
+      // Enqueue two messages
+      const msg1Resp = await fetch(`${baseUrl}/api/queues/rest-strict-queue/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ payload: { step: 1 } }),
+      });
+      const msg1 = await msg1Resp.json();
+
+      const msg2Resp = await fetch(`${baseUrl}/api/queues/rest-strict-queue/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ payload: { step: 2 } }),
+      });
+      const msg2 = await msg2Resp.json();
+
+      // Claim messages: only 1 message returned
+      const claimResp = await fetch(`${baseUrl}/api/queues/rest-strict-queue/messages?limit=5`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      const claimed = await claimResp.json();
+      expect(claimed.length).toBe(1);
+      expect(claimed[0].id).toBe(msg1.id);
+
+      // Attempting to Ack msg2 (still queued) via REST API must return 404/error
+      const ackQueuedResp = await fetch(`${baseUrl}/api/queues/rest-strict-queue/messages/${msg2.id}/ack`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ result: { status: 'skipped' } }),
+      });
+      expect(ackQueuedResp.status).toBe(404);
+
+      // NACK msg1 via REST API
+      const nackResp = await fetch(`${baseUrl}/api/queues/rest-strict-queue/messages/${msg1.id}/nack`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ error: 'Nack error from REST' }),
+      });
+      expect(nackResp.status).toBe(200);
+
+      // Re-claim: msg1 must be redelivered
+      const reClaimResp = await fetch(`${baseUrl}/api/queues/rest-strict-queue/messages?limit=5`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      const reClaimed = await reClaimResp.json();
+      expect(reClaimed.length).toBe(1);
+      expect(reClaimed[0].id).toBe(msg1.id);
+
+      // ACK msg1
+      const ackResp = await fetch(`${baseUrl}/api/queues/rest-strict-queue/messages/${msg1.id}/ack`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ result: { success: true } }),
+      });
+      expect(ackResp.status).toBe(200);
+
+      // Now msg2 can be claimed
+      const claim2Resp = await fetch(`${baseUrl}/api/queues/rest-strict-queue/messages?limit=5`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      const claim2 = await claim2Resp.json();
+      expect(claim2.length).toBe(1);
+      expect(claim2[0].id).toBe(msg2.id);
+
+      await fetch(`${baseUrl}/api/queues/rest-strict-queue/messages/${msg2.id}/ack`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+    });
+
+    it('should support maxAttempts: 0 for infinite retries and never auto-DLQ on repeated failures', async () => {
+      await app.queue.upsertQueue({
+        name: 'infinite-retry-queue',
+        concurrency: 1,
+        maxAttempts: 0, // 0 = unlimited / infinite retries
+        strictOrder: true,
+        backoffDelayMs: 0,
+        deadLetterQueue: 'infinite-retry-dlq',
+      });
+
+      const msg = await app.queue.send('infinite-retry-queue', { order: 'infinite-test' });
+      expect(msg.status).toBe('queued');
+
+      // Fail 10 times in a row without ever moving to DLQ
+      for (let i = 1; i <= 10; i++) {
+        const [claimed] = await app.queue.claim('infinite-retry-queue', 30, 1);
+        expect(claimed).toBeDefined();
+        expect(claimed.id).toBe(msg.id);
+        expect(claimed.attempts).toBe(i);
+
+        const failRes = await app.queue.fail(claimed.id, `Failure attempt ${i}`, 0, claimed.claimToken || undefined);
+        expect(failRes.retried).toBe(true);
+        expect(failRes.deadLettered).toBe(false);
+
+        const currentMsg = await app.queue.getMessage(msg.id);
+        expect(currentMsg?.status).toBe('queued');
+        expect(currentMsg?.attempts).toBe(i);
+      }
+
+      // Verify DLQ is still empty
+      const dlqStats = await app.queue.getStats('infinite-retry-dlq');
+      expect(dlqStats.total).toBe(0);
+    });
+
+    it('should support explicit Force Skip to DLQ via POST /api/queues/:name/messages/:id/skip to unblock strict queue', async () => {
+      await app.queue.upsertQueue({
+        name: 'force-skip-strict-queue',
+        concurrency: 1,
+        maxAttempts: 0,
+        strictOrder: true,
+        backoffDelayMs: 0,
+        deadLetterQueue: 'force-skip-dlq',
+      });
+
+      // Send msg1 (poison pill) and msg2 (blocked behind msg1)
+      const msg1 = await app.queue.send('force-skip-strict-queue', { data: 'poison-pill' });
+      const msg2 = await app.queue.send('force-skip-strict-queue', { data: 'valid-event-after-poison' });
+
+      // Claim msg1
+      const [claimed1] = await app.queue.claim('force-skip-strict-queue', 30, 1);
+      expect(claimed1.id).toBe(msg1.id);
+
+      // Attempt to claim again - queue is blocked behind msg1
+      const blockedClaim = await app.queue.claim('force-skip-strict-queue', 30, 1);
+      expect(blockedClaim.length).toBe(0);
+
+      // Force skip msg1 via REST API
+      const skipResp = await fetch(`${baseUrl}/api/queues/force-skip-strict-queue/messages/${msg1.id}/skip`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reason: 'Operator consent force skip poisoned event' }),
+      });
+      expect(skipResp.status).toBe(200);
+      const skipData = await skipResp.json() as any;
+      expect(skipData.success).toBe(true);
+
+      // Check msg1 is now dead_letter in storage
+      const skippedMsg1 = await app.queue.getMessage(msg1.id);
+      expect(skippedMsg1?.status).toBe('dead_letter');
+      expect(skippedMsg1?.error).toBe('Operator consent force skip poisoned event');
+
+      // Now msg2 must immediately unblock and be claimable!
+      const [claimed2] = await app.queue.claim('force-skip-strict-queue', 30, 1);
+      expect(claimed2).toBeDefined();
+      expect(claimed2.id).toBe(msg2.id);
+      expect(claimed2.payload.data).toBe('valid-event-after-poison');
+
+      // Complete msg2
+      await app.queue.complete(msg2.id, { processed: true });
+      const completedMsg2 = await app.queue.getMessage(msg2.id);
+      expect(completedMsg2?.status).toBe('completed');
     });
   });
 

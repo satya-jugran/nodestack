@@ -1,11 +1,11 @@
 import {
   QueueConfig,
   CreateQueueDto,
-  QueueJob,
-  EnqueueJobDto,
-  JobFailResult,
+  QueueMessage,
+  EnqueueMessageDto,
+  MessageFailResult,
   QueueStats,
-  GetJobsOptions,
+  GetMessagesOptions,
   ReclaimOrphanedOptions,
 } from '../types';
 
@@ -19,31 +19,32 @@ export interface IQueueDriver {
   getAllQueues(includeSystem?: boolean): Promise<QueueConfig[]>;
   deleteQueue(name: string): Promise<boolean>;
 
-  send<T = any>(job: EnqueueJobDto<T>): Promise<QueueJob<T>>;
-  sendBatch<T = any>(jobs: EnqueueJobDto<T>[]): Promise<QueueJob<T>[]>;
+  send<T = any>(message: EnqueueMessageDto<T>): Promise<QueueMessage<T>>;
+  sendBatch<T = any>(messages: EnqueueMessageDto<T>[]): Promise<QueueMessage<T>[]>;
 
   claim<T = any>(
     queueName: string,
     claimedBy: string,
     visibilityTimeoutSeconds: number,
     limit?: number
-  ): Promise<QueueJob<T>[]>;
+  ): Promise<QueueMessage<T>[]>;
 
-  touch(jobId: string, extensionSeconds: number, claimToken?: string | null): Promise<boolean>;
-  complete(jobId: string, result?: any, claimToken?: string | null): Promise<boolean>;
-  fail(jobId: string, error: string, backoffDelayMs?: number, claimToken?: string | null): Promise<JobFailResult>;
-  cancel(jobId: string): Promise<boolean>;
-  defer(jobId: string, delayMs: number, reason?: string): Promise<boolean>;
+  touch(messageId: string, extensionSeconds: number, claimToken?: string | null): Promise<boolean>;
+  complete(messageId: string, result?: any, claimToken?: string | null): Promise<boolean>;
+  fail(messageId: string, error: string, backoffDelayMs?: number, claimToken?: string | null): Promise<MessageFailResult>;
+  cancel(messageId: string): Promise<boolean>;
+  defer(messageId: string, delayMs: number, reason?: string): Promise<boolean>;
+  forceDeadLetter(messageId: string, reason?: string): Promise<boolean>;
 
-  retryDeadLetterJobs(queueName: string, limit?: number, onJobRequeued?: (queue: string) => void): Promise<number>;
-  retryJob(jobId: string, onJobRequeued?: (queue: string) => void): Promise<boolean>;
+  retryDeadLetterMessages(queueName: string, limit?: number, onMessageRequeued?: (queue: string) => void): Promise<number>;
+  retryMessage(messageId: string, onMessageRequeued?: (queue: string) => void): Promise<boolean>;
   reclaimOrphaned(queueName?: string, options?: ReclaimOrphanedOptions, onDlqEnqueued?: (dlqQueue: string) => void): Promise<number>;
   cleanup(retentionDays: number, queueName?: string): Promise<number>;
   purge(queueName: string, status?: string): Promise<number>;
 
-  getJob<T = any>(jobId: string): Promise<QueueJob<T> | null>;
-  getJobs<T = any>(options: GetJobsOptions): Promise<{ items: QueueJob<T>[]; total: number }>;
+  getMessage<T = any>(messageId: string): Promise<QueueMessage<T> | null>;
+  getMessages<T = any>(options: GetMessagesOptions): Promise<{ items: QueueMessage<T>[]; total: number }>;
   getStats(queueName?: string, includeSystem?: boolean): Promise<QueueStats>;
   getNextDelayedTimestamp(queueName?: string): Promise<string | null>;
-  getQueuesWithPendingJobs(): Promise<string[]>;
+  getQueuesWithPendingMessages(): Promise<string[]>;
 }

@@ -4,7 +4,7 @@ import { EventBus } from '../core/events/EventBus';
 import { RecordAfterEventContext } from '../core/events/types';
 import { FunctionService } from '../functions/FunctionService';
 import { QueueService } from '../queue/QueueService';
-import { QueueJob } from '../queue/types';
+import { QueueMessage } from '../queue/types';
 import { FlowEngine } from './FlowEngine';
 import {
   FlowConfig,
@@ -186,7 +186,7 @@ export class FlowService {
   public syncAllFlowQueues(): void {
     if (!this.queueService) return;
     // Register a single stateless prefix handler for all _system:flow:* queues (O(1) memory regardless of flow count)
-    this.queueService.registerPrefixWorker('_system:flow:', async (job: QueueJob) => {
+    this.queueService.registerPrefixWorker('_system:flow:', async (job: QueueMessage) => {
       return await this.processQueuedFlowJob(job);
     });
     try {
@@ -270,7 +270,7 @@ export class FlowService {
           for (const row of rows) {
             const exec = this.mapRowToExecution(row);
             const jobId = exec.jobId || `job_${exec.id}`;
-            const job = await this.queueService.getJob(jobId);
+            const job = await this.queueService.getMessage(jobId);
             if (!job) {
               await this.queueService.send({
                 id: jobId,
@@ -943,7 +943,7 @@ export class FlowService {
   /**
    * Worker handler invoked by QueueService for `_system:flow:${flow.id}` jobs.
    */
-  private async processQueuedFlowJob(job: QueueJob): Promise<FlowExecution | null> {
+  private async processQueuedFlowJob(job: QueueMessage): Promise<FlowExecution | null> {
     const payload = job.payload || {};
     const { executionId, flowId, input, actor, executionOptions } = payload;
     if (!executionId || !flowId) {
@@ -1755,7 +1755,7 @@ export class FlowService {
             this.db.prepare("UPDATE _flow_executions SET jobId = ? WHERE id = ?").run(jobId, exec.id);
           } catch {}
         }
-        const existingJob = await this.queueService.getJob(jobId);
+        const existingJob = await this.queueService.getMessage(jobId);
 
         const isResume = Boolean(
           (exec.checkpoint && ((exec.checkpoint.stepCount ?? 0) > 0 || exec.checkpoint.currentStateName !== flow.definition.startAt)) ||
@@ -1786,7 +1786,7 @@ export class FlowService {
           let restored = false;
           try {
             const res = this.db.prepare(`
-              UPDATE _queue_jobs
+              UPDATE _queue_messages
               SET status = 'queued',
                   claimedBy = NULL,
                   leaseExpiresAt = NULL,

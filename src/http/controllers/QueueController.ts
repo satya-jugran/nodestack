@@ -43,7 +43,7 @@ export class QueueController extends BaseController {
     });
   }
 
-  public async getAllJobs(
+  public async getAllMessages(
     req: FastifyRequest<{
       Querystring: {
         queue?: string;
@@ -59,9 +59,9 @@ export class QueueController extends BaseController {
     const page = req.query.page ? parseInt(req.query.page, 10) : 1;
     const perPage = req.query.perPage ? parseInt(req.query.perPage, 10) : 25;
     const includeSystem = req.query.includeSystem === 'true' || req.query.includeSystem === '1';
-    const result = await service.getJobs({
+    const result = await service.getMessages({
       queue: req.query.queue || undefined,
-      status: req.query.status && req.query.status !== 'all' ? req.query.status : undefined,
+      status: req.query.status && req.query.status !== 'all' ? (req.query.status as any) : undefined,
       page,
       perPage,
       includeSystem,
@@ -69,38 +69,38 @@ export class QueueController extends BaseController {
     this.ok(reply, result);
   }
 
-  private enrichJobWithLogs(req: any, job: any): any {
-    if (!job) return job;
+  private enrichMessageWithLogs(req: any, message: any): any {
+    if (!message) return message;
     try {
       const service = this.getQueueService(req);
       const db = (req as any)?.appScope?.db || service.getDatabase();
       if (db) {
         const row = db.prepare(`
           SELECT logs, durationMs FROM _function_logs
-          WHERE actorId = ? OR actorId = ? OR logs LIKE ?
+          WHERE actorId = ? OR actorId = ? OR actorId = ? OR logs LIKE ?
           ORDER BY timestamp DESC LIMIT 1
-        `).get(`job:${job.id}`, job.id, `%${job.id}%`) as any;
+        `).get(`msg:${message.id}`, `job:${message.id}`, message.id, `%${message.id}%`) as any;
         if (row && row.logs) {
-          return { ...job, executionLogs: row.logs, executionDurationMs: row.durationMs };
+          return { ...message, executionLogs: row.logs, executionDurationMs: row.durationMs };
         }
       }
     } catch {
       // ignore
     }
-    return job;
+    return message;
   }
 
-  public async getJobById(
+  public async getMessageById(
     req: FastifyRequest<{ Params: { id: string } }>,
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getQueueService(req);
-    const job = await service.getJob(req.params.id);
-    if (!job) {
-      this.error(reply, `Job '${req.params.id}' not found`, 404);
+    const message = await service.getMessage(req.params.id);
+    if (!message) {
+      this.error(reply, `Message '${req.params.id}' not found`, 404);
       return;
     }
-    this.ok(reply, this.enrichJobWithLogs(req, job));
+    this.ok(reply, this.enrichMessageWithLogs(req, message));
   }
 
   public async upsertQueue(
@@ -192,8 +192,8 @@ export class QueueController extends BaseController {
           maxAttempts: m.maxAttempts,
           deduplicationId: m.deduplicationId,
         }));
-        const jobs = await service.sendBatch(dtos);
-        this.ok(reply, jobs, 201);
+        const msgs = await service.sendBatch(dtos);
+        this.ok(reply, msgs, 201);
         return;
       }
 
@@ -209,7 +209,7 @@ export class QueueController extends BaseController {
           'deduplicationId' in body);
 
       const payload = hasEnvelope ? body.payload : body;
-      const job = await service.send(queueName, payload, {
+      const msg = await service.send(queueName, payload, {
         id: hasEnvelope ? body.id : undefined,
         groupKey: hasEnvelope ? body.groupKey : undefined,
         delaySeconds: hasEnvelope ? body.delaySeconds : undefined,
@@ -218,7 +218,7 @@ export class QueueController extends BaseController {
         deduplicationId: hasEnvelope ? body.deduplicationId : undefined,
       });
 
-      this.ok(reply, job, 201);
+      this.ok(reply, msg, 201);
     } catch (err: any) {
       if (err instanceof AppError) {
         this.error(reply, err.message, err.statusCode);
@@ -249,9 +249,9 @@ export class QueueController extends BaseController {
     if (req.query.inspect === 'true' || req.query.inspect === '1' || req.query.status) {
       const page = req.query.page ? parseInt(req.query.page, 10) : 1;
       const perPage = req.query.perPage ? parseInt(req.query.perPage, 10) : 25;
-      const result = await service.getJobs({
+      const result = await service.getMessages({
         queue: queueName,
-        status: req.query.status,
+        status: req.query.status as any,
         page,
         perPage,
       });
@@ -277,12 +277,12 @@ export class QueueController extends BaseController {
     const service = this.getQueueService(req);
     this.assertNotSystemQueue(req.params.name);
 
-    const job = await service.getJob(req.params.id);
-    if (!job || job.queue !== req.params.name) {
+    const message = await service.getMessage(req.params.id);
+    if (!message || message.queue !== req.params.name) {
       this.error(reply, `Message '${req.params.id}' not found in queue '${req.params.name}'`, 404);
       return;
     }
-    this.ok(reply, this.enrichJobWithLogs(req, job));
+    this.ok(reply, this.enrichMessageWithLogs(req, message));
   }
 
   public async ackMessage(
@@ -292,8 +292,8 @@ export class QueueController extends BaseController {
     const service = this.getQueueService(req);
     this.assertNotSystemQueue(req.params.name);
 
-    const job = await service.getJob(req.params.id);
-    if (!job || job.queue !== req.params.name) {
+    const message = await service.getMessage(req.params.id);
+    if (!message || message.queue !== req.params.name) {
       this.error(reply, `Message '${req.params.id}' not found in queue '${req.params.name}'`, 404);
       return;
     }
@@ -304,8 +304,8 @@ export class QueueController extends BaseController {
       this.error(reply, `Message '${req.params.id}' not found, already completed, or claim token invalid`, 404);
       return;
     }
-    const updated = await service.getJob(req.params.id);
-    this.ok(reply, { success: true, job: updated });
+    const updated = await service.getMessage(req.params.id);
+    this.ok(reply, { success: true, message: updated, data: updated, job: updated });
   }
 
   public async nackMessage(
@@ -315,8 +315,8 @@ export class QueueController extends BaseController {
     const service = this.getQueueService(req);
     this.assertNotSystemQueue(req.params.name);
 
-    const job = await service.getJob(req.params.id);
-    if (!job || job.queue !== req.params.name) {
+    const message = await service.getMessage(req.params.id);
+    if (!message || message.queue !== req.params.name) {
       this.error(reply, `Message '${req.params.id}' not found in queue '${req.params.name}'`, 404);
       return;
     }
@@ -328,8 +328,8 @@ export class QueueController extends BaseController {
       this.error(reply, `Message '${req.params.id}' not found or claim token invalid`, 404);
       return;
     }
-    const updated = await service.getJob(req.params.id);
-    this.ok(reply, { ...result, job: updated });
+    const updated = await service.getMessage(req.params.id);
+    this.ok(reply, { ...result, message: updated, data: updated, job: updated });
   }
 
   public async touchMessage(
@@ -339,8 +339,8 @@ export class QueueController extends BaseController {
     const service = this.getQueueService(req);
     this.assertNotSystemQueue(req.params.name);
 
-    const job = await service.getJob(req.params.id);
-    if (!job || job.queue !== req.params.name) {
+    const message = await service.getMessage(req.params.id);
+    if (!message || message.queue !== req.params.name) {
       this.error(reply, `Message '${req.params.id}' not found in queue '${req.params.name}'`, 404);
       return;
     }
@@ -352,11 +352,34 @@ export class QueueController extends BaseController {
       this.error(reply, `Message '${req.params.id}' is not currently processing or claim token invalid`, 404);
       return;
     }
-    const updated = await service.getJob(req.params.id);
-    this.ok(reply, { success: true, job: updated });
+    const updated = await service.getMessage(req.params.id);
+    this.ok(reply, { success: true, message: updated, data: updated, job: updated });
   }
 
-  public async retryJob(
+  public async forceSkipMessage(
+    req: FastifyRequest<{ Params: { name: string; id: string }; Body?: { reason?: string } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const service = this.getQueueService(req);
+    this.assertNotSystemQueue(req.params.name);
+
+    const message = await service.getMessage(req.params.id);
+    if (!message || message.queue !== req.params.name) {
+      this.error(reply, `Message '${req.params.id}' not found in queue '${req.params.name}'`, 404);
+      return;
+    }
+
+    const reason = req.body?.reason || 'Force-skipped to DLQ by operator';
+    const ok = await service.forceSkipMessage(req.params.id, reason);
+    if (!ok) {
+      this.error(reply, `Failed to force skip message '${req.params.id}' to DLQ`, 400);
+      return;
+    }
+    const updated = await service.getMessage(req.params.id);
+    this.ok(reply, { success: true, message: `Message '${req.params.id}' force-skipped to DLQ`, data: updated });
+  }
+
+  public async retryMessage(
     req: FastifyRequest<{ Params: { id: string; name?: string } }>,
     reply: FastifyReply
   ): Promise<void> {
@@ -365,22 +388,22 @@ export class QueueController extends BaseController {
     if (queueName) {
       this.assertNotSystemQueue(queueName);
     }
-    const jobId = req.params.id;
-    const existing = await service.getJob(jobId);
+    const messageId = req.params.id;
+    const existing = await service.getMessage(messageId);
     if (!existing) {
-      this.error(reply, `Job '${jobId}' not found`, 404);
+      this.error(reply, `Message '${messageId}' not found`, 404);
       return;
     }
     if (existing.queue && existing.queue.startsWith('_system:')) {
       this.assertNotSystemQueue(existing.queue);
     }
-    const ok = await service.retryJob(jobId);
+    const ok = await service.retryMessage(messageId);
     if (!ok) {
-      this.error(reply, `Failed to requeue job '${jobId}'`, 400);
+      this.error(reply, `Failed to requeue message '${messageId}'`, 400);
       return;
     }
-    const updated = (await service.getJob(jobId)) || (existing.originalJobId ? await service.getJob(existing.originalJobId) : null);
-    this.ok(reply, { success: true, message: `Job '${jobId}' requeued`, job: updated });
+    const updated = (await service.getMessage(messageId)) || (existing.originalMessageId ? await service.getMessage(existing.originalMessageId) : null);
+    this.ok(reply, { success: true, message: `Message '${messageId}' requeued`, data: updated });
   }
 
   public async retryDlq(
@@ -391,11 +414,11 @@ export class QueueController extends BaseController {
     this.assertNotSystemQueue(req.params.name);
 
     const limit = req.body?.limit || 100;
-    const retriedCount = await service.retryDeadLetterJobs(req.params.name, limit);
+    const retriedCount = await service.retryDeadLetterMessages(req.params.name, limit);
     this.ok(reply, { success: true, retriedCount });
   }
 
-  public async deleteJob(
+  public async deleteMessage(
     req: FastifyRequest<{ Params: { id: string; name?: string } }>,
     reply: FastifyReply
   ): Promise<void> {
@@ -404,25 +427,25 @@ export class QueueController extends BaseController {
     if (queueName) {
       this.assertNotSystemQueue(queueName);
     }
-    const jobId = req.params.id;
-    const existing = await service.getJob(jobId);
+    const messageId = req.params.id;
+    const existing = await service.getMessage(messageId);
     if (!existing) {
-      this.error(reply, `Job '${jobId}' not found`, 404);
+      this.error(reply, `Message '${messageId}' not found`, 404);
       return;
     }
     if (queueName && existing.queue !== queueName) {
-      this.error(reply, `Job '${jobId}' not found in queue '${queueName}'`, 404);
+      this.error(reply, `Message '${messageId}' not found in queue '${queueName}'`, 404);
       return;
     }
     if (existing.queue && existing.queue.startsWith('_system:')) {
       this.assertNotSystemQueue(existing.queue);
     }
-    const ok = await service.cancel(jobId);
+    const ok = await service.deleteMessage(messageId);
     if (!ok) {
-      this.error(reply, `Failed to delete/cancel job '${jobId}'`, 400);
+      this.error(reply, `Failed to delete/cancel message '${messageId}'`, 400);
       return;
     }
-    this.ok(reply, { success: true, message: `Job '${jobId}' deleted` });
+    this.ok(reply, { success: true, message: `Message '${messageId}' deleted` });
   }
 
   public async purgeQueue(

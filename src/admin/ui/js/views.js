@@ -177,7 +177,7 @@
                   <span style="font-size: 11px; color: var(--accent-primary); font-weight: 600;">View ➔</span>
                 </div>
                 <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-queues">${queuesInitial}</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-queues-sub">Async jobs & workers</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-queues-sub">Async messages & workers</div>
               </div>
             </div>
 

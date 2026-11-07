@@ -145,11 +145,12 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
                     ? payload.options
                     : payload.options?.claimToken);
                 result = await hostServices.sdk.queue.touch(payload.jobId, payload.extensionSeconds, claimToken);
-              } else if (callType === 'queue.getJob') {
+              } else if (callType === 'queue.getMessage' || callType === 'queue.getJob') {
                 if (!hostServices.sdk.queue) {
                   throw new Error('QueueService not available in function context');
                 }
-                result = await hostServices.sdk.queue.getJob(payload.jobId);
+                const msgId = payload.messageId || payload.jobId;
+                result = await hostServices.sdk.queue.getMessage(msgId);
               } else if (callType === 'metric') {
                 hostServices.observability.metric?.(payload.name, payload.value, payload.tags);
                 result = { ok: true };
