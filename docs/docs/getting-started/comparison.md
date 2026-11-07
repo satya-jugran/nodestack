@@ -45,6 +45,7 @@ This guide provides an objective architectural comparison to help you evaluate w
 | **Database-Level RLS Security** | Visual Rules + SQL expressions | Filter expressions | **PostgreSQL Native RLS (In-kernel)** |
 | **Embedded Serverless IDE** | **QuickJS-Wasm (Sub-ms cold starts & Web IDE)** | Basic JS (via Goja VM) | External Deno Edge Functions |
 | **Workflow Orchestration** | **Embedded Visual State Machines (Flows & DSL)** | None (Manual Go code) | None (External queues / Temporal) |
+| **Background Job Queues** | **Embedded SQLite (FIFO, DLQ, Functions)** | None (Manual in-memory) | None (External BullMQ / SQS) |
 | **Application Snapshots & Rollback** | **Atomic checkpoints, drift detection & 1-click restore** | Manual ZIP file backups | Sequential SQL migrations only |
 | **Immutable Audit Trail** | **Field-level `{ old, new }` diffs & actor attribution** | HTTP access request logs only | Requires custom triggers or pgAudit |
 | **Live HTTP Type Safety** | **Live dynamic `GET /_/types.d.ts` endpoint** | Community CLI tools (`pocketbase-typegen`) | CLI typegen (`supabase gen types`) |
@@ -81,9 +82,15 @@ This guide provides an objective architectural comparison to help you evaluate w
 
 ### 5. Workflow Orchestration & Business Logic
 
-* **NodeStack (v2.4.0)** includes an embedded state machine engine (**Function Flows**) and a durable background **Queues Subsystem**. You can visually build or define JSON state machines with 9 state types (`Task`, `Choice`, `Map`, `Parallel`, `Loop`, `Pass`, `Wait`, `Succeed`, `Fail`), throttle concurrency via system queues, publish messages with strict FIFO partition ordering, bind queues directly to sandboxed serverless functions, and leverage automated retries and dead-letter queues (DLQ).
+* **NodeStack (v2.4.0)** includes an embedded state machine engine (**Function Flows**). You can visually build or define JSON state machines with 9 state types (`Task`, `Choice`, `Map`, `Parallel`, `Loop`, `Pass`, `Wait`, `Succeed`, `Fail`), trigger them synchronously via HTTP or asynchronously on database lifecycle events (`<collection>:afterCreate`), and leverage automated retries and function-flow referential integrity protection.
 * **PocketBase** has no workflow orchestration subsystem; multi-step business logic requires writing custom Go code or procedural JavaScript hooks with manual error recovery.
 * **Supabase** does not provide an integrated workflow engine; multi-step orchestration requires provisioning external systems like Temporal, AWS Step Functions, or custom `pg_cron` jobs.
+
+### 6. Background Job Queuing & Asynchronous Workers
+
+* **NodeStack (v2.4.0)** includes an embedded transactional message queue engine (**NodeStack Queues**). It provides atomic claiming, worker leases, heartbeats (`touch`), retries with exponential backoff, dead-letter queues (DLQ), and strict partition FIFO ordering without Redis or external queue daemons. You can bind queues directly to QuickJS serverless functions or consume them externally with `nodestack-client`.
+* **PocketBase** has no persistent queue subsystem; asynchronous processing requires in-memory goroutines or external message brokers.
+* **Supabase** lacks an integrated queue processor; developers must provision external queue infrastructure (e.g. BullMQ, Redis, Celery, or AWS SQS).
 
 ---
 
@@ -95,6 +102,7 @@ This guide provides an objective architectural comparison to help you evaluate w
 3. **You want zero-install developer velocity:** Running `npx @nodestackapp/server start` gives you an instant backend, admin dashboard, and REST API in seconds without downloading binaries or configuring Docker.
 4. **You need built-in state snapshots & audit trails:** You want atomic checkpoints with drift detection and field-level diff auditing without installing external tools.
 5. **You need built-in workflow orchestration:** You want to coordinate multi-step transactional logic, conditional branching, and background tasks visually without external services or third-party queue infrastructure.
+6. **You need embedded background queues:** You want durable background job processing, strict partition FIFO ordering, and dead-letter queues directly in your SQLite database without running Redis or RabbitMQ.
 
 ### Choose PocketBase if:
 1. **Minimal binary footprint is paramount:** You need a single < 20MB standalone Go binary with ~20MB of idle RAM.

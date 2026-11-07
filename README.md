@@ -61,7 +61,7 @@ NodeStack delivers an instant, complete backend stack in a **single Node.js proc
 </p>
 
 <details>
-  <summary><strong>Click to expand accessible data table (18 Dimensions)</strong></summary>
+  <summary><strong>Click to expand accessible data table (19 Dimensions)</strong></summary>
 
 
 > **Legend**: Exactly **one bold cell per row** indicates the standout category leader for that specific dimension.
@@ -81,6 +81,7 @@ NodeStack delivers an instant, complete backend stack in a **single Node.js proc
 | **Database-Level RLS Security** | Visual Rules + SQL expressions | Filter expressions | **PostgreSQL Native RLS (In-kernel)** |
 | **Embedded Serverless IDE** | **QuickJS-Wasm (Sub-ms cold starts & Web IDE)** | Basic JS (via Goja VM) | External Deno Edge Functions |
 | **Workflow Orchestration** | **Embedded Visual State Machines (Flows & DSL)** | None (Manual Go code) | None (External queues/temporal) |
+| **Background Job Queues** | **Embedded SQLite (FIFO, DLQ, Functions)** | None (Manual in-memory) | None (External BullMQ / SQS) |
 | **Application Snapshots & Rollback** | **Atomic checkpoints, drift detection & 1-click restore** | Manual ZIP file backups | Sequential SQL migrations only |
 | **Immutable Audit Trail** | **Field-level `{ old, new }` diffs & actor attribution** | HTTP access request logs only | Requires custom triggers or pgAudit |
 | **Live HTTP Type Safety** | **Live dynamic `GET /_/types.d.ts` endpoint** | Community CLI tools (`pocketbase-typegen`) | CLI typegen (`supabase gen types`) |
