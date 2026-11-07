@@ -394,7 +394,7 @@ describe('Multi-Application & MVP SDK Support', () => {
       expect(deleted).toBe(true);
     });
 
-    it('should operate on queues via client.queue(name) (send, claim, complete, fail, getJob)', async () => {
+    it('should operate on queues via client.queue(name) (send, claim, complete, fail, getJob, forceSkip)', async () => {
       let lastMethod = '';
       let lastUrl = '';
       let lastBody = null;
@@ -407,7 +407,7 @@ describe('Multi-Application & MVP SDK Support', () => {
           ok: true,
           status: 200,
           headers: { get: () => 'application/json' },
-          json: async () => ({ success: true, id: 'job_123', status: 'completed' }),
+          json: async () => ({ success: true, id: 'msg_123', status: 'completed' }),
         };
       });
 
@@ -429,22 +429,62 @@ describe('Multi-Application & MVP SDK Support', () => {
       expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/messages?limit=1&visibilityTimeoutSeconds=30');
       expect(lastMethod).toBe('GET');
 
-      // 3. complete
-      await q.complete('job_123', { delivered: true });
-      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/jobs/job_123/ack');
+      // 3. complete / ack
+      await q.complete('msg_123', { delivered: true });
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/messages/msg_123/ack');
       expect(lastMethod).toBe('POST');
       expect(lastBody).toEqual({ result: { delivered: true } });
 
-      // 4. fail
-      await q.fail('job_123', 'SMTP connection timeout');
-      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/jobs/job_123/nack');
+      // 4. fail / nack
+      await q.fail('msg_123', 'SMTP connection timeout');
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/messages/msg_123/nack');
       expect(lastMethod).toBe('POST');
       expect(lastBody).toEqual({ error: 'SMTP connection timeout' });
 
-      // 5. getJob
-      await q.getJob('job_123');
-      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/jobs/job_123');
+      // 5. getMessage / getJob
+      await q.getMessage('msg_123');
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/messages/msg_123');
       expect(lastMethod).toBe('GET');
+
+      // 6. upsert queue config with strictOrder and maxAttempts 0
+      await q.upsert({ strictOrder: true, concurrency: 5, maxAttempts: 0 });
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues');
+      expect(lastMethod).toBe('POST');
+      expect(lastBody).toEqual({ name: 'email-notifications', strictOrder: true, concurrency: 5, maxAttempts: 0 });
+
+      // 7. getConfig
+      await q.getConfig();
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications');
+      expect(lastMethod).toBe('GET');
+
+      // 8. touch with claimToken
+      await q.touch('msg_123', 60, { claimToken: 'token_abc' });
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/messages/msg_123/touch');
+      expect(lastMethod).toBe('POST');
+      expect(lastBody).toEqual({ extensionSeconds: 60, claimToken: 'token_abc' });
+
+      // 9. complete with claimToken
+      await q.complete('msg_123', { success: true }, { claimToken: 'token_abc' });
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/messages/msg_123/ack');
+      expect(lastMethod).toBe('POST');
+      expect(lastBody).toEqual({ result: { success: true }, claimToken: 'token_abc' });
+
+      // 10. fail with backoffDelayMs=0 and claimToken
+      await q.fail('msg_123', 'worker error', { backoffDelayMs: 0, claimToken: 'token_abc' });
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/messages/msg_123/nack');
+      expect(lastMethod).toBe('POST');
+      expect(lastBody).toEqual({ error: 'worker error', backoffDelayMs: 0, claimToken: 'token_abc' });
+
+      // 11. forceSkip to DLQ
+      await q.forceSkip('msg_123', 'stuck poisoning item');
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications/messages/msg_123/skip');
+      expect(lastMethod).toBe('POST');
+      expect(lastBody).toEqual({ reason: 'stuck poisoning item' });
+
+      // 12. delete queue
+      await q.delete();
+      expect(lastUrl).toBe('http://127.0.0.1:8090/api/queues/email-notifications');
+      expect(lastMethod).toBe('DELETE');
     });
   });
 });

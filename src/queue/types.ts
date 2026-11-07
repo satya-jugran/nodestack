@@ -1,14 +1,16 @@
-export type QueueJobStatus = 'queued' | 'processing' | 'completed' | 'failed' | 'dead_letter';
+export type QueueMessageStatus = 'queued' | 'processing' | 'completed' | 'failed' | 'dead_letter';
 
 export interface QueueConfig {
   name: string;
   concurrency: number;
   visibilityTimeoutSeconds: number;
+  /** Max retry attempts before moving to DLQ. 0 means infinite retries (never auto-DLQ). */
   maxAttempts: number;
   backoffDelayMs: number;
   deadLetterQueue?: string | null;
   targetFunction?: string | null;
   isSystem: boolean;
+  strictOrder: boolean;
   created: string;
   updated: string;
 }
@@ -17,18 +19,20 @@ export interface CreateQueueDto {
   name: string;
   concurrency?: number;
   visibilityTimeoutSeconds?: number;
+  /** Max retry attempts before moving to DLQ. 0 means infinite retries (never auto-DLQ). */
   maxAttempts?: number;
   backoffDelayMs?: number;
   deadLetterQueue?: string | null;
   targetFunction?: string | null;
   isSystem?: boolean;
+  strictOrder?: boolean;
 }
 
-export interface QueueJob<T = any> {
+export interface QueueMessage<T = any> {
   id: string;
   queue: string;
   groupKey?: string | null;
-  status: QueueJobStatus;
+  status: QueueMessageStatus;
   payload: T;
   result?: any;
   error?: string | null;
@@ -40,14 +44,18 @@ export interface QueueJob<T = any> {
   leaseExpiresAt?: string | null;
   claimToken?: string | null;
   deduplicationId?: string | null;
+  originalMessageId?: string | null;
+  /** @deprecated Use originalMessageId */
   originalJobId?: string | null;
+  forwardedToMessageId?: string | null;
+  /** @deprecated Use forwardedToMessageId */
   forwardedToJobId?: string | null;
   created: string;
   updated: string;
   finishedAt?: string | null;
 }
 
-export interface EnqueueJobDto<T = any> {
+export interface EnqueueMessageDto<T = any> {
   id?: string;
   queue: string;
   payload: T;
@@ -56,16 +64,16 @@ export interface EnqueueJobDto<T = any> {
   priority?: number;
   maxAttempts?: number;
   deduplicationId?: string | null;
-  originalJobId?: string | null;
+  originalMessageId?: string | null;
 }
 
-export interface JobFailResult {
+export interface MessageFailResult {
   retried: boolean;
   deadLettered: boolean;
   attempts: number;
 }
 
-export type JobHandler<T = any, R = any> = (job: QueueJob<T>) => Promise<R>;
+export type MessageHandler<T = any, R = any> = (message: QueueMessage<T>) => Promise<R>;
 
 export interface QueueStats {
   queued: number;
@@ -77,9 +85,9 @@ export interface QueueStats {
   total: number;
 }
 
-export interface GetJobsOptions {
+export interface GetMessagesOptions {
   queue?: string;
-  status?: QueueJobStatus | string;
+  status?: QueueMessageStatus | string;
   groupKey?: string;
   page?: number;
   perPage?: number;

@@ -220,7 +220,7 @@ async function loadWebhooksList() {
 
     content.innerHTML = `
       <div class="webhook-table-wrapper">
-        <table class="webhook-table">
+        <table class="webhook-table" style="min-width: 900px; width: 100%;">
           <thead>
             <tr>
               <th style="min-width: 180px; width: 25%;">Webhook Name</th>
@@ -357,7 +357,7 @@ async function loadWebhookDeliveries() {
 
     <!-- Deliveries Table Container -->
     <div class="webhook-table-wrapper">
-      <table class="webhook-table">
+      <table class="webhook-table" style="min-width: 900px; width: 100%;">
         <thead>
           <tr>
             <th style="min-width: 130px; width: 14%; white-space: nowrap;">Response Code</th>

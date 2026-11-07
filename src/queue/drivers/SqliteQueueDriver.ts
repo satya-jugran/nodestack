@@ -4,11 +4,11 @@ import { IQueueDriver } from './IQueueDriver';
 import {
   QueueConfig,
   CreateQueueDto,
-  QueueJob,
-  EnqueueJobDto,
-  JobFailResult,
+  QueueMessage,
+  EnqueueMessageDto,
+  MessageFailResult,
   QueueStats,
-  GetJobsOptions,
+  GetMessagesOptions,
   ReclaimOrphanedOptions,
 } from '../types';
 
@@ -45,11 +45,12 @@ export class SqliteQueueDriver implements IQueueDriver {
         deadLetterQueue TEXT DEFAULT NULL,
         targetFunction TEXT DEFAULT NULL,
         isSystem INTEGER NOT NULL DEFAULT 0,
+        strictOrder INTEGER NOT NULL DEFAULT 0,
         created TEXT NOT NULL,
         updated TEXT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS _queue_jobs (
+      CREATE TABLE IF NOT EXISTS _queue_messages (
         id TEXT PRIMARY KEY,
         queue TEXT NOT NULL,
         groupKey TEXT DEFAULT NULL,
@@ -65,36 +66,48 @@ export class SqliteQueueDriver implements IQueueDriver {
         leaseExpiresAt TEXT DEFAULT NULL,
         claimToken TEXT DEFAULT NULL,
         deduplicationId TEXT DEFAULT NULL,
-        originalJobId TEXT DEFAULT NULL,
-        forwardedToJobId TEXT DEFAULT NULL,
+        originalMessageId TEXT DEFAULT NULL,
+        forwardedToMessageId TEXT DEFAULT NULL,
         created TEXT NOT NULL,
         updated TEXT NOT NULL,
         finishedAt TEXT DEFAULT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_qjobs_poll ON _queue_jobs(queue, status, availableAt, priority DESC);
-      CREATE INDEX IF NOT EXISTS idx_qjobs_group ON _queue_jobs(groupKey, status);
-      CREATE INDEX IF NOT EXISTS idx_qjobs_cleanup ON _queue_jobs(status, finishedAt);
-      CREATE INDEX IF NOT EXISTS idx_qjobs_dedup ON _queue_jobs(queue, deduplicationId);
+      CREATE INDEX IF NOT EXISTS idx_qmsg_poll ON _queue_messages(queue, status, availableAt, priority DESC);
+      CREATE INDEX IF NOT EXISTS idx_qmsg_group ON _queue_messages(groupKey, status);
+      CREATE INDEX IF NOT EXISTS idx_qmsg_cleanup ON _queue_messages(status, finishedAt);
+      CREATE INDEX IF NOT EXISTS idx_qmsg_dedup ON _queue_messages(queue, deduplicationId);
+      CREATE INDEX IF NOT EXISTS idx_qmsg_strict_hol ON _queue_messages(queue, groupKey, status, created ASC);
     `);
+
+    // Ensure strictOrder and isSystem columns exist on pre-existing _queues table
+    try {
+      this.db.exec(`ALTER TABLE _queues ADD COLUMN strictOrder INTEGER NOT NULL DEFAULT 0;`);
+    } catch {}
+    try {
+      this.db.exec(`ALTER TABLE _queues ADD COLUMN isSystem INTEGER NOT NULL DEFAULT 0;`);
+    } catch {}
+    try {
+      this.db.exec(`UPDATE _queues SET isSystem = 1 WHERE name LIKE '_system:%' AND isSystem = 0;`);
+    } catch {}
 
     // Ensure claimToken and DLQ linkage columns exist on pre-existing or upgraded tables
     try {
-      this.db.exec(`ALTER TABLE _queue_jobs ADD COLUMN claimToken TEXT DEFAULT NULL;`);
+      this.db.exec(`ALTER TABLE _queue_messages ADD COLUMN claimToken TEXT DEFAULT NULL;`);
     } catch {}
     try {
-      this.db.exec(`ALTER TABLE _queue_jobs ADD COLUMN originalJobId TEXT DEFAULT NULL;`);
+      this.db.exec(`ALTER TABLE _queue_messages ADD COLUMN originalMessageId TEXT DEFAULT NULL;`);
     } catch {}
     try {
-      this.db.exec(`ALTER TABLE _queue_jobs ADD COLUMN forwardedToJobId TEXT DEFAULT NULL;`);
+      this.db.exec(`ALTER TABLE _queue_messages ADD COLUMN forwardedToMessageId TEXT DEFAULT NULL;`);
     } catch {}
 
     // Ensure migration column indexes are created after column existence
     try {
-      this.db.exec(`CREATE INDEX IF NOT EXISTS idx_qjobs_orig_job ON _queue_jobs(originalJobId);`);
+      this.db.exec(`CREATE INDEX IF NOT EXISTS idx_qmsg_orig_job ON _queue_messages(originalMessageId);`);
     } catch {}
     try {
-      this.db.exec(`CREATE INDEX IF NOT EXISTS idx_qjobs_forwarded_to ON _queue_jobs(forwardedToJobId);`);
+      this.db.exec(`CREATE INDEX IF NOT EXISTS idx_qmsg_forwarded_to ON _queue_messages(forwardedToMessageId);`);
     } catch {}
   }
 
@@ -120,22 +133,29 @@ export class SqliteQueueDriver implements IQueueDriver {
         : (existing?.visibilityTimeoutSeconds ?? 30);
     const maxAttempts =
       dto.maxAttempts !== undefined && dto.maxAttempts !== null
-        ? Math.max(1, Math.floor(Number(dto.maxAttempts)))
+        ? Math.max(0, Math.floor(Number(dto.maxAttempts)))
         : (existing?.maxAttempts ?? 3);
+    const strictOrder =
+      dto.strictOrder !== undefined && dto.strictOrder !== null
+        ? Boolean(dto.strictOrder)
+        : (existing?.strictOrder ?? false);
+    const defaultBackoff = strictOrder ? 0 : 1000;
     const backoffDelayMs =
       dto.backoffDelayMs !== undefined && dto.backoffDelayMs !== null
         ? Math.max(0, Math.floor(Number(dto.backoffDelayMs)))
-        : (existing?.backoffDelayMs ?? 1000);
+        : (existing?.backoffDelayMs ?? defaultBackoff);
     const deadLetterQueue = dto.deadLetterQueue !== undefined ? dto.deadLetterQueue : (existing?.deadLetterQueue ?? null);
     const targetFunction = dto.targetFunction !== undefined ? dto.targetFunction : (existing?.targetFunction ?? null);
-    const isSystem = dto.isSystem !== undefined ? (dto.isSystem ? 1 : 0) : (existing ? (existing.isSystem ? 1 : 0) : (dto.name.startsWith('_system:') ? 1 : 0));
+    const isSystem = dto.name.startsWith('_system:') || dto.isSystem
+      ? 1
+      : (existing ? (existing.isSystem ? 1 : 0) : 0);
     const created = existing?.created || now;
 
     this.db.prepare(`
       INSERT INTO _queues (
         name, concurrency, visibilityTimeoutSeconds, maxAttempts, backoffDelayMs,
-        deadLetterQueue, targetFunction, isSystem, created, updated
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        deadLetterQueue, targetFunction, isSystem, strictOrder, created, updated
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(name) DO UPDATE SET
         concurrency = excluded.concurrency,
         visibilityTimeoutSeconds = excluded.visibilityTimeoutSeconds,
@@ -144,6 +164,7 @@ export class SqliteQueueDriver implements IQueueDriver {
         deadLetterQueue = excluded.deadLetterQueue,
         targetFunction = excluded.targetFunction,
         isSystem = excluded.isSystem,
+        strictOrder = excluded.strictOrder,
         updated = excluded.updated
     `).run(
       dto.name,
@@ -154,6 +175,7 @@ export class SqliteQueueDriver implements IQueueDriver {
       deadLetterQueue,
       targetFunction,
       isSystem,
+      strictOrder ? 1 : 0,
       created,
       now
     );
@@ -171,7 +193,7 @@ export class SqliteQueueDriver implements IQueueDriver {
     this.ensureInit();
     const sql = includeSystem
       ? 'SELECT * FROM _queues ORDER BY created ASC'
-      : 'SELECT * FROM _queues WHERE isSystem = 0 ORDER BY created ASC';
+      : "SELECT * FROM _queues WHERE isSystem = 0 AND name NOT LIKE '_system:%' ORDER BY created ASC";
     const rows = this.db.prepare(sql).all() as any[];
     return rows.map((r) => this.mapRowToQueue(r));
   }
@@ -179,28 +201,28 @@ export class SqliteQueueDriver implements IQueueDriver {
   public async deleteQueue(name: string): Promise<boolean> {
     this.ensureInit();
     return this.db.transaction(() => {
-      this.db.prepare('DELETE FROM _queue_jobs WHERE queue = ?').run(name);
+      this.db.prepare('DELETE FROM _queue_messages WHERE queue = ?').run(name);
       const res = this.db.prepare('DELETE FROM _queues WHERE name = ?').run(name);
       return Number(res.changes) > 0;
     });
   }
 
-  public async send<T = any>(dto: EnqueueJobDto<T>): Promise<QueueJob<T>> {
+  public async send<T = any>(dto: EnqueueMessageDto<T>): Promise<QueueMessage<T>> {
     this.ensureInit();
     return this.db.transaction(() => {
-      return this.insertJobSync(dto);
+      return this.insertMessageSync(dto);
     });
   }
 
-  public async sendBatch<T = any>(jobs: EnqueueJobDto<T>[]): Promise<QueueJob<T>[]> {
+  public async sendBatch<T = any>(messages: EnqueueMessageDto<T>[]): Promise<QueueMessage<T>[]> {
     this.ensureInit();
-    if (!jobs || jobs.length === 0) return [];
+    if (!messages || messages.length === 0) return [];
     return this.db.transaction(() => {
-      return jobs.map((j) => this.insertJobSync(j));
+      return messages.map((j) => this.insertMessageSync(j));
     });
   }
 
-  private insertJobSync<T = any>(dto: EnqueueJobDto<T>): QueueJob<T> {
+  private insertMessageSync<T = any>(dto: EnqueueMessageDto<T>): QueueMessage<T> {
     // Ensure queue record exists if not registered yet
     const existingQueue = this.db.prepare('SELECT * FROM _queues WHERE name = ?').get(dto.queue) as any;
     const now = new Date().toISOString();
@@ -211,37 +233,37 @@ export class SqliteQueueDriver implements IQueueDriver {
       this.db.prepare(`
         INSERT OR IGNORE INTO _queues (
           name, concurrency, visibilityTimeoutSeconds, maxAttempts, backoffDelayMs,
-          deadLetterQueue, targetFunction, isSystem, created, updated
-        ) VALUES (?, 0, 30, 3, 1000, NULL, NULL, ?, ?, ?)
+          deadLetterQueue, targetFunction, isSystem, strictOrder, created, updated
+        ) VALUES (?, 0, 30, 3, 1000, NULL, NULL, ?, 0, ?, ?)
       `).run(dto.queue, isSys, now, now);
     } else {
       defaultMaxAttempts = existingQueue.maxAttempts ?? 3;
     }
 
-    // Deduplication check for active (queued / processing) jobs
+    // Deduplication check for active (queued / processing) messages
     if (dto.deduplicationId) {
       const dup = this.db.prepare(`
-        SELECT * FROM _queue_jobs
+        SELECT * FROM _queue_messages
         WHERE queue = ? AND deduplicationId = ? AND status IN ('queued', 'processing')
         LIMIT 1
       `).get(dto.queue, dto.deduplicationId) as any;
       if (dup) {
-        return this.mapRowToJob<T>(dup);
+        return this.mapRowToMessage<T>(dup);
       }
     }
 
-    const id = dto.id || `job_${Date.now()}_${crypto.randomBytes(5).toString('hex')}`;
+    const id = dto.id || `msg_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const delayMs = dto.delaySeconds && dto.delaySeconds > 0 ? Math.floor(dto.delaySeconds * 1000) : 0;
     const availableAt = delayMs > 0 ? new Date(Date.now() + delayMs).toISOString() : now;
     const priority = dto.priority !== undefined ? Math.floor(dto.priority) : 0;
-    const maxAttempts = dto.maxAttempts !== undefined ? Math.max(1, Math.floor(dto.maxAttempts)) : defaultMaxAttempts;
+    const maxAttempts = dto.maxAttempts !== undefined ? Math.max(0, Math.floor(dto.maxAttempts)) : defaultMaxAttempts;
     const payloadStr = dto.payload !== undefined ? JSON.stringify(dto.payload) : null;
 
     this.db.prepare(`
-      INSERT INTO _queue_jobs (
+      INSERT INTO _queue_messages (
         id, queue, groupKey, status, payload, result, error,
         attempts, maxAttempts, priority, availableAt, claimedBy,
-        leaseExpiresAt, deduplicationId, originalJobId, created, updated, finishedAt
+        leaseExpiresAt, deduplicationId, originalMessageId, created, updated, finishedAt
       ) VALUES (?, ?, ?, 'queued', ?, NULL, NULL, 0, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, NULL)
     `).run(
       id,
@@ -252,13 +274,13 @@ export class SqliteQueueDriver implements IQueueDriver {
       priority,
       availableAt,
       dto.deduplicationId ?? null,
-      dto.originalJobId ?? null,
+      dto.originalMessageId ?? null,
       now,
       now
     );
 
-    const row = this.db.prepare('SELECT * FROM _queue_jobs WHERE id = ?').get(id) as any;
-    return this.mapRowToJob<T>(row);
+    const row = this.db.prepare('SELECT * FROM _queue_messages WHERE id = ?').get(id) as any;
+    return this.mapRowToMessage<T>(row);
   }
 
   public async claim<T = any>(
@@ -266,7 +288,7 @@ export class SqliteQueueDriver implements IQueueDriver {
     claimedBy: string,
     visibilityTimeoutSeconds: number,
     limit = 1
-  ): Promise<QueueJob<T>[]> {
+  ): Promise<QueueMessage<T>[]> {
     this.ensureInit();
     const safeLimit = Math.max(1, Math.floor(limit));
     const timeoutSec = Math.max(1, Math.floor(visibilityTimeoutSeconds || 30));
@@ -276,11 +298,11 @@ export class SqliteQueueDriver implements IQueueDriver {
       const leaseExpiresAt = new Date(Date.now() + timeoutSec * 1000).toISOString();
 
       // 0. Enforce queue-level concurrency cap if configured in _queues
-      const queueRow = this.db.prepare('SELECT concurrency FROM _queues WHERE name = ?').get(queueName) as { concurrency: number } | undefined;
+      const queueRow = this.db.prepare('SELECT concurrency, strictOrder FROM _queues WHERE name = ?').get(queueName) as { concurrency: number; strictOrder: number } | undefined;
       let effectiveLimit = safeLimit;
       if (queueRow && typeof queueRow.concurrency === 'number' && queueRow.concurrency >= 1) {
         const activeRow = this.db.prepare(`
-          SELECT COUNT(*) as cnt FROM _queue_jobs
+          SELECT COUNT(*) as cnt FROM _queue_messages
           WHERE queue = ? AND status = 'processing' AND (leaseExpiresAt IS NULL OR leaseExpiresAt > ?)
         `).get(queueName, now) as { cnt: number };
         const availableSlots = Math.max(0, queueRow.concurrency - (activeRow?.cnt || 0));
@@ -291,23 +313,57 @@ export class SqliteQueueDriver implements IQueueDriver {
         return [];
       }
 
-      // 1. Select candidate IDs in deterministic priority + FIFO order
-      const candidates = this.db.prepare(`
-        SELECT id FROM _queue_jobs
-        WHERE queue = ?
-          AND status = 'queued'
-          AND availableAt <= ?
-        ORDER BY priority DESC, availableAt ASC, rowid ASC
-        LIMIT ?
-      `).all(queueName, now, effectiveLimit) as Array<{ id: string }>;
+      // 1. Select candidate IDs in deterministic priority + FIFO / group-partitioned order
+      let candidates: Array<{ id: string }>;
+      if (queueRow && Boolean(queueRow.strictOrder)) {
+        // Strict ordering: Partition by COALESCE(groupKey, '')
+        // Only rn = 1 (the single earliest unfinished message: created ASC, rowid ASC)
+        // is eligible. If rn = 1 is currently 'processing' or in retry backoff (availableAt > now),
+        // the entire partition is blocked and no subsequent message in that group can be claimed.
+        // Within a strict partition, messages are strictly FIFO; later messages cannot overtake
+        // earlier messages even with higher priority.
+        candidates = this.db.prepare(`
+          WITH partition_hol AS (
+            SELECT
+              id,
+              status,
+              availableAt,
+              priority,
+              created,
+              rowid as rid,
+              ROW_NUMBER() OVER (
+                PARTITION BY COALESCE(groupKey, '')
+                ORDER BY created ASC, rowid ASC
+              ) as rn
+            FROM _queue_messages
+            WHERE queue = ?
+              AND status IN ('queued', 'processing')
+          )
+          SELECT id FROM partition_hol
+          WHERE rn = 1
+            AND status = 'queued'
+            AND availableAt <= ?
+          ORDER BY created ASC, rid ASC
+          LIMIT ?
+        `).all(queueName, now, effectiveLimit) as Array<{ id: string }>;
+      } else {
+        candidates = this.db.prepare(`
+          SELECT id FROM _queue_messages
+          WHERE queue = ?
+            AND status = 'queued'
+            AND availableAt <= ?
+          ORDER BY priority DESC, availableAt ASC, rowid ASC
+          LIMIT ?
+        `).all(queueName, now, effectiveLimit) as Array<{ id: string }>;
+      }
 
       if (!candidates || candidates.length === 0) {
         return [];
       }
 
-      const claimedJobs: QueueJob<T>[] = [];
+      const claimedMessages: QueueMessage<T>[] = [];
       const updateStmt = this.db.prepare(`
-        UPDATE _queue_jobs
+        UPDATE _queue_messages
         SET status = 'processing',
             claimedBy = ?,
             leaseExpiresAt = ?,
@@ -316,7 +372,7 @@ export class SqliteQueueDriver implements IQueueDriver {
             updated = ?
         WHERE id = ? AND status = 'queued'
       `);
-      const selectStmt = this.db.prepare('SELECT * FROM _queue_jobs WHERE id = ?');
+      const selectStmt = this.db.prepare('SELECT * FROM _queue_messages WHERE id = ?');
 
       for (const candidate of candidates) {
         const claimToken = crypto.randomUUID();
@@ -324,26 +380,26 @@ export class SqliteQueueDriver implements IQueueDriver {
         if (Number(res.changes) > 0) {
           const row = selectStmt.get(candidate.id) as any;
           if (row) {
-            claimedJobs.push(this.mapRowToJob<T>(row));
+            claimedMessages.push(this.mapRowToMessage<T>(row));
           }
         }
       }
 
-      return claimedJobs;
+      return claimedMessages;
     });
   }
 
-  public async touch(jobId: string, extensionSeconds: number, claimToken?: string | null): Promise<boolean> {
+  public async touch(messageId: string, extensionSeconds: number, claimToken?: string | null): Promise<boolean> {
     this.ensureInit();
     const now = new Date().toISOString();
     const leaseExpiresAt = new Date(Date.now() + extensionSeconds * 1000).toISOString();
 
     let sql = `
-      UPDATE _queue_jobs
+      UPDATE _queue_messages
       SET leaseExpiresAt = ?, updated = ?
       WHERE id = ? AND status = 'processing'
     `;
-    const params: any[] = [leaseExpiresAt, now, jobId];
+    const params: any[] = [leaseExpiresAt, now, messageId];
 
     if (claimToken) {
       sql += ` AND claimToken = ?`;
@@ -354,13 +410,25 @@ export class SqliteQueueDriver implements IQueueDriver {
     return Number(res.changes) > 0;
   }
 
-  public async complete(jobId: string, result?: any, claimToken?: string | null): Promise<boolean> {
+  public async complete(messageId: string, result?: any, claimToken?: string | null): Promise<boolean> {
     this.ensureInit();
     const now = new Date().toISOString();
     const resultStr = result !== undefined ? JSON.stringify(result) : null;
 
+    // Check if the target job's queue enforces strictOrder
+    const jobQueue = this.db.prepare(`
+      SELECT q.strictOrder
+      FROM _queue_messages j
+      JOIN _queues q ON j.queue = q.name
+      WHERE j.id = ?
+    `).get(messageId) as { strictOrder: number } | undefined;
+
+    const allowedStatuses = jobQueue && Boolean(jobQueue.strictOrder)
+      ? "('processing')"
+      : "('processing', 'queued')";
+
     let sql = `
-      UPDATE _queue_jobs
+      UPDATE _queue_messages
       SET status = 'completed',
           result = ?,
           error = NULL,
@@ -369,9 +437,9 @@ export class SqliteQueueDriver implements IQueueDriver {
           claimToken = NULL,
           updated = ?,
           finishedAt = ?
-      WHERE id = ? AND status IN ('processing', 'queued')
+      WHERE id = ? AND status IN ${allowedStatuses}
     `;
-    const params: any[] = [resultStr, now, now, jobId];
+    const params: any[] = [resultStr, now, now, messageId];
 
     if (claimToken) {
       sql += ` AND claimToken = ?`;
@@ -382,11 +450,11 @@ export class SqliteQueueDriver implements IQueueDriver {
     return Number(res.changes) > 0;
   }
 
-  public async fail(jobId: string, error: string, backoffDelayMs?: number, claimToken?: string | null): Promise<JobFailResult> {
+  public async fail(messageId: string, error: string, backoffDelayMs?: number, claimToken?: string | null): Promise<MessageFailResult> {
     this.ensureInit();
     return this.db.transaction(() => {
-      let query = "SELECT * FROM _queue_jobs WHERE id = ? AND status = 'processing'";
-      const params: any[] = [jobId];
+      let query = "SELECT * FROM _queue_messages WHERE id = ? AND status = 'processing'";
+      const params: any[] = [messageId];
       if (claimToken) {
         query += ' AND claimToken = ?';
         params.push(claimToken);
@@ -399,16 +467,18 @@ export class SqliteQueueDriver implements IQueueDriver {
       const qRow = this.db.prepare('SELECT * FROM _queues WHERE name = ?').get(row.queue) as any;
       const now = new Date().toISOString();
       const attempts = Number(row.attempts) || 1;
-      const maxAttempts = Number(row.maxAttempts) || (qRow?.maxAttempts ?? 3);
+      const maxAttempts = row.maxAttempts !== null && row.maxAttempts !== undefined && !isNaN(Number(row.maxAttempts))
+        ? Number(row.maxAttempts)
+        : (qRow?.maxAttempts ?? 3);
       const baseBackoff = backoffDelayMs !== undefined ? backoffDelayMs : (qRow?.backoffDelayMs ?? 1000);
 
-      if (attempts < maxAttempts) {
+      if (maxAttempts === 0 || attempts < maxAttempts) {
         // Exponential backoff: baseBackoff * 2^(attempts - 1)
         const delay = Math.max(0, baseBackoff * Math.pow(2, Math.max(0, attempts - 1)));
         const availableAt = new Date(Date.now() + delay).toISOString();
 
         let updateSql = `
-          UPDATE _queue_jobs
+          UPDATE _queue_messages
           SET status = 'queued',
               error = ?,
               claimedBy = NULL,
@@ -418,7 +488,7 @@ export class SqliteQueueDriver implements IQueueDriver {
               updated = ?
           WHERE id = ? AND status = 'processing'
         `;
-        const updateParams: any[] = [error, availableAt, now, jobId];
+        const updateParams: any[] = [error, availableAt, now, messageId];
         if (claimToken) {
           updateSql += ` AND claimToken = ?`;
           updateParams.push(claimToken);
@@ -436,7 +506,7 @@ export class SqliteQueueDriver implements IQueueDriver {
       const dlqName = qRow?.deadLetterQueue || null;
 
       let dlqSql = `
-        UPDATE _queue_jobs
+        UPDATE _queue_messages
         SET status = 'dead_letter',
             error = ?,
             claimedBy = NULL,
@@ -446,7 +516,7 @@ export class SqliteQueueDriver implements IQueueDriver {
             finishedAt = ?
         WHERE id = ? AND status = 'processing'
       `;
-      const dlqParams: any[] = [error, now, now, jobId];
+      const dlqParams: any[] = [error, now, now, messageId];
       if (claimToken) {
         dlqSql += ` AND claimToken = ?`;
         dlqParams.push(claimToken);
@@ -462,9 +532,9 @@ export class SqliteQueueDriver implements IQueueDriver {
         // Clean up any previous pending copy in dlqName for this original job to prevent duplicate buildup
         try {
           this.db.prepare(`
-            DELETE FROM _queue_jobs
-            WHERE queue = ? AND status = 'queued' AND (originalJobId = ? OR id = ? OR payload LIKE ?)
-          `).run(dlqName, row.id, row.forwardedToJobId || '', `%"originalJobId":"${row.id}"%`);
+            DELETE FROM _queue_messages
+            WHERE queue = ? AND status = 'queued' AND (originalMessageId = ? OR id = ? OR payload LIKE ?)
+          `).run(dlqName, row.id, row.forwardedToMessageId || '', `%"originalMessageId":"${row.id}"%`);
         } catch {}
 
         let parsedPayload: any = null;
@@ -473,9 +543,10 @@ export class SqliteQueueDriver implements IQueueDriver {
         } catch {
           parsedPayload = row.payload;
         }
-        const dlqJob = this.insertJobSync({
+        const dlqJob = this.insertMessageSync({
           queue: dlqName,
           payload: {
+            originalMessageId: row.id,
             originalJobId: row.id,
             originalQueue: row.queue,
             error,
@@ -483,7 +554,7 @@ export class SqliteQueueDriver implements IQueueDriver {
             failedAt: now,
             payload: parsedPayload,
           },
-          originalJobId: row.id,
+          originalMessageId: row.id,
           groupKey: row.groupKey,
           priority: row.priority,
         });
@@ -491,7 +562,7 @@ export class SqliteQueueDriver implements IQueueDriver {
         // Record the forwarded job ID on the original job
         try {
           this.db.prepare(`
-            UPDATE _queue_jobs SET forwardedToJobId = ? WHERE id = ?
+            UPDATE _queue_messages SET forwardedToMessageId = ? WHERE id = ?
           `).run(dlqJob.id, row.id);
         } catch {}
       }
@@ -500,35 +571,105 @@ export class SqliteQueueDriver implements IQueueDriver {
     });
   }
 
-  public async cancel(jobId: string): Promise<boolean> {
+  
+  public async forceDeadLetter(messageId: string, reason = 'Force-skipped to DLQ by operator'): Promise<boolean> {
     this.ensureInit();
     return this.db.transaction(() => {
-      const row = this.db.prepare('SELECT id, forwardedToJobId FROM _queue_jobs WHERE id = ?').get(jobId) as any;
+      const row = this.db.prepare('SELECT * FROM _queue_messages WHERE id = ?').get(messageId) as any;
+      if (!row) return false;
+      if (row.status === 'completed' || row.status === 'dead_letter') {
+        return false;
+      }
+
+      const now = new Date().toISOString();
+      const cfg = this.db.prepare('SELECT deadLetterQueue FROM _queues WHERE name = ?').get(row.queue) as any;
+      const dlqName = cfg?.deadLetterQueue;
+
+      const res = this.db.prepare(`
+        UPDATE _queue_messages
+        SET status = 'dead_letter',
+            error = ?,
+            claimedBy = NULL,
+            leaseExpiresAt = NULL,
+            claimToken = NULL,
+            updated = ?,
+            finishedAt = ?
+        WHERE id = ?
+      `).run(reason, now, now, messageId);
+
+      if (Number(res.changes) === 0) return false;
+
+      if (dlqName && dlqName !== row.queue) {
+        try {
+          this.db.prepare(`
+            DELETE FROM _queue_messages
+            WHERE queue = ? AND status = 'queued' AND (originalMessageId = ? OR id = ? OR payload LIKE ?)
+          `).run(dlqName, row.id, row.forwardedToMessageId || '', `%"originalMessageId":"${row.id}"%`);
+        } catch {}
+
+        let parsedPayload: any = null;
+        try {
+          parsedPayload = row.payload ? JSON.parse(row.payload) : null;
+        } catch {
+          parsedPayload = row.payload;
+        }
+
+        const dlqMsg = this.insertMessageSync({
+          queue: dlqName,
+          payload: {
+            originalMessageId: row.id,
+            originalJobId: row.id,
+            originalQueue: row.queue,
+            error: reason,
+            attempts: row.attempts,
+            failedAt: now,
+            payload: parsedPayload,
+          },
+          originalMessageId: row.id,
+          groupKey: row.groupKey,
+          priority: row.priority,
+        });
+
+        try {
+          this.db.prepare(`
+            UPDATE _queue_messages SET forwardedToMessageId = ? WHERE id = ?
+          `).run(dlqMsg.id, row.id);
+        } catch {}
+      }
+
+      return true;
+    });
+  }
+
+  public async cancel(messageId: string): Promise<boolean> {
+    this.ensureInit();
+    return this.db.transaction(() => {
+      const row = this.db.prepare('SELECT id, forwardedToMessageId FROM _queue_messages WHERE id = ?').get(messageId) as any;
       if (!row) return false;
       // Clean up any forwarded DLQ copy
       try {
         this.db.prepare(`
-          DELETE FROM _queue_jobs
-          WHERE status = 'queued' AND (id = ? OR originalJobId = ? OR payload LIKE ?)
-        `).run(row.forwardedToJobId || '', jobId, `%"originalJobId":"${jobId}"%`);
+          DELETE FROM _queue_messages
+          WHERE status = 'queued' AND (id = ? OR originalMessageId = ? OR payload LIKE ?)
+        `).run(row.forwardedToMessageId || '', messageId, `%"originalMessageId":"${messageId}"%`);
       } catch {}
-      const res = this.db.prepare('DELETE FROM _queue_jobs WHERE id = ?').run(jobId);
+      const res = this.db.prepare('DELETE FROM _queue_messages WHERE id = ?').run(messageId);
       try {
         this.db.prepare(`
-          UPDATE _queue_jobs SET forwardedToJobId = NULL WHERE forwardedToJobId = ?
-        `).run(jobId);
+          UPDATE _queue_messages SET forwardedToMessageId = NULL WHERE forwardedToMessageId = ?
+        `).run(messageId);
       } catch {}
       return Number(res.changes) > 0;
     });
   }
 
-  public async defer(jobId: string, delayMs: number, reason?: string): Promise<boolean> {
+  public async defer(messageId: string, delayMs: number, reason?: string): Promise<boolean> {
     this.ensureInit();
     const now = new Date().toISOString();
     const availableAt = new Date(Date.now() + Math.max(0, delayMs)).toISOString();
 
     const res = this.db.prepare(`
-      UPDATE _queue_jobs
+      UPDATE _queue_messages
       SET status = 'queued',
           claimedBy = NULL,
           leaseExpiresAt = NULL,
@@ -538,32 +679,32 @@ export class SqliteQueueDriver implements IQueueDriver {
           availableAt = ?,
           updated = ?
       WHERE id = ? AND status = 'processing'
-    `).run(reason || null, availableAt, now, jobId);
+    `).run(reason || null, availableAt, now, messageId);
 
     return Number(res.changes) > 0;
   }
 
-  public async retryDeadLetterJobs(
+  public async retryDeadLetterMessages(
     queueName: string,
     limit = 100,
-    onJobRequeued?: (queue: string) => void
+    onMessageRequeued?: (queue: string) => void
   ): Promise<number> {
     this.ensureInit();
     const safeLimit = Math.max(1, Math.floor(limit));
     return this.db.transaction(() => {
       const now = new Date().toISOString();
       const rows = this.db.prepare(`
-        SELECT id, forwardedToJobId FROM _queue_jobs
+        SELECT id, forwardedToMessageId FROM _queue_messages
         WHERE queue = ? AND status IN ('dead_letter', 'failed')
         ORDER BY updated ASC, rowid ASC
         LIMIT ?
-      `).all(queueName, safeLimit) as Array<{ id: string; forwardedToJobId?: string | null }>;
+      `).all(queueName, safeLimit) as Array<{ id: string; forwardedToMessageId?: string | null }>;
 
       let count = 0;
 
       if (rows && rows.length > 0) {
         const stmt = this.db.prepare(`
-          UPDATE _queue_jobs
+          UPDATE _queue_messages
           SET status = 'queued',
               attempts = 0,
               error = NULL,
@@ -573,7 +714,7 @@ export class SqliteQueueDriver implements IQueueDriver {
               availableAt = ?,
               updated = ?,
               finishedAt = NULL,
-              forwardedToJobId = NULL
+              forwardedToMessageId = NULL
           WHERE id = ?
         `);
 
@@ -585,14 +726,14 @@ export class SqliteQueueDriver implements IQueueDriver {
             // Clean up any forwarded copy in DLQ for this job if still queued
             try {
               this.db.prepare(`
-                DELETE FROM _queue_jobs
-                WHERE status = 'queued' AND (id = ? OR originalJobId = ? OR payload LIKE ?)
-              `).run(r.forwardedToJobId || '', r.id, `%"originalJobId":"${r.id}"%`);
+                DELETE FROM _queue_messages
+                WHERE status = 'queued' AND (id = ? OR originalMessageId = ? OR payload LIKE ?)
+              `).run(r.forwardedToMessageId || '', r.id, `%"originalMessageId":"${r.id}"%`);
             } catch {}
           }
         }
         if (count > 0) {
-          onJobRequeued?.(queueName);
+          onMessageRequeued?.(queueName);
         }
       }
 
@@ -601,9 +742,9 @@ export class SqliteQueueDriver implements IQueueDriver {
       const remainingLimit = safeLimit - count;
       if (remainingLimit > 0) {
         const dlqRows = this.db.prepare(`
-          SELECT * FROM _queue_jobs
+          SELECT * FROM _queue_messages
           WHERE queue = ? AND status IN ('queued', 'dead_letter', 'failed')
-            AND (originalJobId IS NOT NULL OR payload LIKE '%"originalJobId"%')
+            AND (originalMessageId IS NOT NULL OR payload LIKE '%"originalMessageId"%')
           ORDER BY updated ASC, rowid ASC
           LIMIT ?
         `).all(queueName, remainingLimit) as any[];
@@ -615,14 +756,14 @@ export class SqliteQueueDriver implements IQueueDriver {
           } catch {
             parsed = dlqRow.payload;
           }
-          const origId = dlqRow.originalJobId || parsed?.originalJobId;
+          const origId = dlqRow.originalMessageId || parsed?.originalMessageId;
           const origQueue = parsed?.originalQueue;
 
           if (origId) {
-            const origJob = this.db.prepare('SELECT * FROM _queue_jobs WHERE id = ?').get(origId) as any;
+            const origJob = this.db.prepare('SELECT * FROM _queue_messages WHERE id = ?').get(origId) as any;
             if (origJob) {
               const resOrig = this.db.prepare(`
-                UPDATE _queue_jobs
+                UPDATE _queue_messages
                 SET status = 'queued',
                     attempts = 0,
                     error = NULL,
@@ -632,27 +773,27 @@ export class SqliteQueueDriver implements IQueueDriver {
                     availableAt = ?,
                     updated = ?,
                     finishedAt = NULL,
-                    forwardedToJobId = NULL
+                    forwardedToMessageId = NULL
                 WHERE id = ?
               `).run(now, now, origId);
               if (Number(resOrig.changes) > 0) {
                 count++;
                 if (origJob.queue) {
-                  onJobRequeued?.(origJob.queue);
+                  onMessageRequeued?.(origJob.queue);
                 }
               }
             } else if (origQueue) {
               const unwrapped = parsed?.payload !== undefined ? parsed.payload : parsed;
-              this.insertJobSync({
+              this.insertMessageSync({
                 queue: origQueue,
                 payload: unwrapped,
                 groupKey: dlqRow.groupKey,
                 priority: dlqRow.priority,
               });
               count++;
-              onJobRequeued?.(origQueue);
+              onMessageRequeued?.(origQueue);
             }
-            this.db.prepare('DELETE FROM _queue_jobs WHERE id = ?').run(dlqRow.id);
+            this.db.prepare('DELETE FROM _queue_messages WHERE id = ?').run(dlqRow.id);
           }
         }
       }
@@ -661,14 +802,14 @@ export class SqliteQueueDriver implements IQueueDriver {
     });
   }
 
-  public async retryJob(jobId: string, onJobRequeued?: (queue: string) => void): Promise<boolean> {
+  public async retryMessage(messageId: string, onMessageRequeued?: (queue: string) => void): Promise<boolean> {
     this.ensureInit();
     return this.db.transaction(() => {
       const now = new Date().toISOString();
-      const row = this.db.prepare('SELECT * FROM _queue_jobs WHERE id = ?').get(jobId) as any;
+      const row = this.db.prepare('SELECT * FROM _queue_messages WHERE id = ?').get(messageId) as any;
       if (!row) return false;
 
-      // Do not retry actively processing jobs
+      // Do not retry actively processing messages
       if (row.status === 'processing') {
         return false;
       }
@@ -681,15 +822,15 @@ export class SqliteQueueDriver implements IQueueDriver {
       }
 
       // Check if this is a forwarded DLQ copy
-      const origJobId = row.originalJobId || parsedPayload?.originalJobId;
+      const origJobId = row.originalMessageId || parsedPayload?.originalMessageId;
       const origQueue = parsedPayload?.originalQueue;
 
-      if (origJobId && (row.queue !== origQueue || row.originalJobId)) {
+      if (origJobId && (row.queue !== origQueue || row.originalMessageId)) {
         // This is a forwarded copy in a DLQ queue
-        const origRow = this.db.prepare('SELECT * FROM _queue_jobs WHERE id = ?').get(origJobId) as any;
+        const origRow = this.db.prepare('SELECT * FROM _queue_messages WHERE id = ?').get(origJobId) as any;
         if (origRow) {
           this.db.prepare(`
-            UPDATE _queue_jobs
+            UPDATE _queue_messages
             SET status = 'queued',
                 attempts = 0,
                 error = NULL,
@@ -699,30 +840,30 @@ export class SqliteQueueDriver implements IQueueDriver {
                 availableAt = ?,
                 updated = ?,
                 finishedAt = NULL,
-                forwardedToJobId = NULL
+                forwardedToMessageId = NULL
             WHERE id = ?
           `).run(now, now, origJobId);
-          onJobRequeued?.(origRow.queue);
+          onMessageRequeued?.(origRow.queue);
         } else if (origQueue) {
           const unwrapped = parsedPayload?.payload !== undefined ? parsedPayload.payload : parsedPayload;
-          this.insertJobSync({
+          this.insertMessageSync({
             queue: origQueue,
             payload: unwrapped,
             groupKey: row.groupKey,
             priority: row.priority,
           });
-          onJobRequeued?.(origQueue);
+          onMessageRequeued?.(origQueue);
         }
 
         // Delete the DLQ copy
-        this.db.prepare('DELETE FROM _queue_jobs WHERE id = ?').run(jobId);
+        this.db.prepare('DELETE FROM _queue_messages WHERE id = ?').run(messageId);
         // Also clean up any other duplicates in status = 'queued' in this DLQ for this original job
         if (origJobId) {
           try {
             this.db.prepare(`
-              DELETE FROM _queue_jobs
-              WHERE queue = ? AND status = 'queued' AND (originalJobId = ? OR payload LIKE ?)
-            `).run(row.queue, origJobId, `%"originalJobId":"${origJobId}"%`);
+              DELETE FROM _queue_messages
+              WHERE queue = ? AND status = 'queued' AND (originalMessageId = ? OR payload LIKE ?)
+            `).run(row.queue, origJobId, `%"originalMessageId":"${origJobId}"%`);
           } catch {}
         }
         return true;
@@ -730,7 +871,7 @@ export class SqliteQueueDriver implements IQueueDriver {
 
       // Otherwise, this is a standard / original job
       const res = this.db.prepare(`
-        UPDATE _queue_jobs
+        UPDATE _queue_messages
         SET status = 'queued',
             attempts = 0,
             error = NULL,
@@ -740,21 +881,21 @@ export class SqliteQueueDriver implements IQueueDriver {
             availableAt = ?,
             updated = ?,
             finishedAt = NULL,
-            forwardedToJobId = NULL
+            forwardedToMessageId = NULL
         WHERE id = ?
-      `).run(now, now, jobId);
+      `).run(now, now, messageId);
 
       if (Number(res.changes) === 0) return false;
 
       // Clean up any forwarded copy in DLQ queues
       try {
         this.db.prepare(`
-          DELETE FROM _queue_jobs
-          WHERE status = 'queued' AND (id = ? OR originalJobId = ? OR payload LIKE ?)
-        `).run(row.forwardedToJobId || '', jobId, `%"originalJobId":"${jobId}"%`);
+          DELETE FROM _queue_messages
+          WHERE status = 'queued' AND (id = ? OR originalMessageId = ? OR payload LIKE ?)
+        `).run(row.forwardedToMessageId || '', messageId, `%"originalMessageId":"${messageId}"%`);
       } catch {}
 
-      onJobRequeued?.(row.queue);
+      onMessageRequeued?.(row.queue);
       return true;
     });
   }
@@ -771,21 +912,21 @@ export class SqliteQueueDriver implements IQueueDriver {
 
       if (options.forceAll) {
         const sql = queueName
-          ? `SELECT * FROM _queue_jobs WHERE queue = ? AND status = 'processing'`
-          : `SELECT * FROM _queue_jobs WHERE status = 'processing'`;
+          ? `SELECT * FROM _queue_messages WHERE queue = ? AND status = 'processing'`
+          : `SELECT * FROM _queue_messages WHERE status = 'processing'`;
         expired = (queueName ? this.db.prepare(sql).all(queueName) : this.db.prepare(sql).all()) as any[];
       } else if (options.reclaimDeadWorkers) {
         const localClause = `claimedBy IS NULL OR claimedBy LIKE 'worker_%' OR claimedBy LIKE '%crashed%'`;
         const sql = queueName
-          ? `SELECT * FROM _queue_jobs WHERE queue = ? AND status = 'processing' AND ((leaseExpiresAt IS NOT NULL AND leaseExpiresAt <= ?) OR ${localClause})`
-          : `SELECT * FROM _queue_jobs WHERE status = 'processing' AND ((leaseExpiresAt IS NOT NULL AND leaseExpiresAt <= ?) OR ${localClause})`;
+          ? `SELECT * FROM _queue_messages WHERE queue = ? AND status = 'processing' AND ((leaseExpiresAt IS NOT NULL AND leaseExpiresAt <= ?) OR ${localClause})`
+          : `SELECT * FROM _queue_messages WHERE status = 'processing' AND ((leaseExpiresAt IS NOT NULL AND leaseExpiresAt <= ?) OR ${localClause})`;
         expired = (queueName
           ? this.db.prepare(sql).all(queueName, now)
           : this.db.prepare(sql).all(now)) as any[];
       } else {
         const sql = queueName
-          ? `SELECT * FROM _queue_jobs WHERE queue = ? AND status = 'processing' AND leaseExpiresAt IS NOT NULL AND leaseExpiresAt <= ?`
-          : `SELECT * FROM _queue_jobs WHERE status = 'processing' AND leaseExpiresAt IS NOT NULL AND leaseExpiresAt <= ?`;
+          ? `SELECT * FROM _queue_messages WHERE queue = ? AND status = 'processing' AND leaseExpiresAt IS NOT NULL AND leaseExpiresAt <= ?`
+          : `SELECT * FROM _queue_messages WHERE status = 'processing' AND leaseExpiresAt IS NOT NULL AND leaseExpiresAt <= ?`;
         expired = (queueName
           ? this.db.prepare(sql).all(queueName, now)
           : this.db.prepare(sql).all(now)) as any[];
@@ -797,13 +938,15 @@ export class SqliteQueueDriver implements IQueueDriver {
       for (const row of expired) {
         const qRow = this.db.prepare('SELECT * FROM _queues WHERE name = ?').get(row.queue) as any;
         const attempts = Number(row.attempts) || 1;
-        const maxAttempts = Number(row.maxAttempts) || (qRow?.maxAttempts ?? 3);
+        const maxAttempts = row.maxAttempts !== null && row.maxAttempts !== undefined && !isNaN(Number(row.maxAttempts))
+          ? Number(row.maxAttempts)
+          : (qRow?.maxAttempts ?? 3);
         const dlqName = qRow?.deadLetterQueue || null;
         const timeoutError = 'Max attempts exceeded after visibility timeout';
 
-        if (attempts < maxAttempts) {
+        if (maxAttempts === 0 || attempts < maxAttempts) {
           this.db.prepare(`
-            UPDATE _queue_jobs
+            UPDATE _queue_messages
             SET status = 'queued',
                 claimedBy = NULL,
                 leaseExpiresAt = NULL,
@@ -816,7 +959,7 @@ export class SqliteQueueDriver implements IQueueDriver {
           reclaimed++;
         } else {
           this.db.prepare(`
-            UPDATE _queue_jobs
+            UPDATE _queue_messages
             SET status = 'dead_letter',
                 claimedBy = NULL,
                 leaseExpiresAt = NULL,
@@ -833,9 +976,9 @@ export class SqliteQueueDriver implements IQueueDriver {
             // Clean up any previous pending copy in dlqName for this original job
             try {
               this.db.prepare(`
-                DELETE FROM _queue_jobs
-                WHERE queue = ? AND status = 'queued' AND (originalJobId = ? OR id = ? OR payload LIKE ?)
-              `).run(dlqName, row.id, row.forwardedToJobId || '', `%"originalJobId":"${row.id}"%`);
+                DELETE FROM _queue_messages
+                WHERE queue = ? AND status = 'queued' AND (originalMessageId = ? OR id = ? OR payload LIKE ?)
+              `).run(dlqName, row.id, row.forwardedToMessageId || '', `%"originalMessageId":"${row.id}"%`);
             } catch {}
 
             let parsedPayload: any = null;
@@ -844,9 +987,10 @@ export class SqliteQueueDriver implements IQueueDriver {
             } catch {
               parsedPayload = row.payload;
             }
-            const dlqJob = this.insertJobSync({
+            const dlqJob = this.insertMessageSync({
               queue: dlqName,
               payload: {
+                originalMessageId: row.id,
                 originalJobId: row.id,
                 originalQueue: row.queue,
                 error: row.error || timeoutError,
@@ -854,13 +998,13 @@ export class SqliteQueueDriver implements IQueueDriver {
                 failedAt: now,
                 payload: parsedPayload,
               },
-              originalJobId: row.id,
+              originalMessageId: row.id,
               groupKey: row.groupKey,
               priority: row.priority,
             });
             try {
               this.db.prepare(`
-                UPDATE _queue_jobs SET forwardedToJobId = ? WHERE id = ?
+                UPDATE _queue_messages SET forwardedToMessageId = ? WHERE id = ?
               `).run(dlqJob.id, row.id);
             } catch {}
             onDlqEnqueued?.(dlqName);
@@ -879,7 +1023,7 @@ export class SqliteQueueDriver implements IQueueDriver {
 
     if (queueName) {
       const res = this.db.prepare(`
-        DELETE FROM _queue_jobs
+        DELETE FROM _queue_messages
         WHERE queue = ?
           AND status IN ('completed', 'failed', 'dead_letter')
           AND COALESCE(finishedAt, updated) <= ?
@@ -888,7 +1032,7 @@ export class SqliteQueueDriver implements IQueueDriver {
     }
 
     const res = this.db.prepare(`
-      DELETE FROM _queue_jobs
+      DELETE FROM _queue_messages
       WHERE status IN ('completed', 'failed', 'dead_letter')
         AND COALESCE(finishedAt, updated) <= ?
     `).run(cutoff);
@@ -898,20 +1042,20 @@ export class SqliteQueueDriver implements IQueueDriver {
   public async purge(queueName: string, status?: string): Promise<number> {
     this.ensureInit();
     if (status) {
-      const res = this.db.prepare('DELETE FROM _queue_jobs WHERE queue = ? AND status = ?').run(queueName, status);
+      const res = this.db.prepare('DELETE FROM _queue_messages WHERE queue = ? AND status = ?').run(queueName, status);
       return Number(res.changes);
     }
-    const res = this.db.prepare("DELETE FROM _queue_jobs WHERE queue = ? AND status IN ('queued', 'failed', 'dead_letter', 'completed')").run(queueName);
+    const res = this.db.prepare("DELETE FROM _queue_messages WHERE queue = ? AND status IN ('queued', 'failed', 'dead_letter', 'completed')").run(queueName);
     return Number(res.changes);
   }
 
-  public async getJob<T = any>(jobId: string): Promise<QueueJob<T> | null> {
+  public async getMessage<T = any>(messageId: string): Promise<QueueMessage<T> | null> {
     this.ensureInit();
-    const row = this.db.prepare('SELECT * FROM _queue_jobs WHERE id = ?').get(jobId) as any;
-    return row ? this.mapRowToJob<T>(row) : null;
+    const row = this.db.prepare('SELECT * FROM _queue_messages WHERE id = ?').get(messageId) as any;
+    return row ? this.mapRowToMessage<T>(row) : null;
   }
 
-  public async getJobs<T = any>(options: GetJobsOptions = {}): Promise<{ items: QueueJob<T>[]; total: number }> {
+  public async getMessages<T = any>(options: GetMessagesOptions = {}): Promise<{ items: QueueMessage<T>[]; total: number }> {
     this.ensureInit();
     const page = Math.max(1, options.page || 1);
     const perPage = Math.max(1, Math.min(options.perPage || 25, 100));
@@ -935,18 +1079,18 @@ export class SqliteQueueDriver implements IQueueDriver {
       params.push(options.groupKey);
     }
 
-    const countRow = this.db.prepare(`SELECT COUNT(*) as total FROM _queue_jobs ${where}`).get(...params) as any;
+    const countRow = this.db.prepare(`SELECT COUNT(*) as total FROM _queue_messages ${where}`).get(...params) as any;
     const total = Number(countRow?.total || 0);
 
     const rows = this.db.prepare(`
-      SELECT * FROM _queue_jobs
+      SELECT * FROM _queue_messages
       ${where}
       ORDER BY priority DESC, created ASC, rowid ASC
       LIMIT ? OFFSET ?
     `).all(...params, perPage, offset) as any[];
 
     return {
-      items: rows.map((r) => this.mapRowToJob<T>(r)),
+      items: rows.map((r) => this.mapRowToMessage<T>(r)),
       total,
     };
   }
@@ -971,7 +1115,7 @@ export class SqliteQueueDriver implements IQueueDriver {
         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
         SUM(CASE WHEN status = 'dead_letter' THEN 1 ELSE 0 END) as deadLetter
-      FROM _queue_jobs
+      FROM _queue_messages
       ${where}
     `).get(...params) as any;
 
@@ -992,30 +1136,31 @@ export class SqliteQueueDriver implements IQueueDriver {
     const now = new Date().toISOString();
     if (queueName) {
       const row = this.db.prepare(`
-        SELECT MIN(availableAt) as nextAt FROM _queue_jobs
+        SELECT MIN(availableAt) as nextAt FROM _queue_messages
         WHERE queue = ? AND status = 'queued' AND availableAt > ?
       `).get(queueName, now) as any;
       return row?.nextAt || null;
     }
 
     const row = this.db.prepare(`
-      SELECT MIN(availableAt) as nextAt FROM _queue_jobs
+      SELECT MIN(availableAt) as nextAt FROM _queue_messages
       WHERE status = 'queued' AND availableAt > ?
     `).get(now) as any;
     return row?.nextAt || null;
   }
 
-  public async getQueuesWithPendingJobs(): Promise<string[]> {
+  public async getQueuesWithPendingMessages(): Promise<string[]> {
     this.ensureInit();
     const now = new Date().toISOString();
     const rows = this.db.prepare(`
-      SELECT DISTINCT queue FROM _queue_jobs
+      SELECT DISTINCT queue FROM _queue_messages
       WHERE status = 'queued' AND availableAt <= ?
     `).all(now) as Array<{ queue: string }>;
     return rows.map((r) => r.queue);
   }
 
   private mapRowToQueue(row: any): QueueConfig {
+    const isSystem = Boolean(row.isSystem) || Boolean(row.name && row.name.startsWith('_system:'));
     return {
       name: row.name,
       concurrency: Number(row.concurrency ?? 0),
@@ -1024,13 +1169,14 @@ export class SqliteQueueDriver implements IQueueDriver {
       backoffDelayMs: Number(row.backoffDelayMs ?? 1000),
       deadLetterQueue: row.deadLetterQueue || null,
       targetFunction: row.targetFunction || null,
-      isSystem: Boolean(row.isSystem),
+      isSystem,
+      strictOrder: Boolean(row.strictOrder),
       created: row.created,
       updated: row.updated,
     };
   }
 
-  private mapRowToJob<T = any>(row: any): QueueJob<T> {
+  private mapRowToMessage<T = any>(row: any): QueueMessage<T> {
     let payload: any = null;
     if (row.payload !== null && row.payload !== undefined) {
       try {
@@ -1065,8 +1211,10 @@ export class SqliteQueueDriver implements IQueueDriver {
       leaseExpiresAt: row.leaseExpiresAt || null,
       claimToken: row.claimToken || null,
       deduplicationId: row.deduplicationId || null,
-      originalJobId: row.originalJobId || null,
-      forwardedToJobId: row.forwardedToJobId || null,
+      originalMessageId: row.originalMessageId || null,
+      originalJobId: row.originalMessageId || null,
+      forwardedToMessageId: row.forwardedToMessageId || null,
+      forwardedToJobId: row.forwardedToMessageId || null,
       created: row.created,
       updated: row.updated,
       finishedAt: row.finishedAt || null,

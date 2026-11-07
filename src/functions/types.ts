@@ -1,4 +1,4 @@
-import { QueueJob, EnqueueJobDto, JobFailResult } from '../queue/types';
+import { QueueMessage, EnqueueMessageDto, MessageFailResult } from '../queue/types';
 
 export type FunctionAuthPolicy = 'public' | 'auth' | 'admin' | 'apiKey';
 export type FunctionTriggerType = 'http' | 'hook' | 'cron' | 'queue';
@@ -77,20 +77,20 @@ export interface FunctionQueueBridge {
   send<T = any>(
     queueName: string,
     payload: T,
-    options?: Omit<EnqueueJobDto<T>, 'queue' | 'payload'>
-  ): Promise<QueueJob<T>>;
+    options?: Omit<EnqueueMessageDto<T>, 'queue' | 'payload'>
+  ): Promise<QueueMessage<T>>;
   claim<T = any>(
     queueName: string,
     options?: { visibilityTimeoutSeconds?: number; limit?: number }
-  ): Promise<QueueJob<T>[]>;
-  complete(jobId: string, result?: any, claimToken?: string): Promise<boolean>;
+  ): Promise<QueueMessage<T>[]>;
+  complete(messageId: string, result?: any, claimToken?: string): Promise<boolean>;
   fail(
-    jobId: string,
+    messageId: string,
     error?: string,
     options?: { backoffDelayMs?: number; claimToken?: string }
-  ): Promise<JobFailResult>;
-  touch(jobId: string, extensionSeconds?: number, claimToken?: string): Promise<boolean>;
-  getJob<T = any>(jobId: string): Promise<QueueJob<T> | null>;
+  ): Promise<MessageFailResult>;
+  touch(messageId: string, extensionSeconds?: number, claimToken?: string): Promise<boolean>;
+  getMessage<T = any>(messageId: string): Promise<QueueMessage<T> | null>;
 }
 
 export interface FunctionSdkBridges {

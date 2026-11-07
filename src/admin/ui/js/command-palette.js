@@ -96,7 +96,7 @@ function getAllCommandPaletteItems() {
   {
     id: 'nav-queues',
     title: 'Queues Manager',
-    description: 'Configure message queues, serverless function workers, DLQs and inspect jobs',
+    description: 'Configure message queues, serverless function workers, DLQs and inspect messages',
     category: 'Navigation',
     badge: 'PAGE',
     icon: '📬',

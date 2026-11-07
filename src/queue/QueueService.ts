@@ -3,12 +3,12 @@ import { IQueueDriver } from './drivers/IQueueDriver';
 import {
   QueueConfig,
   CreateQueueDto,
-  QueueJob,
-  EnqueueJobDto,
-  JobFailResult,
-  JobHandler,
+  QueueMessage,
+  EnqueueMessageDto,
+  MessageFailResult,
+  MessageHandler,
   QueueStats,
-  GetJobsOptions,
+  GetMessagesOptions,
   ReclaimOrphanedOptions,
 } from './types';
 import { ConfigService } from '../core/config/ConfigService';
@@ -34,8 +34,8 @@ export interface QueueServiceOptions {
  * 2. Transient coordination sets (`drainingQueues`, `pendingWake`) that are empty when idle.
  */
 export class QueueService {
-  private handlers = new Map<string, JobHandler<any, any>>();
-  private prefixHandlers = new Map<string, JobHandler<any, any>>();
+  private handlers = new Map<string, MessageHandler<any, any>>();
+  private prefixHandlers = new Map<string, MessageHandler<any, any>>();
   private drainingQueues = new Set<string>();
   private pendingWake = new Set<string>();
 
@@ -91,7 +91,7 @@ export class QueueService {
     return this.resolveMemoryHandler(queueName) !== undefined;
   }
 
-  private resolveMemoryHandler(queueName: string): JobHandler<any, any> | undefined {
+  private resolveMemoryHandler(queueName: string): MessageHandler<any, any> | undefined {
     const exact = this.handlers.get(queueName);
     if (exact) return exact;
     for (const [prefix, handler] of this.prefixHandlers.entries()) {
@@ -221,7 +221,7 @@ export class QueueService {
   public async wakePendingQueuesFromStorage(): Promise<void> {
     if (!this.isDbAvailable()) return;
     try {
-      const pendingQueues = await this.driver.getQueuesWithPendingJobs();
+      const pendingQueues = await this.driver.getQueuesWithPendingMessages();
       for (const queueName of pendingQueues) {
         this.wakeWorker(queueName);
       }
@@ -276,8 +276,8 @@ export class QueueService {
     let normalizedMaxAttempts: number | undefined = undefined;
     if (dto.maxAttempts !== undefined && dto.maxAttempts !== null && (dto.maxAttempts as any) !== '') {
       const parsed = typeof dto.maxAttempts === 'number' ? dto.maxAttempts : parseInt(String(dto.maxAttempts), 10);
-      if (isNaN(parsed) || !Number.isInteger(parsed) || parsed < 1) {
-        throw new AppError('Queue maxAttempts must be an integer >= 1', 400);
+      if (isNaN(parsed) || !Number.isInteger(parsed) || parsed < 0) {
+        throw new AppError('Queue maxAttempts must be an integer >= 0 (0 for unlimited retries)', 400);
       }
       normalizedMaxAttempts = parsed;
     }
@@ -350,7 +350,7 @@ export class QueueService {
    */
   public registerWorker<T = any, R = any>(
     queueName: string,
-    handler: JobHandler<T, R>,
+    handler: MessageHandler<T, R>,
     options?: Partial<Omit<CreateQueueDto, 'name'>>
   ): void {
     this.handlers.set(queueName, handler);
@@ -374,7 +374,7 @@ export class QueueService {
    * Registers a single pattern/prefix worker handler (e.g. `_system:flow:`) so 10,000+ dynamic
    * queues sharing a prefix are handled by 1 handler entry with O(1) memory overhead.
    */
-  public registerPrefixWorker<T = any, R = any>(prefix: string, handler: JobHandler<T, R>): void {
+  public registerPrefixWorker<T = any, R = any>(prefix: string, handler: MessageHandler<T, R>): void {
     this.prefixHandlers.set(prefix, handler);
   }
 
@@ -413,11 +413,11 @@ export class QueueService {
   // ==========================================
 
   public async send<T = any>(
-    queueOrJob: string | EnqueueJobDto<T>,
+    queueOrJob: string | EnqueueMessageDto<T>,
     payload?: T,
-    options?: Omit<EnqueueJobDto<T>, 'queue' | 'payload'>
-  ): Promise<QueueJob<T>> {
-    const dto: EnqueueJobDto<T> =
+    options?: Omit<EnqueueMessageDto<T>, 'queue' | 'payload'>
+  ): Promise<QueueMessage<T>> {
+    const dto: EnqueueMessageDto<T> =
       typeof queueOrJob === 'string'
         ? {
             ...options,
@@ -443,10 +443,10 @@ export class QueueService {
   }
 
   public async sendBatch<T = any>(
-    queueOrJobs: string | EnqueueJobDto<T>[],
-    batchDtos?: Array<Omit<EnqueueJobDto<T>, 'queue'> & { queue?: string }>
-  ): Promise<QueueJob<T>[]> {
-    const jobs: EnqueueJobDto<T>[] =
+    queueOrJobs: string | EnqueueMessageDto<T>[],
+    batchDtos?: Array<Omit<EnqueueMessageDto<T>, 'queue'> & { queue?: string }>
+  ): Promise<QueueMessage<T>[]> {
+    const jobs: EnqueueMessageDto<T>[] =
       typeof queueOrJobs === 'string'
         ? (batchDtos || []).map((item) => ({
             ...item,
@@ -487,28 +487,33 @@ export class QueueService {
     visibilityTimeoutSeconds = 30,
     limit = 1,
     claimedBy = this.workerId
-  ): Promise<QueueJob<T>[]> {
+  ): Promise<QueueMessage<T>[]> {
     return this.driver.claim<T>(queueName, claimedBy, visibilityTimeoutSeconds, limit);
   }
 
-  public async touch(jobId: string, extensionSeconds = 30, claimToken?: string | null): Promise<boolean> {
+  public async touch(messageId: string, extensionSeconds = 30, claimToken?: string | null): Promise<boolean> {
     if (!this.isDbAvailable()) return false;
-    return this.driver.touch(jobId, extensionSeconds, claimToken);
+    return this.driver.touch(messageId, extensionSeconds, claimToken);
   }
 
-  public async complete(jobId: string, result?: any, claimToken?: string | null): Promise<boolean> {
+  public async complete(messageId: string, result?: any, claimToken?: string | null): Promise<boolean> {
     if (!this.isDbAvailable()) return false;
-    return this.driver.complete(jobId, result, claimToken);
+    const job = await this.driver.getMessage(messageId);
+    const ok = await this.driver.complete(messageId, result, claimToken);
+    if (ok && job) {
+      this.wakeWorker(job.queue);
+    }
+    return ok;
   }
 
-  public async fail(jobId: string, error: string, backoffDelayMs?: number, claimToken?: string | null): Promise<JobFailResult> {
+  public async fail(messageId: string, error: string, backoffDelayMs?: number, claimToken?: string | null): Promise<MessageFailResult> {
     if (!this.isDbAvailable()) {
       return { retried: false, deadLettered: false, attempts: 0 };
     }
-    const job = await this.driver.getJob(jobId);
-    const res = await this.driver.fail(jobId, error, backoffDelayMs, claimToken);
+    const job = await this.driver.getMessage(messageId);
+    const res = await this.driver.fail(messageId, error, backoffDelayMs, claimToken);
     if (res.retried) {
-      const updatedJob = await this.driver.getJob(jobId);
+      const updatedJob = await this.driver.getMessage(messageId);
       if (updatedJob) {
         const availMs = new Date(updatedJob.availableAt).getTime();
         if (availMs <= Date.now()) {
@@ -526,19 +531,46 @@ export class QueueService {
     return res;
   }
 
-  public async cancel(jobId: string): Promise<boolean> {
+  public async cancel(messageId: string): Promise<boolean> {
     if (!this.isDbAvailable()) return false;
-    return this.driver.cancel(jobId);
+    return this.driver.cancel(messageId);
   }
 
-  public async defer(jobId: string, delayMs = 250, reason?: string): Promise<boolean> {
+  public async deleteMessage(messageId: string): Promise<boolean> {
+    return this.cancel(messageId);
+  }
+
+  public async forceSkipMessage(messageId: string, reason = 'Force-skipped to DLQ by operator'): Promise<boolean> {
     if (!this.isDbAvailable()) return false;
-    return this.driver.defer(jobId, delayMs, reason);
+    const msg = await this.driver.getMessage(messageId);
+    if (!msg) return false;
+    const ok = await this.driver.forceDeadLetter(messageId, reason);
+    if (ok) {
+      this.wakeWorker(msg.queue);
+      const cfg = await this.driver.getQueue(msg.queue);
+      if (cfg?.deadLetterQueue) {
+        this.wakeWorker(cfg.deadLetterQueue);
+      }
+    }
+    return ok;
+  }
+
+  public async forceDeadLetter(messageId: string, reason?: string): Promise<boolean> {
+    return this.forceSkipMessage(messageId, reason);
+  }
+
+  public async defer(messageId: string, delayMs = 250, reason?: string): Promise<boolean> {
+    if (!this.isDbAvailable()) return false;
+    return this.driver.defer(messageId, delayMs, reason);
   }
 
   public async retryDeadLetterJobs(queueName: string, limit = 100): Promise<number> {
+    return this.retryDeadLetterMessages(queueName, limit);
+  }
+
+  public async retryDeadLetterMessages(queueName: string, limit = 100): Promise<number> {
     const queuesToWake = new Set<string>([queueName]);
-    const count = await this.driver.retryDeadLetterJobs(queueName, limit, (q) => {
+    const count = await this.driver.retryDeadLetterMessages(queueName, limit, (q) => {
       queuesToWake.add(q);
     });
     if (count > 0) {
@@ -550,9 +582,13 @@ export class QueueService {
   }
 
   public async retryJob(jobId: string): Promise<boolean> {
+    return this.retryMessage(jobId);
+  }
+
+  public async retryMessage(messageId: string): Promise<boolean> {
     if (!this.isDbAvailable()) return false;
     const queuesToWake = new Set<string>();
-    const ok = await this.driver.retryJob(jobId, (queue) => {
+    const ok = await this.driver.retryMessage(messageId, (queue) => {
       queuesToWake.add(queue);
     });
     if (ok) {
@@ -596,12 +632,14 @@ export class QueueService {
     return this.driver.purge(queueName, status);
   }
 
-  public async getJob<T = any>(jobId: string): Promise<QueueJob<T> | null> {
-    return this.driver.getJob<T>(jobId);
+  public async getJob<T = any>(jobId: string): Promise<QueueMessage<T> | null> { return this.getMessage<T>(jobId); }
+  public async getJobs<T = any>(options: GetMessagesOptions = {}): Promise<{ items: QueueMessage<T>[]; total: number }> { return this.getMessages<T>(options); }
+  public async getMessage<T = any>(messageId: string): Promise<QueueMessage<T> | null> {
+    return this.driver.getMessage<T>(messageId);
   }
 
-  public async getJobs<T = any>(options: GetJobsOptions = {}): Promise<{ items: QueueJob<T>[]; total: number }> {
-    return this.driver.getJobs<T>(options);
+  public async getMessages<T = any>(options: GetMessagesOptions = {}): Promise<{ items: QueueMessage<T>[]; total: number }> {
+    return this.driver.getMessages<T>(options);
   }
 
   public async getStats(queueName?: string, includeSystem = false): Promise<QueueStats> {
@@ -660,7 +698,7 @@ export class QueueService {
       }
 
       for (const job of claimed) {
-        void this.executeClaimedJob(queueName, job, config, memoryHandler);
+        void this.executeClaimedMessage(queueName, job, config, memoryHandler);
       }
     } catch (err: any) {
       if (!this.isDisposed && this.isDbAvailable()) {
@@ -675,11 +713,11 @@ export class QueueService {
     }
   }
 
-  private async executeClaimedJob(
+  private async executeClaimedMessage(
     queueName: string,
-    job: QueueJob,
+    job: QueueMessage,
     config?: QueueConfig,
-    memoryHandler?: JobHandler<any, any>
+    memoryHandler?: MessageHandler<any, any>
   ): Promise<void> {
     try {
       const handler = memoryHandler || this.resolveMemoryHandler(queueName);
@@ -693,7 +731,7 @@ export class QueueService {
           throw new Error(`FunctionService is not available to execute targetFunction '${config.targetFunction}'`);
         }
 
-        const fnResult = await this.functionService.executeQueueJob(
+        const fnResult = await this.functionService.executeQueueMessage(
           config.targetFunction,
           job,
           { id: `job:${job.id}`, isAdmin: false, queue: queueName }

@@ -607,11 +607,11 @@ export class HttpServer {
       app.get('/api/apps/:appId/queues/stats', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.getStats(req, reply)
       );
-      app.get('/api/apps/:appId/queues/jobs', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.getAllJobs(req, reply)
+      app.get('/api/apps/:appId/queues/messages', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getAllMessages(req, reply)
       );
-      app.get('/api/apps/:appId/queues/jobs/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.getJobById(req, reply)
+      app.get('/api/apps/:appId/queues/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getMessageById(req, reply)
       );
       app.post('/api/apps/:appId/queues/cleanup', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.cleanupQueues(req, reply)
@@ -631,56 +631,23 @@ export class HttpServer {
       app.get('/api/apps/:appId/queues/:name/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.getMessage(req, reply)
       );
-      app.get('/api/apps/:appId/queues/:name/jobs/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.getMessage(req, reply)
-      );
       app.post('/api/apps/:appId/queues/:name/messages/:id/ack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.ackMessage(req, reply)
-      );
-      app.post('/api/apps/:appId/queues/:name/jobs/:id/ack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.ackMessage(req, reply)
       );
       app.post('/api/apps/:appId/queues/:name/messages/:id/nack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.nackMessage(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/jobs/:id/nack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.nackMessage(req, reply)
-      );
       app.post('/api/apps/:appId/queues/:name/messages/:id/touch', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.touchMessage(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/jobs/:id/touch', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.touchMessage(req, reply)
+      app.post('/api/apps/:appId/queues/:name/messages/:id/skip', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.forceSkipMessage(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/jobs/:id/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.retryJob(req, reply)
-      );
-      app.post('/api/apps/:appId/queues/:name/jobs/:id/requeue', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.retryJob(req, reply)
-      );
-      app.post('/api/apps/:appId/queues/jobs/:id/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.retryJob(req, reply)
-      );
-      app.post('/api/apps/:appId/queues/jobs/:id/requeue', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.retryJob(req, reply)
+      app.post('/api/apps/:appId/queues/:name/messages/:id/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.retryMessage(req, reply)
       );
       app.delete('/api/apps/:appId/queues/:name/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.deleteJob(req, reply)
-      );
-      app.delete('/api/apps/:appId/queues/:name/jobs/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.deleteJob(req, reply)
-      );
-      app.delete('/api/apps/:appId/queues/jobs/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.deleteJob(req, reply)
-      );
-      app.post('/api/apps/:appId/queues/:name/messages/:id/cancel', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.deleteJob(req, reply)
-      );
-      app.post('/api/apps/:appId/queues/:name/jobs/:id/cancel', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.deleteJob(req, reply)
-      );
-      app.post('/api/apps/:appId/queues/jobs/:id/cancel', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.deleteJob(req, reply)
+        this.queueController!.deleteMessage(req, reply)
       );
       app.post('/api/apps/:appId/queues/:name/dlq/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.retryDlq(req, reply)
@@ -1046,11 +1013,11 @@ export class HttpServer {
       app.get('/api/queues/stats', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.getStats(req, reply)
       );
-      app.get('/api/queues/jobs', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.getAllJobs(req, reply)
+      app.get('/api/queues/messages', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getAllMessages(req, reply)
       );
-      app.get('/api/queues/jobs/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.getJobById(req, reply)
+      app.get('/api/queues/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.getMessageById(req, reply)
       );
       app.post('/api/queues/cleanup', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.cleanupQueues(req, reply)
@@ -1070,56 +1037,23 @@ export class HttpServer {
       app.get('/api/queues/:name/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.getMessage(req, reply)
       );
-      app.get('/api/queues/:name/jobs/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.getMessage(req, reply)
-      );
       app.post('/api/queues/:name/messages/:id/ack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.ackMessage(req, reply)
-      );
-      app.post('/api/queues/:name/jobs/:id/ack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.ackMessage(req, reply)
       );
       app.post('/api/queues/:name/messages/:id/nack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.nackMessage(req, reply)
       );
-      app.post('/api/queues/:name/jobs/:id/nack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.nackMessage(req, reply)
-      );
       app.post('/api/queues/:name/messages/:id/touch', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.touchMessage(req, reply)
       );
-      app.post('/api/queues/:name/jobs/:id/touch', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.touchMessage(req, reply)
+      app.post('/api/queues/:name/messages/:id/skip', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.forceSkipMessage(req, reply)
       );
-      app.post('/api/queues/:name/jobs/:id/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.retryJob(req, reply)
-      );
-      app.post('/api/queues/:name/jobs/:id/requeue', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.retryJob(req, reply)
-      );
-      app.post('/api/queues/jobs/:id/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.retryJob(req, reply)
-      );
-      app.post('/api/queues/jobs/:id/requeue', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.retryJob(req, reply)
+      app.post('/api/queues/:name/messages/:id/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+        this.queueController!.retryMessage(req, reply)
       );
       app.delete('/api/queues/:name/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.deleteJob(req, reply)
-      );
-      app.delete('/api/queues/:name/jobs/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.deleteJob(req, reply)
-      );
-      app.delete('/api/queues/jobs/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.deleteJob(req, reply)
-      );
-      app.post('/api/queues/:name/messages/:id/cancel', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.deleteJob(req, reply)
-      );
-      app.post('/api/queues/:name/jobs/:id/cancel', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.deleteJob(req, reply)
-      );
-      app.post('/api/queues/jobs/:id/cancel', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
-        this.queueController!.deleteJob(req, reply)
+        this.queueController!.deleteMessage(req, reply)
       );
       app.post('/api/queues/:name/dlq/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
         this.queueController!.retryDlq(req, reply)
