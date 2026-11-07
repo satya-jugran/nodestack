@@ -77,7 +77,7 @@ export class SqliteQueueDriver implements IQueueDriver {
       CREATE INDEX IF NOT EXISTS idx_qmsg_group ON _queue_messages(groupKey, status);
       CREATE INDEX IF NOT EXISTS idx_qmsg_cleanup ON _queue_messages(status, finishedAt);
       CREATE INDEX IF NOT EXISTS idx_qmsg_dedup ON _queue_messages(queue, deduplicationId);
-      CREATE INDEX IF NOT EXISTS idx_qmsg_strict_hol ON _queue_messages(queue, groupKey, status, priority DESC, created ASC);
+      CREATE INDEX IF NOT EXISTS idx_qmsg_strict_hol ON _queue_messages(queue, groupKey, status, created ASC);
     `);
 
     // Ensure strictOrder and isSystem columns exist on pre-existing _queues table
@@ -317,9 +317,11 @@ export class SqliteQueueDriver implements IQueueDriver {
       let candidates: Array<{ id: string }>;
       if (queueRow && Boolean(queueRow.strictOrder)) {
         // Strict ordering: Partition by COALESCE(groupKey, '')
-        // Only rn = 1 (the single earliest unfinished job: priority DESC, created ASC, rowid ASC)
+        // Only rn = 1 (the single earliest unfinished message: created ASC, rowid ASC)
         // is eligible. If rn = 1 is currently 'processing' or in retry backoff (availableAt > now),
-        // the entire partition is blocked and no subsequent job in that group can be claimed.
+        // the entire partition is blocked and no subsequent message in that group can be claimed.
+        // Within a strict partition, messages are strictly FIFO; later messages cannot overtake
+        // earlier messages even with higher priority.
         candidates = this.db.prepare(`
           WITH partition_hol AS (
             SELECT
@@ -331,7 +333,7 @@ export class SqliteQueueDriver implements IQueueDriver {
               rowid as rid,
               ROW_NUMBER() OVER (
                 PARTITION BY COALESCE(groupKey, '')
-                ORDER BY priority DESC, created ASC, rowid ASC
+                ORDER BY created ASC, rowid ASC
               ) as rn
             FROM _queue_messages
             WHERE queue = ?
@@ -341,7 +343,7 @@ export class SqliteQueueDriver implements IQueueDriver {
           WHERE rn = 1
             AND status = 'queued'
             AND availableAt <= ?
-          ORDER BY priority DESC, created ASC, rid ASC
+          ORDER BY created ASC, rid ASC
           LIMIT ?
         `).all(queueName, now, effectiveLimit) as Array<{ id: string }>;
       } else {

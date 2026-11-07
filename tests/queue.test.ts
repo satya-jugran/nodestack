@@ -2264,6 +2264,44 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       await app.queue.complete(m3.id);
     });
 
+    it('should strictly preserve FIFO enqueue order even if later messages have higher priority in the same partition', async () => {
+      await app.queue.upsertQueue({
+        name: 'strict-priority-fifo-test',
+        strictOrder: true,
+      });
+
+      // Send m1 with low priority (0)
+      const m1 = await app.queue.send('strict-priority-fifo-test', { seq: 1 }, { priority: 0 });
+      // Send m2 with high priority (10) after m1
+      const m2 = await app.queue.send('strict-priority-fifo-test', { seq: 2 }, { priority: 10 });
+      // Send m3 with medium priority (5) after m2
+      const m3 = await app.queue.send('strict-priority-fifo-test', { seq: 3 }, { priority: 5 });
+
+      // First claim: must return m1 (the earliest created message), NOT m2 despite m2 having higher priority
+      const claimed1 = await app.queue.claim('strict-priority-fifo-test', 30, 5);
+      expect(claimed1.length).toBe(1);
+      expect(claimed1[0].id).toBe(m1.id);
+      expect(claimed1[0].priority).toBe(0);
+
+      // Complete m1
+      await app.queue.complete(m1.id);
+
+      // Second claim: must return m2 (earlier than m3)
+      const claimed2 = await app.queue.claim('strict-priority-fifo-test', 30, 5);
+      expect(claimed2.length).toBe(1);
+      expect(claimed2[0].id).toBe(m2.id);
+
+      // Complete m2
+      await app.queue.complete(m2.id);
+
+      // Third claim: must return m3
+      const claimed3 = await app.queue.claim('strict-priority-fifo-test', 30, 5);
+      expect(claimed3.length).toBe(1);
+      expect(claimed3[0].id).toBe(m3.id);
+
+      await app.queue.complete(m3.id);
+    });
+
     it('should unblock subsequent jobs when a poison job exhausts maxAttempts and moves to dead_letter', async () => {
       await app.queue.upsertQueue({
         name: 'strict-poison-test',
