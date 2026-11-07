@@ -120,7 +120,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
                   (typeof payload.options === 'string'
                     ? payload.options
                     : payload.options?.claimToken);
-                result = await hostServices.sdk.queue.complete(payload.jobId, payload.result, claimToken);
+                result = await hostServices.sdk.queue.complete(payload.messageId || payload.jobId, payload.result, claimToken);
               } else if (callType === 'queue.fail') {
                 if (!hostServices.sdk.queue) {
                   throw new Error('QueueService not available in function context');
@@ -134,7 +134,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
                 } else if (typeof payload.options === 'string') {
                   failOptions.claimToken = payload.options;
                 }
-                result = await hostServices.sdk.queue.fail(payload.jobId, payload.error, failOptions);
+                result = await hostServices.sdk.queue.fail(payload.messageId || payload.jobId, payload.error, failOptions);
               } else if (callType === 'queue.touch') {
                 if (!hostServices.sdk.queue) {
                   throw new Error('QueueService not available in function context');
@@ -144,7 +144,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
                   (typeof payload.options === 'string'
                     ? payload.options
                     : payload.options?.claimToken);
-                result = await hostServices.sdk.queue.touch(payload.jobId, payload.extensionSeconds, claimToken);
+                result = await hostServices.sdk.queue.touch(payload.messageId || payload.jobId, payload.extensionSeconds, claimToken);
               } else if (callType === 'queue.getMessage' || callType === 'queue.getJob') {
                 if (!hostServices.sdk.queue) {
                   throw new Error('QueueService not available in function context');
@@ -281,10 +281,10 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
                 }
                 return hostCall('queue.claim', { queue: first, options: second });
               },
-              complete: function(jobId, result, claimToken) {
-                return hostCall('queue.complete', { jobId: jobId, result: result, claimToken: claimToken });
+              complete: function(messageId, result, claimToken) {
+                return hostCall('queue.complete', { messageId: messageId, jobId: messageId, result: result, claimToken: claimToken });
               },
-              fail: function(jobId, error, opts, claimToken) {
+              fail: function(messageId, error, opts, claimToken) {
                 var options = opts;
                 var token = claimToken;
                 if (typeof opts === 'string') {
@@ -297,19 +297,23 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
                   options = { claimToken: token };
                 }
                 return hostCall('queue.fail', {
-                  jobId: jobId,
+                  messageId: messageId,
+                  jobId: messageId,
                   error: error,
                   options: options,
                   claimToken: token || (options && options.claimToken)
                 });
               },
-              touch: function(jobId, extensionSeconds, claimToken) {
+              touch: function(messageId, extensionSeconds, claimToken) {
                 var ext = typeof extensionSeconds === 'number' ? extensionSeconds : undefined;
                 var token = typeof extensionSeconds === 'string' ? extensionSeconds : claimToken;
-                return hostCall('queue.touch', { jobId: jobId, extensionSeconds: ext, claimToken: token });
+                return hostCall('queue.touch', { messageId: messageId, jobId: messageId, extensionSeconds: ext, claimToken: token });
+              },
+              getMessage: function(messageId) {
+                return hostCall('queue.getMessage', { messageId: messageId, jobId: messageId });
               },
               getJob: function(jobId) {
-                return hostCall('queue.getJob', { jobId: jobId });
+                return hostCall('queue.getMessage', { messageId: jobId, jobId: jobId });
               }
             };
           }

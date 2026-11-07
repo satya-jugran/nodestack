@@ -714,11 +714,13 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
               value: context.request.body.value
             }, { priority: 7 });
 
-            const fetched = await core.sdk.queue('producer-target-queue').getJob(enqueued.id);
+            const fetched = await core.sdk.queue('producer-target-queue').getMessage(enqueued.id);
+            const fetchedViaAlias = await core.sdk.queue('producer-target-queue').getJob(enqueued.id);
             return {
               enqueuedId: enqueued.id,
               fetchedPriority: fetched.priority,
-              fetchedPayload: fetched.payload
+              fetchedPayload: fetched.payload,
+              aliasMatches: fetchedViaAlias?.id === fetched?.id
             };
           }
         `,
@@ -744,6 +746,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(execResult.body.enqueuedId).toBeDefined();
       expect(execResult.body.fetchedPriority).toBe(7);
       expect(execResult.body.fetchedPayload).toEqual({ fromSandbox: true, value: 42 });
+      expect(execResult.body.aliasMatches).toBe(true);
 
       // Also verify that QuickJS sandbox blocks _system:* queues
       app.functions.createFunction({
@@ -793,8 +796,8 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
             if (op === 'fail') {
               return await core.sdk.queue('custom').fail(jobId, 'hack fail');
             }
-            if (op === 'getJob') {
-              return await core.sdk.queue('custom').getJob(jobId);
+            if (op === 'getMessage' || op === 'getJob') {
+              return await core.sdk.queue('custom').getMessage(jobId);
             }
             return { ok: true };
           }
@@ -842,16 +845,27 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(failRes.statusCode).toBe(500);
       expect(JSON.stringify(failRes.error || failRes.body)).toMatch(/reserved _system:\* queues/i);
 
-      // getJob() on _system:* job must return null (redacted)
+      // getMessage() on _system:* job must return null (redacted)
       const getRes = await app.functions.executeFunction('system-tamper-fn', {
+        method: 'POST',
+        path: '/api/functions/system-tamper-fn',
+        headers: {},
+        query: {},
+        body: { op: 'getMessage', jobId: systemJob.id },
+      });
+      expect(getRes.statusCode).toBe(200);
+      expect(getRes.body).toBeNull();
+
+      // getJob() alias on _system:* job must also return null (redacted)
+      const getJobRes = await app.functions.executeFunction('system-tamper-fn', {
         method: 'POST',
         path: '/api/functions/system-tamper-fn',
         headers: {},
         query: {},
         body: { op: 'getJob', jobId: systemJob.id },
       });
-      expect(getRes.statusCode).toBe(200);
-      expect(getRes.body).toBeNull();
+      expect(getJobRes.statusCode).toBe(200);
+      expect(getJobRes.body).toBeNull();
 
       // Ensure the system job remained completely intact and queued
       const untouchedJob = await app.queue.getJob(systemJob.id);
