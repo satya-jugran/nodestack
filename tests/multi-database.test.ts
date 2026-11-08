@@ -988,8 +988,11 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       // 3. Subsequent synchronous get finds it in appCache
       expect(appManager.get('tenant-x')).toBe(tenantScope);
 
-      // 4. NodeStack construction with customDriver does not fail during construction
-      expect(() => new NodeStack({ customDriver: mockAsyncDriver })).not.toThrow();
+      // 4. NodeStack construction with customDriver keeps control plane on SQLite while data plane uses customDriver
+      const stack = new NodeStack({ customDriver: mockAsyncDriver });
+      expect(stack.defaultApp).toBeDefined();
+      expect(stack.registry.getDriver() instanceof NodeSqliteDriver).toBe(true);
+      expect(stack.defaultApp.db.getRootDriver()).toBe(mockAsyncDriver);
     });
   });
 });

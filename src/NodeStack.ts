@@ -127,7 +127,7 @@ export class NodeStack {
     this.container.bindInstance(TOKENS.ConfigService, this.config);
 
     // 1.2 System Registry & Multi-App Orchestrator
-    this.registry = new AppRegistry(this.config, options.systemDriver || options.customDriver);
+    this.registry = new AppRegistry(this.config, options.systemDriver);
     this.container.bindInstance(TOKENS.AppRegistry, this.registry);
 
     // 1.25 Control Plane Database & Config
@@ -475,7 +475,10 @@ export class NodeStack {
 
   // --- Start & Stop Application ---
   public async start(port = this.config.port, host = this.config.host): Promise<string> {
-    // 0. Ensure active database driver from control plane SQLite is initialized
+    // 0. Ensure system registry tables are initialized
+    await this.registry.init();
+
+    // 0.1 Ensure active database driver from control plane SQLite is initialized
     await this.loadActiveDatabaseDriver();
 
     // 1. Ensure all plugins have completed asynchronous initialization
