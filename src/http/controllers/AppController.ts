@@ -20,7 +20,7 @@ export class AppController extends BaseController {
     req: FastifyRequest<{ Params: { appId: string } }>,
     reply: FastifyReply
   ): Promise<void> {
-    const scope = this.appManager.get(req.params.appId);
+    const scope = await this.appManager.getAsync(req.params.appId);
     this.ok(reply, scope.app);
   }
 

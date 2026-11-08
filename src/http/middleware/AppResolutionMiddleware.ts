@@ -59,7 +59,7 @@ export class AppResolutionMiddleware {
       }
 
       try {
-        const scope = this.appManager.get(targetApp.trim());
+        const scope = await this.appManager.getAsync(targetApp.trim());
         (req as any).appScope = scope;
         (req as any).appContext = {
           app: scope.app,
@@ -70,7 +70,7 @@ export class AppResolutionMiddleware {
         // For UI and Docs viewer routes, gracefully fallback to default app rather than returning raw 404 JSON
         if (req.url && (req.url.startsWith('/_/docs') || req.url.startsWith('/_/'))) {
           try {
-            const fallbackScope = this.appManager.get('default');
+            const fallbackScope = await this.appManager.getAsync('default');
             (req as any).appScope = fallbackScope;
             (req as any).appContext = {
               app: fallbackScope.app,

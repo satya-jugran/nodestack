@@ -28,6 +28,8 @@ import { QueueService } from '../queue/QueueService';
 import { SqliteQueueDriver } from '../queue/drivers/SqliteQueueDriver';
 import { AppRegistry } from './AppRegistry';
 import { IDatabaseDriver } from '../database/drivers/IDatabaseDriver';
+import { PostgresDriver } from '../database/drivers/PostgresDriver';
+import { MssqlDriver } from '../database/drivers/MssqlDriver';
 
 export class AppScope {
   public readonly app: AppModel;
@@ -272,9 +274,7 @@ export class AppScope {
       if (app.slug === 'default' || app.isDefault) {
         db = new DatabaseService(config, customDriver, appDbPath);
       } else if (customDriver.dialect.name !== 'sqlite') {
-        if (customDriver.dialect.name === 'postgres') {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { PostgresDriver } = require('../database/drivers/PostgresDriver');
+        if (customDriver.dialect.name === 'postgres' && (customDriver as any).pool) {
           const schemaDriver = new PostgresDriver({
             pool: (customDriver as any).pool,
             replicaPools: (customDriver as any).replicaPools,
@@ -283,9 +283,7 @@ export class AppScope {
             isSharedPool: true,
           });
           db = new DatabaseService(config, schemaDriver, appDbPath);
-        } else if (customDriver.dialect.name === 'mssql') {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { MssqlDriver } = require('../database/drivers/MssqlDriver');
+        } else if (customDriver.dialect.name === 'mssql' && (customDriver as any).pool) {
           const schemaDriver = new MssqlDriver({
             connectionPool: (customDriver as any).pool,
             replicaPools: (customDriver as any).replicaPools,
@@ -294,7 +292,7 @@ export class AppScope {
           });
           db = new DatabaseService(config, schemaDriver, appDbPath);
         } else {
-          db = new DatabaseService(config, undefined, appDbPath);
+          db = new DatabaseService(config, customDriver, appDbPath);
         }
       } else {
         db = new DatabaseService(config, undefined, appDbPath);

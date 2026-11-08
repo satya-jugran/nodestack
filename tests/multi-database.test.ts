@@ -10,6 +10,7 @@ import { SystemMigrations } from '../src/database/migrations/SystemMigrations';
 import { NodeSqliteDriver } from '../src/database/drivers/NodeSqliteDriver';
 import { PostgresDriver } from '../src/database/drivers/PostgresDriver';
 import { MssqlDriver } from '../src/database/drivers/MssqlDriver';
+import { PostgresDialect } from '../src/database/dialects/PostgresDialect';
 import { FtsService } from '../src/records/FtsService';
 import { NodeStack } from '../src/NodeStack';
 import { AppManager } from '../src/apps/AppManager';
@@ -924,6 +925,71 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(fs.existsSync(path.join(sqliteTestDir, 'default', 'data.db'))).toBe(false);
 
       await appManager.closeAllAsync();
+    });
+
+    // 6. Non-SQLite custom driver resolution for default and tenant apps via get / getAsync
+    it('Review finding: should resolve default app and tenant apps when custom async driver is supplied without SQLite sync error', async () => {
+      const mockRows: any[] = [
+        {
+          id: 'app_tenant_x',
+          name: 'Tenant X',
+          slug: 'tenant-x',
+          description: '',
+          icon: 'box',
+          isDefault: 0,
+          created: new Date().toISOString(),
+          updated: new Date().toISOString(),
+        },
+      ];
+
+      const mockAsyncDriver: any = {
+        dialect: new PostgresDialect(),
+        prepare: (sql: string) => ({
+          get: async (idOrSlug: string) => {
+            if (idOrSlug === 'default' || idOrSlug === 'app_default') {
+              return {
+                id: 'app_default',
+                name: 'Default App',
+                slug: 'default',
+                description: '',
+                icon: 'zap',
+                isDefault: 1,
+                created: new Date().toISOString(),
+                updated: new Date().toISOString(),
+              };
+            }
+            return mockRows.find((r) => r.id === idOrSlug || r.slug === idOrSlug);
+          },
+          all: async () => mockRows,
+          run: async () => ({ changes: 0, lastInsertRowid: 0 }),
+        }),
+        exec: async () => {},
+        transaction: async (fn: any) => fn(mockAsyncDriver),
+        withSchema: async (s: string) => mockAsyncDriver,
+        ping: async () => true,
+        close: async () => {},
+        isOpen: () => true,
+      };
+
+      const config = new ConfigService();
+      const registry = new AppRegistry(config, mockAsyncDriver);
+      const appManager = new AppManager(registry, config, mockAsyncDriver);
+
+      // 1. Synchronous get('default') must not throw "Application 'default' not found"
+      expect(() => appManager.get('default')).not.toThrow();
+      const defaultScope = appManager.get('default');
+      expect(defaultScope.app.slug).toBe('default');
+
+      // 2. Asynchronous getAsync for tenant app must resolve via registry.getApp()
+      const tenantScope = await appManager.getAsync('tenant-x');
+      expect(tenantScope).toBeDefined();
+      expect(tenantScope.app.slug).toBe('tenant-x');
+
+      // 3. Subsequent synchronous get finds it in appCache
+      expect(appManager.get('tenant-x')).toBe(tenantScope);
+
+      // 4. NodeStack construction with customDriver does not fail during construction
+      expect(() => new NodeStack({ customDriver: mockAsyncDriver })).not.toThrow();
     });
   });
 });

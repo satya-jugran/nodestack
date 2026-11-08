@@ -116,7 +116,21 @@ export class AppRegistry {
       const rows = this.driver.prepareSync('SELECT * FROM _apps ORDER BY isDefault DESC, name ASC').all<any>();
       return rows.map((r) => this.mapRow(r));
     }
-    return [];
+    return [this.getDefaultAppModel()];
+  }
+
+  public getDefaultAppModel(): AppModel {
+    const now = new Date().toISOString();
+    return {
+      id: 'app_default',
+      name: 'Default App',
+      slug: 'default',
+      description: 'Default system application',
+      icon: 'zap',
+      isDefault: true,
+      created: now,
+      updated: now,
+    };
   }
 
   public getAppSync(slugOrId: string): AppModel | undefined {
@@ -124,6 +138,9 @@ export class AppRegistry {
       const row = this.driver.prepareSync('SELECT * FROM _apps WHERE id = ? OR slug = ?').get<any>(slugOrId, slugOrId);
       if (!row) return undefined;
       return this.mapRow(row);
+    }
+    if (slugOrId === 'default' || slugOrId === 'app_default') {
+      return this.getDefaultAppModel();
     }
     return undefined;
   }

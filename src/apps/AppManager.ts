@@ -294,7 +294,13 @@ export class AppManager {
   }
 
   public has(slugOrId: string): boolean {
-    return Boolean(this.registry.getAppSync(slugOrId));
+    return this.appCache.has(slugOrId) || Boolean(this.registry.getAppSync(slugOrId));
+  }
+
+  public async hasAsync(slugOrId: string): Promise<boolean> {
+    if (this.appCache.has(slugOrId)) return true;
+    const app = await this.registry.getApp(slugOrId);
+    return Boolean(app);
   }
 
   public get(slugOrId?: string): AppScope {
@@ -304,11 +310,45 @@ export class AppManager {
       return this.appCache.get(target)!;
     }
 
-    const appModel = this.registry.getAppSync(target);
+    let appModel = this.registry.getAppSync(target);
     if (!appModel) {
-      throw new NotFoundError(`Application '${target}' not found`);
+      if (target === 'default' || target === 'app_default') {
+        appModel = this.registry.getDefaultAppModel();
+      } else {
+        throw new NotFoundError(`Application '${target}' not found`);
+      }
     }
 
+    return this.createAndCacheScope(appModel);
+  }
+
+  public async getAsync(slugOrId?: string): Promise<AppScope> {
+    const target = (slugOrId || 'default').trim();
+
+    if (this.appCache.has(target)) {
+      return this.appCache.get(target)!;
+    }
+
+    let appModel: AppModel | undefined;
+    const lookup = this.registry.getApp(target);
+    if (lookup && typeof (lookup as any).then === 'function') {
+      appModel = await lookup;
+    } else {
+      appModel = lookup;
+    }
+
+    if (!appModel) {
+      if (target === 'default' || target === 'app_default') {
+        appModel = this.registry.getDefaultAppModel();
+      } else {
+        throw new NotFoundError(`Application '${target}' not found`);
+      }
+    }
+
+    return this.createAndCacheScope(appModel);
+  }
+
+  private createAndCacheScope(appModel: AppModel): AppScope {
     // Check if cached under other key (id vs slug)
     if (this.appCache.has(appModel.slug)) {
       return this.appCache.get(appModel.slug)!;
