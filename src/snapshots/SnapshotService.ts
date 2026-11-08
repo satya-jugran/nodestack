@@ -396,7 +396,11 @@ export class SnapshotService {
         }
       } finally {
         try {
-          await this.db.reconnect();
+          // For non-SQLite drivers (LogicalSnapshotDriver), the database connection remains active
+          // and was not replaced on disk. Only reconnect if the driver is SQLite or connection was closed.
+          if (this.db.dialect.name === 'sqlite' || !this.db.isOpen()) {
+            await this.db.reconnect();
+          }
         } finally {
           this.db.unlock();
         }

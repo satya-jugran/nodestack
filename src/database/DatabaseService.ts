@@ -140,11 +140,15 @@ export class DatabaseService {
       return;
     }
 
-    if (this.driver.dialect.name !== 'sqlite') {
+    if (this.driver.dialect?.name && this.driver.dialect.name !== 'sqlite') {
       if (this.driver.isOpen()) {
         try {
-          const isHealthy = await this.driver.ping();
-          if (isHealthy) {
+          if (typeof (this.driver as any).ping === 'function') {
+            const isHealthy = await this.driver.ping();
+            if (isHealthy) {
+              return;
+            }
+          } else {
             return;
           }
         } catch {
