@@ -159,22 +159,22 @@ export class SchemaService {
     };
 
     const existingRes = this.getCollection(cleanName);
-    if (existingRes && typeof (existingRes as any).then === 'function') {
-      return (existingRes as any).then(async (existing: CollectionModel | undefined) => {
+    if (this.isAsyncDriver() || (existingRes && typeof (existingRes as any).then === 'function')) {
+      return (async () => {
+        const existing = existingRes && typeof (existingRes as any).then === 'function'
+          ? await existingRes
+          : existingRes;
         if (existing) {
           throw new ConflictError(`Collection with name '${cleanName}' already exists`);
         }
         return executeCreateAsync();
-      });
+      })();
     }
 
     if (existingRes) {
       throw new ConflictError(`Collection with name '${cleanName}' already exists`);
     }
 
-    if (this.isAsyncDriver()) {
-      return executeCreateAsync();
-    }
     return executeCreateSync();
   }
 
@@ -241,33 +241,29 @@ export class SchemaService {
   public updateCollection(nameOrId: string, dto: UpdateCollectionDto): Promise<CollectionModel>;
   public updateCollection(nameOrId: string, dto: UpdateCollectionDto): any {
     const currentRes = this.getCollectionOrThrow(nameOrId);
-    if (currentRes && typeof (currentRes as any).then === 'function') {
-      return (currentRes as any).then(async (current: CollectionModel) => {
+    if (this.isAsyncDriver() || (currentRes && typeof (currentRes as any).then === 'function')) {
+      return (async () => {
+        const current = currentRes && typeof (currentRes as any).then === 'function'
+          ? await currentRes
+          : currentRes;
         let targetName = current.name;
         const now = new Date().toISOString();
 
-        // Handle rename if provided and changed
+        let cleanNewName: string | undefined;
         if (dto.name && dto.name.trim().toLowerCase() !== current.name) {
           if (current.system) {
             throw new AppError('Cannot rename system collections', 400);
           }
-          const cleanNewName = dto.name.trim().toLowerCase();
+          cleanNewName = dto.name.trim().toLowerCase();
           const existing = await this.getCollection(cleanNewName);
           if (existing && existing.id !== current.id) {
             throw new ConflictError(`Collection '${cleanNewName}' already exists`);
           }
-          if (this.ftsService) {
-            await this.ftsService.dropCollectionFts(current.name);
-          }
-          await this.db.exec(this.db.dialect.renameTableSql(current.name, cleanNewName));
-          targetName = cleanNewName;
         }
 
-        // Handle schema additions
         const newSchema = dto.schema !== undefined ? dto.schema : current.schema;
         if (dto.schema) {
           this.validateSchemaFields(dto.schema, current.type);
-          await this.syncTableColumns(targetName, current.schema, newSchema);
         }
 
         const listRule = dto.listRule !== undefined ? dto.listRule : current.listRule;
@@ -279,6 +275,18 @@ export class SchemaService {
         const indexes = dto.indexes !== undefined ? dto.indexes : current.indexes;
 
         return this.db.transaction(async () => {
+          if (cleanNewName && cleanNewName !== current.name) {
+            if (this.ftsService) {
+              await this.ftsService.dropCollectionFts(current.name);
+            }
+            await this.db.exec(this.db.dialect.renameTableSql(current.name, cleanNewName));
+            targetName = cleanNewName;
+          }
+
+          if (dto.schema) {
+            await this.syncTableColumns(targetName, current.schema, newSchema);
+          }
+
           await this.db.prepare(`
             UPDATE _collections SET
               name = ?,
@@ -312,7 +320,7 @@ export class SchemaService {
           }
           return updated;
         });
-      });
+      })();
     }
 
     const current = currentRes as CollectionModel;
@@ -395,8 +403,11 @@ export class SchemaService {
     }
 
     const currentRes = this.getCollectionOrThrow(nameOrId);
-    if (currentRes && typeof (currentRes as any).then === 'function') {
-      return (currentRes as any).then(async (current: CollectionModel) => {
+    if (this.isAsyncDriver() || (currentRes && typeof (currentRes as any).then === 'function')) {
+      return (async () => {
+        const current = currentRes && typeof (currentRes as any).then === 'function'
+          ? await currentRes
+          : currentRes;
         if (current.system) {
           throw new AppError('Cannot delete system collection', 400);
         }
@@ -407,7 +418,7 @@ export class SchemaService {
           await this.db.exec(this.db.dialect.dropTableIfExists(current.name));
           await this.db.prepare('DELETE FROM _collections WHERE id = ?').run(current.id);
         });
-      });
+      })();
     }
 
     const current = currentRes as CollectionModel;
