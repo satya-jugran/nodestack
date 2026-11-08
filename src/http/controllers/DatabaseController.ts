@@ -48,10 +48,14 @@ export class DatabaseController extends BaseController {
       return;
     }
 
-    if (config.provider === 'sqlite' && this.appManager?.config) {
-      config.dataDir = config.dataDir || this.appManager.config.dataDir;
-      config.appsDir = config.appsDir || this.appManager.config.appsDir;
-      config.dbPath = config.dbPath || this.appManager.config.getAppDbPath('default');
+    if (config.provider === 'sqlite') {
+      const activeDataDir = this.appManager?.config?.dataDir || DriverRegistry.getDefaultSqlitePaths().dataDir;
+      const activeAppsDir = this.appManager?.config?.appsDir || DriverRegistry.getDefaultSqlitePaths().appsDir;
+      const activeDbPath = this.appManager?.config?.getAppDbPath('default') || DriverRegistry.getDefaultSqlitePaths().dbPath;
+
+      config.dataDir = config.dataDir || activeDataDir;
+      config.appsDir = config.appsDir || activeAppsDir;
+      config.dbPath = config.dbPath || activeDbPath;
     }
 
     const executeSwitch = async () => {

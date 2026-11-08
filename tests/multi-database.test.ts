@@ -1243,5 +1243,81 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       );
       expect(updateSql).toBe('UPDATE _collections SET "listRule" = $1, "viewRule" = $2 WHERE id = $3');
     });
+
+    // 10. DriverRegistry preserves existing SQLite dbPath/dataDir for provider-only config
+    it('Review finding: DriverRegistry preserves existing SQLite dbPath and dataDir when target config omits them instead of falling back to :memory:', async () => {
+      const sqliteDir = path.join(testDir, 'preserve_sqlite_test');
+      const expectedDbPath = path.join(sqliteDir, 'apps', 'default', 'data.db');
+
+      DriverRegistry.setDefaultSqlitePaths({
+        dataDir: sqliteDir,
+        appsDir: path.join(sqliteDir, 'apps'),
+        dbPath: expectedDbPath,
+      });
+
+      // 1. Calling createDriver with provider-only config ({ provider: 'sqlite' }) preserves configured paths
+      const targetConfig: DatabaseConfig = { provider: 'sqlite' };
+      const driver = await DriverRegistry.createDriver(targetConfig) as NodeSqliteDriver;
+
+      expect(driver).toBeDefined();
+      expect(driver.getPath()).toBe(expectedDbPath);
+      expect(driver.getPath()).not.toBe(':memory:');
+      expect(targetConfig.dataDir).toBe(sqliteDir);
+      expect(targetConfig.dbPath).toBe(expectedDbPath);
+      await driver.close();
+
+      // 2. Explicit :memory: request is still respected
+      const memoryConfig: DatabaseConfig = { provider: 'sqlite', dbPath: ':memory:' };
+      const memoryDriver = await DriverRegistry.createDriver(memoryConfig) as NodeSqliteDriver;
+      expect(memoryDriver.getPath()).toBe(':memory:');
+      await memoryDriver.close();
+
+      // 3. DatabaseController switchDatabase with provider-only SQLite config preserves default paths
+      const configService = new ConfigService({ dataDir: sqliteDir });
+      const registry = new AppRegistry(configService);
+      await registry.init();
+      const appManager = new AppManager(registry, configService);
+      const defaultScope = await appManager.getAsync('default');
+      const dbConfigService = new DatabaseConfigService(configService);
+      await dbConfigService.init();
+      const controller = new DatabaseController(dbConfigService, appManager, defaultScope.db);
+
+      let savedConfig: any = null;
+      dbConfigService.saveConfig = async (cfg: any) => {
+        savedConfig = cfg;
+        return 'cfg_123';
+      };
+
+      let sentBody: any = null;
+      const reply: any = {
+        statusCode: 200,
+        status: (code: number) => {
+          reply.statusCode = code;
+          return reply;
+        },
+        code: (code: number) => {
+          reply.statusCode = code;
+          return reply;
+        },
+        send: (b: any) => {
+          sentBody = b;
+          return reply;
+        },
+        header: () => reply,
+      };
+
+      await controller.switchDatabase(
+        { body: { config: { provider: 'sqlite' }, migrateData: false } } as any,
+        reply
+      );
+
+      expect(savedConfig).toBeDefined();
+      expect(savedConfig.provider).toBe('sqlite');
+      expect(savedConfig.dbPath).toBe(configService.getAppDbPath('default'));
+      expect(savedConfig.dataDir).toBe(sqliteDir);
+      expect(savedConfig.dbPath).not.toBe(':memory:');
+
+      await appManager.closeAllAsync();
+    });
   });
 });

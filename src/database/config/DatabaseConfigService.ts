@@ -37,6 +37,11 @@ export class DatabaseConfigService {
     systemDriver?: IDatabaseDriver
   ) {
     this.systemDriver = systemDriver || new NodeSqliteDriver(config.systemDbPath);
+    DriverRegistry.setDefaultSqlitePaths({
+      dataDir: this.config.dataDir,
+      appsDir: this.config.appsDir,
+      dbPath: this.config.getAppDbPath('default'),
+    });
     // Derive a stable 32-byte key from jwtSecret / instance secret
     this.encryptionKey = crypto.scryptSync(
       this.config.jwtSecret || 'nodestack-fallback-secret-seed',

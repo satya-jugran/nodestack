@@ -125,6 +125,11 @@ export class NodeStack {
     // 1. Config Service
     this.config = new ConfigService(options);
     this.container.bindInstance(TOKENS.ConfigService, this.config);
+    DriverRegistry.setDefaultSqlitePaths({
+      dataDir: this.config.dataDir,
+      appsDir: this.config.appsDir,
+      dbPath: this.config.getAppDbPath('default'),
+    });
 
     // 1.2 System Registry & Multi-App Orchestrator
     this.registry = new AppRegistry(this.config, options.systemDriver);

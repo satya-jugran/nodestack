@@ -31,20 +31,63 @@ export type DriverFactory = (config: DatabaseConfig) => IDatabaseDriver | Promis
 
 export class DriverRegistry {
   private static factories = new Map<string, DriverFactory>();
+  private static defaultDataDir?: string;
+  private static defaultAppsDir?: string;
+  private static defaultDbPath?: string;
+
+  public static setDefaultSqlitePaths(paths: { dataDir?: string; appsDir?: string; dbPath?: string }): void {
+    if (paths.dataDir) DriverRegistry.defaultDataDir = paths.dataDir;
+    if (paths.appsDir) DriverRegistry.defaultAppsDir = paths.appsDir;
+    if (paths.dbPath) DriverRegistry.defaultDbPath = paths.dbPath;
+  }
+
+  public static getDefaultSqlitePaths(): { dataDir?: string; appsDir?: string; dbPath?: string } {
+    return {
+      dataDir: DriverRegistry.defaultDataDir,
+      appsDir: DriverRegistry.defaultAppsDir,
+      dbPath: DriverRegistry.defaultDbPath,
+    };
+  }
+
+  public static resetDefaultSqlitePaths(): void {
+    DriverRegistry.defaultDataDir = undefined;
+    DriverRegistry.defaultAppsDir = undefined;
+    DriverRegistry.defaultDbPath = undefined;
+  }
 
   static {
     DriverRegistry.register('sqlite', (config) => {
-      const appsDir = config.appsDir || (config.dataDir ? path.join(config.dataDir, 'apps') : undefined);
+      const isExplicitMemory = config.dbPath === ':memory:' || config.connectionString === ':memory:';
       let filePath = config.connectionString;
-      if (!filePath) {
-        if (config.dbPath) {
-          filePath = config.dbPath;
-        } else if (appsDir) {
-          filePath = path.join(appsDir, 'default', 'data.db');
+      let appsDir = config.appsDir;
+      let dataDir = config.dataDir;
+
+      if (!isExplicitMemory) {
+        if (dataDir) {
+          appsDir = appsDir || path.join(dataDir, 'apps');
+        } else if (DriverRegistry.defaultDataDir) {
+          dataDir = DriverRegistry.defaultDataDir;
+          appsDir = appsDir || DriverRegistry.defaultAppsDir || path.join(dataDir, 'apps');
         } else {
-          filePath = ':memory:';
+          dataDir = process.env.NODESTACK_DATA_DIR || process.env.NODEBASE_DATA_DIR || path.resolve('./nodestack_data');
+          appsDir = appsDir || path.join(dataDir, 'apps');
         }
+
+        if (!filePath) {
+          if (config.dbPath) {
+            filePath = config.dbPath;
+          } else if (appsDir) {
+            filePath = path.join(appsDir, 'default', 'data.db');
+          } else if (DriverRegistry.defaultDbPath) {
+            filePath = DriverRegistry.defaultDbPath;
+          } else {
+            filePath = path.join(dataDir, 'apps', 'default', 'data.db');
+          }
+        }
+      } else {
+        filePath = filePath || config.dbPath || ':memory:';
       }
+
       return new NodeSqliteDriver(filePath || ':memory:', { baseDir: appsDir });
     });
 
@@ -120,6 +163,21 @@ export class DriverRegistry {
 
   public static async createDriver(config: DatabaseConfig): Promise<IDatabaseDriver> {
     const provider = (config.provider || 'sqlite').toLowerCase();
+    if (provider === 'sqlite') {
+      const isExplicitMemory = config.dbPath === ':memory:' || config.connectionString === ':memory:';
+      if (!isExplicitMemory) {
+        if (config.dataDir) {
+          config.appsDir = config.appsDir || path.join(config.dataDir, 'apps');
+          config.dbPath = config.dbPath || path.join(config.appsDir, 'default', 'data.db');
+        } else {
+          const defaultDataDir = DriverRegistry.defaultDataDir || process.env.NODESTACK_DATA_DIR || process.env.NODEBASE_DATA_DIR || path.resolve('./nodestack_data');
+          config.dataDir = defaultDataDir;
+          config.appsDir = config.appsDir || DriverRegistry.defaultAppsDir || (config.dataDir ? path.join(config.dataDir, 'apps') : undefined);
+          config.dbPath = config.dbPath || (config.appsDir ? path.join(config.appsDir, 'default', 'data.db') : undefined) || DriverRegistry.defaultDbPath;
+        }
+      }
+    }
+
     const factory = DriverRegistry.factories.get(provider);
     if (!factory) {
       throw new Error(`Unsupported database provider '${config.provider}'. Available: ${DriverRegistry.listAvailableProviders().join(', ')}`);
