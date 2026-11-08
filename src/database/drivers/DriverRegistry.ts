@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { IDatabaseDriver } from './IDatabaseDriver';
 import { NodeSqliteDriver } from './NodeSqliteDriver';
 import { PostgresDriver } from './PostgresDriver';
@@ -14,6 +15,7 @@ export interface DatabaseConfig {
   database?: string;
   ssl?: boolean | Record<string, any>;
   dataDir?: string;
+  appsDir?: string;
   dbPath?: string;
   readReplicas?: string[];
   options?: Record<string, any>;
@@ -32,8 +34,18 @@ export class DriverRegistry {
 
   static {
     DriverRegistry.register('sqlite', (config) => {
-      const filePath = config.dbPath || config.connectionString || (config.dataDir ? `${config.dataDir}/data.db` : ':memory:');
-      return new NodeSqliteDriver(filePath, { baseDir: config.dataDir });
+      const appsDir = config.appsDir || (config.dataDir ? path.join(config.dataDir, 'apps') : undefined);
+      let filePath = config.connectionString;
+      if (!filePath) {
+        if (config.dbPath) {
+          filePath = config.dbPath;
+        } else if (appsDir) {
+          filePath = path.join(appsDir, 'default', 'data.db');
+        } else {
+          filePath = ':memory:';
+        }
+      }
+      return new NodeSqliteDriver(filePath || ':memory:', { baseDir: appsDir });
     });
 
     DriverRegistry.register('postgres', (config) => {

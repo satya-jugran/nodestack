@@ -170,7 +170,12 @@ export class DatabaseConfigService {
     let tempDriver: IDatabaseDriver | null = null;
     try {
       // 1. Create primary driver without replicas to avoid redundant pool init
-      const primaryOnlyConfig: DatabaseConfig = { ...targetConfig, readReplicas: undefined };
+      const primaryOnlyConfig: DatabaseConfig = {
+        ...targetConfig,
+        dataDir: targetConfig.dataDir || (targetConfig.provider === 'sqlite' ? this.config.dataDir : undefined),
+        appsDir: targetConfig.appsDir || (targetConfig.provider === 'sqlite' ? this.config.appsDir : undefined),
+        readReplicas: undefined,
+      };
       tempDriver = await DriverRegistry.createDriver(primaryOnlyConfig);
       const pingOk = await tempDriver.ping();
       if (!pingOk) {

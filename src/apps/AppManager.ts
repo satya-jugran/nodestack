@@ -17,7 +17,7 @@ export class AppManager {
 
   constructor(
     public readonly registry: AppRegistry,
-    private config: ConfigService,
+    public readonly config: ConfigService,
     private customDriver?: IDatabaseDriver,
     private driverFactory?: DatabaseDriverFactory
   ) {}
@@ -42,11 +42,23 @@ export class AppManager {
     this.customDriver = newDriver;
     for (const scope of this.getCachedScopes()) {
       if (newDriver) {
-        const appDriver = await newDriver.withSchema(scope.app.slug);
+        let appDriver: IDatabaseDriver;
+        if (newDriver.dialect.name === 'sqlite' && (newDriver as any).getPath?.() !== ':memory:') {
+          const appDbPath = this.config.getAppDbPath(scope.app.slug);
+          if (scope.app.slug === 'default' && (newDriver as any).getPath?.() === appDbPath) {
+            appDriver = newDriver;
+          } else {
+            appDriver = await newDriver.withSchema(scope.app.slug);
+          }
+        } else {
+          appDriver = await newDriver.withSchema(scope.app.slug);
+        }
         await scope.db.switchDriver(appDriver);
       } else {
         const appDbPath = this.config.getAppDbPath(scope.app.slug);
-        const sqliteDriver = new NodeSqliteDriver(appDbPath);
+        const sqliteDriver = new NodeSqliteDriver(appDbPath, {
+          baseDir: this.config.appsDir,
+        });
         await scope.db.switchDriver(sqliteDriver);
       }
       await scope.init();

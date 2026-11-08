@@ -539,6 +539,9 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             user: options.user,
             password: options.password,
             database: options.database,
+            dataDir: provider === 'sqlite' ? app.config.dataDir : undefined,
+            appsDir: provider === 'sqlite' ? app.config.appsDir : undefined,
+            dbPath: provider === 'sqlite' ? (connectionString || options.dbPath || app.config.getAppDbPath('default')) : undefined,
           };
           console.log(chalk.cyan(`\nTesting connection to ${targetConfig.provider.toUpperCase()}...`));
           const res = await app.databaseConfig.testConnection(targetConfig);
@@ -562,6 +565,9 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             user: options.user,
             password: options.password,
             database: options.database,
+            dataDir: provider === 'sqlite' ? app.config.dataDir : undefined,
+            appsDir: provider === 'sqlite' ? app.config.appsDir : undefined,
+            dbPath: provider === 'sqlite' ? (connectionString || options.dbPath || app.config.getAppDbPath('default')) : undefined,
           };
           const savedId = await app.databaseConfig.saveConfig(targetConfig, false);
           console.log(chalk.green(`\n✓ Database configuration saved (ID: ${savedId})\n`));
@@ -578,6 +584,9 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             user: options.user,
             password: options.password,
             database: options.database,
+            dataDir: provider === 'sqlite' ? app.config.dataDir : undefined,
+            appsDir: provider === 'sqlite' ? app.config.appsDir : undefined,
+            dbPath: provider === 'sqlite' ? (connectionString || options.dbPath || app.config.getAppDbPath('default')) : undefined,
           };
 
           console.log(chalk.cyan(`\nValidating target database ${targetConfig.provider.toUpperCase()}...`));

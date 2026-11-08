@@ -873,5 +873,57 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       const ddl3 = "IF OBJECT_ID('[app_ecommerce].[orders]') IS NOT NULL";
       expect(driver.qualifySql(ddl3)).toBe(ddl3);
     });
+
+    // 5. SQLite target withSchema('default') and switchDriver resolve to dataDir/apps/default/data.db
+    it('Review finding: should resolve SQLite target withSchema and switchDriver to dataDir/apps/<slug>/data.db', async () => {
+      const sqliteTestDir = path.join(testDir, 'sqlite_switch_test');
+      const config = new ConfigService({ dataDir: sqliteTestDir });
+      const registry = new AppRegistry(config);
+      await registry.init();
+
+      // Register a tenant app
+      await registry.createApp({
+        slug: 'store',
+        name: 'Store App',
+      });
+
+      const appManager = new AppManager(registry, config);
+      const defaultScope = appManager.get('default');
+      const storeScope = appManager.get('store');
+
+      expect((defaultScope.db.getRootDriver() as any).getPath()).toBe(config.getAppDbPath('default'));
+      expect((storeScope.db.getRootDriver() as any).getPath()).toBe(config.getAppDbPath('store'));
+
+      // Create a SQLite target driver via DriverRegistry passing dataDir
+      const targetDriver = await DriverRegistry.createDriver({
+        provider: 'sqlite',
+        dataDir: sqliteTestDir,
+      }) as NodeSqliteDriver;
+
+      expect(targetDriver.getPath()).toBe(config.getAppDbPath('default'));
+
+      // Verify withSchema creates drivers under dataDir/apps/
+      const defaultFromSchema = await targetDriver.withSchema('default') as NodeSqliteDriver;
+      expect(defaultFromSchema.getPath()).toBe(config.getAppDbPath('default'));
+      expect(defaultFromSchema.getPath()).not.toBe(path.join(sqliteTestDir, 'default', 'data.db'));
+
+      const storeFromSchema = await targetDriver.withSchema('store') as NodeSqliteDriver;
+      expect(storeFromSchema.getPath()).toBe(config.getAppDbPath('store'));
+      expect(storeFromSchema.getPath()).not.toBe(path.join(sqliteTestDir, 'store', 'data.db'));
+
+      await defaultFromSchema.close();
+      await storeFromSchema.close();
+
+      // Perform switchDriver with the targetDriver
+      await appManager.switchDriver(targetDriver);
+
+      expect((defaultScope.db.getRootDriver() as any).getPath()).toBe(config.getAppDbPath('default'));
+      expect((storeScope.db.getRootDriver() as any).getPath()).toBe(config.getAppDbPath('store'));
+
+      // Ensure no stray dataDir/default/data.db was created
+      expect(fs.existsSync(path.join(sqliteTestDir, 'default', 'data.db'))).toBe(false);
+
+      await appManager.closeAllAsync();
+    });
   });
 });

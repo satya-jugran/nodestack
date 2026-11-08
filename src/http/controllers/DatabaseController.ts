@@ -48,6 +48,12 @@ export class DatabaseController extends BaseController {
       return;
     }
 
+    if (config.provider === 'sqlite' && this.appManager?.config) {
+      config.dataDir = config.dataDir || this.appManager.config.dataDir;
+      config.appsDir = config.appsDir || this.appManager.config.appsDir;
+      config.dbPath = config.dbPath || this.appManager.config.getAppDbPath('default');
+    }
+
     const executeSwitch = async () => {
       // 1. Verify connection to target database
       const testRes = await this.dbConfigService.testConnection(config);

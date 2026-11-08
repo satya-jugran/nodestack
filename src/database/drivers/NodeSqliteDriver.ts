@@ -201,12 +201,19 @@ export class NodeSqliteDriver implements IDatabaseDriver {
     }
 
     let targetDir = this.baseDir;
-    if (!targetDir) {
-      // If filePath is .../apps/default/data.db, baseDir is .../apps
-      // If filePath is .../data.db, baseDir is .../apps
+    if (targetDir) {
+      if (path.basename(targetDir) !== 'apps') {
+        targetDir = path.join(targetDir, 'apps');
+      }
+    } else {
+      // If filePath is .../apps/default/data.db or .../apps/<slug>/data.db, baseDir is .../apps
       const parent = path.dirname(this.filePath);
-      if (path.basename(parent) === 'default' || fs.existsSync(path.join(path.dirname(parent), 'apps'))) {
+      if (path.basename(parent) === 'default' || path.basename(path.dirname(parent)) === 'apps') {
         targetDir = path.dirname(parent);
+      } else if (path.basename(parent) === 'apps') {
+        targetDir = parent;
+      } else if (fs.existsSync(path.join(parent, 'apps'))) {
+        targetDir = path.join(parent, 'apps');
       } else {
         targetDir = path.join(parent, 'apps');
       }
