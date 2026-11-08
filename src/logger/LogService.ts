@@ -214,6 +214,9 @@ export class LogService {
   public clearLogs(olderThanDays?: number): any {
     const flushRes = this.flush();
     if (olderThanDays !== undefined && olderThanDays !== null) {
+      if (flushRes && typeof flushRes.then === 'function') {
+        return flushRes.then(() => this.pruneLogs(olderThanDays));
+      }
       return this.pruneLogs(olderThanDays);
     }
     this.buffer = [];

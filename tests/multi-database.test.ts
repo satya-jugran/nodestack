@@ -27,6 +27,7 @@ import { SchemaField } from '../src/schema/models/Field';
 import { SchemaService } from '../src/schema/SchemaService';
 import { LogicalSnapshotDriver } from '../src/snapshots/drivers/LogicalSnapshotDriver';
 import { AnalyticsService } from '../src/analytics/AnalyticsService';
+import { LogService } from '../src/logger/LogService';
 
 describe('Multi-Database Architecture & Configuration Tests', () => {
   const testDir = path.resolve(__dirname, '../.test_multi_db_data');
@@ -1908,6 +1909,55 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
         { collection: 'users', type: 'auth', count: 10 },
       ]);
       expect(metrics.collectionsBreakdown.length).toBe(2);
+    });
+
+    it('Round 2 Item 7: should chain pruneLogs after async flushRes in LogService.clearLogs', async () => {
+      const order: string[] = [];
+      let resolveFlush: () => void;
+      const flushPromise = new Promise<void>((resolve) => {
+        resolveFlush = resolve;
+      });
+
+      const fakeDb: any = {
+        dialect: new PostgresDialect(),
+        isOpen: () => true,
+        transaction: async (fn: any) => {
+          order.push('flush_started');
+          await flushPromise;
+          order.push('flush_committed');
+          return;
+        },
+        prepare: () => ({
+          run: async () => {
+            order.push('delete_executed');
+            return { changes: 5 };
+          },
+        }),
+      };
+
+      const logService = new LogService(fakeDb as any, { bufferSize: 100, flushIntervalMs: 60000 });
+      logService.logRequest({
+        method: 'GET',
+        url: '/test',
+        status: 200,
+        duration: 10,
+        ip: '127.0.0.1',
+      }, { skipConsole: true });
+
+      const clearPromise = logService.clearLogs(7);
+      expect(clearPromise && typeof clearPromise.then === 'function').toBe(true);
+
+      // Verify that delete has not executed yet because flush is still pending
+      expect(order).toEqual(['flush_started']);
+
+      // Now resolve the flush
+      resolveFlush!();
+      const changes = await clearPromise;
+
+      expect(changes).toBe(5);
+      expect(order).toEqual(['flush_started', 'flush_committed', 'delete_executed']);
+
+      logService.dispose();
     });
   });
 });
