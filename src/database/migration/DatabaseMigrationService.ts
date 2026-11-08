@@ -301,7 +301,14 @@ export class DatabaseMigrationService {
         .prepare(`SELECT COUNT(*) AS total FROM ${sourceDriver.dialect.quoteIdentifier(tableName)}`)
         .get<{ total: number | string }>();
       const total = Number(countRes?.total || 0);
-      if (total === 0) return;
+      if (total === 0) {
+        try {
+          await targetDriver.exec(`DELETE FROM ${targetDriver.dialect.quoteIdentifier(tableName)}`);
+        } catch {
+          // Table doesn't exist on target; harmless
+        }
+        return;
+      }
 
       const pkCol = tableName === '_params' ? 'key' : 'id';
       const chunkSize = 500;

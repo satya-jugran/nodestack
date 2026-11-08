@@ -1319,5 +1319,46 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
 
       await appManager.closeAllAsync();
     });
+
+    // 11. DatabaseMigrationService clears target table on zero-row source to prevent retaining stale data
+    it('Review finding: DatabaseMigrationService clears target table on zero-row source to prevent retaining stale data', async () => {
+      const sourceDriver = new NodeSqliteDriver(':memory:');
+      const targetDriver = new NodeSqliteDriver(':memory:');
+
+      await SystemMigrations.run(sourceDriver);
+      await SystemMigrations.run(targetDriver);
+
+      const now = new Date().toISOString();
+
+      // Insert stale rows into previously-used target database system tables
+      await targetDriver.prepare(`
+        INSERT INTO _webhooks (id, name, url, event, collection, action, method, headers, secret, enabled, created, updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('whk_stale', 'Stale Webhook', 'https://example.com/stale', 'create', '*', '*', 'POST', '{}', 'sec123', 1, now, now);
+
+      await targetDriver.prepare('INSERT INTO _params (key, value) VALUES (?, ?)').run('stale_key', 'stale_val');
+
+      // Verify source is empty for these tables
+      const sourceWebhooksCount = await sourceDriver.prepare('SELECT COUNT(*) AS total FROM _webhooks').get<{ total: number }>();
+      expect(Number(sourceWebhooksCount?.total)).toBe(0);
+
+      // Verify target has stale data before migration
+      const targetWebhooksBefore = await targetDriver.prepare('SELECT COUNT(*) AS total FROM _webhooks').get<{ total: number }>();
+      expect(Number(targetWebhooksBefore?.total)).toBe(1);
+      const targetParamsBefore = await targetDriver.prepare('SELECT COUNT(*) AS total FROM _params').get<{ total: number }>();
+      expect(Number(targetParamsBefore?.total)).toBe(1);
+
+      // Run migration
+      await DatabaseMigrationService.migrateAppScope(sourceDriver, targetDriver);
+
+      // Target tables must be cleared
+      const targetWebhooksAfter = await targetDriver.prepare('SELECT COUNT(*) AS total FROM _webhooks').get<{ total: number }>();
+      expect(Number(targetWebhooksAfter?.total)).toBe(0);
+      const targetParamsAfter = await targetDriver.prepare('SELECT COUNT(*) AS total FROM _params').get<{ total: number }>();
+      expect(Number(targetParamsAfter?.total)).toBe(0);
+
+      await sourceDriver.close();
+      await targetDriver.close();
+    });
   });
 });
