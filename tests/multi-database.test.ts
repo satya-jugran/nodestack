@@ -20,6 +20,10 @@ import { AdminUIBundler } from '../src/admin/AdminUIBundler';
 import { AuthService } from '../src/auth/AuthService';
 import { AuthMiddleware } from '../src/http/middleware/AuthMiddleware';
 import { UnauthorizedError } from '../src/core/errors/AppError';
+import { MssqlDialect } from '../src/database/dialects/MssqlDialect';
+import { MssqlFtsDriver } from '../src/records/fts/MssqlFtsDriver';
+import { RecordService } from '../src/records/RecordService';
+import { SchemaField } from '../src/schema/models/Field';
 
 describe('Multi-Database Architecture & Configuration Tests', () => {
   const testDir = path.resolve(__dirname, '../.test_multi_db_data');
@@ -1526,6 +1530,117 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       };
       await middleware.handle(revokedReq);
       expect(revokedReq.auth).toBeNull();
+    });
+
+    // 14. MssqlFtsDriver builds concrete search predicate filtering across mirror table columns
+    it('Review finding: MssqlFtsDriver builds concrete search predicate filtering across mirror table columns', async () => {
+      const mockMssqlDb: any = {
+        dialect: new MssqlDialect(),
+        get: async () => undefined,
+        all: async () => [],
+        exec: async () => {},
+        transaction: async (cb: any) => cb(mockMssqlDb),
+      };
+
+      const mssqlFts = new MssqlFtsDriver(mockMssqlDb);
+      const fields: SchemaField[] = [
+        { id: 'f1', name: 'title', type: 'text', required: false, unique: false },
+        { id: 'f2', name: 'content', type: 'text', required: false, unique: false },
+      ];
+
+      // 1. Single-token search predicate
+      const singleRes = mssqlFts.buildSearchPredicate('_fts_articles', fields, 'hello');
+      expect(singleRes.clause).toBe(
+        "((COALESCE(CAST([fts].[title] AS NVARCHAR(MAX)), '') + ' ' + COALESCE(CAST([fts].[content] AS NVARCHAR(MAX)), '')) LIKE ?)"
+      );
+      expect(singleRes.params).toEqual(['%hello%']);
+
+      // 2. Multi-token search predicate generates AND-joined LIKE clauses
+      const multiRes = mssqlFts.buildSearchPredicate('_fts_articles', fields, 'hello world');
+      expect(multiRes.clause).toBe(
+        "((COALESCE(CAST([fts].[title] AS NVARCHAR(MAX)), '') + ' ' + COALESCE(CAST([fts].[content] AS NVARCHAR(MAX)), '')) LIKE ? AND (COALESCE(CAST([fts].[title] AS NVARCHAR(MAX)), '') + ' ' + COALESCE(CAST([fts].[content] AS NVARCHAR(MAX)), '')) LIKE ?)"
+      );
+      expect(multiRes.params).toEqual(['%hello%', '%world%']);
+
+      // 3. Search predicate for table without fts alias qualifies with bracketed table name
+      const customTableRes = mssqlFts.buildSearchPredicate('articles', fields, 'test');
+      expect(customTableRes.clause).toContain('[articles].[title]');
+
+      // 4. Empty or punctuation-only query returns 1=0 predicate
+      const emptyRes = mssqlFts.buildSearchPredicate('_fts_articles', fields, '   " * ^ "  ');
+      expect(emptyRes.clause).toBe('1=0');
+      expect(emptyRes.params).toEqual([]);
+
+      // 5. Empty fields array returns 1=0 predicate
+      const noFieldsRes = mssqlFts.buildSearchPredicate('_fts_articles', [], 'hello');
+      expect(noFieldsRes.clause).toBe('1=0');
+      expect(noFieldsRes.params).toEqual([]);
+
+      // 6. Snippet select qualifies with [fts] and respects options.snippetLength
+      const snippetSelect = mssqlFts.buildSnippetSelect('_fts_articles', fields, { snippetLength: 50 });
+      expect(snippetSelect).toContain('SUBSTRING(CAST([fts].[title] AS NVARCHAR(MAX)), 1, 50)');
+      expect(snippetSelect).toContain('SUBSTRING(CAST([fts].[content] AS NVARCHAR(MAX)), 1, 50)');
+
+      // 7. RecordService.getList delegates to MssqlFtsDriver search predicate instead of 1=1
+      let executedQuerySql = '';
+      let executedQueryParams: any[] = [];
+      const mockRecordDb: any = {
+        dialect: new MssqlDialect(),
+        get: async (sql: string, ...params: any[]) => {
+          if (sql.includes('SELECT COUNT(*)')) {
+            return { count: 1 };
+          }
+          return undefined;
+        },
+        all: async (sql: string, ...params: any[]) => {
+          executedQuerySql = sql;
+          executedQueryParams = params;
+          return [
+            {
+              id: 'art_1',
+              title: 'Hello SQL Server',
+              content: 'Full text search content',
+              created: new Date().toISOString(),
+              updated: new Date().toISOString(),
+            },
+          ];
+        },
+      };
+
+      const mockSchemaService: any = {
+        getCollectionOrThrow: async () => ({
+          id: 'col_articles',
+          name: 'articles',
+          type: 'base',
+          listRule: '',
+          schema: fields,
+          indexes: [],
+        }),
+      };
+
+      const ftsService = new FtsService(mockRecordDb);
+      // Spy/mock hasFtsIndex to return true
+      (ftsService.getFtsDriver() as any).hasFtsIndex = async () => true;
+
+      const recordService = new RecordService(
+        mockRecordDb,
+        mockSchemaService,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        ftsService
+      );
+
+      const listResult = await recordService.getList('articles', { search: 'hello' });
+      expect(listResult.items.length).toBe(1);
+      expect(listResult.items[0].id).toBe('art_1');
+
+      // Crucial verification: WHERE clause MUST NOT contain '1=1', must contain the MSSQL LIKE predicate
+      expect(executedQuerySql).not.toContain('1=1');
+      expect(executedQuerySql).toContain('COALESCE(CAST([fts].[title] AS NVARCHAR(MAX))');
+      expect(executedQuerySql).toContain('LIKE ?');
+      expect(executedQueryParams).toContain('%hello%');
     });
   });
 });

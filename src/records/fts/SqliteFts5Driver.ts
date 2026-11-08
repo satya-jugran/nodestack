@@ -8,6 +8,7 @@ import {
   FTS_SNIPPET_FIELD_PREFIX,
   getFtsFields,
   getFtsTableName,
+  sanitizeFtsQuery,
 } from '../FtsService';
 
 export class SqliteFts5Driver implements IFtsDriver {
@@ -124,6 +125,17 @@ export class SqliteFts5Driver implements IFtsDriver {
     });
 
     return selects.join(', ');
+  }
+
+  public buildSearchPredicate(
+    ftsTable: string,
+    ftsFields: SchemaField[],
+    searchTerm: string
+  ): { clause: string; params: any[] } {
+    return {
+      clause: `${this.db.dialect.quoteIdentifier(ftsTable)} MATCH ?`,
+      params: [sanitizeFtsQuery(searchTerm)],
+    };
   }
 
   private createFtsTableAndTriggers(

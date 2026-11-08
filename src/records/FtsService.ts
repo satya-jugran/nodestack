@@ -169,6 +169,14 @@ export class FtsService {
     return this.getFtsDriver().buildSnippetSelect(ftsTable, ftsFields, options);
   }
 
+  public buildSearchPredicate(
+    ftsTable: string,
+    ftsFields: SchemaField[],
+    searchTerm: string
+  ): { clause: string; params: any[] } {
+    return this.getFtsDriver().buildSearchPredicate(ftsTable, ftsFields, searchTerm);
+  }
+
   public attachSnippetsAndScore(rows: any[], ftsFields: SchemaField[]): void {
     for (const row of rows) {
       if (!row) continue;

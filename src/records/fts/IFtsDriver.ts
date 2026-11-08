@@ -18,4 +18,9 @@ export interface IFtsDriver {
     ftsFields: SchemaField[],
     options?: FtsQueryOptions
   ): string;
+  buildSearchPredicate(
+    ftsTable: string,
+    ftsFields: SchemaField[],
+    searchTerm: string
+  ): { clause: string; params: any[] };
 }

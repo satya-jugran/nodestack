@@ -99,18 +99,55 @@ export class MssqlFtsDriver implements IFtsDriver {
     ftsFields: SchemaField[],
     options: FtsQueryOptions = {}
   ): string {
+    const tableRef = ftsTable === 'fts' || ftsTable.startsWith('_fts_') ? '[fts]' : `[${ftsTable}]`;
+    const length = Math.max(5, Math.min(100, Number(options.snippetLength) || 100));
+    const firstField = ftsFields[0]?.name || 'id';
+
     const selects: string[] = [
       `1.0 AS [${FTS_SCORE_ALIAS}]`,
-      `SUBSTRING(CAST([${ftsTable}].[${ftsFields[0]?.name || 'id'}] AS NVARCHAR(MAX)), 1, 100) AS [${FTS_SNIPPET_ALIAS}]`,
+      `SUBSTRING(CAST(${tableRef}.[${firstField}] AS NVARCHAR(MAX)), 1, ${length}) AS [${FTS_SNIPPET_ALIAS}]`,
     ];
 
     ftsFields.forEach((field) => {
       selects.push(
-        `SUBSTRING(CAST([${ftsTable}].[${field.name}] AS NVARCHAR(MAX)), 1, 100) AS [${FTS_SNIPPET_FIELD_PREFIX}${field.name}]`
+        `SUBSTRING(CAST(${tableRef}.[${field.name}] AS NVARCHAR(MAX)), 1, ${length}) AS [${FTS_SNIPPET_FIELD_PREFIX}${field.name}]`
       );
     });
 
     return selects.join(', ');
+  }
+
+  public buildSearchPredicate(
+    ftsTable: string,
+    ftsFields: SchemaField[],
+    searchTerm: string
+  ): { clause: string; params: any[] } {
+    if (!ftsFields || ftsFields.length === 0) {
+      return { clause: '1=0', params: [] };
+    }
+
+    const tableRef = ftsTable === 'fts' || ftsTable.startsWith('_fts_') ? '[fts]' : `[${ftsTable}]`;
+    const concatExpr = ftsFields
+      .map((f) => `COALESCE(CAST(${tableRef}.[${f.name}] AS NVARCHAR(MAX)), '')`)
+      .join(" + ' ' + ");
+
+    const cleanTokens = searchTerm
+      .replace(/["*^:{}()[\]]/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (cleanTokens.length === 0) {
+      return { clause: '1=0', params: [] };
+    }
+
+    const clauses = cleanTokens.map(() => `(${concatExpr}) LIKE ?`);
+    const params = cleanTokens.map((t) => `%${t}%`);
+
+    return {
+      clause: `(${clauses.join(' AND ')})`,
+      params,
+    };
   }
 
   private async createFtsTableAndTriggers(

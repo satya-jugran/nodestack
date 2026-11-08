@@ -149,15 +149,14 @@ export class RecordService {
       }
 
       const ftsTable = this.ftsService.getFtsTableName(col.name);
-      let matchClause = `${dialect.quoteIdentifier(ftsTable)} MATCH ?`;
-      if (dialect.name === 'postgres') {
-        matchClause = `${dialect.quoteIdentifier(ftsTable)}.search_vector @@ plainto_tsquery('simple', ?)`;
-      } else if (dialect.name === 'mssql') {
-        matchClause = `1=1`;
-      }
+      const { clause: matchClause, params: matchParams } = this.ftsService.buildSearchPredicate(
+        ftsTable,
+        ftsFields,
+        searchTerm
+      );
 
       const whereConditions: string[] = [matchClause];
-      const queryParams: any[] = [sanitizedQuery];
+      const queryParams: any[] = [...matchParams];
 
       if (effectiveFilter && effectiveFilter.trim()) {
         const { clause: filterClause, params: filterParams } = QueryFilterParser.parseFilter(
@@ -641,8 +640,13 @@ export class RecordService {
         rawItems = [];
       } else {
         const ftsTable = this.ftsService.getFtsTableName(col.name);
-        const whereConditions: string[] = [`${dialect.quoteIdentifier(ftsTable)} MATCH ?`];
-        const queryParams: any[] = [sanitizedQuery];
+        const { clause: matchClause, params: matchParams } = this.ftsService.buildSearchPredicate(
+          ftsTable,
+          ftsFields,
+          searchTerm
+        );
+        const whereConditions: string[] = [matchClause];
+        const queryParams: any[] = [...matchParams];
 
         if (effectiveFilter && effectiveFilter.trim()) {
           const { clause: filterClause, params: filterParams } = QueryFilterParser.parseFilter(
