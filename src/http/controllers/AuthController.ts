@@ -21,13 +21,13 @@ export class AuthController extends BaseController {
 
   public async hasAdmins(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const auth = this.getAuth(req);
-    const hasAdmins = auth.hasAdmins() || this.authService.hasAdmins();
+    const hasAdmins = (await auth.hasAdmins()) || (await this.authService.hasAdmins());
     this.ok(reply, { hasAdmins });
   }
 
   public async createInitialAdmin(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const auth = this.getAuth(req);
-    if (auth.hasAdmins() || this.authService.hasAdmins()) {
+    if ((await auth.hasAdmins()) || (await this.authService.hasAdmins())) {
       throw new AppError('Initial admin setup is already complete', 400);
     }
 
@@ -90,7 +90,7 @@ export class AuthController extends BaseController {
       throw new AppError('Unauthorized', 401);
     }
     const auth = this.getAuth(req);
-    const admin = auth.getAdminById(req.auth.id) || this.authService.getAdminById(req.auth.id);
+    const admin = (await auth.getAdminById(req.auth.id)) || (await this.authService.getAdminById(req.auth.id));
     if (!admin) {
       throw new AppError('Admin not found', 404);
     }
@@ -104,7 +104,7 @@ export class AuthController extends BaseController {
     const { collection } = req.params;
     const redirectUri = req.query?.redirectUri;
     const auth = this.getAuth(req);
-    const result = auth.listAuthMethods(collection, redirectUri);
+    const result = await auth.listAuthMethods(collection, redirectUri);
     this.ok(reply, result);
   }
 
@@ -146,7 +146,7 @@ export class AuthController extends BaseController {
       throw new AppError('Unauthorized to view external auth identities', 401);
     }
     const auth = this.getAuth(req);
-    const list = auth.getExternalAuths(collection, id);
+    const list = await auth.getExternalAuths(collection, id);
     this.ok(reply, list);
   }
 
@@ -159,7 +159,7 @@ export class AuthController extends BaseController {
       throw new AppError('Unauthorized to unlink external auth identity', 401);
     }
     const auth = this.getAuth(req);
-    auth.unlinkExternalAuth(collection, id, provider);
+    await auth.unlinkExternalAuth(collection, id, provider);
     this.noContent(reply);
   }
 }

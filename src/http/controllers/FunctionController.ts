@@ -38,7 +38,7 @@ export class FunctionController extends BaseController {
   ): Promise<void> {
     const service = this.getFunctionsService(req);
     const enabled = req.query.enabled !== undefined ? req.query.enabled === 'true' || req.query.enabled === '1' : undefined;
-    const functions = service.getAllFunctions({
+    const functions = await service.getAllFunctions({
       search: req.query.search,
       enabled,
     });
@@ -50,7 +50,7 @@ export class FunctionController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getFunctionsService(req);
-    const fn = service.getFunctionById(req.params.id) || service.getFunctionByName(req.params.id);
+    const fn = (await service.getFunctionById(req.params.id)) || (await service.getFunctionByName(req.params.id));
     if (!fn) {
       this.error(reply, 'Function not found', 404);
       return;
@@ -64,7 +64,7 @@ export class FunctionController extends BaseController {
   ): Promise<void> {
     const service = this.getFunctionsService(req);
     try {
-      const created = service.createFunction(req.body, (req as any).auth);
+      const created = await service.createFunction(req.body, (req as any).auth);
       this.ok(reply, created, 201);
     } catch (err: any) {
       if (err instanceof AppError) {
@@ -81,7 +81,7 @@ export class FunctionController extends BaseController {
   ): Promise<void> {
     const service = this.getFunctionsService(req);
     try {
-      const updated = service.updateFunction(req.params.id, req.body, (req as any).auth);
+      const updated = await service.updateFunction(req.params.id, req.body, (req as any).auth);
       this.ok(reply, updated);
     } catch (err: any) {
       if (err instanceof AppError) {
@@ -100,7 +100,7 @@ export class FunctionController extends BaseController {
     try {
       const forceQuery = (req.query as any)?.force;
       const force = forceQuery === 'true' || forceQuery === '1' || forceQuery === true;
-      service.deleteFunction(req.params.id, (req as any).auth, { force });
+      await service.deleteFunction(req.params.id, (req as any).auth, { force });
       this.ok(reply, { success: true, message: 'Function deleted' });
     } catch (err: any) {
       if (err instanceof AppError) {
@@ -150,7 +150,7 @@ export class FunctionController extends BaseController {
     const perPage = req.query.perPage ? parseInt(req.query.perPage, 10) : 25;
     const status = req.query.status;
 
-    const result = service.getLogs(fnId, { page, perPage, status });
+    const result = await service.getLogs(fnId, { page, perPage, status });
     this.ok(reply, result);
   }
 
@@ -160,13 +160,13 @@ export class FunctionController extends BaseController {
   ): Promise<void> {
     const service = this.getFunctionsService(req);
     const fnId = req.params?.id;
-    service.clearLogs(fnId);
+    await service.clearLogs(fnId);
     this.ok(reply, { success: true, message: 'Logs cleared' });
   }
 
   public async getStats(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const service = this.getFunctionsService(req);
-    const stats = service.getStats();
+    const stats = await service.getStats();
     this.ok(reply, stats);
   }
 
@@ -180,7 +180,7 @@ export class FunctionController extends BaseController {
   ): Promise<void> {
     const service = this.getFunctionsService(req);
     const functionName = req.params.name;
-    const fn = service.getFunctionByName(functionName) || service.getFunctionById(functionName);
+    const fn = (await service.getFunctionByName(functionName)) || (await service.getFunctionById(functionName));
 
     if (!fn) {
       this.error(reply, `Function '${functionName}' not found`, 404);

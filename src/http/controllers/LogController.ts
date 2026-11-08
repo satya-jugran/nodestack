@@ -11,10 +11,10 @@ export class LogController extends BaseController {
     req: FastifyRequest<{ Querystring: { page?: number; perPage?: number } }>,
     reply: FastifyReply
   ): Promise<void> {
-    const logs = (req as any).appScope?.logs || this.logService;
+    const logs: LogService = (req as any).appScope?.logs || this.logService;
     const page = Math.max(1, Number(req.query.page) || 1);
     const perPage = Math.min(200, Math.max(1, Number(req.query.perPage) || 50));
-    const result = logs.getLogs(page, perPage);
+    const result = await logs.getLogs(page, perPage);
     this.ok(reply, result);
   }
 
@@ -22,7 +22,7 @@ export class LogController extends BaseController {
     req: FastifyRequest<any>,
     reply: FastifyReply
   ): Promise<void> {
-    const logs = (req as any).appScope?.logs || this.logService;
+    const logs: LogService = (req as any).appScope?.logs || this.logService;
     const rawOlderThan = (req.query as any)?.olderThanDays;
     let olderThanDays: number | undefined = undefined;
 
@@ -36,7 +36,7 @@ export class LogController extends BaseController {
     }
 
     try {
-      const deletedCount = logs.clearLogs(olderThanDays);
+      const deletedCount = await logs.clearLogs(olderThanDays);
       if (olderThanDays !== undefined) {
         this.ok(reply, { success: true, deletedCount, olderThanDays });
       } else {

@@ -196,6 +196,9 @@
       // 3. Load App & Active MVP Context
       await fetchApps();
       await loadCollections();
+      if (typeof fetchDatabaseStatus === "function") {
+        fetchDatabaseStatus();
+      }
       if (typeof fetchDemoStatus === 'function') {
         fetchDemoStatus();
       }

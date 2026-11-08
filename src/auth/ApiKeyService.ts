@@ -93,26 +93,26 @@ export class ApiKeyService {
     private db: DatabaseService,
     private config: ConfigService
   ) {
-    // Flush usage stats every 5 seconds to reduce write load on SQLite WAL
+    // Flush usage stats every 5 seconds to reduce write load
     this.usageFlushTimer = setInterval(() => {
-      this.flushUsageStats();
+      this.flushUsageStats().catch(() => {});
     }, 5000);
     if (this.usageFlushTimer.unref) {
       this.usageFlushTimer.unref();
     }
   }
 
-  public dispose(): void {
+  public async dispose(): Promise<void> {
     if (this.usageFlushTimer) {
       clearInterval(this.usageFlushTimer);
-      this.flushUsageStats();
+      await this.flushUsageStats();
     }
   }
 
   /**
    * Generates a new API Key with full secret returned only once.
    */
-  public createKey(dto: CreateApiKeyDto): { apiKey: SafeApiKeyModel; secretKey: string } {
+  public createKey(dto: CreateApiKeyDto): any {
     const name = (dto.name || '').trim();
     if (!name) {
       throw new AppError('API key name is required', 400);
@@ -146,12 +146,11 @@ export class ApiKeyService {
 
     const allowedIps = (dto.allowedIps || []).map((ip) => ip.trim()).filter(Boolean);
 
-    this.db.prepare(`
-      INSERT INTO _api_keys (
+    const runRes = this.db.run(
+      `INSERT INTO _api_keys (
         id, name, description, keyPrefix, secretHash, redactedKey, role, scopes, allowedIps,
         expiresAt, lastUsedAt, lastUsedIp, totalRequests, status, createdBy, created, updated
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       name,
       dto.description || '',
@@ -195,16 +194,21 @@ export class ApiKeyService {
     this.keyCache.set(keyPrefix, { key: createdKey, expiresAt: Date.now() + 10000 });
 
     const { secretHash: _, ...safeKey } = createdKey;
-    return {
+    const result = {
       apiKey: safeKey,
       secretKey,
     };
+
+    if (runRes && typeof (runRes as any).then === 'function') {
+      return (runRes as any).then(() => result);
+    }
+    return result;
   }
 
   /**
    * Fast verification of an incoming raw key string.
    */
-  public verifyKey(rawKey: string, clientIp?: string): { valid: boolean; apiKey?: ApiKeyModel; error?: string } {
+  public verifyKey(rawKey: string, clientIp?: string): any {
     if (!rawKey || typeof rawKey !== 'string') {
       return { valid: false, error: 'Empty API key' };
     }
@@ -227,64 +231,81 @@ export class ApiKeyService {
     const cached = this.keyCache.get(keyPrefix);
     if (cached && cached.expiresAt > Date.now()) {
       keyModel = cached.key;
-    } else {
-      const row = this.db.get<any>('SELECT * FROM _api_keys WHERE keyPrefix = ?', [keyPrefix]);
-      if (row) {
-        keyModel = this.mapRow(row);
-        this.keyCache.set(keyPrefix, { key: keyModel, expiresAt: Date.now() + 10000 });
+    }
+
+    const validateModel = (model?: ApiKeyModel): any => {
+      if (!model) {
+        return { valid: false, error: 'API key not found' };
       }
-    }
 
-    if (!keyModel) {
-      return { valid: false, error: 'API key not found' };
-    }
-
-    if (keyModel.status !== 'active') {
-      return { valid: false, error: `API key is ${keyModel.status}` };
-    }
-
-    // 2. Cryptographic comparison of SHA-256 hash
-    const inputHash = crypto.createHash('sha256').update(trimmed).digest('hex');
-    const expectedHashBuffer = Buffer.from(keyModel.secretHash, 'hex');
-    const inputHashBuffer = Buffer.from(inputHash, 'hex');
-
-    if (
-      expectedHashBuffer.length !== inputHashBuffer.length ||
-      !crypto.timingSafeEqual(expectedHashBuffer, inputHashBuffer)
-    ) {
-      return { valid: false, error: 'Invalid API key secret' };
-    }
-
-    // 3. Expiration check
-    if (keyModel.expiresAt) {
-      const exp = new Date(keyModel.expiresAt).getTime();
-      if (Date.now() > exp) {
-        this.db.prepare("UPDATE _api_keys SET status = 'expired' WHERE id = ?").run(keyModel.id);
-        keyModel.status = 'expired';
-        this.keyCache.delete(keyPrefix);
-        return { valid: false, error: 'API key has expired' };
+      if (model.status !== 'active') {
+        return { valid: false, error: `API key is ${model.status}` };
       }
-    }
 
-    // 4. IP allowlist check
-    if (keyModel.allowedIps && keyModel.allowedIps.length > 0 && clientIp) {
-      if (!this.isIpAllowed(clientIp, keyModel.allowedIps)) {
-        return { valid: false, error: `IP ${clientIp} is not authorized for this API key` };
+      // 2. Cryptographic comparison of SHA-256 hash
+      const inputHash = crypto.createHash('sha256').update(trimmed).digest('hex');
+      const expectedHashBuffer = Buffer.from(model.secretHash, 'hex');
+      const inputHashBuffer = Buffer.from(inputHash, 'hex');
+
+      if (
+        expectedHashBuffer.length !== inputHashBuffer.length ||
+        !crypto.timingSafeEqual(expectedHashBuffer, inputHashBuffer)
+      ) {
+        return { valid: false, error: 'Invalid API key secret' };
       }
-    }
 
-    // 5. Track usage asynchronously
-    this.recordUsage(keyModel.id, clientIp || '127.0.0.1');
+      // 3. Expiration check
+      if (model.expiresAt) {
+        const exp = new Date(model.expiresAt).getTime();
+        if (Date.now() > exp) {
+          const updateRes = this.db.run("UPDATE _api_keys SET status = 'expired' WHERE id = ?", model.id);
+          model.status = 'expired';
+          this.keyCache.delete(keyPrefix);
+          if (updateRes && typeof (updateRes as any).then === 'function') {
+            return (updateRes as any).then(() => ({ valid: false, error: 'API key has expired' }));
+          }
+          return { valid: false, error: 'API key has expired' };
+        }
+      }
 
-    return {
-      valid: true,
-      apiKey: keyModel,
+      // 4. IP allowlist check
+      if (model.allowedIps && model.allowedIps.length > 0 && clientIp) {
+        if (!this.isIpAllowed(clientIp, model.allowedIps)) {
+          return { valid: false, error: `IP ${clientIp} not in allowed range` };
+        }
+      }
+
+      // 5. Asynchronously record usage statistics
+      this.recordUsage(model.id, clientIp);
+
+      return {
+        valid: true,
+        apiKey: model,
+      };
     };
+
+    if (keyModel) {
+      return validateModel(keyModel);
+    }
+
+    const row = this.db.get<any>('SELECT * FROM _api_keys WHERE keyPrefix = ?', keyPrefix);
+    if (row && typeof (row as any).then === 'function') {
+      return (row as any).then((r: any) => {
+        if (r) {
+          keyModel = this.mapRow(r);
+          this.keyCache.set(keyPrefix, { key: keyModel, expiresAt: Date.now() + 10000 });
+        }
+        return validateModel(keyModel);
+      });
+    }
+
+    if (row) {
+      keyModel = this.mapRow(row);
+      this.keyCache.set(keyPrefix, { key: keyModel, expiresAt: Date.now() + 10000 });
+    }
+    return validateModel(keyModel);
   }
 
-  /**
-   * Helper to check if an IP matches allowed IP addresses / CIDRs.
-   */
   private isIpAllowed(ip: string, allowedList: string[]): boolean {
     const cleanIp = ip.replace(/^::ffff:/, '').trim();
     for (const pattern of allowedList) {
@@ -292,11 +313,9 @@ export class ApiKeyService {
       if (cleanPattern === '*' || cleanPattern === cleanIp) {
         return true;
       }
-      // Simple prefix check for subnet like "192.168.1."
       if (cleanPattern.endsWith('.') && cleanIp.startsWith(cleanPattern)) {
         return true;
       }
-      // Basic /24 CIDR check
       if (cleanPattern.includes('/24')) {
         const subnet = cleanPattern.split('/24')[0].split('.').slice(0, 3).join('.');
         if (cleanIp.startsWith(subnet + '.')) {
@@ -310,154 +329,213 @@ export class ApiKeyService {
     return false;
   }
 
-  private recordUsage(keyId: string, ip: string): void {
+  private recordUsage(keyId: string, ip?: string): void {
     const existing = this.pendingUsageUpdates.get(keyId) || {
       lastUsedAt: new Date().toISOString(),
-      lastUsedIp: ip,
+      lastUsedIp: ip || 'unknown',
       count: 0,
     };
     existing.lastUsedAt = new Date().toISOString();
-    existing.lastUsedIp = ip;
+    existing.lastUsedIp = ip || 'unknown';
     existing.count += 1;
     this.pendingUsageUpdates.set(keyId, existing);
   }
 
-  private flushUsageStats(): void {
+  private async flushUsageStats(): Promise<void> {
     if (this.pendingUsageUpdates.size === 0) return;
     try {
-      this.db.transaction(() => {
-        const stmt = this.db.prepare(`
-          UPDATE _api_keys
-          SET lastUsedAt = ?, lastUsedIp = ?, totalRequests = totalRequests + ?
-          WHERE id = ?
-        `);
-        for (const [keyId, stats] of this.pendingUsageUpdates.entries()) {
-          stmt.run(stats.lastUsedAt, stats.lastUsedIp, stats.count, keyId);
-        }
-      });
+      const entries = Array.from(this.pendingUsageUpdates.entries());
       this.pendingUsageUpdates.clear();
+      if (this.db.dialect.name === 'sqlite') {
+        this.db.transaction(() => {
+          for (const [keyId, stats] of entries) {
+            this.db.run(
+              `UPDATE _api_keys
+              SET lastUsedAt = ?, lastUsedIp = ?, totalRequests = totalRequests + ?
+              WHERE id = ?`,
+              stats.lastUsedAt, stats.lastUsedIp, stats.count, keyId
+            );
+          }
+        });
+      } else {
+        await this.db.transaction(async (tx) => {
+          for (const [keyId, stats] of entries) {
+            await tx.prepare(
+              `UPDATE _api_keys
+              SET lastUsedAt = ?, lastUsedIp = ?, totalRequests = totalRequests + ?
+              WHERE id = ?`
+            ).run(stats.lastUsedAt, stats.lastUsedIp, stats.count, keyId);
+          }
+        });
+      }
     } catch {
       // Non-fatal if DB is temporarily locked
     }
   }
 
-  public listKeys(): SafeApiKeyModel[] {
+  public listKeys(): any {
     const rows = this.db.all<any>('SELECT * FROM _api_keys ORDER BY created DESC');
-    return rows.map((r) => {
+    const processRows = (r: any[]) =>
+      (r || []).map((item) => {
+        const { secretHash: _, ...safe } = this.mapRow(item);
+        return safe;
+      });
+    if (rows && typeof (rows as any).then === 'function') {
+      return (rows as any).then(processRows);
+    }
+    return processRows(rows || []);
+  }
+
+  public getKey(id: string): any {
+    const row = this.db.get<any>('SELECT * FROM _api_keys WHERE id = ?', id);
+    const processRow = (r: any) => {
+      if (!r) {
+        throw new NotFoundError(`API key '${id}' not found`);
+      }
       const { secretHash: _, ...safe } = this.mapRow(r);
       return safe;
-    });
+    };
+    if (row && typeof (row as any).then === 'function') {
+      return (row as any).then(processRow);
+    }
+    return processRow(row);
   }
 
-  public getKey(id: string): SafeApiKeyModel {
-    const row = this.db.get<any>('SELECT * FROM _api_keys WHERE id = ?', [id]);
-    if (!row) {
-      throw new NotFoundError(`API key '${id}' not found`);
+  public updateKey(id: string, dto: UpdateApiKeyDto): any {
+    const existing = this.getKey(id);
+    const doUpdate = (current: any) => {
+      const updates: string[] = ['updated = ?'];
+      const now = new Date().toISOString();
+      const params: any[] = [now];
+
+      if (dto.name !== undefined) {
+        const cleanName = dto.name.trim();
+        if (!cleanName) throw new AppError('Name cannot be empty', 400);
+        updates.push('name = ?');
+        params.push(cleanName);
+      }
+      if (dto.description !== undefined) {
+        updates.push('description = ?');
+        params.push(dto.description);
+      }
+      if (dto.role !== undefined) {
+        updates.push('role = ?');
+        params.push(dto.role);
+      }
+      if (dto.scopes !== undefined) {
+        updates.push('scopes = ?');
+        params.push(JSON.stringify(dto.scopes));
+      }
+      if (dto.allowedIps !== undefined) {
+        updates.push('allowedIps = ?');
+        params.push(JSON.stringify(dto.allowedIps));
+      }
+      if (dto.expiresAt !== undefined) {
+        updates.push('expiresAt = ?');
+        params.push(dto.expiresAt ? new Date(dto.expiresAt).toISOString() : null);
+      }
+      if (dto.status !== undefined) {
+        updates.push('status = ?');
+        params.push(dto.status);
+      }
+
+      params.push(id);
+      const runRes = this.db.run(`UPDATE _api_keys SET ${updates.join(', ')} WHERE id = ?`, ...params);
+      this.keyCache.delete(current.keyPrefix);
+      if (runRes && typeof (runRes as any).then === 'function') {
+        return (runRes as any).then(() => this.getKey(id));
+      }
+      return this.getKey(id);
+    };
+
+    if (existing && typeof (existing as any).then === 'function') {
+      return (existing as any).then(doUpdate);
     }
-    const { secretHash: _, ...safe } = this.mapRow(row);
-    return safe;
+    return doUpdate(existing);
   }
 
-  public updateKey(id: string, dto: UpdateApiKeyDto): SafeApiKeyModel {
-    const existing = this.db.get<any>('SELECT * FROM _api_keys WHERE id = ?', [id]);
-    if (!existing) {
-      throw new NotFoundError(`API key '${id}' not found`);
+  public revokeKey(id: string): any {
+    const existing = this.getKey(id);
+    const doRevoke = (current: any) => {
+      const now = new Date().toISOString();
+      const runRes = this.db.run("UPDATE _api_keys SET status = 'revoked', updated = ? WHERE id = ?", now, id);
+      this.keyCache.delete(current.keyPrefix);
+      if (runRes && typeof (runRes as any).then === 'function') {
+        return (runRes as any).then(() => {});
+      }
+    };
+    if (existing && typeof (existing as any).then === 'function') {
+      return (existing as any).then(doRevoke);
     }
-
-    const updates: string[] = ['updated = ?'];
-    const now = new Date().toISOString();
-    const params: any[] = [now];
-
-    if (dto.name !== undefined) {
-      const cleanName = dto.name.trim();
-      if (!cleanName) throw new AppError('Name cannot be empty', 400);
-      updates.push('name = ?');
-      params.push(cleanName);
-    }
-    if (dto.description !== undefined) {
-      updates.push('description = ?');
-      params.push(dto.description);
-    }
-    if (dto.role !== undefined) {
-      updates.push('role = ?');
-      params.push(dto.role);
-    }
-    if (dto.scopes !== undefined) {
-      updates.push('scopes = ?');
-      params.push(JSON.stringify(dto.scopes));
-    }
-    if (dto.allowedIps !== undefined) {
-      updates.push('allowedIps = ?');
-      params.push(JSON.stringify(dto.allowedIps));
-    }
-    if (dto.expiresAt !== undefined) {
-      updates.push('expiresAt = ?');
-      params.push(dto.expiresAt ? new Date(dto.expiresAt).toISOString() : null);
-    }
-    if (dto.status !== undefined) {
-      updates.push('status = ?');
-      params.push(dto.status);
-    }
-
-    params.push(id);
-    this.db.prepare(`UPDATE _api_keys SET ${updates.join(', ')} WHERE id = ?`).run(...params);
-
-    this.keyCache.delete(existing.keyPrefix);
-    return this.getKey(id);
+    return doRevoke(existing);
   }
 
-  public revokeKey(id: string): void {
-    const existing = this.db.get<any>('SELECT keyPrefix FROM _api_keys WHERE id = ?', [id]);
-    if (!existing) {
-      throw new NotFoundError(`API key '${id}' not found`);
+  public deleteKey(id: string): any {
+    const existing = this.getKey(id);
+    const doDelete = (current: any) => {
+      const runRes = this.db.run('DELETE FROM _api_keys WHERE id = ?', id);
+      this.keyCache.delete(current.keyPrefix);
+      if (runRes && typeof (runRes as any).then === 'function') {
+        return (runRes as any).then(() => {});
+      }
+    };
+    if (existing && typeof (existing as any).then === 'function') {
+      return (existing as any).then(doDelete);
     }
-    const now = new Date().toISOString();
-    this.db.prepare("UPDATE _api_keys SET status = 'revoked', updated = ? WHERE id = ?").run(now, id);
-    this.keyCache.delete(existing.keyPrefix);
-  }
-
-  public deleteKey(id: string): void {
-    const existing = this.db.get<any>('SELECT keyPrefix FROM _api_keys WHERE id = ?', [id]);
-    if (!existing) {
-      throw new NotFoundError(`API key '${id}' not found`);
-    }
-    this.db.prepare('DELETE FROM _api_keys WHERE id = ?').run(id);
-    this.keyCache.delete(existing.keyPrefix);
+    return doDelete(existing);
   }
 
   /**
    * Rotates an API Key secret. Invalides old secret, generates new one, and returns it.
    */
-  public rotateKey(id: string): { apiKey: SafeApiKeyModel; secretKey: string } {
-    const existing = this.db.get<any>('SELECT * FROM _api_keys WHERE id = ?', [id]);
-    if (!existing) {
-      throw new NotFoundError(`API key '${id}' not found`);
-    }
+  public rotateKey(id: string): any {
+    const existing = this.getKey(id);
+    const doRotate = (current: any) => {
+      const keyPrefix = current.keyPrefix;
+      const secretEntropy = crypto.randomBytes(24).toString('hex');
+      const secretKey = `${keyPrefix}_${secretEntropy}`;
+      const redactedKey = `${keyPrefix}...${secretEntropy.slice(-4)}`;
+      const secretHash = crypto.createHash('sha256').update(secretKey).digest('hex');
+      const now = new Date().toISOString();
 
-    const keyPrefix = existing.keyPrefix;
-    const parts = keyPrefix.split('_');
-    const secretEntropy = crypto.randomBytes(24).toString('hex');
-    const secretKey = `${keyPrefix}_${secretEntropy}`;
-    const redactedKey = `${keyPrefix}...${secretEntropy.slice(-4)}`;
-    const secretHash = crypto.createHash('sha256').update(secretKey).digest('hex');
-    const now = new Date().toISOString();
+      const runRes = this.db.run(
+        `UPDATE _api_keys
+        SET secretHash = ?, redactedKey = ?, status = 'active', updated = ?
+        WHERE id = ?`,
+        secretHash, redactedKey, now, id
+      );
 
-    this.db.prepare(`
-      UPDATE _api_keys
-      SET secretHash = ?, redactedKey = ?, status = 'active', updated = ?
-      WHERE id = ?
-    `).run(secretHash, redactedKey, now, id);
+      this.keyCache.delete(keyPrefix);
+      const finalize = () => {
+        const updated = this.getKey(id);
+        if (updated && typeof (updated as any).then === 'function') {
+          return (updated as any).then((u: any) => ({ apiKey: u, secretKey }));
+        }
+        return { apiKey: updated, secretKey };
+      };
 
-    this.keyCache.delete(keyPrefix);
-    const updatedKey = this.getKey(id);
-
-    return {
-      apiKey: updatedKey,
-      secretKey,
+      if (runRes && typeof (runRes as any).then === 'function') {
+        return (runRes as any).then(finalize);
+      }
+      return finalize();
     };
+
+    if (existing && typeof (existing as any).then === 'function') {
+      return (existing as any).then(doRotate);
+    }
+    return doRotate(existing);
   }
 
   private mapRow(row: any): ApiKeyModel {
+    let scopes: string[] = [];
+    let allowedIps: string[] = [];
+    try {
+      scopes = typeof row.scopes === 'string' ? JSON.parse(row.scopes) : (row.scopes || []);
+    } catch {}
+    try {
+      allowedIps = typeof row.allowedIps === 'string' ? JSON.parse(row.allowedIps) : (row.allowedIps || []);
+    } catch {}
+
     return {
       id: row.id,
       name: row.name,
@@ -465,14 +543,14 @@ export class ApiKeyService {
       keyPrefix: row.keyPrefix,
       secretHash: row.secretHash,
       redactedKey: row.redactedKey,
-      role: row.role || 'service',
-      scopes: typeof row.scopes === 'string' ? JSON.parse(row.scopes || '[]') : row.scopes || [],
-      allowedIps: typeof row.allowedIps === 'string' ? JSON.parse(row.allowedIps || '[]') : row.allowedIps || [],
+      role: row.role,
+      scopes,
+      allowedIps,
       expiresAt: row.expiresAt || null,
       lastUsedAt: row.lastUsedAt || null,
       lastUsedIp: row.lastUsedIp || null,
       totalRequests: Number(row.totalRequests || 0),
-      status: row.status || 'active',
+      status: row.status,
       createdBy: row.createdBy || undefined,
       created: row.created,
       updated: row.updated,

@@ -20,19 +20,25 @@ export class OpenApiGenerator {
   /**
    * Generates the OpenAPI 3.0 specification object from the current collections schema.
    */
-  public generate(options?: OpenApiGeneratorOptions): Record<string, any> {
+  public generate(options?: OpenApiGeneratorOptions): any {
     const collections = this.schemaService.getAllCollections();
-    return OpenApiGenerator.generateFromCollections(collections, {
-      ...this.defaultOptions,
-      ...options,
-    });
+    const handleCollections = (cols: CollectionModel[]) => {
+      return OpenApiGenerator.generateFromCollections(cols, {
+        ...this.defaultOptions,
+        ...options,
+      });
+    };
+    if (collections && typeof (collections as any).then === 'function') {
+      return (collections as any).then(handleCollections);
+    }
+    return handleCollections(collections);
   }
 
-  /**
-   * Generates formatted OpenAPI JSON string.
-   */
-  public generateJson(pretty = true, options?: OpenApiGeneratorOptions): string {
+  public generateJson(pretty = true, options?: OpenApiGeneratorOptions): any {
     const spec = this.generate(options);
+    if (spec && typeof (spec as any).then === 'function') {
+      return (spec as any).then((s: any) => JSON.stringify(s, null, pretty ? 2 : undefined));
+    }
     return JSON.stringify(spec, null, pretty ? 2 : undefined);
   }
 

@@ -21,6 +21,7 @@ import { WebhookController } from './controllers/WebhookController';
 import { FunctionController } from './controllers/FunctionController';
 import { FlowController } from './controllers/FlowController';
 import { QueueController } from './controllers/QueueController';
+import { DatabaseController } from './controllers/DatabaseController';
 import { AppController } from './controllers/AppController';
 import { AppResolutionMiddleware } from './middleware/AppResolutionMiddleware';
 import { ApiKeyController } from './controllers/ApiKeyController';
@@ -38,8 +39,13 @@ export class HttpServer {
   private functionController?: FunctionController;
   private flowController?: FlowController;
   private queueController?: QueueController;
+  private databaseController?: DatabaseController;
   private dynamicRouteHandler?: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>;
   private dynamicRouteMatcher?: (method: string, path: string) => any;
+
+  public setDatabaseController(controller: DatabaseController): void {
+    this.databaseController = controller;
+  }
 
   public setApiKeyController(controller: ApiKeyController): void {
     this.apiKeyController = controller;
@@ -91,9 +97,13 @@ export class HttpServer {
     apiKeyController?: ApiKeyController,
     functionController?: FunctionController,
     flowController?: FlowController,
-    queueController?: QueueController
+    queueController?: QueueController,
+    databaseController?: DatabaseController
   ) {
     this.maintenanceGate = maintenanceGate;
+    if (databaseController) {
+      this.databaseController = databaseController;
+    }
     if (apiKeyController) {
       this.apiKeyController = apiKeyController;
     }
@@ -176,10 +186,12 @@ export class HttpServer {
         const isExclusiveMutation =
           (req.method === 'POST' || req.method === 'DELETE' || req.method === 'PATCH') &&
           (req.url.includes('/restore') ||
-           req.url.includes('/snapshots'));
+           req.url.includes('/snapshots') ||
+           req.url.includes('/database/switch'));
         const isExempt =
           isExclusiveMutation ||
           req.url.includes('/restore') ||
+          req.url.includes('/database/switch') ||
           req.url.startsWith('/api/realtime');
         try {
           await gate.trackRequestStart(reqId, isExempt);
@@ -367,6 +379,19 @@ export class HttpServer {
       );
       app.delete('/api/apps/:appId', { preHandler: requireAdmin }, (req: any, reply) =>
         this.appController!.delete(req, reply)
+      );
+    }
+
+    // 0.2 System Database Management Endpoints (Super-admin only)
+    if (this.databaseController) {
+      app.get('/api/system/database/status', { preHandler: requireAdmin }, (req, reply) =>
+        this.databaseController!.getStatus(req, reply)
+      );
+      app.post('/api/system/database/test', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.databaseController!.testConnection(req, reply)
+      );
+      app.post('/api/system/database/switch', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.databaseController!.switchDatabase(req, reply)
       );
     }
 
@@ -1074,12 +1099,12 @@ export class HttpServer {
     }
 
     // 9. TypeGen Endpoints
-    const handleTypegen = (req: any, reply: FastifyReply) => {
+    const handleTypegen = async (req: any, reply: FastifyReply) => {
       const typegen = req.appScope?.typegen || this.typeGenerator;
       if (!typegen) {
         return reply.status(500).send({ message: 'TypeGenerator is not configured' });
       }
-      const ts = typegen.generate();
+      const ts = await typegen.generate();
       reply.header('Content-Type', 'text/plain; charset=utf-8');
       return reply.send(ts);
     };

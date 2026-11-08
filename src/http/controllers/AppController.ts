@@ -9,7 +9,7 @@ export class AppController extends BaseController {
   }
 
   public async list(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const apps = this.appManager.list();
+    const apps = await this.appManager.list();
     this.ok(reply, {
       items: apps,
       totalItems: apps.length,
@@ -20,7 +20,7 @@ export class AppController extends BaseController {
     req: FastifyRequest<{ Params: { appId: string } }>,
     reply: FastifyReply
   ): Promise<void> {
-    const scope = this.appManager.get(req.params.appId);
+    const scope = await this.appManager.getAsync(req.params.appId);
     this.ok(reply, scope.app);
   }
 
@@ -36,7 +36,7 @@ export class AppController extends BaseController {
     req: FastifyRequest<{ Params: { appId: string }; Body: UpdateAppDto }>,
     reply: FastifyReply
   ): Promise<void> {
-    const updated = this.appManager.update(req.params.appId, req.body);
+    const updated = await this.appManager.update(req.params.appId, req.body);
     this.ok(reply, updated);
   }
 

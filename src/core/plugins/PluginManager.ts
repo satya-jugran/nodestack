@@ -131,6 +131,21 @@ export class PluginManager {
   private scopedPlugins = new Map<string, { plugin: INodeStackPlugin; context: NodeStackPluginContext }>();
   private provisionedScopes = new Set<string>();
   private runtimeLoadedOfficialPlugins = new Set<string>();
+  private settingsCache = new Map<string, Record<string, any>>();
+  private enabledPluginsCache = new Map<string, boolean>();
+
+  private getDbKey(db?: DatabaseService): string {
+    const targetDb = db || this.app.db;
+    return (targetDb as any)?.customDbPath || (targetDb as any)?.config?.dbPath || 'root';
+  }
+
+  private updateMemorySettings(db: DatabaseService | undefined, pluginName: string, settings: Record<string, any>): void {
+    const dbKey = this.getDbKey(db);
+    this.settingsCache.set(`${dbKey}:${pluginName}`, settings);
+    if (settings && settings._enabled !== undefined) {
+      this.enabledPluginsCache.set(`${dbKey}:${pluginName}`, Boolean(settings._enabled));
+    }
+  }
 
   constructor(
     private readonly app: NodeStack,
@@ -170,7 +185,11 @@ export class PluginManager {
       });
     }
 
-    this.loadAutoEnabledPlugins();
+    if (this.app.db.dialect.name === 'sqlite') {
+      this.loadAutoEnabledPluginsSync();
+    } else {
+      this.pendingInits.push(this.loadAutoEnabledPlugins());
+    }
   }
 
   /**
@@ -793,11 +812,20 @@ export class PluginManager {
    */
   public getOfficialCatalog(db?: DatabaseService): OfficialPluginMetadata[] {
     const targetDb = db || this.app.db;
+    const dbKey = this.getDbKey(targetDb);
     const enabledMap = new Map<string, boolean>();
+
+    for (const def of OFFICIAL_PLUGINS) {
+      const cached = this.enabledPluginsCache.get(`${dbKey}:${def.name}`);
+      if (cached !== undefined) {
+        enabledMap.set(def.name, cached);
+      }
+    }
+
     try {
       this.initSettingsTable(targetDb);
-      if (targetDb && typeof targetDb.all === 'function') {
-        const rows = targetDb.all<{ pluginName: string; settings: string }>(
+      if (enabledMap.size === 0 && targetDb && typeof targetDb.allSync === 'function') {
+        const rows = targetDb.allSync<{ pluginName: string; settings: string }>(
           'SELECT pluginName, settings FROM _plugin_settings'
         );
         for (const r of rows) {
@@ -805,6 +833,7 @@ export class PluginManager {
             const s = JSON.parse(r.settings);
             if (s && s._enabled !== undefined) {
               enabledMap.set(r.pluginName, Boolean(s._enabled));
+              this.updateMemorySettings(targetDb, r.pluginName, s);
             }
           } catch {}
         }
@@ -882,9 +911,9 @@ export class PluginManager {
     this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      const row = targetDb.get<{ settings: string }>(
+      const row = await targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
-        [def.name]
+        def.name
       );
       if (row?.settings) {
         dbSettings = JSON.parse(row.settings);
@@ -893,11 +922,14 @@ export class PluginManager {
 
     dbSettings._enabled = true;
     const now = new Date().toISOString();
-    targetDb.prepare(`
-      INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
-      VALUES (?, ?, ?)
-      ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
-    `).run(def.name, JSON.stringify(dbSettings), now);
+    const upsertSql = targetDb.dialect.upsertSql(
+      '_plugin_settings',
+      ['pluginName', 'settings', 'updatedAt'],
+      'pluginName',
+      ['settings', 'updatedAt']
+    );
+    await targetDb.run(upsertSql, def.name, JSON.stringify(dbSettings), now);
+    this.updateMemorySettings(targetDb, def.name, dbSettings);
 
     return this.getPluginConfig(def.name, targetDb);
   }
@@ -930,15 +962,15 @@ export class PluginManager {
     this.initSettingsTable(targetDb);
     let dbSettings: Record<string, any> = {};
     try {
-      let row = targetDb.get<{ settings: string }>(
+      let row = await targetDb.get<{ settings: string }>(
         'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
-        [name]
+        name
       );
       if (!row && (name === 'webhooks' || name === 'chat-notifications')) {
         const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
-        row = targetDb.get<{ settings: string }>(
+        row = await targetDb.get<{ settings: string }>(
           'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
-          [altName]
+          altName
         );
       }
       if (row?.settings) {
@@ -948,11 +980,14 @@ export class PluginManager {
 
     dbSettings._enabled = false;
     const now = new Date().toISOString();
-    targetDb.prepare(`
-      INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
-      VALUES (?, ?, ?)
-      ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
-    `).run(name, JSON.stringify(dbSettings), now);
+    const upsertSql = targetDb.dialect.upsertSql(
+      '_plugin_settings',
+      ['pluginName', 'settings', 'updatedAt'],
+      'pluginName',
+      ['settings', 'updatedAt']
+    );
+    await targetDb.run(upsertSql, name, JSON.stringify(dbSettings), now);
+    this.updateMemorySettings(targetDb, name, dbSettings);
 
     if (targetScope) {
       this.removeScopedHooks(targetScope.app.slug, name);
@@ -994,7 +1029,7 @@ export class PluginManager {
         const found = (this.app.apps as any).findScopeByDb(db);
         if (found) return found;
       }
-      for (const app of this.app.apps.registry.getAllApps()) {
+      for (const app of this.app.apps.registry.getAllAppsSync()) {
         try {
           const scope = this.app.apps.get(app.slug);
           if (scope && (scope.db === db || (scope.db as any)?.driver === (db as any)?.driver)) {
@@ -1008,21 +1043,25 @@ export class PluginManager {
 
   public isPluginEnabledInDb(pluginName: string, db?: DatabaseService): boolean {
     const targetDb = db || this.app.db;
+    const dbKey = this.getDbKey(targetDb);
+    const cached = this.enabledPluginsCache.get(`${dbKey}:${pluginName}`);
+    if (cached !== undefined) {
+      return cached;
+    }
     try {
       this.initSettingsTable(targetDb);
-      const row = targetDb.get<{ settings: string }>(
-        'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
-        [pluginName]
-      );
-      if (!row || !row.settings) {
-        if (targetDb === this.app.db) {
-          return this.plugins.has(pluginName) && !this.runtimeLoadedOfficialPlugins.has(pluginName);
+      if (typeof targetDb.getSync === 'function') {
+        const row = targetDb.getSync<{ settings: string }>(
+          'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
+          pluginName
+        );
+        if (row?.settings) {
+          const settings = JSON.parse(row.settings);
+          this.updateMemorySettings(targetDb, pluginName, settings);
+          if (settings && settings._enabled !== undefined) {
+            return Boolean(settings._enabled);
+          }
         }
-        return false;
-      }
-      const settings = JSON.parse(row.settings);
-      if (settings && settings._enabled !== undefined) {
-        return Boolean(settings._enabled);
       }
       if (targetDb === this.app.db) {
         return this.plugins.has(pluginName) && !this.runtimeLoadedOfficialPlugins.has(pluginName);
@@ -1038,7 +1077,7 @@ export class PluginManager {
       return true;
     }
     if (this.app.apps) {
-      for (const app of this.app.apps.registry.getAllApps()) {
+      for (const app of this.app.apps.registry.getAllAppsSync()) {
         try {
           const scope = this.app.apps.get(app.slug);
           if (scope && scope.db !== excludeDb && this.isPluginEnabledInDb(pluginName, scope.db)) {
@@ -1283,7 +1322,7 @@ export class PluginManager {
     }
   }
 
-  public provisionScope(scope: AppScope): void {
+  public provisionScope(scope: AppScope): any {
     if (!scope || !scope.db) return;
     this.initSettingsTable(scope.db);
 
@@ -1301,36 +1340,42 @@ export class PluginManager {
         const rows = scope.db.all<{ pluginName: string; settings: string }>(
           'SELECT pluginName, settings FROM _plugin_settings'
         );
-        for (const row of rows) {
-          try {
-            const parsed = JSON.parse(row.settings);
-            if (parsed && parsed._enabled === true) {
-              let plugin = this.plugins.get(row.pluginName)?.plugin;
-              if (!plugin) {
-                const def = OFFICIAL_PLUGINS.find(
-                  (p) => p.name === row.pluginName || p.id === row.pluginName
-                );
-                if (def) {
-                  this.runtimeLoadedOfficialPlugins.add(def.name);
-                  plugin = def.factory();
-                  this.use(plugin, scope);
+
+        const processRows = (rowsList: any[]) => {
+          for (const row of rowsList || []) {
+            try {
+              const parsed = JSON.parse(row.settings);
+              this.updateMemorySettings(scope.db, row.pluginName, parsed);
+              if (parsed && parsed._enabled === true) {
+                let plugin = this.plugins.get(row.pluginName)?.plugin;
+                if (!plugin) {
+                  const def = OFFICIAL_PLUGINS.find(
+                    (p) => p.name === row.pluginName || p.id === row.pluginName
+                  );
+                  if (def) {
+                    this.runtimeLoadedOfficialPlugins.add(def.name);
+                    plugin = def.factory();
+                    this.use(plugin, scope);
+                  }
+                } else {
+                  this.provisionPluginForScope(plugin, scope);
                 }
-              } else {
-                this.provisionPluginForScope(plugin, scope);
               }
-            }
-          } catch {}
+            } catch {}
+          }
+        };
+
+        if (rows && typeof (rows as any).then === 'function') {
+          return (rows as any).then(processRows);
         }
+        return processRows(rows);
       }
     } catch {
       // Ignore during uninitialized state
     }
   }
 
-  /**
-   * Auto-load any official plugins previously enabled in _plugin_settings on startup
-   */
-  private loadAutoEnabledPlugins(): void {
+  private loadAutoEnabledPluginsSync(): void {
     if (this.app.defaultApp) {
       this.provisionScope(this.app.defaultApp);
     } else {
@@ -1339,7 +1384,7 @@ export class PluginManager {
 
     if (this.app.apps) {
       try {
-        const apps = this.app.apps.registry.getAllApps();
+        const apps = this.app.apps.registry.getAllAppsSync();
         for (const app of apps) {
           if (app.slug !== 'default') {
             const scope = this.app.apps.get(app.slug);
@@ -1351,19 +1396,40 @@ export class PluginManager {
   }
 
   /**
-   * Initialize SQLite settings table for plugins if not already present
+   * Auto-load any official plugins previously enabled in _plugin_settings on startup
+   */
+  private async loadAutoEnabledPlugins(): Promise<void> {
+    if (this.app.defaultApp) {
+      await this.provisionScope(this.app.defaultApp);
+    } else {
+      this.initSettingsTable(this.app.db);
+    }
+
+    if (this.app.apps) {
+      try {
+        const apps = this.app.apps.registry.getAllAppsSync();
+        for (const app of apps) {
+          if (app.slug !== 'default') {
+            const scope = this.app.apps.get(app.slug);
+            await this.provisionScope(scope);
+          }
+        }
+      } catch {}
+    }
+  }
+
+  /**
+   * Initialize settings table for plugins if not already present
    */
   private initSettingsTable(db?: DatabaseService): void {
     const targetDb = db || this.app.db;
     try {
       if (targetDb && typeof targetDb.run === 'function') {
-        targetDb.run(`
-          CREATE TABLE IF NOT EXISTS _plugin_settings (
-            pluginName TEXT PRIMARY KEY,
-            settings TEXT NOT NULL DEFAULT '{}',
-            updatedAt TEXT NOT NULL
-          )
-        `);
+        const textType = targetDb.dialect ? targetDb.dialect.textType() : 'TEXT';
+        const ddl = targetDb.dialect
+          ? targetDb.dialect.createTableIfNotExists('_plugin_settings', `pluginName VARCHAR(255) PRIMARY KEY, settings ${textType} NOT NULL, updatedAt VARCHAR(50) NOT NULL`)
+          : `CREATE TABLE IF NOT EXISTS _plugin_settings (pluginName VARCHAR(255) PRIMARY KEY, settings ${textType} NOT NULL, updatedAt VARCHAR(50) NOT NULL)`;
+        void targetDb.run(ddl).catch(() => {});
       }
     } catch {
       // Ignore during mock or container tests
@@ -1510,23 +1576,29 @@ export class PluginManager {
     }
 
     this.initSettingsTable(targetDb);
-    let dbSettings: Record<string, any> = {};
-    try {
-      let row = targetDb.get<{ settings: string }>(
-        'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
-        [name]
-      );
-      if (!row && (name === 'webhooks' || name === 'chat-notifications')) {
-        const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
-        row = targetDb.get<{ settings: string }>(
-          'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
-          [altName]
-        );
-      }
-      if (row?.settings) {
-        dbSettings = JSON.parse(row.settings);
-      }
-    } catch {}
+    const dbKey = this.getDbKey(targetDb);
+    let dbSettings: Record<string, any> = this.settingsCache.get(`${dbKey}:${name}`) || {};
+
+    if (Object.keys(dbSettings).length === 0 && (name === 'webhooks' || name === 'chat-notifications')) {
+      const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+      dbSettings = this.settingsCache.get(`${dbKey}:${altName}`) || {};
+    }
+
+    if (Object.keys(dbSettings).length === 0) {
+      try {
+        let row = typeof targetDb.getSync === 'function'
+          ? targetDb.getSync<{ settings: string }>('SELECT settings FROM _plugin_settings WHERE pluginName = ?', name)
+          : undefined;
+        if (!row && (name === 'webhooks' || name === 'chat-notifications') && typeof targetDb.getSync === 'function') {
+          const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+          row = targetDb.getSync<{ settings: string }>('SELECT settings FROM _plugin_settings WHERE pluginName = ?', altName);
+        }
+        if (row?.settings) {
+          dbSettings = JSON.parse(row.settings);
+          this.updateMemorySettings(targetDb, name, dbSettings);
+        }
+      } catch {}
+    }
 
     const effective: Record<string, any> = {};
     for (const field of plugin.configSchema.fields) {
@@ -1609,23 +1681,29 @@ export class PluginManager {
     }
 
     this.initSettingsTable(targetDb);
-    let dbSettings: Record<string, any> = {};
-    try {
-      let row = targetDb.get<{ settings: string }>(
-        'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
-        [name]
-      );
-      if (!row && (name === 'webhooks' || name === 'chat-notifications')) {
-        const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
-        row = targetDb.get<{ settings: string }>(
-          'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
-          [altName]
-        );
-      }
-      if (row?.settings) {
-        dbSettings = JSON.parse(row.settings);
-      }
-    } catch {}
+    const dbKey = this.getDbKey(targetDb);
+    let dbSettings: Record<string, any> = this.settingsCache.get(`${dbKey}:${name}`) || {};
+
+    if (Object.keys(dbSettings).length === 0 && (name === 'webhooks' || name === 'chat-notifications')) {
+      const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+      dbSettings = this.settingsCache.get(`${dbKey}:${altName}`) || {};
+    }
+
+    if (Object.keys(dbSettings).length === 0) {
+      try {
+        let row = typeof targetDb.getSync === 'function'
+          ? targetDb.getSync<{ settings: string }>('SELECT settings FROM _plugin_settings WHERE pluginName = ?', name)
+          : undefined;
+        if (!row && (name === 'webhooks' || name === 'chat-notifications') && typeof targetDb.getSync === 'function') {
+          const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+          row = targetDb.getSync<{ settings: string }>('SELECT settings FROM _plugin_settings WHERE pluginName = ?', altName);
+        }
+        if (row?.settings) {
+          dbSettings = JSON.parse(row.settings);
+          this.updateMemorySettings(targetDb, name, dbSettings);
+        }
+      } catch {}
+    }
 
     const fields: ResolvedPluginConfigField[] = plugin.configSchema.fields.map((field) => {
       let rawValue: any = undefined;
@@ -1737,23 +1815,29 @@ export class PluginManager {
     }
 
     this.initSettingsTable(targetDb);
-    let dbSettings: Record<string, any> = {};
-    try {
-      let row = targetDb.get<{ settings: string }>(
-        'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
-        [name]
-      );
-      if (!row && (name === 'webhooks' || name === 'chat-notifications')) {
-        const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
-        row = targetDb.get<{ settings: string }>(
-          'SELECT settings FROM _plugin_settings WHERE pluginName = ?',
-          [altName]
-        );
-      }
-      if (row?.settings) {
-        dbSettings = JSON.parse(row.settings);
-      }
-    } catch {}
+    const dbKey = this.getDbKey(targetDb);
+    let dbSettings: Record<string, any> = this.settingsCache.get(`${dbKey}:${name}`) || {};
+
+    if (Object.keys(dbSettings).length === 0 && (name === 'webhooks' || name === 'chat-notifications')) {
+      const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+      dbSettings = this.settingsCache.get(`${dbKey}:${altName}`) || {};
+    }
+
+    if (Object.keys(dbSettings).length === 0) {
+      try {
+        let row = typeof targetDb.getSync === 'function'
+          ? targetDb.getSync<{ settings: string }>('SELECT settings FROM _plugin_settings WHERE pluginName = ?', name)
+          : undefined;
+        if (!row && (name === 'webhooks' || name === 'chat-notifications') && typeof targetDb.getSync === 'function') {
+          const altName = name === 'webhooks' ? 'chat-notifications' : 'webhooks';
+          row = targetDb.getSync<{ settings: string }>('SELECT settings FROM _plugin_settings WHERE pluginName = ?', altName);
+        }
+        if (row?.settings) {
+          dbSettings = JSON.parse(row.settings);
+          this.updateMemorySettings(targetDb, name, dbSettings);
+        }
+      } catch {}
+    }
 
     // Validate that no locked fields are being modified
     for (const [key, val] of Object.entries(updates)) {
@@ -1825,11 +1909,14 @@ export class PluginManager {
     }
 
     const now = new Date().toISOString();
-    targetDb.prepare(`
-      INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
-      VALUES (?, ?, ?)
-      ON CONFLICT(pluginName) DO UPDATE SET settings=excluded.settings, updatedAt=excluded.updatedAt
-    `).run(name, JSON.stringify(dbSettings), now);
+    const upsertSql = targetDb.dialect.upsertSql(
+      '_plugin_settings',
+      ['pluginName', 'settings', 'updatedAt'],
+      'pluginName',
+      ['settings', 'updatedAt']
+    );
+    await targetDb.run(upsertSql, name, JSON.stringify(dbSettings), now);
+    this.updateMemorySettings(targetDb, name, dbSettings);
 
     // Compute effective full configuration with raw secrets for runtime update
     const targetScope = this.findScopeForDb(targetDb);

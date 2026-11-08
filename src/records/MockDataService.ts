@@ -42,7 +42,7 @@ export class MockDataService {
     httpContext?: any,
     visitedCollections: Set<string> = new Set()
   ): Promise<MockGenerateResult> {
-    const col = this.schemaService.getCollectionOrThrow(collectionName);
+    const col = await this.schemaService.getCollectionOrThrow(collectionName);
     if (col.system || col.name.startsWith('_')) {
       throw new Error(`Mock data generation is not allowed for system collection '${col.name}'`);
     }
@@ -57,16 +57,17 @@ export class MockDataService {
     for (const field of col.schema) {
       if (field.type === 'relation' && field.options?.collectionId) {
         const targetColIdOrName = field.options.collectionId;
-        const targetCol = this.schemaService.getCollection(targetColIdOrName);
+        const targetCol = await this.schemaService.getCollection(targetColIdOrName);
 
         if (targetCol) {
           // Fetch existing IDs from target collection
           let targetIds: string[] = [];
           try {
-            const rows = this.db.all<{ id: string }>(
-              `SELECT id FROM "${targetCol.name}" ORDER BY created DESC LIMIT 200`
-            );
-            targetIds = rows.map((r) => r.id);
+            const qTarget = this.db.dialect.quoteIdentifier(targetCol.name);
+            const baseSql = `SELECT id FROM ${qTarget} ORDER BY created DESC`;
+            const paginatedSql = this.db.dialect.paginate(baseSql, 200, 0);
+            const rows = await this.db.all<{ id: string }>(paginatedSql);
+            targetIds = rows.map((r: any) => r.id);
           } catch {
             targetIds = [];
           }
@@ -177,21 +178,38 @@ export class MockDataService {
       }
     }
 
-    // 4. Insert records into SQLite within a transaction for maximum speed
+    // 4. Insert records into database within a transaction for maximum speed
     const insertedRecords: Array<Record<string, any>> = [];
-    this.db.transaction(() => {
-      for (const item of preparedRecords) {
-        const data = item.insertData;
-        const columns = Object.keys(data).map((k) => `"${k}"`);
-        const placeholders = Object.keys(data).map(() => '?');
-        const values = Object.values(data);
+    const qTable = this.db.dialect.quoteIdentifier(col.name);
+    if (this.db.dialect.name === 'sqlite') {
+      this.db.transaction(() => {
+        for (const item of preparedRecords) {
+          const data = item.insertData;
+          const columns = Object.keys(data).map((k) => this.db.dialect.quoteIdentifier(k));
+          const placeholders = Object.keys(data).map(() => '?');
+          const values = Object.values(data);
 
-        const sql = `INSERT INTO "${col.name}" (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
-        this.db.run(sql, values);
+          const sql = `INSERT INTO ${qTable} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+          this.db.run(sql, ...values);
 
-        insertedRecords.push(this.sanitizeRecord(data, col));
-      }
-    });
+          insertedRecords.push(this.sanitizeRecord(data, col));
+        }
+      });
+    } else {
+      await this.db.transaction(async (tx) => {
+        for (const item of preparedRecords) {
+          const data = item.insertData;
+          const columns = Object.keys(data).map((k) => this.db.dialect.quoteIdentifier(k));
+          const placeholders = Object.keys(data).map(() => '?');
+          const values = Object.values(data);
+
+          const sql = `INSERT INTO ${qTable} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+          await tx.prepare(sql).run(...values);
+
+          insertedRecords.push(this.sanitizeRecord(data, col));
+        }
+      });
+    }
 
     // 5. Broadcast realtime events & trigger hooks asynchronously
     for (const rec of insertedRecords) {

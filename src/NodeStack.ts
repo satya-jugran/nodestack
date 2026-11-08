@@ -47,6 +47,9 @@ import { FlowService } from './flows/FlowService';
 import { FlowController } from './http/controllers/FlowController';
 import { QueueService } from './queue/QueueService';
 import { QueueController } from './http/controllers/QueueController';
+import { DatabaseConfigService } from './database/config/DatabaseConfigService';
+import { DatabaseController } from './http/controllers/DatabaseController';
+import { DriverRegistry } from './database/drivers/DriverRegistry';
 import { AppRegistry } from './apps/AppRegistry';
 import { AppManager, DatabaseDriverFactory } from './apps/AppManager';
 import { AppScope } from './apps/AppScope';
@@ -113,6 +116,8 @@ export class NodeStack {
   public readonly defaultApp: AppScope;
   public readonly appController: AppController;
   public readonly appResolution: AppResolutionMiddleware;
+  public readonly databaseConfig: DatabaseConfigService;
+  public readonly databaseController: DatabaseController;
 
   constructor(options: NodeStackOptions = {}) {
     this.container = new Container();
@@ -120,10 +125,22 @@ export class NodeStack {
     // 1. Config Service
     this.config = new ConfigService(options);
     this.container.bindInstance(TOKENS.ConfigService, this.config);
+    DriverRegistry.setDefaultSqlitePaths({
+      dataDir: this.config.dataDir,
+      appsDir: this.config.appsDir,
+      dbPath: this.config.getAppDbPath('default'),
+    });
 
     // 1.2 System Registry & Multi-App Orchestrator
-    this.registry = new AppRegistry(this.config, options.systemDriver || options.customDriver);
+    this.registry = new AppRegistry(this.config, options.systemDriver);
     this.container.bindInstance(TOKENS.AppRegistry, this.registry);
+
+    // 1.25 Control Plane Database & Config
+    this.databaseConfig = new DatabaseConfigService(
+      this.config,
+      options.systemDriver || this.registry.getDriver()
+    );
+    this.container.bindInstance(TOKENS.DatabaseConfigService, this.databaseConfig);
 
     this.apps = new AppManager(
       this.registry,
@@ -277,6 +294,15 @@ export class NodeStack {
     this.appController = new AppController(this.apps);
     this.appResolution = new AppResolutionMiddleware(this.apps);
 
+    // 17.9 Database Management Controller
+    this.databaseController = new DatabaseController(
+      this.databaseConfig,
+      this.apps,
+      this.db,
+      this.maintenanceGate
+    );
+    this.container.bindInstance(TOKENS.DatabaseController, this.databaseController);
+
     // 18. HTTP Server
     this.server = new HttpServer(
       this.config,
@@ -304,7 +330,8 @@ export class NodeStack {
       this.apiKeyController,
       this.functionController,
       this.flowController,
-      this.queueController
+      this.queueController,
+      this.databaseController
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
 
@@ -332,17 +359,17 @@ export class NodeStack {
   }
 
   // --- Type & OpenAPI Generation ---
-  public generateTypes(): string {
+  public generateTypes(): any {
     return this.typegen.generate();
   }
 
-  public generateOpenApi(): Record<string, any> {
+  public generateOpenApi(): any {
     return this.openapi.generate({
       title: `${this.config?.appName || 'NodeStack'} API`,
     });
   }
 
-  public generateOpenApiJson(pretty = true): string {
+  public generateOpenApiJson(pretty = true): any {
     return this.openapi.generateJson(pretty, {
       title: `${this.config?.appName || 'NodeStack'} API`,
     });
@@ -439,8 +466,29 @@ export class NodeStack {
     return this;
   }
 
+  public async loadActiveDatabaseDriver(): Promise<void> {
+    try {
+      const activeDbConfig = await this.databaseConfig.getActiveConfig();
+      if (activeDbConfig && activeDbConfig.provider !== 'sqlite') {
+        const activeDriver = await DriverRegistry.createDriver(activeDbConfig);
+        await this.apps.switchDriver(activeDriver);
+      }
+    } catch (err: any) {
+      console.warn(`[NodeStack] Could not restore configured database (${err.message}). Defaulting to SQLite.`);
+    }
+  }
+
   // --- Start & Stop Application ---
   public async start(port = this.config.port, host = this.config.host): Promise<string> {
+    // 0. Ensure system registry tables are initialized
+    await this.registry.init();
+
+    // 0.1 Ensure active database driver from control plane SQLite is initialized
+    await this.loadActiveDatabaseDriver();
+
+    // 0.2 Ensure default app scope has completed initialization (migrations, FTS)
+    await this.defaultApp.ensureInitialized();
+
     // 1. Ensure all plugins have completed asynchronous initialization
     await this.pluginManager.ensureInitialized();
 
@@ -448,9 +496,10 @@ export class NodeStack {
     await this.apps.ensureDemoAppInitialized();
 
     // 1.2 Start QueueService across all registered applications (including default app)
-    for (const app of this.apps.registry.getAllApps()) {
+    const allApps = await this.apps.registry.getAllApps();
+    for (const app of allApps) {
       try {
-        const scope = this.apps.get(app.slug);
+        const scope = await this.apps.getAsync(app.slug);
         await scope.queue.start();
       } catch (err: any) {
         console.warn(`[NodeStack] Failed to start queue for app '${app.slug}': ${err.message}`);

@@ -1,0 +1,353 @@
+import { IDatabaseDriver } from '../drivers/IDatabaseDriver';
+import { SystemMigrations } from '../migrations/SystemMigrations';
+
+export interface MigrationSummary {
+  appsCount: number;
+  collectionsCount: number;
+  recordsCount: number;
+  elapsedMs: number;
+}
+
+export class DatabaseMigrationService {
+  public static async migrateAllApps(
+    sourceRootDriver: IDatabaseDriver,
+    targetRootDriver: IDatabaseDriver,
+    appSlugs: string[] = ['default']
+  ): Promise<MigrationSummary> {
+    const start = Date.now();
+    let totalCollections = 0;
+    let totalRecords = 0;
+
+    for (const slug of appSlugs) {
+      let sourceAppDriver: IDatabaseDriver | null = null;
+      let targetAppDriver: IDatabaseDriver | null = null;
+      try {
+        sourceAppDriver = await sourceRootDriver.withSchema(slug);
+        targetAppDriver = await targetRootDriver.withSchema(slug);
+
+        const res = await DatabaseMigrationService.migrateAppScope(sourceAppDriver, targetAppDriver);
+        totalCollections += res.collectionsCount;
+        totalRecords += res.recordsCount;
+      } finally {
+        if (sourceAppDriver && sourceAppDriver !== sourceRootDriver) {
+          try {
+            await sourceAppDriver.close();
+          } catch {}
+        }
+        if (targetAppDriver && targetAppDriver !== targetRootDriver) {
+          try {
+            await targetAppDriver.close();
+          } catch {}
+        }
+      }
+    }
+
+    return {
+      appsCount: appSlugs.length,
+      collectionsCount: totalCollections,
+      recordsCount: totalRecords,
+      elapsedMs: Date.now() - start,
+    };
+  }
+
+  public static async migrateAppScope(
+    sourceDriver: IDatabaseDriver,
+    targetDriver: IDatabaseDriver
+  ): Promise<{ collectionsCount: number; recordsCount: number }> {
+    // 1. Ensure system tables exist on target
+    await SystemMigrations.run(targetDriver);
+
+    let collectionsCount = 0;
+    let recordsCount = 0;
+
+    // 2. Read collections from source
+    const collections = await sourceDriver
+      .prepare('SELECT * FROM _collections ORDER BY created ASC')
+      .all<any>();
+
+    for (const col of collections) {
+      collectionsCount++;
+      // Save metadata in target _collections
+      const exists = await targetDriver
+        .prepare('SELECT id FROM _collections WHERE name = ?')
+        .get(col.name);
+
+      if (!exists) {
+        await targetDriver.prepare(`
+          INSERT INTO _collections (
+            id, name, type, system, schema, indexes, listRule, viewRule,
+            createRule, updateRule, deleteRule, options, created, updated
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          col.id,
+          col.name,
+          col.type,
+          col.system ? 1 : 0,
+          typeof col.schema === 'string' ? col.schema : JSON.stringify(col.schema || []),
+          typeof col.indexes === 'string' ? col.indexes : JSON.stringify(col.indexes || []),
+          col.listRule,
+          col.viewRule,
+          col.createRule,
+          col.updateRule,
+          col.deleteRule,
+          typeof col.options === 'string' ? col.options : JSON.stringify(col.options || {}),
+          col.created,
+          col.updated
+        );
+      }
+
+      // Ensure physical collection table exists on target
+      await DatabaseMigrationService.ensurePhysicalCollectionTable(col, targetDriver);
+
+      // Recreate collection indexes on target
+      await DatabaseMigrationService.ensureCollectionIndexes(col, targetDriver);
+
+      // Copy records with deterministic pagination & batched transactions
+      const sourceCount = await sourceDriver
+        .prepare(`SELECT COUNT(*) AS total FROM ${sourceDriver.dialect.quoteIdentifier(col.name)}`)
+        .get<{ total: number | string }>();
+
+      const total = Number(sourceCount?.total || 0);
+      const chunkSize = 500;
+      let offset = 0;
+
+      while (offset < total) {
+        const pag = sourceDriver.dialect.paginationSql('?', '?', true);
+        const rowsSql = `SELECT * FROM ${sourceDriver.dialect.quoteIdentifier(col.name)} ORDER BY ${sourceDriver.dialect.quoteIdentifier('id')} ASC ${pag.clause}`;
+        const params = pag.paramOrder === 'limit-first' ? [chunkSize, offset] : [offset, chunkSize];
+        const rows = await sourceDriver.prepare(rowsSql).all<any>(...params);
+
+        if (!rows || rows.length === 0) break;
+
+        if (targetDriver.dialect.name === 'sqlite') {
+          targetDriver.transaction((tx) => {
+            for (const row of rows) {
+              DatabaseMigrationService.insertOrUpdateRecord(col.name, row, tx);
+              recordsCount++;
+            }
+          });
+        } else {
+          await targetDriver.transaction(async (tx) => {
+            for (const row of rows) {
+              await DatabaseMigrationService.insertOrUpdateRecord(col.name, row, tx);
+              recordsCount++;
+            }
+          });
+        }
+
+        offset += rows.length;
+      }
+
+      // Post-migration count verification
+      const targetCountRes = await targetDriver
+        .prepare(`SELECT COUNT(*) AS total FROM ${targetDriver.dialect.quoteIdentifier(col.name)}`)
+        .get<{ total: number | string }>();
+      const targetTotal = Number(targetCountRes?.total || 0);
+
+      if (targetTotal !== total) {
+        throw new Error(
+          `Migration verification failed for collection '${col.name}': count mismatch (source: ${total}, target: ${targetTotal})`
+        );
+      }
+    }
+
+    // 3. Migrate standard system tables (admins, webhooks, audit logs, api keys, etc.)
+    const systemTables = [
+      '_admins',
+      '_params',
+      '_webhooks',
+      '_webhook_deliveries',
+      '_external_auths',
+      '_api_keys',
+      '_audit_logs',
+      '_logs',
+      '_functions',
+      '_flows',
+      '_flow_executions',
+      '_queues',
+      '_queue_messages',
+      '_plugin_settings',
+    ];
+
+    for (const table of systemTables) {
+      await DatabaseMigrationService.copyTableIfSourceExists(table, sourceDriver, targetDriver);
+    }
+
+    return { collectionsCount, recordsCount };
+  }
+
+  private static async ensurePhysicalCollectionTable(
+    col: any,
+    targetDriver: IDatabaseDriver
+  ): Promise<void> {
+    const dialect = targetDriver.dialect;
+    const fields: any[] = typeof col.schema === 'string' ? JSON.parse(col.schema || '[]') : col.schema || [];
+
+    const columnDefs: string[] = [
+      `${dialect.quoteIdentifier('id')} ${dialect.mapFieldType('text', { isPrimaryKey: true })} PRIMARY KEY`,
+    ];
+
+    if (col.type === 'auth') {
+      columnDefs.push(
+        `${dialect.quoteIdentifier('email')} ${dialect.mapFieldType('email', { isUnique: true })} UNIQUE NOT NULL`,
+        `${dialect.quoteIdentifier('emailVisibility')} ${dialect.mapFieldType('bool')} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`,
+        `${dialect.quoteIdentifier('verified')} ${dialect.mapFieldType('bool')} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`,
+        `${dialect.quoteIdentifier('passwordHash')} ${dialect.mapFieldType('text')} NOT NULL`,
+        `${dialect.quoteIdentifier('tokenKey')} ${dialect.mapFieldType('text')} NOT NULL`
+      );
+    }
+
+    for (const f of fields) {
+      if (['id', 'email', 'emailVisibility', 'verified', 'passwordHash', 'tokenKey', 'created', 'updated'].includes(f.name)) {
+        continue;
+      }
+      const colType = dialect.mapFieldType(f.type, { isUnique: f.unique });
+      const nullability = f.required ? 'NOT NULL' : '';
+      const unique = f.unique ? 'UNIQUE' : '';
+      columnDefs.push(`${dialect.quoteIdentifier(f.name)} ${colType} ${nullability} ${unique}`.trim());
+    }
+
+    columnDefs.push(
+      `${dialect.quoteIdentifier('created')} ${dialect.mapFieldType('date')} NOT NULL`,
+      `${dialect.quoteIdentifier('updated')} ${dialect.mapFieldType('date')} NOT NULL`
+    );
+
+    const createSql = dialect.createTableIfNotExists(col.name, columnDefs.join(', '));
+    await targetDriver.exec(createSql);
+  }
+
+  private static async ensureCollectionIndexes(
+    col: any,
+    targetDriver: IDatabaseDriver
+  ): Promise<void> {
+    const rawIndexes = typeof col.indexes === 'string'
+      ? JSON.parse(col.indexes || '[]')
+      : (col.indexes || []);
+    if (!Array.isArray(rawIndexes) || rawIndexes.length === 0) return;
+
+    const dialect = targetDriver.dialect;
+    for (const idxDef of rawIndexes) {
+      if (typeof idxDef !== 'string') continue;
+      const trimmed = idxDef.trim();
+      if (!trimmed) continue;
+
+      try {
+        if (/^CREATE\s+(UNIQUE\s+)?INDEX/i.test(trimmed)) {
+          let sql = trimmed;
+          if (dialect.name === 'sqlite' || dialect.name === 'postgres') {
+            if (!sql.toUpperCase().includes('IF NOT EXISTS')) {
+              sql = sql.replace(/^CREATE\s+(UNIQUE\s+)?INDEX\s+/i, 'CREATE $1INDEX IF NOT EXISTS ');
+            }
+          }
+          await targetDriver.exec(sql);
+        } else {
+          const cols = trimmed.split(',').map((c) => c.trim()).filter(Boolean);
+          if (cols.length > 0) {
+            const indexName = `idx_${col.name}_${cols.join('_').replace(/[^a-zA-Z0-9_]/g, '')}`.slice(0, 60);
+            const quotedCols = cols.map((c) => dialect.quoteIdentifier(c)).join(', ');
+            const quotedTable = dialect.quoteIdentifier(col.name);
+            if (dialect.name === 'mssql') {
+              await targetDriver.exec(`
+                IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = '${indexName}')
+                CREATE INDEX ${dialect.quoteIdentifier(indexName)} ON ${quotedTable} (${quotedCols});
+              `);
+            } else {
+              await targetDriver.exec(`
+                CREATE INDEX IF NOT EXISTS ${dialect.quoteIdentifier(indexName)} ON ${quotedTable} (${quotedCols});
+              `);
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[Migration] Could not create index '${trimmed}' on ${col.name}: ${err.message}`);
+      }
+    }
+  }
+
+  private static insertOrUpdateRecord(
+    tableName: string,
+    row: Record<string, any>,
+    targetDriver: IDatabaseDriver
+  ): any {
+    const dialect = targetDriver.dialect;
+    const columns = Object.keys(row);
+    if (columns.length === 0) return;
+
+    const values = columns.map((col) => {
+      const val = row[col];
+      if (val === undefined || val === null) return null;
+      if (typeof val === 'boolean') {
+        return dialect.name === 'postgres' ? val : (val ? 1 : 0);
+      }
+      if (typeof val === 'object' && !(val instanceof Buffer) && !(val instanceof Uint8Array) && !(val instanceof Date)) {
+        return JSON.stringify(val);
+      }
+      return val;
+    });
+
+    const pkCol = tableName === '_params' ? 'key' : 'id';
+    const updateCols = columns.filter((c) => c !== pkCol);
+    const upsertSql = dialect.upsertSql(tableName, columns, pkCol, updateCols);
+    return targetDriver.prepare(upsertSql).run(...values);
+  }
+
+  private static async copyTableIfSourceExists(
+    tableName: string,
+    sourceDriver: IDatabaseDriver,
+    targetDriver: IDatabaseDriver
+  ): Promise<void> {
+    try {
+      const countRes = await sourceDriver
+        .prepare(`SELECT COUNT(*) AS total FROM ${sourceDriver.dialect.quoteIdentifier(tableName)}`)
+        .get<{ total: number | string }>();
+      const total = Number(countRes?.total || 0);
+      if (total === 0) {
+        try {
+          await targetDriver.exec(`DELETE FROM ${targetDriver.dialect.quoteIdentifier(tableName)}`);
+        } catch {
+          // Table doesn't exist on target; harmless
+        }
+        return;
+      }
+
+      const pkCol = tableName === '_params' ? 'key' : 'id';
+      const chunkSize = 500;
+      let offset = 0;
+
+      while (offset < total) {
+        const pag = sourceDriver.dialect.paginationSql('?', '?', true);
+        const rowsSql = `SELECT * FROM ${sourceDriver.dialect.quoteIdentifier(tableName)} ORDER BY ${sourceDriver.dialect.quoteIdentifier(pkCol)} ASC ${pag.clause}`;
+        const params = pag.paramOrder === 'limit-first' ? [chunkSize, offset] : [offset, chunkSize];
+        const rows = await sourceDriver.prepare(rowsSql).all<any>(...params);
+
+        if (!rows || rows.length === 0) break;
+
+        if (targetDriver.dialect.name === 'sqlite') {
+          targetDriver.transaction((tx) => {
+            for (const row of rows) {
+              try {
+                DatabaseMigrationService.insertOrUpdateRecord(tableName, row, tx);
+              } catch (rowErr: any) {
+                console.warn(`[Migration] Could not copy row ${row[pkCol] ?? row.id} in ${tableName}: ${rowErr.message}`);
+              }
+            }
+          });
+        } else {
+          await targetDriver.transaction(async (tx) => {
+            for (const row of rows) {
+              try {
+                await DatabaseMigrationService.insertOrUpdateRecord(tableName, row, tx);
+              } catch (rowErr: any) {
+                console.warn(`[Migration] Could not copy row ${row[pkCol] ?? row.id} in ${tableName}: ${rowErr.message}`);
+              }
+            }
+          });
+        }
+
+        offset += rows.length;
+      }
+    } catch {
+      // Table doesn't exist on source; harmless
+    }
+  }
+}

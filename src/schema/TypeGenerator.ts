@@ -8,8 +8,11 @@ export class TypeGenerator {
   /**
    * Generates TypeScript definitions from current schema collections.
    */
-  public generate(): string {
+  public generate(): any {
     const collections = this.schemaService.getAllCollections();
+    if (collections instanceof Promise) {
+      return collections.then((cols) => TypeGenerator.generateFromCollections(cols));
+    }
     return TypeGenerator.generateFromCollections(collections);
   }
 

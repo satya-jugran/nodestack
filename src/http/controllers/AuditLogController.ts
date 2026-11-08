@@ -12,7 +12,7 @@ export class AuditLogController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const auditService = (req as any).appScope?.auditLogs || this.auditLogService;
-    const result = auditService.getGlobalLogs(req.query || {});
+    const result = await auditService.getGlobalLogs(req.query || {});
     this.ok(reply, result);
   }
 
@@ -28,7 +28,7 @@ export class AuditLogController extends BaseController {
     const perPage = Math.min(100, Math.max(1, Number(req.query.perPage) || 25));
 
     const auditService = (req as any).appScope?.auditLogs || this.auditLogService;
-    const result = auditService.getRecordHistory(collection, id, page, perPage);
+    const result = await auditService.getRecordHistory(collection, id, page, perPage);
     this.ok(reply, result);
   }
 
@@ -38,7 +38,7 @@ export class AuditLogController extends BaseController {
   ): Promise<void> {
     const days = Math.max(1, Number(req.body?.olderThanDays) || 90);
     const auditService = (req as any).appScope?.auditLogs || this.auditLogService;
-    const deletedCount = auditService.pruneLogs(days);
+    const deletedCount = await auditService.pruneLogs(days);
     this.ok(reply, { success: true, deletedCount, olderThanDays: days });
   }
 }

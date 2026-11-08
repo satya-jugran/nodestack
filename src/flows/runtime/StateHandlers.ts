@@ -21,7 +21,7 @@ export class TaskStateHandler implements IStateHandler<TaskState> {
       throw new AppError(`FunctionService is unavailable for task execution`);
     }
 
-    const fn = context.functionService.getFunctionByName(state.function) || context.functionService.getFunctionById(state.function);
+    const fn = (await context.functionService.getFunctionByName(state.function)) || (await context.functionService.getFunctionById(state.function));
     if (!fn) {
       throw new NotFoundError(`Function '${state.function}' not found`);
     }

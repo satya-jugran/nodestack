@@ -205,6 +205,9 @@ async function parseUrlAndNavigate(initial = false) {
     } else {
       if (typeof switchLogsSubTab === 'function') switchLogsSubTab('traffic', false);
     }
+  } else if (root === "database") {
+    await selectNav("home", false);
+    if (typeof openDatabaseModal === "function") openDatabaseModal();
   } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === root)) {
     await selectNav(root, false);
   } else {

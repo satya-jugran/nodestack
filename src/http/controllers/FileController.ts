@@ -58,10 +58,11 @@ export class FileController extends BaseController {
       throw new NotFoundError(`File '${filename}' not found`);
     }
 
-    const col = schema.getCollectionOrThrow(collection);
+    const col = await schema.getCollectionOrThrow(collection);
 
     // Rule check: verify view access to the record owning this file
-    const record = db.get<any>(`SELECT * FROM "${col.name}" WHERE id = ?`, [recordId]);
+    const qTable = db.dialect.quoteIdentifier(col.name);
+    const record = await db.get<any>(`SELECT * FROM ${qTable} WHERE id = ?`, recordId);
     if (!record) {
       throw new NotFoundError(`Record '${recordId}' not found`);
     }

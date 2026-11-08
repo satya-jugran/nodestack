@@ -1,4 +1,8 @@
 import { FilterCodec } from './FilterCodec';
+import { ISqlDialect } from '../database/dialects/ISqlDialect';
+import { SqliteDialect } from '../database/dialects/SqliteDialect';
+
+const defaultDialect = new SqliteDialect();
 
 export interface ParsedFilter {
   clause: string;
@@ -24,17 +28,21 @@ export class QueryFilterParser {
   public static decodeFilterString(valStr: string): string {
     return FilterCodec.decode(valStr);
   }
+
   /**
    * Parses a sort string like "-created,title,+views" into SQL ORDER BY
    */
   public static parseSort(
     sortStr?: string,
     allowedFields?: Set<string>,
-    tablePrefix?: string
+    tablePrefix?: string,
+    dialect: ISqlDialect = defaultDialect
   ): string {
-    const defaultPrefix = tablePrefix ? `"${tablePrefix}".` : '';
+    const defaultPrefix = tablePrefix ? `${dialect.quoteIdentifier(tablePrefix)}.` : '';
     if (!sortStr || !sortStr.trim()) {
-      return tablePrefix ? `ORDER BY ${defaultPrefix}"created" DESC` : 'ORDER BY created DESC';
+      return tablePrefix
+        ? `ORDER BY ${defaultPrefix}${dialect.quoteIdentifier('created')} DESC`
+        : 'ORDER BY created DESC';
     }
 
     const parts = sortStr.split(',').map((s) => s.trim()).filter(Boolean);
@@ -55,14 +63,14 @@ export class QueryFilterParser {
       // Sanitize field name: only alphanumeric and underscores allowed
       if (/^[a-zA-Z0-9_]+$/.test(field)) {
         if (!allowedFields || allowedFields.has(field) || ['id', 'created', 'updated'].includes(field)) {
-          orderClauses.push(`${defaultPrefix}"${field}" ${direction}`);
+          orderClauses.push(`${defaultPrefix}${dialect.quoteIdentifier(field)} ${direction}`);
         }
       }
     }
 
     return orderClauses.length > 0
       ? `ORDER BY ${orderClauses.join(', ')}`
-      : (tablePrefix ? `ORDER BY ${defaultPrefix}"created" DESC` : 'ORDER BY created DESC');
+      : (tablePrefix ? `ORDER BY ${defaultPrefix}${dialect.quoteIdentifier('created')} DESC` : 'ORDER BY created DESC');
   }
 
   /**
@@ -72,7 +80,8 @@ export class QueryFilterParser {
   public static parseFilter(
     filterStr?: string,
     allowedFields?: Set<string>,
-    tablePrefix?: string
+    tablePrefix?: string,
+    dialect: ISqlDialect = defaultDialect
   ): ParsedFilter {
     if (!filterStr || !filterStr.trim()) {
       return { clause: '', params: [] };
@@ -81,7 +90,7 @@ export class QueryFilterParser {
     const trimmed = filterStr.trim();
     const params: any[] = [];
 
-    const parsedSql = this.convertFilterExpression(trimmed, params, allowedFields, tablePrefix);
+    const parsedSql = this.convertFilterExpression(trimmed, params, allowedFields, tablePrefix, dialect);
     return {
       clause: parsedSql ? `WHERE ${parsedSql}` : '',
       params,
@@ -92,13 +101,14 @@ export class QueryFilterParser {
     expr: string,
     params: any[],
     allowedFields?: Set<string>,
-    tablePrefix?: string
+    tablePrefix?: string,
+    dialect: ISqlDialect = defaultDialect
   ): string {
     // 1. Split top-level ||
     const orParts = this.splitTopLevel(expr, '||');
     if (orParts.length > 1) {
       const sqlParts = orParts
-        .map((p) => this.convertFilterExpression(p.trim(), params, allowedFields, tablePrefix))
+        .map((p) => this.convertFilterExpression(p.trim(), params, allowedFields, tablePrefix, dialect))
         .filter(Boolean);
       return sqlParts.length ? `(${sqlParts.join(' OR ')})` : '';
     }
@@ -107,7 +117,7 @@ export class QueryFilterParser {
     const andParts = this.splitTopLevel(expr, '&&');
     if (andParts.length > 1) {
       const sqlParts = andParts
-        .map((p) => this.convertFilterExpression(p.trim(), params, allowedFields, tablePrefix))
+        .map((p) => this.convertFilterExpression(p.trim(), params, allowedFields, tablePrefix, dialect))
         .filter(Boolean);
       return sqlParts.length ? `(${sqlParts.join(' AND ')})` : '';
     }
@@ -116,23 +126,24 @@ export class QueryFilterParser {
     const trimmed = expr.trim();
     if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
       if (this.isFullyEnclosed(trimmed)) {
-        const inner = this.convertFilterExpression(trimmed.slice(1, -1).trim(), params, allowedFields, tablePrefix);
+        const inner = this.convertFilterExpression(trimmed.slice(1, -1).trim(), params, allowedFields, tablePrefix, dialect);
         return inner ? `(${inner})` : '';
       }
     }
 
     // 4. Comparison parsing
-    return this.parseSingleComparison(trimmed, params, allowedFields, tablePrefix);
+    return this.parseSingleComparison(trimmed, params, allowedFields, tablePrefix, dialect);
   }
 
   private static parseSingleComparison(
     str: string,
     params: any[],
     allowedFields?: Set<string>,
-    tablePrefix?: string
+    tablePrefix?: string,
+    dialect: ISqlDialect = defaultDialect
   ): string {
     const operators = ['!=', '>=', '<=', '=', '>', '<', '!~', '~'];
-    const prefix = tablePrefix ? `"${tablePrefix}".` : '';
+    const prefix = tablePrefix ? `${dialect.quoteIdentifier(tablePrefix)}.` : '';
 
     for (const op of operators) {
       const idx = this.findOperatorIndex(str, op);
@@ -140,45 +151,59 @@ export class QueryFilterParser {
         const fieldName = str.substring(0, idx).trim();
         const valueRaw = str.substring(idx + op.length).trim();
 
-        // Validate field name to prevent SQL injection
-        if (!/^[a-zA-Z0-9_]+$/.test(fieldName)) {
-          return '';
-        }
+        // Support dot notation for nested JSON fields: e.g. metadata.age
+        let columnExpr: string;
+        if (fieldName.includes('.')) {
+          const [baseField, ...subPath] = fieldName.split('.');
+          if (!/^[a-zA-Z0-9_]+$/.test(baseField) || !subPath.every((s) => /^[a-zA-Z0-9_]+$/.test(s))) {
+            return '';
+          }
+          if (allowedFields && !allowedFields.has(baseField)) {
+            return '';
+          }
+          columnExpr = dialect.jsonExtractTextSql(`${prefix}${dialect.quoteIdentifier(baseField)}`, subPath.join('.'));
+        } else {
+          // Validate field name to prevent SQL injection
+          if (!/^[a-zA-Z0-9_]+$/.test(fieldName)) {
+            return '';
+          }
 
-        if (allowedFields && !allowedFields.has(fieldName) && !['id', 'created', 'updated'].includes(fieldName)) {
-          return '';
+          if (allowedFields && !allowedFields.has(fieldName) && !['id', 'created', 'updated'].includes(fieldName)) {
+            return '';
+          }
+          columnExpr = `${prefix}${dialect.quoteIdentifier(fieldName)}`;
         }
 
         const value = this.extractLiteralValue(valueRaw);
 
         switch (op) {
           case '=':
-            if (value === null) return `${prefix}"${fieldName}" IS NULL`;
+            if (value === null) return `${columnExpr} IS NULL`;
             params.push(value);
-            return `${prefix}"${fieldName}" = ?`;
+            return `${columnExpr} = ?`;
           case '!=':
-            if (value === null) return `${prefix}"${fieldName}" IS NOT NULL`;
+            if (value === null) return `${columnExpr} IS NOT NULL`;
             params.push(value);
-            return `${prefix}"${fieldName}" != ?`;
+            return `${columnExpr} != ?`;
           case '>':
             params.push(value);
-            return `${prefix}"${fieldName}" > ?`;
+            return `${columnExpr} > ?`;
           case '>=':
             params.push(value);
-            return `${prefix}"${fieldName}" >= ?`;
+            return `${columnExpr} >= ?`;
           case '<':
             params.push(value);
-            return `${prefix}"${fieldName}" < ?`;
+            return `${columnExpr} < ?`;
           case '<=':
             params.push(value);
-            return `${prefix}"${fieldName}" <= ?`;
+            return `${columnExpr} <= ?`;
           case '~': {
             const escaped = String(value)
               .replace(/\\/g, '\\\\')
               .replace(/%/g, '\\%')
               .replace(/_/g, '\\_');
             params.push(`%${escaped}%`);
-            return `${prefix}"${fieldName}" LIKE ? ESCAPE '\\'`;
+            return `${columnExpr} LIKE ? ESCAPE '\\'`;
           }
           case '!~': {
             const escaped = String(value)
@@ -186,7 +211,7 @@ export class QueryFilterParser {
               .replace(/%/g, '\\%')
               .replace(/_/g, '\\_');
             params.push(`%${escaped}%`);
-            return `${prefix}"${fieldName}" NOT LIKE ? ESCAPE '\\'`;
+            return `${columnExpr} NOT LIKE ? ESCAPE '\\'`;
           }
         }
       }

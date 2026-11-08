@@ -18,7 +18,7 @@ export class SnapshotController extends BaseController {
    */
   public async listSnapshots(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const service = this.getService(req);
-    const status = service.getStatus();
+    const status = await service.getStatus();
     this.ok(reply, status);
   }
 

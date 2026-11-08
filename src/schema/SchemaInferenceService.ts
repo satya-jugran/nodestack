@@ -380,7 +380,7 @@ export class SchemaInferenceService {
       throw new AppError('Custom collection names cannot start with underscore (_)', 400);
     }
 
-    const existing = this.schemaService.getCollection(cleanName);
+    const existing = await this.schemaService.getCollection(cleanName);
     if (existing) {
       throw new ConflictError(`Collection with name '${cleanName}' already exists`);
     }
@@ -584,7 +584,7 @@ export class SchemaInferenceService {
     }
 
     // 4. Create collection & table via SchemaService
-    const collection = this.schemaService.createCollection({
+    const collection = await this.schemaService.createCollection({
       name: cleanName,
       type: options.type || 'base',
       schema: fields,
@@ -611,20 +611,30 @@ export class SchemaInferenceService {
       : ['id', ...fields.map((f) => f.name), 'created', 'updated'];
 
     const placeholders = colNames.map(() => '?').join(', ');
-    const insertSql = `INSERT INTO "${cleanName}" (${colNames.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`;
-    const insertStmt = this.db.prepare(insertSql);
-
+    const quotedCols = colNames.map((c) => this.db.dialect.quoteIdentifier(c)).join(', ');
+    const insertSql = `INSERT INTO ${this.db.dialect.quoteIdentifier(cleanName)} (${quotedCols}) VALUES (${placeholders})`;
     try {
-      this.db.transaction(() => {
-        for (const row of preparedRows) {
-          const params = colNames.map((c) => (row[c] !== undefined ? row[c] : null));
-          insertStmt.run(...params);
-        }
-      });
+      if (this.db.dialect.name === 'sqlite') {
+        const insertStmt = this.db.prepare(insertSql);
+        this.db.transaction(() => {
+          for (const row of preparedRows) {
+            const params = colNames.map((c) => (row[c] !== undefined ? row[c] : null));
+            insertStmt.run(...params);
+          }
+        });
+      } else {
+        await this.db.transaction(async (tx) => {
+          const insertStmt = tx.prepare(insertSql);
+          for (const row of preparedRows) {
+            const params = colNames.map((c) => (row[c] !== undefined ? row[c] : null));
+            await insertStmt.run(...params);
+          }
+        });
+      }
     } catch (err: any) {
       // If insertion fails, rollback table creation
       try {
-        this.schemaService.deleteCollection(cleanName);
+        await this.schemaService.deleteCollection(cleanName);
       } catch {
         // ignore cleanup error
       }

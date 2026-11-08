@@ -18,6 +18,9 @@ import {
   SnapshotServicePaths,
   MAX_SNAPSHOTS,
 } from './types';
+import { ISnapshotDriver } from './drivers/ISnapshotDriver';
+import { SqliteSnapshotDriver } from './drivers/SqliteSnapshotDriver';
+import { LogicalSnapshotDriver } from './drivers/LogicalSnapshotDriver';
 
 interface SnapshotsManifest {
   activeSnapshotId: string | null;
@@ -46,6 +49,13 @@ export class SnapshotService {
     return this.maintenanceGate;
   }
 
+  private getSnapshotDriver(): ISnapshotDriver {
+    if (this.db.dialect.name === 'sqlite') {
+      return new SqliteSnapshotDriver(this.db, this.dbPath);
+    }
+    return new LogicalSnapshotDriver(this.db);
+  }
+
   public get dbPath(): string {
     return this.customPaths?.dbPath || this.config.dbPath;
   }
@@ -69,17 +79,12 @@ export class SnapshotService {
     if (this.customPaths && this.customPaths.snapshotDir) {
       return this.customPaths.snapshotDir;
     }
-    // Only default to global .demo_snapshot if this is the standalone/root service (not scoped with custom paths)
     if (!this.customPaths || (!this.customPaths.snapshotsDir && !this.customPaths.snapshotDir)) {
       return path.join(this.config.dataDir, '.demo_snapshot');
     }
     return undefined;
   }
 
-
-  /**
-   * Automatically migrates legacy .demo_snapshot if it exists and no generic snapshots exist yet.
-   */
   private ensureMigratedLegacySnapshot(): void {
     try {
       if (!this.legacySnapshotDir || !fs.existsSync(this.legacySnapshotDir)) return;
@@ -140,8 +145,12 @@ export class SnapshotService {
         snapshots: [migratedMetadata],
       });
     } catch {
-      // ignore migration failures gracefully
+      // ignore
     }
+  }
+
+  public hasSnapshot(): boolean {
+    return this.listSnapshots().length > 0;
   }
 
   private readManifest(): SnapshotsManifest {
@@ -166,9 +175,6 @@ export class SnapshotService {
     fs.writeFileSync(this.manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
   }
 
-  /**
-   * Returns all snapshots sorted chronologically by createdAt (oldest first).
-   */
   public listSnapshots(): SnapshotMetadata[] {
     if (!fs.existsSync(this.snapshotsDir)) {
       return [];
@@ -184,9 +190,8 @@ export class SnapshotService {
         if (!entry.isDirectory()) continue;
         const snapDir = path.join(this.snapshotsDir, entry.name);
         const metaPath = path.join(snapDir, 'metadata.json');
-        const dbPath = path.join(snapDir, 'data.db');
 
-        if (fs.existsSync(metaPath) && fs.existsSync(dbPath)) {
+        if (fs.existsSync(metaPath)) {
           try {
             const meta: SnapshotMetadata = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
             if (meta.id) {
@@ -197,7 +202,7 @@ export class SnapshotService {
               validIds.add(meta.id);
             }
           } catch {
-            // ignore corrupt metadata
+            // ignore
           }
         }
       }
@@ -205,41 +210,35 @@ export class SnapshotService {
       return [];
     }
 
-    // Sort chronologically (oldest first)
-    diskSnapshots.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    const cleanedManifestSnapshots: SnapshotMetadata[] = manifest.snapshots
+      .filter((s) => validIds.has(s.id))
+      .map((s) => ({
+        ...s,
+        isActive: s.id === manifest.activeSnapshotId,
+      }));
 
-    // Update manifest if count or active id differs
-    if (
-      manifest.snapshots.length !== diskSnapshots.length ||
-      (manifest.activeSnapshotId && !validIds.has(manifest.activeSnapshotId))
-    ) {
-      const newActiveId = validIds.has(manifest.activeSnapshotId || '')
-        ? manifest.activeSnapshotId
-        : diskSnapshots[diskSnapshots.length - 1]?.id || null;
-
-      this.saveManifest({
-        activeSnapshotId: newActiveId,
-        snapshots: diskSnapshots,
-      });
+    for (const snap of diskSnapshots) {
+      if (!cleanedManifestSnapshots.some((m) => m.id === snap.id)) {
+        cleanedManifestSnapshots.push(snap);
+      }
     }
 
-    return diskSnapshots;
+    cleanedManifestSnapshots.sort((a, b) => {
+      const timeA = new Date(a.createdAt).getTime();
+      const timeB = new Date(b.createdAt).getTime();
+      return timeA - timeB;
+    });
+
+    return cleanedManifestSnapshots;
   }
 
   public getSnapshot(id: string): SnapshotMetadata | null {
-    const snapshots = this.listSnapshots();
-    return snapshots.find((s) => s.id === id) || null;
+    return this.listSnapshots().find((s) => s.id === id) || null;
   }
 
-  public getLatestSnapshot(): SnapshotMetadata | null {
+  public getActiveOrLatestSnapshot(): SnapshotMetadata | undefined {
     const snapshots = this.listSnapshots();
-    return snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
-  }
-
-  public getActiveOrLatestSnapshot(): SnapshotMetadata | null {
-    const snapshots = this.listSnapshots();
-    if (snapshots.length === 0) return null;
-
+    if (snapshots.length === 0) return undefined;
     const manifest = this.readManifest();
     if (manifest.activeSnapshotId) {
       const active = snapshots.find((s) => s.id === manifest.activeSnapshotId);
@@ -248,72 +247,61 @@ export class SnapshotService {
     return snapshots[snapshots.length - 1];
   }
 
-  public hasSnapshot(): boolean {
-    return this.listSnapshots().length > 0;
-  }
-
-  /**
-   * Creates a new snapshot.
-   * If snapshot count >= maxSnapshots (10), requires evictOldest: true to remove the oldest.
-   */
   public async createSnapshot(options: SnapshotCreateOptions = {}): Promise<SnapshotMetadata> {
-    if (!fs.existsSync(this.snapshotsDir)) {
-      fs.mkdirSync(this.snapshotsDir, { recursive: true });
-    }
-
     return await this.maintenanceGate.executeExclusive(async () => {
       const currentSnapshots = this.listSnapshots();
-      let toEvict: SnapshotMetadata[] = [];
 
+      if (options.name) {
+        const duplicate = currentSnapshots.find(
+          (s) => s.name.toLowerCase() === options.name!.trim().toLowerCase()
+        );
+        if (duplicate) {
+          throw new ConflictError(
+            `A snapshot named '${options.name.trim()}' already exists. Please choose a different name.`
+          );
+        }
+      }
+
+      let toEvict: SnapshotMetadata[] = [];
       if (currentSnapshots.length >= this.maxSnapshots) {
         if (!options.evictOldest) {
-          const oldest = currentSnapshots[0];
-          const error = new ConflictError(
-            `Snapshot limit of ${this.maxSnapshots} reached. Creating a new snapshot will delete the oldest snapshot '${oldest.name}'. Please confirm eviction to proceed.`,
+          throw new ConflictError(
+            `Snapshot limit of ${this.maxSnapshots} reached. Pass evictOldest: true to automatically evict the oldest snapshot.`,
             {
               code: 'SNAPSHOT_LIMIT_REACHED',
               limit: this.maxSnapshots,
-              oldestSnapshot: oldest,
+              oldestSnapshot: currentSnapshots[0],
             }
           );
-          throw error;
         }
-
-        // Calculate snapshot(s) to evict once new snapshot succeeds
+        const oldest = currentSnapshots[0];
+        if (oldest.isProtected) {
+          throw new ConflictError(
+            `Snapshot limit reached (${this.maxSnapshots}) and oldest snapshot '${oldest.name}' is protected.`
+          );
+        }
         const evictCount = currentSnapshots.length - this.maxSnapshots + 1;
         toEvict = currentSnapshots.slice(0, evictCount);
       }
 
-      // 1. Flush SQLite WAL to disk
-      this.db.checkpoint();
+      await this.db.checkpoint();
 
-      // 2. Prepare new snapshot directory
       const id = `snap_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
       const snapDir = path.join(this.snapshotsDir, id);
       fs.mkdirSync(snapDir, { recursive: true });
 
       try {
-        // 3. Compact & snapshot SQLite database transactional state
-        const snapDbPath = path.join(snapDir, 'data.db');
-        const normalizedDbPath = snapDbPath.replace(/\\/g, '/');
-        this.db.exec(`VACUUM INTO '${normalizedDbPath}';`);
+        const { dbSizeBytes } = await this.getSnapshotDriver().captureSnapshot(snapDir);
 
-        if (!fs.existsSync(snapDbPath) || fs.statSync(snapDbPath).size === 0) {
-          throw new Error('VACUUM INTO failed to generate a valid snapshot database file.');
-        }
-
-        // 4. Snapshot uploaded files storage
         const snapStorageDir = path.join(snapDir, 'storage');
         fs.mkdirSync(snapStorageDir, { recursive: true });
         if (fs.existsSync(this.storageDir)) {
           fs.cpSync(this.storageDir, snapStorageDir, { recursive: true });
         }
 
-        // 5. Compute metadata & statistics
-        const live = this.calculateLiveStats();
+        const live = await this.calculateLiveStats();
         const storageStats = this.getDirectoryStats(snapStorageDir);
-        const dbSizeBytes = fs.statSync(snapDbPath).size;
-        const contentHash = this.computeStateHash();
+        const contentHash = await this.computeStateHash();
 
         const metadata: SnapshotMetadata = {
           id,
@@ -336,7 +324,6 @@ export class SnapshotService {
           'utf-8'
         );
 
-        // 6. Only now evict oldest snapshot(s) after new snapshot is captured & validated
         if (toEvict.length > 0) {
           for (const snap of toEvict) {
             this.removeSnapshotFiles(snap.id);
@@ -354,13 +341,11 @@ export class SnapshotService {
           snapshots: updatedSnapshots,
         });
 
-        // 7. Emit events
         this.eventBus.emit('snapshot:create', metadata);
         this.realtimeService.broadcastSystemEvent('SNAPSHOT_CREATE', { metadata });
 
         return metadata;
       } catch (err) {
-        // Rollback new snapshot files on failure so oldest snapshots remain safe
         if (fs.existsSync(snapDir)) {
           try {
             fs.rmSync(snapDir, { recursive: true, force: true });
@@ -371,10 +356,6 @@ export class SnapshotService {
     });
   }
 
-  /**
-   * Restores application state from a specific snapshot (or active/latest snapshot).
-   * Note: Future snapshots are NOT deleted; all snapshots remain intact.
-   */
   public async restoreSnapshot(id?: string): Promise<SnapshotRestoreResult> {
     const snapshots = this.listSnapshots();
     if (snapshots.length === 0) {
@@ -394,47 +375,17 @@ export class SnapshotService {
     }
 
     const snapDir = path.join(this.snapshotsDir, target.id);
-    const snapDbPath = path.join(snapDir, 'data.db');
     const snapStorageDir = path.join(snapDir, 'storage');
-
-    if (!fs.existsSync(snapDbPath)) {
-      throw new NotFoundError(`Snapshot database file not found for '${target.name}' (${target.id}).`);
-    }
 
     return await this.maintenanceGate.executeExclusive(async () => {
       const startTime = Date.now();
 
-      // 1. Lock database and checkpoint WAL journal
       this.db.lock();
-      this.db.checkpoint();
-
-      // 2. Safely close database connection
-      this.db.close();
+      await this.db.checkpoint();
 
       try {
-        // 3. Overwrite live data.db with snapshot
-        fs.copyFileSync(snapDbPath, this.dbPath);
+        await this.getSnapshotDriver().restoreSnapshot(snapDir);
 
-        // 4. Remove existing WAL and SHM journal files
-        const walPath = `${this.dbPath}-wal`;
-        if (fs.existsSync(walPath)) {
-          try {
-            fs.unlinkSync(walPath);
-          } catch {
-            // ignore
-          }
-        }
-
-        const shmPath = `${this.dbPath}-shm`;
-        if (fs.existsSync(shmPath)) {
-          try {
-            fs.unlinkSync(shmPath);
-          } catch {
-            // ignore
-          }
-        }
-
-        // 5. Restore file storage
         if (fs.existsSync(this.storageDir)) {
           fs.rmSync(this.storageDir, { recursive: true, force: true });
         }
@@ -444,9 +395,12 @@ export class SnapshotService {
           fs.cpSync(snapStorageDir, this.storageDir, { recursive: true });
         }
       } finally {
-        // 6. Guaranteed database driver reconnection and unlock
         try {
-          this.db.reconnect();
+          // For non-SQLite drivers (LogicalSnapshotDriver), the database connection remains active
+          // and was not replaced on disk. Only reconnect if the driver is SQLite or connection was closed.
+          if (this.db.dialect.name === 'sqlite' || !this.db.isOpen()) {
+            await this.db.reconnect();
+          }
         } finally {
           this.db.unlock();
         }
@@ -454,13 +408,11 @@ export class SnapshotService {
 
       const durationMs = Date.now() - startTime;
 
-      // Update active snapshot ID in manifest without deleting any snapshots!
       this.saveManifest({
         activeSnapshotId: target.id,
         snapshots: this.listSnapshots(),
       });
 
-      // 7. Broadcast SSE realtime events
       this.realtimeService.broadcastSystemEvent('SNAPSHOT_RESTORE', {
         timestamp: new Date().toISOString(),
         snapshot: target,
@@ -479,9 +431,6 @@ export class SnapshotService {
     });
   }
 
-  /**
-   * Deletes a specific snapshot by ID.
-   */
   public async deleteSnapshot(id: string): Promise<void> {
     return await this.maintenanceGate.executeExclusive(async () => {
       const target = this.getSnapshot(id);
@@ -508,9 +457,6 @@ export class SnapshotService {
     });
   }
 
-  /**
-   * Deletes all snapshots.
-   */
   public async clearAllSnapshots(): Promise<void> {
     return await this.maintenanceGate.executeExclusive(async () => {
       if (fs.existsSync(this.snapshotsDir)) {
@@ -527,7 +473,6 @@ export class SnapshotService {
         this.saveManifest({ activeSnapshotId: null, snapshots: [] });
       }
 
-      // Also clear legacy .demo_snapshot if it exists and is scoped for this service
       if (this.legacySnapshotDir && fs.existsSync(this.legacySnapshotDir)) {
         try {
           fs.rmSync(this.legacySnapshotDir, { recursive: true, force: true });
@@ -552,10 +497,7 @@ export class SnapshotService {
     }
   }
 
-  /**
-   * Retrieves status and live drift against a specific snapshot or the active/latest baseline.
-   */
-  public getStatus(targetSnapshotId?: string): SnapshotStatus {
+  public async getStatus(targetSnapshotId?: string): Promise<SnapshotStatus> {
     const snapshots = this.listSnapshots();
     if (snapshots.length === 0) {
       return {
@@ -577,8 +519,8 @@ export class SnapshotService {
     }
 
     try {
-      const live = this.calculateLiveStats();
-      const liveContentHash = this.computeStateHash();
+      const live = await this.calculateLiveStats();
+      const liveContentHash = await this.computeStateHash();
 
       const collectionsDelta = live.totalCollections - target.totalCollections;
       const recordsDelta = live.totalRecords - target.totalRecords;
@@ -619,25 +561,21 @@ export class SnapshotService {
     }
   }
 
-
-  // ==========================================
-  // Statistics & Content Hash Calculation
-  // ==========================================
-  private calculateLiveStats(): {
+  private async calculateLiveStats(): Promise<{
     totalCollections: number;
     totalRecords: number;
     totalFiles: number;
     collections: SnapshotCollectionSummary[];
-  } {
-    const collections = this.schemaService.getAllCollections();
+  }> {
+    const collections = await this.schemaService.getAllCollections();
     let totalRecords = 0;
     const colDetails: SnapshotCollectionSummary[] = [];
 
     for (const c of collections) {
       let count = 0;
       try {
-        const row = this.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM "${c.name}"`);
-        count = row ? row.count : 0;
+        const row = await this.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM ${this.db.dialect.quoteIdentifier(c.name)}`);
+        count = row ? Number(row.count) : 0;
       } catch {
         // table might not exist
       }
@@ -650,11 +588,10 @@ export class SnapshotService {
       });
     }
 
-    // Count super admins
     try {
-      const adminRow = this.db.get<{ count: number }>('SELECT COUNT(*) as count FROM _admins');
+      const adminRow = await this.db.get<{ count: number }>('SELECT COUNT(*) as count FROM _admins');
       if (adminRow?.count) {
-        totalRecords += adminRow.count;
+        totalRecords += Number(adminRow.count);
       }
     } catch {
       // ignore
@@ -700,11 +637,10 @@ export class SnapshotService {
     return { count, sizeBytes };
   }
 
-  public computeStateHash(): string {
+  public async computeStateHash(): Promise<string> {
     const hash = crypto.createHash('sha256');
 
-    // 1. Schema & Collections definition (sorted by collection name)
-    const collections = this.schemaService.getAllCollections().sort((a, b) => a.name.localeCompare(b.name));
+    const collections = (await this.schemaService.getAllCollections()).sort((a: any, b: any) => a.name.localeCompare(b.name));
     for (const c of collections) {
       hash.update(`col:${c.id}:${c.name}:${c.type}:${c.system ? 1 : 0}`);
       hash.update(`schema:${JSON.stringify(c.schema || [])}`);
@@ -713,10 +649,9 @@ export class SnapshotService {
       hash.update(`options:${JSON.stringify(c.options || {})}`);
     }
 
-    // 2. Collection records content (sorted by id within each table)
     for (const c of collections) {
       try {
-        const rows = this.db.all<Record<string, any>>(`SELECT * FROM "${c.name}" ORDER BY "id" ASC`);
+        const rows = await this.db.all<Record<string, any>>(`SELECT * FROM ${this.db.dialect.quoteIdentifier(c.name)} ORDER BY "id" ASC`);
         hash.update(`table:${c.name}:count:${rows.length}`);
         for (const row of rows) {
           const sortedKeys = Object.keys(row).sort();
@@ -727,13 +662,12 @@ export class SnapshotService {
           hash.update(JSON.stringify(canonicalRow));
         }
       } catch {
-        // Table might not exist or query failed
+        // ignore
       }
     }
 
-    // 3. Super Admin records
     try {
-      const adminRows = this.db.all<Record<string, any>>(
+      const adminRows = await this.db.all<Record<string, any>>(
         'SELECT id, email, created, updated FROM _admins ORDER BY "id" ASC'
       );
       hash.update(`admins:count:${adminRows.length}`);
@@ -744,7 +678,6 @@ export class SnapshotService {
       // ignore
     }
 
-    // 4. File storage manifest
     const files = this.getFileManifest(this.storageDir);
     hash.update(`files:count:${files.length}`);
     for (const f of files) {
@@ -783,6 +716,6 @@ export class SnapshotService {
     };
 
     walk(dirPath);
-    return list.sort((a, b) => a.relPath.localeCompare(b.relPath));
+    return list;
   }
 }

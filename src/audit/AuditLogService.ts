@@ -172,7 +172,7 @@ export class AuditLogService {
         ? httpReq.headers['user-agent'] || null
         : null;
 
-      this.db.prepare(`
+      await this.db.prepare(`
         INSERT INTO _audit_logs (
           id, collection, recordId, action, diff, changedFields,
           authId, authEmail, authCollection, isAdmin, ip, userAgent, created
@@ -206,7 +206,7 @@ export class AuditLogService {
     recordId: string,
     page = 1,
     perPage = 25
-  ): AuditListResult {
+  ): any {
     return this.getGlobalLogs({
       collection,
       recordId,
@@ -218,7 +218,7 @@ export class AuditLogService {
   /**
    * Retrieves global audit logs across all collections with filtering and pagination.
    */
-  public getGlobalLogs(options: AuditQueryOptions = {}): AuditListResult {
+  public getGlobalLogs(options: AuditQueryOptions = {}): any {
     const page = Math.max(1, Number(options.page) || 1);
     const perPage = Math.min(100, Math.max(1, Number(options.perPage) || 25));
     const offset = (page - 1) * perPage;
@@ -253,50 +253,63 @@ export class AuditLogService {
     }
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const baseSql = `SELECT * FROM _audit_logs ${whereSql} ORDER BY created DESC`;
+    const paginatedSql = this.db.dialect.paginate(baseSql, perPage, offset);
 
     const countRow = this.db.get<{ count: number }>(
       `SELECT COUNT(*) as count FROM _audit_logs ${whereSql}`,
-      params
-    );
-    const totalItems = countRow?.count || 0;
-    const totalPages = Math.ceil(totalItems / perPage);
-
-    const rows = this.db.all<any>(
-      `SELECT * FROM _audit_logs ${whereSql} ORDER BY created DESC LIMIT ? OFFSET ?`,
-      [...params, perPage, offset]
+      ...params
     );
 
-    const items: AuditLogEntry[] = rows.map((r) => ({
-      id: r.id,
-      collection: r.collection,
-      recordId: r.recordId,
-      action: r.action,
-      diff: this.safeParseJson(r.diff, {}),
-      changedFields: this.safeParseJson(r.changedFields, []),
-      authId: r.authId || null,
-      authEmail: r.authEmail || null,
-      authCollection: r.authCollection || null,
-      isAdmin: Boolean(r.isAdmin),
-      ip: r.ip || null,
-      userAgent: r.userAgent || null,
-      created: r.created,
-    }));
+    const mapResults = (cRow: any, rows: any[]): AuditListResult => {
+      const totalItems = cRow?.count || 0;
+      const totalPages = Math.ceil(totalItems / perPage);
+      const items: AuditLogEntry[] = (rows || []).map((r) => ({
+        id: r.id,
+        collection: r.collection,
+        recordId: r.recordId,
+        action: r.action,
+        diff: this.safeParseJson(r.diff, {}),
+        changedFields: this.safeParseJson(r.changedFields, []),
+        authId: r.authId || null,
+        authEmail: r.authEmail || null,
+        authCollection: r.authCollection || null,
+        isAdmin: Boolean(r.isAdmin),
+        ip: r.ip || null,
+        userAgent: r.userAgent || null,
+        created: r.created,
+      }));
 
-    return {
-      items,
-      totalItems,
-      totalPages,
-      page,
-      perPage,
+      return {
+        items,
+        totalItems,
+        totalPages,
+        page,
+        perPage,
+      };
     };
+
+    if (countRow instanceof Promise) {
+      return Promise.all([countRow, this.db.all<any>(paginatedSql, ...params)]).then(([c, r]) => mapResults(c, r));
+    }
+
+    const rows = this.db.all<any>(paginatedSql, ...params);
+    if (rows instanceof Promise) {
+      return rows.then((r) => mapResults(countRow, r));
+    }
+
+    return mapResults(countRow, rows);
   }
 
   /**
    * Prunes audit logs older than a given number of days.
    */
-  public pruneLogs(olderThanDays: number): number {
+  public pruneLogs(olderThanDays: number): any {
     const cutoff = new Date(Date.now() - olderThanDays * 86400000).toISOString();
-    const result = this.db.prepare('DELETE FROM _audit_logs WHERE created < ?').run(cutoff);
+    const result = this.db.run('DELETE FROM _audit_logs WHERE created < ?', cutoff);
+    if (result instanceof Promise) {
+      return result.then((res) => Number(res.changes));
+    }
     return Number(result.changes);
   }
 

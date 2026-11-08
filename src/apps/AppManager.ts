@@ -6,6 +6,7 @@ import { ConfigService } from '../core/config/ConfigService';
 import { AppError, NotFoundError } from '../core/errors/AppError';
 import { DatabaseService } from '../database/DatabaseService';
 import { IDatabaseDriver } from '../database/drivers/IDatabaseDriver';
+import { NodeSqliteDriver } from '../database/drivers/NodeSqliteDriver';
 
 export type DatabaseDriverFactory = (app: AppModel, defaultDbPath: string) => IDatabaseDriver;
 
@@ -16,7 +17,7 @@ export class AppManager {
 
   constructor(
     public readonly registry: AppRegistry,
-    private config: ConfigService,
+    public readonly config: ConfigService,
     private customDriver?: IDatabaseDriver,
     private driverFactory?: DatabaseDriverFactory
   ) {}
@@ -36,13 +37,53 @@ export class AppManager {
     return Array.from(new Set(this.appCache.values()));
   }
 
+  public async switchDriver(newDriver?: IDatabaseDriver): Promise<void> {
+    const oldRootDriver = this.customDriver;
+    try {
+      this.customDriver = newDriver;
+      for (const scope of this.getCachedScopes()) {
+        if (newDriver) {
+          let appDriver: IDatabaseDriver;
+          if (newDriver.dialect.name === 'sqlite' && (newDriver as any).getPath?.() !== ':memory:') {
+            const appDbPath = this.config.getAppDbPath(scope.app.slug);
+            if (scope.app.slug === 'default' && (newDriver as any).getPath?.() === appDbPath) {
+              appDriver = newDriver;
+            } else {
+              appDriver = await newDriver.withSchema(scope.app.slug);
+            }
+          } else {
+            appDriver = await newDriver.withSchema(scope.app.slug);
+          }
+          await scope.db.switchDriver(appDriver);
+        } else {
+          const appDbPath = this.config.getAppDbPath(scope.app.slug);
+          const sqliteDriver = new NodeSqliteDriver(appDbPath, {
+            baseDir: this.config.appsDir,
+          });
+          await scope.db.switchDriver(sqliteDriver);
+        }
+        await scope.init(true);
+      }
+      if (oldRootDriver && oldRootDriver !== newDriver) {
+        try {
+          await oldRootDriver.close();
+        } catch {
+          // ignore
+        }
+      }
+    } catch (err) {
+      this.customDriver = oldRootDriver;
+      throw err;
+    }
+  }
+
   public findScopeByDb(db: DatabaseService): AppScope | undefined {
     for (const scope of this.getCachedScopes()) {
       if (scope.db === db || (scope.db as any)?.driver === (db as any)?.driver) {
         return scope;
       }
     }
-    for (const app of this.registry.getAllApps()) {
+    for (const app of this.registry.getAllAppsSync()) {
       try {
         const scope = this.get(app.slug);
         if (scope.db === db || (scope.db as any)?.driver === (db as any)?.driver) {
@@ -72,9 +113,9 @@ export class AppManager {
 
   private async doEnsureDemoAppInitialized(options?: { overwrite?: boolean }): Promise<AppScope | undefined> {
     try {
-      let demoApp = this.registry.getApp('ecommerce-demo');
+      let demoApp = await this.registry.getApp('ecommerce-demo');
       if (!demoApp) {
-        demoApp = this.registry.createApp({
+        demoApp = await this.registry.createApp({
           slug: 'ecommerce-demo',
           name: 'E-Commerce Demo',
           description: 'Retail storefront showcase pre-seeded with catalog, serverless lambdas, and event-driven flows',
@@ -82,14 +123,14 @@ export class AppManager {
         });
       }
 
-      const scope = this.get('ecommerce-demo');
+      const scope = await this.getAsync('ecommerce-demo');
 
       // Idempotently apply ecommerce template: bootstraps or repairs missing collections,
       // serverless functions, and orchestration flows even on partially initialized scopes.
       await scope.templates.apply('ecommerce', { overwrite: Boolean(options?.overwrite) });
 
       // Ensure baseline snapshot exists for Reset to Demo State
-      if (!scope.snapshots.hasSnapshot()) {
+      if (scope.snapshots.listSnapshots().length === 0) {
         try {
           await scope.snapshots.createSnapshot({
             name: 'ecommerce-demo-baseline',
@@ -102,28 +143,26 @@ export class AppManager {
 
       // Pre-seed or synchronize demo customer account for instant 1-click login
       try {
-        const userCol = scope.schema.getCollection('users');
+        const userCol = await scope.schema.getCollection('users');
         if (userCol) {
           const crypto = require('crypto');
           const passwordHash = await scope.auth.hashPassword('DemoPassword123!');
-          const userExists = scope.db.get<{ id: string }>('SELECT id FROM users WHERE email = ?', 'alex.vance@nodestack.dev');
+          const userExists = await scope.db.get<{ id: string }>('SELECT id FROM users WHERE email = ?', 'alex.vance@nodestack.dev');
           if (!userExists) {
             const now = new Date().toISOString();
-            scope.db.run(
+            await scope.db.run(
               `INSERT INTO users (id, email, emailVisibility, verified, passwordHash, tokenKey, name, created, updated)
                VALUES (?, ?, 1, 1, ?, ?, ?, ?, ?)`,
-              [
-                'usr_alex_vance',
-                'alex.vance@nodestack.dev',
-                passwordHash,
-                crypto.randomBytes(16).toString('hex'),
-                'Alex Vance',
-                now,
-                now,
-              ]
+              'usr_alex_vance',
+              'alex.vance@nodestack.dev',
+              passwordHash,
+              crypto.randomBytes(16).toString('hex'),
+              'Alex Vance',
+              now,
+              now
             );
           } else {
-            scope.db.run('UPDATE users SET passwordHash = ? WHERE email = ?', [passwordHash, 'alex.vance@nodestack.dev']);
+            await scope.db.run('UPDATE users SET passwordHash = ? WHERE email = ?', passwordHash, 'alex.vance@nodestack.dev');
           }
         }
       } catch (err: any) {
@@ -132,9 +171,9 @@ export class AppManager {
 
       // Ensure cart_items collection exists for persistent shopping cart
       try {
-        const hasCartCol = scope.schema.getCollection('cart_items');
+        const hasCartCol = await scope.schema.getCollection('cart_items');
         if (!hasCartCol) {
-          scope.schema.createCollection({
+          await scope.schema.createCollection({
             name: 'cart_items',
             type: 'base',
             listRule: '@request.auth.id != "" && user = @request.auth.id',
@@ -177,42 +216,96 @@ export class AppManager {
     }
   }
 
-  public list(): AppModel[] {
+  public list(): any {
     const apps = this.registry.getAllApps();
-    return apps.map((app) => {
-      const scope = this.appCache.get(app.slug) || this.appCache.get(app.id);
-      if (scope) {
-        try {
-          const collections = scope.schema.getAllCollections();
-          const collectionsCount = collections.filter((c) => !c.system).length;
-          let recordsCount = 0;
-          for (const col of collections) {
-            if (!col.system) {
-              const countRow = scope.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM "${col.name}"`);
-              recordsCount += countRow?.count || 0;
+    const processApps = (appList: AppModel[]): any => {
+      const result: AppModel[] = [];
+      const promises: Promise<any>[] = [];
+
+      for (const app of appList) {
+        const scope = this.appCache.get(app.slug) || this.appCache.get(app.id);
+        if (scope) {
+          try {
+            const collections = scope.schema.getAllCollections();
+            if (collections && typeof (collections as any).then === 'function') {
+              const p = (collections as any).then(async (cols: any[]) => {
+                const collectionsCount = cols.filter((c: any) => !c.system).length;
+                let recordsCount = 0;
+                for (const col of cols) {
+                  if (!col.system) {
+                    const countRow = await scope.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM ${scope.db.dialect.quoteIdentifier(col.name)}`);
+                    recordsCount += Number(countRow?.count || 0);
+                  }
+                }
+                const appDbPath = this.config.getAppDbPath(app.slug);
+                const dbSizeBytes = fs.existsSync(appDbPath) ? fs.statSync(appDbPath).size : 0;
+                result.push({
+                  ...app,
+                  stats: {
+                    collectionsCount,
+                    recordsCount,
+                    storageSizeBytes: 0,
+                    dbSizeBytes,
+                  },
+                });
+              }).catch(() => {
+                result.push(app);
+              });
+              promises.push(p);
+            } else {
+              const cols = collections || [];
+              const collectionsCount = cols.filter((c: any) => !c.system).length;
+              let recordsCount = 0;
+              for (const col of cols) {
+                if (!col.system) {
+                  const countRow = scope.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM ${scope.db.dialect.quoteIdentifier(col.name)}`);
+                  if (countRow && typeof (countRow as any).then === 'function') {
+                    // ignore async in sync branch
+                  } else {
+                    recordsCount += Number((countRow as any)?.count || 0);
+                  }
+                }
+              }
+              const appDbPath = this.config.getAppDbPath(app.slug);
+              const dbSizeBytes = fs.existsSync(appDbPath) ? fs.statSync(appDbPath).size : 0;
+              result.push({
+                ...app,
+                stats: {
+                  collectionsCount,
+                  recordsCount,
+                  storageSizeBytes: 0,
+                  dbSizeBytes,
+                },
+              });
             }
+          } catch {
+            result.push(app);
           }
-          const appDbPath = this.config.getAppDbPath(app.slug);
-          const dbSizeBytes = fs.existsSync(appDbPath) ? fs.statSync(appDbPath).size : 0;
-          return {
-            ...app,
-            stats: {
-              collectionsCount,
-              recordsCount,
-              storageSizeBytes: 0,
-              dbSizeBytes,
-            },
-          };
-        } catch {
-          return app;
+        } else {
+          result.push(app);
         }
       }
-      return app;
-    });
+
+      if (promises.length > 0) {
+        return Promise.all(promises).then(() => result);
+      }
+      return result;
+    };
+
+    if (apps && typeof (apps as any).then === 'function') {
+      return (apps as any).then(processApps);
+    }
+    return processApps(apps);
   }
 
   public has(slugOrId: string): boolean {
-    return Boolean(this.registry.getApp(slugOrId));
+    return this.appCache.has(slugOrId) || Boolean(this.registry.getAppSync(slugOrId));
+  }
+
+  public async hasAsync(slugOrId: string): Promise<boolean> {
+    if (this.appCache.has(slugOrId)) return true;
+    const app = await this.registry.getApp(slugOrId);
+    return Boolean(app);
   }
 
   public get(slugOrId?: string): AppScope {
@@ -222,11 +315,48 @@ export class AppManager {
       return this.appCache.get(target)!;
     }
 
-    const appModel = this.registry.getApp(target);
+    let appModel = this.registry.getAppSync(target);
     if (!appModel) {
-      throw new NotFoundError(`Application '${target}' not found`);
+      if (target === 'default' || target === 'app_default') {
+        appModel = this.registry.getDefaultAppModel();
+      } else {
+        throw new NotFoundError(`Application '${target}' not found`);
+      }
     }
 
+    return this.createAndCacheScope(appModel);
+  }
+
+  public async getAsync(slugOrId?: string): Promise<AppScope> {
+    const target = (slugOrId || 'default').trim();
+
+    let scope = this.appCache.get(target);
+    if (!scope) {
+      let appModel: AppModel | undefined;
+      const lookup = this.registry.getApp(target);
+      if (lookup && typeof (lookup as any).then === 'function') {
+        appModel = await lookup;
+      } else {
+        appModel = lookup;
+      }
+
+      if (!appModel) {
+        if (target === 'default' || target === 'app_default') {
+          appModel = this.registry.getDefaultAppModel();
+        } else {
+          throw new NotFoundError(`Application '${target}' not found`);
+        }
+      }
+
+      scope = this.createAndCacheScope(appModel);
+    }
+
+    // Await initialization before exposing the scope to callers
+    await scope.ensureInitialized();
+    return scope;
+  }
+
+  private createAndCacheScope(appModel: AppModel): AppScope {
     // Check if cached under other key (id vs slug)
     if (this.appCache.has(appModel.slug)) {
       return this.appCache.get(appModel.slug)!;
@@ -262,8 +392,8 @@ export class AppManager {
   }
 
   public async create(dto: CreateAppDto): Promise<AppScope> {
-    const appModel = this.registry.createApp(dto);
-    const scope = this.get(appModel.slug);
+    const appModel = await this.registry.createApp(dto);
+    const scope = await this.getAsync(appModel.slug);
     await scope.queue.start();
 
     if (dto.template && dto.template.trim()) {
@@ -278,8 +408,8 @@ export class AppManager {
     return scope;
   }
 
-  public update(slugOrId: string, dto: UpdateAppDto): AppModel {
-    const updated = this.registry.updateApp(slugOrId, dto);
+  public async update(slugOrId: string, dto: UpdateAppDto): Promise<AppModel> {
+    const updated = await this.registry.updateApp(slugOrId, dto);
     const cached = this.appCache.get(updated.slug) || this.appCache.get(updated.id);
     if (cached) {
       (cached as any).app = updated;
@@ -288,7 +418,7 @@ export class AppManager {
   }
 
   public async delete(slugOrId: string): Promise<void> {
-    const target = this.registry.getAppOrThrow(slugOrId);
+    const target = await this.registry.getAppOrThrow(slugOrId);
     if (target.isDefault || target.slug === 'default') {
       throw new AppError('Cannot delete the default application', 400);
     }
@@ -304,7 +434,7 @@ export class AppManager {
       this.appCache.delete(target.id);
     }
 
-    this.registry.deleteApp(target.id);
+    await this.registry.deleteApp(target.id);
 
     const appDir = this.config.getAppDir(target.slug);
     if (fs.existsSync(appDir)) {
@@ -324,6 +454,11 @@ export class AppManager {
         closed.add(scope);
       }
     }
+    if (this.customDriver) {
+      try {
+        await this.customDriver.close();
+      } catch {}
+    }
     this.appCache.clear();
     this.registry.close();
   }
@@ -335,6 +470,11 @@ export class AppManager {
         scope.close();
         closed.add(scope);
       }
+    }
+    if (this.customDriver) {
+      try {
+        void this.customDriver.close();
+      } catch {}
     }
     this.appCache.clear();
     this.registry.close();

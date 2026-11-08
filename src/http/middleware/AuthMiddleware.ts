@@ -50,7 +50,7 @@ export class AuthMiddleware {
       const apiKeyService = this.getApiKeyService(req);
       if (apiKeyService) {
         const clientIp = req.ip || (req.socket ? req.socket.remoteAddress : undefined);
-        const result = apiKeyService.verifyKey(apiKeyToken, clientIp);
+        const result = await apiKeyService.verifyKey(apiKeyToken, clientIp);
         if (result.valid && result.apiKey) {
           const key = result.apiKey;
           const isSuperAdmin = key.role === 'admin' || key.scopes.includes('*') || key.scopes.includes('admin:*');
@@ -94,12 +94,12 @@ export class AuthMiddleware {
     if (token) {
       const authService = this.getAuthService(req);
       try {
-        req.auth = authService.verifyToken(token);
+        req.auth = await authService.verifyToken(token);
       } catch {
         // Fallback to global authService if scoped verification fails for super-admin tokens
         if (authService !== this.authService) {
           try {
-            const adminClaims = this.authService.verifyToken(token);
+            const adminClaims = await this.authService.verifyToken(token);
             if (adminClaims && adminClaims.isAdmin) {
               req.auth = adminClaims;
             }
@@ -131,7 +131,7 @@ export class AuthMiddleware {
     return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
       await this.handle(req, reply);
       const authService = this.getAuthService(req);
-      const hasAdmins = authService.hasAdmins() || this.authService.hasAdmins();
+      const hasAdmins = (await authService.hasAdmins()) || (await this.authService.hasAdmins());
       if (!hasAdmins) {
         return;
       }

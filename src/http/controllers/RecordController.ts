@@ -62,7 +62,7 @@ export class RecordController extends BaseController {
     const schema = this.getSchema(req);
     const files = this.getFiles(req);
     const records = this.getRecords(req);
-    const col = schema.getCollectionOrThrow(collection);
+    const col = await schema.getCollectionOrThrow(collection);
 
     let data: Record<string, any> = {};
 
@@ -120,7 +120,7 @@ export class RecordController extends BaseController {
     const schema = this.getSchema(req);
     const files = this.getFiles(req);
     const records = this.getRecords(req);
-    const col = schema.getCollectionOrThrow(collection);
+    const col = await schema.getCollectionOrThrow(collection);
 
     let data: Record<string, any> = {};
 
@@ -256,7 +256,7 @@ export class RecordController extends BaseController {
     }
 
     const { collection } = req.params;
-    const targetCol = this.getSchema(req).getCollection(collection);
+    const targetCol = await this.getSchema(req).getCollection(collection);
     if (targetCol?.system || collection.startsWith('_')) {
       return this.error(reply, `Mock data generation is not allowed for system collection '${collection}'`, 400);
     }

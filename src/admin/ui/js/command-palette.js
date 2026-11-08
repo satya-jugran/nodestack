@@ -137,6 +137,17 @@ function getAllCommandPaletteItems() {
     action: () => selectNav('logs')
   });
 
+    items.push({
+    id: "nav-database",
+    title: "Database Engine Settings",
+    description: "Configure and switch between SQLite, PostgreSQL, and SQL Server",
+    category: "System",
+    badge: "CONFIG",
+    icon: "🗄️",
+    keywords: ["database", "db", "postgres", "postgresql", "mssql", "sql server", "sqlite", "cluster", "migrate", "switch database"],
+    action: () => { if (typeof openDatabaseModal === "function") openDatabaseModal(); }
+  });
+
   // 2.5 Plugin navigation items
   if (state.pluginNavItems && state.pluginNavItems.length > 0) {
     for (const p of state.pluginNavItems) {
