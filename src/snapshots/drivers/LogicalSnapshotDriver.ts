@@ -66,10 +66,12 @@ export class LogicalSnapshotDriver implements ISnapshotDriver {
 
     await driver.transaction(async (tx) => {
       for (const [table, rows] of Object.entries(data)) {
-        if (!Array.isArray(rows) || rows.length === 0) continue;
+        if (!Array.isArray(rows)) continue;
         try {
-          // Truncate / delete all current rows
+          // Truncate / delete all current rows so an empty snapshot table clears newly added rows
           await tx.exec(`DELETE FROM ${this.db.dialect.quoteIdentifier(table)}`);
+          if (rows.length === 0) continue;
+
           for (const row of rows) {
             const cols = Object.keys(row);
             const placeholders = cols.map(() => '?').join(', ');

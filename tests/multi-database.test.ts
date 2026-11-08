@@ -1856,6 +1856,19 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       await driver.restoreSnapshot(snapTargetDir);
       expect(queriesExecuted.some((q) => q.includes('DELETE FROM "_flow_executions"'))).toBe(true);
       expect(queriesExecuted.some((q) => q.includes('INSERT INTO "_flow_executions"'))).toBe(true);
+
+      // 3. Restoring an empty snapshot table executes DELETE to clear rows added after capture
+      const emptySnapDir = path.join(testDir, 'empty_snap_test');
+      fs.mkdirSync(emptySnapDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(emptySnapDir, 'snapshot.json'),
+        JSON.stringify({ _webhooks: [] }),
+        'utf-8'
+      );
+      queriesExecuted.length = 0;
+      await driver.restoreSnapshot(emptySnapDir);
+      expect(queriesExecuted.some((q) => q.includes('DELETE FROM "_webhooks"'))).toBe(true);
+      expect(queriesExecuted.some((q) => q.includes('INSERT INTO "_webhooks"'))).toBe(false);
     });
   });
 });
