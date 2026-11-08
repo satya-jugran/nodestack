@@ -99,73 +99,80 @@ export class AnalyticsService {
     }
 
     const collections = this.schemaService.getAllCollections();
+    const isAsync =
+      Boolean(this.db.dialect && this.db.dialect.name !== 'sqlite') ||
+      Boolean(collections && typeof (collections as any).then === 'function');
 
-    const processCollections = (cols: any[]) => {
-      let totalRecords = 0;
-      const collectionsBreakdown: CollectionRecordCount[] = [];
+    if (isAsync) {
+      return (async (): Promise<DatabaseMetrics> => {
+        const cols = collections && typeof (collections as any).then === 'function'
+          ? await collections
+          : collections;
+        let totalRecords = 0;
+        const collectionsBreakdown: CollectionRecordCount[] = [];
 
-      const queryCol = (col: any) => {
-        try {
-          const row = this.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM ${this.db.dialect.quoteIdentifier(col.name)}`);
-          if (row && typeof (row as any).then === 'function') {
-            return (row as any).then((r: any) => {
-              const count = Number(r?.count || 0);
-              totalRecords += count;
-              collectionsBreakdown.push({
-                collection: col.name,
-                type: col.type,
-                count,
-              });
-            }).catch(() => {
-              collectionsBreakdown.push({
-                collection: col.name,
-                type: col.type,
-                count: 0,
-              });
+        for (const col of cols || []) {
+          try {
+            const row = await this.db.get<{ count: number }>(
+              `SELECT COUNT(*) as count FROM ${this.db.dialect.quoteIdentifier(col.name)}`
+            );
+            const count = Number(row?.count || 0);
+            totalRecords += count;
+            collectionsBreakdown.push({
+              collection: col.name,
+              type: col.type,
+              count,
+            });
+          } catch {
+            collectionsBreakdown.push({
+              collection: col.name,
+              type: col.type,
+              count: 0,
             });
           }
-          const count = Number((row as any)?.count || 0);
-          totalRecords += count;
-          collectionsBreakdown.push({
-            collection: col.name,
-            type: col.type,
-            count,
-          });
-          return null;
-        } catch {
-          collectionsBreakdown.push({
-            collection: col.name,
-            type: col.type,
-            count: 0,
-          });
-          return null;
         }
-      };
 
-      const promises: Promise<any>[] = [];
-      for (const col of cols || []) {
-        const res = queryCol(col);
-        if (res) promises.push(res);
-      }
-
-      const finish = (): DatabaseMetrics => ({
-        sizeBytes,
-        sizeFormatted: formatBytes(sizeBytes),
-        walSizeBytes,
-        totalRecords,
-        collectionsBreakdown,
-      });
-
-      if (promises.length > 0) {
-        return Promise.all(promises).then(finish);
-      }
-      return finish();
-    };
-
-    if (collections && typeof (collections as any).then === 'function') {
-      return (collections as any).then(processCollections);
+        return {
+          sizeBytes,
+          sizeFormatted: formatBytes(sizeBytes),
+          walSizeBytes,
+          totalRecords,
+          collectionsBreakdown,
+        };
+      })();
     }
-    return processCollections(collections);
+
+    let totalRecords = 0;
+    const collectionsBreakdown: CollectionRecordCount[] = [];
+
+    for (const col of (collections as any[]) || []) {
+      try {
+        const row = this.db.get<{ count: number }>(
+          `SELECT COUNT(*) as count FROM ${this.db.dialect.quoteIdentifier(col.name)}`
+        );
+        const count = Number((row as any)?.count || 0);
+        totalRecords += count;
+        collectionsBreakdown.push({
+          collection: col.name,
+          type: col.type,
+          count,
+        });
+      } catch {
+        collectionsBreakdown.push({
+          collection: col.name,
+          type: col.type,
+          count: 0,
+        });
+      }
+    }
+
+    return {
+      sizeBytes,
+      sizeFormatted: formatBytes(sizeBytes),
+      walSizeBytes,
+      totalRecords,
+      collectionsBreakdown,
+    };
   }
 
   public getRealtimeMetrics(): RealtimeMetrics {

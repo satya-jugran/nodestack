@@ -26,6 +26,7 @@ import { RecordService } from '../src/records/RecordService';
 import { SchemaField } from '../src/schema/models/Field';
 import { SchemaService } from '../src/schema/SchemaService';
 import { LogicalSnapshotDriver } from '../src/snapshots/drivers/LogicalSnapshotDriver';
+import { AnalyticsService } from '../src/analytics/AnalyticsService';
 
 describe('Multi-Database Architecture & Configuration Tests', () => {
   const testDir = path.resolve(__dirname, '../.test_multi_db_data');
@@ -1869,6 +1870,44 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       await driver.restoreSnapshot(emptySnapDir);
       expect(queriesExecuted.some((q) => q.includes('DELETE FROM "_webhooks"'))).toBe(true);
       expect(queriesExecuted.some((q) => q.includes('INSERT INTO "_webhooks"'))).toBe(false);
+    });
+
+    it('Round 2 Item 6: should return async branch for getDatabaseMetrics and avoid duplicated breakdown on async databases', async () => {
+      const fakeDb: any = {
+        dialect: new PostgresDialect(),
+        isOpen: () => true,
+        get: async (sql: string) => {
+          if (sql.includes('"posts"')) return { count: 42 };
+          if (sql.includes('"users"')) return { count: 10 };
+          return { count: 0 };
+        },
+      };
+      const fakeSchema: any = {
+        getAllCollections: async () => [
+          { name: 'posts', type: 'base' },
+          { name: 'users', type: 'auth' },
+        ],
+      };
+      const fakeConfig: any = { dbPath: path.join(testDir, 'fake.db') };
+      const fakeRealtime: any = { getConnectedClientsCount: () => 0 };
+
+      const analytics = new AnalyticsService(
+        fakeDb as any,
+        fakeConfig as any,
+        fakeSchema as any,
+        fakeRealtime as any
+      );
+
+      const metricsPromise = analytics.getDatabaseMetrics();
+      expect(metricsPromise && typeof metricsPromise.then === 'function').toBe(true);
+
+      const metrics = await metricsPromise;
+      expect(metrics.totalRecords).toBe(52);
+      expect(metrics.collectionsBreakdown).toEqual([
+        { collection: 'posts', type: 'base', count: 42 },
+        { collection: 'users', type: 'auth', count: 10 },
+      ]);
+      expect(metrics.collectionsBreakdown.length).toBe(2);
     });
   });
 });
