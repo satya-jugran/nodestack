@@ -208,8 +208,9 @@ export class PostgresDriver implements IDatabaseDriver {
 
   public async exec(sql: string): Promise<void> {
     this.checkOpen();
+    const rewrittenSql = this.dialect.rewritePlaceholders(sql);
     await this.withClient(this.client || this.pool, async (conn) => {
-      await conn.query(sql);
+      await conn.query(rewrittenSql);
     });
   }
 

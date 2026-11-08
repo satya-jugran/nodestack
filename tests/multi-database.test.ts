@@ -1151,5 +1151,97 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(defaultScope.db.getRootDriver() instanceof PostgresDriver).toBe(true);
       expect(defaultScope.db.dialect.name).toBe('postgres');
     });
+
+    // 9. PostgresDialect quotes and preserves camelCase column definitions
+    it('Review finding: should quote camelCase column definitions in PostgresDialect to prevent lowercase folding', () => {
+      const dialect = new PostgresDialect();
+
+      // 1. Verify createTableIfNotExists quotes camelCase columns from unquoted migration input
+      const collectionsDdl = dialect.createTableIfNotExists('_collections', `
+        id TEXT PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL,
+        type TEXT NOT NULL DEFAULT 'base',
+        system BOOLEAN NOT NULL DEFAULT FALSE,
+        schema TEXT NOT NULL DEFAULT '[]',
+        indexes TEXT NOT NULL DEFAULT '[]',
+        listRule TEXT,
+        viewRule TEXT,
+        createRule TEXT,
+        updateRule TEXT,
+        deleteRule TEXT,
+        options TEXT NOT NULL DEFAULT '{}',
+        created TEXT NOT NULL,
+        updated TEXT NOT NULL
+      `);
+
+      expect(collectionsDdl).toContain('"listRule" TEXT');
+      expect(collectionsDdl).toContain('"viewRule" TEXT');
+      expect(collectionsDdl).toContain('"createRule" TEXT');
+      expect(collectionsDdl).toContain('"updateRule" TEXT');
+      expect(collectionsDdl).toContain('"deleteRule" TEXT');
+      expect(collectionsDdl).toContain('"options" TEXT NOT NULL DEFAULT \'{}\'');
+      expect(collectionsDdl).toContain('CREATE TABLE IF NOT EXISTS "_collections"');
+
+      // 2. Verify _admins & users camelCase auth columns (passwordHash, tokenKey, emailVisibility)
+      const adminsDdl = dialect.createTableIfNotExists('_admins', `
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        passwordHash TEXT NOT NULL,
+        tokenKey TEXT NOT NULL,
+        avatar TEXT,
+        created TEXT NOT NULL,
+        updated TEXT NOT NULL
+      `);
+      expect(adminsDdl).toContain('"passwordHash" TEXT NOT NULL');
+      expect(adminsDdl).toContain('"tokenKey" TEXT NOT NULL');
+
+      const usersDdl = dialect.createTableIfNotExists('users', `
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        emailVisibility BOOLEAN NOT NULL DEFAULT FALSE,
+        verified BOOLEAN NOT NULL DEFAULT FALSE,
+        passwordHash TEXT NOT NULL,
+        tokenKey TEXT NOT NULL,
+        name TEXT,
+        avatar TEXT,
+        created TEXT NOT NULL,
+        updated TEXT NOT NULL
+      `);
+      expect(usersDdl).toContain('"emailVisibility" BOOLEAN NOT NULL DEFAULT FALSE');
+      expect(usersDdl).toContain('"passwordHash" TEXT NOT NULL');
+      expect(usersDdl).toContain('"tokenKey" TEXT NOT NULL');
+
+      // 3. Verify table-level constraints with camelCase columns
+      const extAuthDdl = dialect.createTableIfNotExists('_external_auths', `
+        id TEXT PRIMARY KEY,
+        collection TEXT NOT NULL,
+        recordId TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        providerUserId TEXT NOT NULL,
+        UNIQUE(collection, provider, providerUserId)
+      `);
+      expect(extAuthDdl).toContain('"recordId" TEXT NOT NULL');
+      expect(extAuthDdl).toContain('"providerUserId" TEXT NOT NULL');
+      expect(extAuthDdl).toContain('UNIQUE ("collection", "provider", "providerUserId")');
+
+      // 4. Verify createIndexIfNotExists quotes camelCase index columns
+      const indexSql = dialect.createIndexIfNotExists(
+        'idx_webhook_del_wh',
+        '_webhook_deliveries',
+        'webhookId, created DESC'
+      );
+      expect(indexSql).toContain('ON "_webhook_deliveries"("webhookId", "created" DESC)');
+
+      // 5. Verify rewritePlaceholders automatically quotes unquoted camelCase identifiers in queries
+      const insertSql = dialect.rewritePlaceholders(
+        'INSERT INTO _admins (id, email, passwordHash, tokenKey) VALUES (?, ?, ?, ?)'
+      );
+      expect(insertSql).toBe('INSERT INTO _admins (id, email, "passwordHash", "tokenKey") VALUES ($1, $2, $3, $4)');
+
+      const updateSql = dialect.rewritePlaceholders(
+        'UPDATE _collections SET listRule = ?, viewRule = ? WHERE id = ?'
+      );
+      expect(updateSql).toBe('UPDATE _collections SET "listRule" = $1, "viewRule" = $2 WHERE id = $3');
+    });
   });
 });
