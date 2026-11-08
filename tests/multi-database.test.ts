@@ -19,11 +19,12 @@ import { DatabaseController } from '../src/http/controllers/DatabaseController';
 import { AdminUIBundler } from '../src/admin/AdminUIBundler';
 import { AuthService } from '../src/auth/AuthService';
 import { AuthMiddleware } from '../src/http/middleware/AuthMiddleware';
-import { UnauthorizedError } from '../src/core/errors/AppError';
+import { UnauthorizedError, NotFoundError } from '../src/core/errors/AppError';
 import { MssqlDialect } from '../src/database/dialects/MssqlDialect';
 import { MssqlFtsDriver } from '../src/records/fts/MssqlFtsDriver';
 import { RecordService } from '../src/records/RecordService';
 import { SchemaField } from '../src/schema/models/Field';
+import { SchemaService } from '../src/schema/SchemaService';
 
 describe('Multi-Database Architecture & Configuration Tests', () => {
   const testDir = path.resolve(__dirname, '../.test_multi_db_data');
@@ -1641,6 +1642,154 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(executedQuerySql).toContain('COALESCE(CAST([fts].[title] AS NVARCHAR(MAX))');
       expect(executedQuerySql).toContain('LIKE ?');
       expect(executedQueryParams).toContain('%hello%');
+    });
+
+    // 15. SchemaService schema read and write operations await driver operations on non-SQLite drivers
+    it('Review finding: SchemaService read and write methods properly await Promise-valued operations on non-SQLite drivers', async () => {
+      const collectionsStore: any[] = [
+        {
+          id: 'col_posts',
+          name: 'posts',
+          type: 'base',
+          system: 0,
+          schema: JSON.stringify([{ id: 'f_title', name: 'title', type: 'text', required: true }]),
+          indexes: '[]',
+          listRule: '',
+          viewRule: '',
+          createRule: '',
+          updateRule: '',
+          deleteRule: '',
+          options: '{}',
+          created: new Date().toISOString(),
+          updated: new Date().toISOString(),
+        },
+      ];
+
+      const executedQueries: string[] = [];
+
+      const mockAsyncDb: any = {
+        dialect: new PostgresDialect(),
+        all: async (sql: string) => {
+          executedQueries.push(sql);
+          if (sql.includes('FROM _collections')) {
+            return collectionsStore;
+          }
+          return [];
+        },
+        get: async (sql: string, ...params: any[]) => {
+          executedQueries.push(sql);
+          if (sql.includes('FROM _collections WHERE id = ? OR name = ?')) {
+            const [idOrName] = params;
+            return collectionsStore.find((c) => c.id === idOrName || c.name === idOrName);
+          }
+          return undefined;
+        },
+        exec: async (sql: string) => {
+          executedQueries.push(sql);
+        },
+        prepare: (sql: string) => ({
+          run: async (...params: any[]) => {
+            executedQueries.push(sql);
+            if (sql.includes('INSERT INTO _collections')) {
+              const [id, name, type, system, schema, indexes, listRule, viewRule, createRule, updateRule, deleteRule, options, created, updated] = params;
+              collectionsStore.push({
+                id,
+                name,
+                type,
+                system,
+                schema,
+                indexes,
+                listRule,
+                viewRule,
+                createRule,
+                updateRule,
+                deleteRule,
+                options,
+                created,
+                updated,
+              });
+            } else if (sql.includes('UPDATE _collections SET')) {
+              const [name, schema, indexes, listRule, viewRule, createRule, updateRule, deleteRule, options, updated, id] = params;
+              const idx = collectionsStore.findIndex((c) => c.id === id);
+              if (idx !== -1) {
+                collectionsStore[idx] = {
+                  ...collectionsStore[idx],
+                  name,
+                  schema,
+                  indexes,
+                  listRule,
+                  viewRule,
+                  createRule,
+                  updateRule,
+                  deleteRule,
+                  options,
+                  updated,
+                };
+              }
+            } else if (sql.includes('DELETE FROM _collections WHERE id = ?')) {
+              const [id] = params;
+              const idx = collectionsStore.findIndex((c) => c.id === id);
+              if (idx !== -1) {
+                collectionsStore.splice(idx, 1);
+              }
+            }
+            return { changes: 1, lastInsertRowid: 1 };
+          },
+        }),
+        transaction: async (cb: any) => {
+          return await cb(mockAsyncDb);
+        },
+      };
+
+      const schemaService = new SchemaService(mockAsyncDb);
+
+      // 1. getAllCollections awaits Promise from db.all() and does not throw .map is not a function
+      const allCols = await schemaService.getAllCollections();
+      expect(Array.isArray(allCols)).toBe(true);
+      expect(allCols.length).toBe(1);
+      expect(allCols[0].name).toBe('posts');
+      expect(allCols[0].schema[0].name).toBe('title');
+
+      // 2. getCollection awaits Promise from db.get() and passes resolved row to mapRowToCollection
+      const postCol = await schemaService.getCollection('posts');
+      expect(postCol).toBeDefined();
+      expect(postCol?.id).toBe('col_posts');
+      expect(postCol?.name).toBe('posts');
+
+      const nonExistentCol = await schemaService.getCollection('non_existent');
+      expect(nonExistentCol).toBeUndefined();
+
+      // 3. getCollectionOrThrow throws NotFoundError when not found instead of returning Promise<undefined>
+      await expect(schemaService.getCollectionOrThrow('non_existent')).rejects.toThrow(NotFoundError);
+      const postColOrThrow = await schemaService.getCollectionOrThrow('posts');
+      expect(postColOrThrow.id).toBe('col_posts');
+
+      // 4. createCollection does not throw premature ConflictError from truthy Promise, awaits async tx
+      const createdCol = await schemaService.createCollection({
+        name: 'comments',
+        type: 'base',
+        schema: [
+          { id: 'f_body', name: 'body', type: 'text', required: true },
+        ],
+      });
+      expect(createdCol).toBeDefined();
+      expect(createdCol.name).toBe('comments');
+      expect(createdCol.schema.length).toBe(1);
+      expect(createdCol.schema[0].name).toBe('body');
+
+      // 5. updateCollection awaits async tx and updates collection
+      const updatedCol = await schemaService.updateCollection('comments', {
+        schema: [
+          { id: 'f_body', name: 'body', type: 'text', required: true },
+          { id: 'f_author', name: 'author', type: 'text', required: false },
+        ],
+      });
+      expect(updatedCol.schema.length).toBe(2);
+
+      // 6. deleteCollection awaits async tx and drops collection
+      await schemaService.deleteCollection('comments');
+      const deletedCheck = await schemaService.getCollection('comments');
+      expect(deletedCheck).toBeUndefined();
     });
   });
 });

@@ -37,15 +37,27 @@ export class SchemaService {
     return this.mapRowToCollection(row);
   }
 
-  public getCollectionOrThrow(nameOrId: string): CollectionModel {
+  public getCollectionOrThrow(nameOrId: string): CollectionModel;
+  public getCollectionOrThrow(nameOrId: string): Promise<CollectionModel>;
+  public getCollectionOrThrow(nameOrId: string): any {
     const col = this.getCollection(nameOrId);
+    if (col && typeof (col as any).then === 'function') {
+      return (col as any).then((c: CollectionModel | undefined) => {
+        if (!c) {
+          throw new NotFoundError(`Collection '${nameOrId}' not found`);
+        }
+        return c;
+      });
+    }
     if (!col) {
       throw new NotFoundError(`Collection '${nameOrId}' not found`);
     }
     return col;
   }
 
-  public createCollection(dto: CreateCollectionDto): CollectionModel {
+  public createCollection(dto: CreateCollectionDto): CollectionModel;
+  public createCollection(dto: CreateCollectionDto): Promise<CollectionModel>;
+  public createCollection(dto: CreateCollectionDto): any {
     const cleanName = dto.name.trim().toLowerCase();
     if (!cleanName || !/^[a-zA-Z0-9_]+$/.test(cleanName)) {
       throw new AppError('Collection name must only contain alphanumeric characters and underscores', 400);
@@ -53,11 +65,6 @@ export class SchemaService {
     const isSystem = Boolean(dto.system);
     if (!isSystem && cleanName.startsWith('_')) {
       throw new AppError('Custom collection names cannot start with underscore (_)', 400);
-    }
-
-    const existing = this.getCollection(cleanName);
-    if (existing) {
-      throw new ConflictError(`Collection with name '${cleanName}' already exists`);
     }
 
     if (dto.id !== undefined && dto.id !== null && String(dto.id).trim() !== '') {
@@ -81,92 +88,234 @@ export class SchemaService {
     const indexes = dto.indexes || [];
     const options = dto.options || {};
 
-    return this.db.transaction(() => {
-      // 1. Create SQL table
-      this.createSqlTable(cleanName, type, schema);
+    const executeCreateSync = () => {
+      return this.db.transaction(() => {
+        // 1. Create SQL table
+        this.createSqlTable(cleanName, type, schema);
 
-      // 2. Insert into _collections
-      this.db.prepare(`
-        INSERT INTO _collections (
-          id, name, type, system, schema, indexes, listRule, viewRule, createRule, updateRule, deleteRule, options, created, updated
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        id,
-        cleanName,
-        type,
-        isSystem ? 1 : 0,
-        JSON.stringify(schema),
-        JSON.stringify(indexes),
-        dto.listRule !== undefined ? dto.listRule : null,
-        dto.viewRule !== undefined ? dto.viewRule : null,
-        dto.createRule !== undefined ? dto.createRule : null,
-        dto.updateRule !== undefined ? dto.updateRule : null,
-        dto.deleteRule !== undefined ? dto.deleteRule : null,
-        JSON.stringify(options),
-        now,
-        now
-      );
+        // 2. Insert into _collections
+        this.db.prepare(`
+          INSERT INTO _collections (
+            id, name, type, system, schema, indexes, listRule, viewRule, createRule, updateRule, deleteRule, options, created, updated
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          id,
+          cleanName,
+          type,
+          isSystem ? 1 : 0,
+          JSON.stringify(schema),
+          JSON.stringify(indexes),
+          dto.listRule !== undefined ? dto.listRule : null,
+          dto.viewRule !== undefined ? dto.viewRule : null,
+          dto.createRule !== undefined ? dto.createRule : null,
+          dto.updateRule !== undefined ? dto.updateRule : null,
+          dto.deleteRule !== undefined ? dto.deleteRule : null,
+          JSON.stringify(options),
+          now,
+          now
+        );
 
-      const created = this.getCollectionOrThrow(id);
-      if (this.ftsService) {
-        this.ftsService.syncCollection(created);
-      }
-      return created;
-    });
+        const created = this.getCollectionOrThrow(id);
+        if (this.ftsService) {
+          this.ftsService.syncCollection(created);
+        }
+        return created;
+      });
+    };
+
+    const executeCreateAsync = async () => {
+      return this.db.transaction(async () => {
+        // 1. Create SQL table
+        await this.createSqlTable(cleanName, type, schema);
+
+        // 2. Insert into _collections
+        await this.db.prepare(`
+          INSERT INTO _collections (
+            id, name, type, system, schema, indexes, listRule, viewRule, createRule, updateRule, deleteRule, options, created, updated
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          id,
+          cleanName,
+          type,
+          isSystem ? 1 : 0,
+          JSON.stringify(schema),
+          JSON.stringify(indexes),
+          dto.listRule !== undefined ? dto.listRule : null,
+          dto.viewRule !== undefined ? dto.viewRule : null,
+          dto.createRule !== undefined ? dto.createRule : null,
+          dto.updateRule !== undefined ? dto.updateRule : null,
+          dto.deleteRule !== undefined ? dto.deleteRule : null,
+          JSON.stringify(options),
+          now,
+          now
+        );
+
+        const created = await this.getCollectionOrThrow(id);
+        if (this.ftsService) {
+          await this.ftsService.syncCollection(created);
+        }
+        return created;
+      });
+    };
+
+    const existingRes = this.getCollection(cleanName);
+    if (existingRes && typeof (existingRes as any).then === 'function') {
+      return (existingRes as any).then(async (existing: CollectionModel | undefined) => {
+        if (existing) {
+          throw new ConflictError(`Collection with name '${cleanName}' already exists`);
+        }
+        return executeCreateAsync();
+      });
+    }
+
+    if (existingRes) {
+      throw new ConflictError(`Collection with name '${cleanName}' already exists`);
+    }
+
+    if (this.isAsyncDriver()) {
+      return executeCreateAsync();
+    }
+    return executeCreateSync();
   }
 
-  public registerSystemCollection(dto: CreateCollectionDto): CollectionModel {
+  public registerSystemCollection(dto: CreateCollectionDto): CollectionModel;
+  public registerSystemCollection(dto: CreateCollectionDto): Promise<CollectionModel>;
+  public registerSystemCollection(dto: CreateCollectionDto): any {
     const cleanName = dto.name.trim().toLowerCase();
     if (!cleanName || !/^[a-zA-Z0-9_]+$/.test(cleanName)) {
       throw new AppError('Collection name must only contain alphanumeric characters and underscores', 400);
     }
 
-    const existing = this.getCollection(cleanName);
-    if (existing) {
-      if (!existing.system) {
-        throw new ConflictError(
-          `Cannot register system collection '${cleanName}': a non-system collection with this name already exists.`
-        );
-      }
+    const processExisting = (existing: CollectionModel | undefined) => {
+      if (existing) {
+        if (!existing.system) {
+          throw new ConflictError(
+            `Cannot register system collection '${cleanName}': a non-system collection with this name already exists.`
+          );
+        }
 
-      const declaredFields = dto.schema || [];
-      const currentSchema = existing.schema || [];
-      const currentNames = new Set(currentSchema.map((f: any) => f.name.toLowerCase()));
-      const fieldsToAdd: SchemaField[] = [];
+        const declaredFields = dto.schema || [];
+        const currentSchema = existing.schema || [];
+        const currentNames = new Set(currentSchema.map((f: any) => f.name.toLowerCase()));
+        const fieldsToAdd: SchemaField[] = [];
 
-      for (const field of declaredFields) {
-        if (!currentNames.has(field.name.toLowerCase())) {
-          fieldsToAdd.push({
-            ...field,
-            id: field.id || `f_${crypto.randomBytes(4).toString('hex')}`,
+        for (const field of declaredFields) {
+          if (!currentNames.has(field.name.toLowerCase())) {
+            fieldsToAdd.push({
+              ...field,
+              id: field.id || `f_${crypto.randomBytes(4).toString('hex')}`,
+            });
+          }
+        }
+
+        if (fieldsToAdd.length > 0) {
+          const mergedSchema = [...currentSchema, ...fieldsToAdd];
+          return this.updateCollection(existing.id, {
+            schema: mergedSchema,
           });
         }
+
+        return existing;
       }
 
-      if (fieldsToAdd.length > 0) {
-        const mergedSchema = [...currentSchema, ...fieldsToAdd];
-        return this.updateCollection(existing.id, {
-          schema: mergedSchema,
-        });
-      }
+      return this.createCollection({
+        listRule: '',
+        viewRule: '',
+        createRule: '',
+        updateRule: '',
+        deleteRule: '',
+        ...dto,
+        name: cleanName,
+        system: true,
+      });
+    };
 
-      return existing;
+    const existingRes = this.getCollection(cleanName);
+    if (existingRes && typeof (existingRes as any).then === 'function') {
+      return (existingRes as any).then(processExisting);
     }
-
-    return this.createCollection({
-      listRule: '',
-      viewRule: '',
-      createRule: '',
-      updateRule: '',
-      deleteRule: '',
-      ...dto,
-      name: cleanName,
-      system: true,
-    });
+    return processExisting(existingRes);
   }
 
-  public updateCollection(nameOrId: string, dto: UpdateCollectionDto): CollectionModel {
-    const current = this.getCollectionOrThrow(nameOrId);
+  public updateCollection(nameOrId: string, dto: UpdateCollectionDto): CollectionModel;
+  public updateCollection(nameOrId: string, dto: UpdateCollectionDto): Promise<CollectionModel>;
+  public updateCollection(nameOrId: string, dto: UpdateCollectionDto): any {
+    const currentRes = this.getCollectionOrThrow(nameOrId);
+    if (currentRes && typeof (currentRes as any).then === 'function') {
+      return (currentRes as any).then(async (current: CollectionModel) => {
+        let targetName = current.name;
+        const now = new Date().toISOString();
+
+        // Handle rename if provided and changed
+        if (dto.name && dto.name.trim().toLowerCase() !== current.name) {
+          if (current.system) {
+            throw new AppError('Cannot rename system collections', 400);
+          }
+          const cleanNewName = dto.name.trim().toLowerCase();
+          const existing = await this.getCollection(cleanNewName);
+          if (existing && existing.id !== current.id) {
+            throw new ConflictError(`Collection '${cleanNewName}' already exists`);
+          }
+          if (this.ftsService) {
+            await this.ftsService.dropCollectionFts(current.name);
+          }
+          await this.db.exec(this.db.dialect.renameTableSql(current.name, cleanNewName));
+          targetName = cleanNewName;
+        }
+
+        // Handle schema additions
+        const newSchema = dto.schema !== undefined ? dto.schema : current.schema;
+        if (dto.schema) {
+          this.validateSchemaFields(dto.schema, current.type);
+          await this.syncTableColumns(targetName, current.schema, newSchema);
+        }
+
+        const listRule = dto.listRule !== undefined ? dto.listRule : current.listRule;
+        const viewRule = dto.viewRule !== undefined ? dto.viewRule : current.viewRule;
+        const createRule = dto.createRule !== undefined ? dto.createRule : current.createRule;
+        const updateRule = dto.updateRule !== undefined ? dto.updateRule : current.updateRule;
+        const deleteRule = dto.deleteRule !== undefined ? dto.deleteRule : current.deleteRule;
+        const options = dto.options !== undefined ? dto.options : current.options;
+        const indexes = dto.indexes !== undefined ? dto.indexes : current.indexes;
+
+        return this.db.transaction(async () => {
+          await this.db.prepare(`
+            UPDATE _collections SET
+              name = ?,
+              schema = ?,
+              indexes = ?,
+              listRule = ?,
+              viewRule = ?,
+              createRule = ?,
+              updateRule = ?,
+              deleteRule = ?,
+              options = ?,
+              updated = ?
+            WHERE id = ?
+          `).run(
+            targetName,
+            JSON.stringify(newSchema),
+            JSON.stringify(indexes),
+            listRule,
+            viewRule,
+            createRule,
+            updateRule,
+            deleteRule,
+            JSON.stringify(options),
+            now,
+            current.id
+          );
+
+          const updated = await this.getCollectionOrThrow(current.id);
+          if (this.ftsService) {
+            await this.ftsService.syncCollection(updated);
+          }
+          return updated;
+        });
+      });
+    }
+
+    const current = currentRes as CollectionModel;
     let targetName = current.name;
     const now = new Date().toISOString();
 
@@ -238,17 +387,34 @@ export class SchemaService {
     });
   }
 
-  public deleteCollection(nameOrId: string): void {
+  public deleteCollection(nameOrId: string): void;
+  public deleteCollection(nameOrId: string): Promise<void>;
+  public deleteCollection(nameOrId: string): any {
     if (nameOrId.startsWith('_')) {
       throw new AppError('Cannot delete system collection', 400);
     }
 
-    const current = this.getCollectionOrThrow(nameOrId);
+    const currentRes = this.getCollectionOrThrow(nameOrId);
+    if (currentRes && typeof (currentRes as any).then === 'function') {
+      return (currentRes as any).then(async (current: CollectionModel) => {
+        if (current.system) {
+          throw new AppError('Cannot delete system collection', 400);
+        }
+        return this.db.transaction(async () => {
+          if (this.ftsService) {
+            await this.ftsService.dropCollectionFts(current.name);
+          }
+          await this.db.exec(this.db.dialect.dropTableIfExists(current.name));
+          await this.db.prepare('DELETE FROM _collections WHERE id = ?').run(current.id);
+        });
+      });
+    }
+
+    const current = currentRes as CollectionModel;
     if (current.system) {
       throw new AppError('Cannot delete system collection', 400);
     }
-
-    this.db.transaction(() => {
+    return this.db.transaction(() => {
       if (this.ftsService) {
         this.ftsService.dropCollectionFts(current.name);
       }
@@ -287,7 +453,11 @@ export class SchemaService {
     }
   }
 
-  private createSqlTable(name: string, type: string, schema: SchemaField[]): void {
+  private isAsyncDriver(): boolean {
+    return Boolean(this.db.dialect && this.db.dialect.name !== 'sqlite');
+  }
+
+  private createSqlTable(name: string, type: string, schema: SchemaField[]): any {
     const dialect = this.db.dialect;
     const pkType = dialect.mapFieldType('text', { isPrimaryKey: true });
     const txtType = dialect.mapFieldType('text');
@@ -314,21 +484,29 @@ export class SchemaService {
     columns.push(`${dialect.quoteIdentifier('updated')} ${dateType} NOT NULL`);
 
     const sql = dialect.createTableIfNotExists(name, columns.join(', '));
-    this.db.exec(sql);
+    return this.db.exec(sql);
   }
 
-  private syncTableColumns(tableName: string, oldSchema: SchemaField[], newSchema: SchemaField[]): void {
+  private syncTableColumns(tableName: string, oldSchema: SchemaField[], newSchema: SchemaField[]): any {
     const oldFieldNames = new Set(oldSchema.map((f) => f.name.toLowerCase()));
+    const promises: Promise<any>[] = [];
 
     for (const field of newSchema) {
       if (!oldFieldNames.has(field.name.toLowerCase())) {
         const colDef = this.fieldToColumnDef(field);
         try {
-          this.db.exec(this.db.dialect.addColumnSql(tableName, colDef));
+          const res = this.db.exec(this.db.dialect.addColumnSql(tableName, colDef));
+          if (res && typeof (res as any).then === 'function') {
+            promises.push(res.catch((e: any) => console.warn(`Column ${field.name} warning:`, e.message)));
+          }
         } catch (e: any) {
           console.warn(`Column ${field.name} warning:`, e.message);
         }
       }
+    }
+
+    if (promises.length > 0) {
+      return Promise.all(promises);
     }
   }
 

@@ -555,15 +555,16 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
 
           const body = (req.body as any) || {};
           const col = body.collection;
+          const rawAllCols = ((req as any).appScope?.schema || ctx.app.schema).getAllCollections();
+          const allCols = rawAllCols && typeof rawAllCols.then === 'function' ? await rawAllCols : rawAllCols;
           const allowedCollections =
             (activeAlgolia.options as any)?.collections?.length > 0
               ? (activeAlgolia.options as any).collections
               : targetCollections.length > 0
               ? targetCollections
-              : (((req as any).appScope?.schema || ctx.app.schema)
-                  .getAllCollections()
+              : (allCols || [])
                   .map((c: any) => c.name)
-                  .filter((name: string) => !name.startsWith('_')));
+                  .filter((name: string) => !name.startsWith('_'));
 
           if (!col || !allowedCollections.includes(col)) {
             return reply.status(400).send({

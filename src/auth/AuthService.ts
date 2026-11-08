@@ -475,35 +475,55 @@ export class AuthService {
     }
   }
 
-  public revokeRecordSessions(collectionName: string, idOrEmail: string): void {
-    const col = this.schemaService.getCollectionOrThrow(collectionName);
-    if (col.type !== 'auth') {
-      throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
-    }
-    const clean = idOrEmail.trim().toLowerCase();
-    const qTable = this.db.dialect.quoteIdentifier(col.name);
+  public revokeRecordSessions(collectionName: string, idOrEmail: string): void | Promise<void> {
+    const colRes = this.schemaService.getCollectionOrThrow(collectionName);
 
-    // Resolve canonical record id from table so we invalidate exact cache key (${col.name}:${id})
-    const existing = this.db.get<{ id: string }>(
-      `SELECT id FROM ${qTable} WHERE id = ? OR email = ?`,
-      idOrEmail, clean
-    );
+    const executeRevoke = (col: any) => {
+      if (col.type !== 'auth') {
+        throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
+      }
+      const clean = idOrEmail.trim().toLowerCase();
+      const qTable = this.db.dialect.quoteIdentifier(col.name);
 
-    const tokenKey = crypto.randomBytes(16).toString('hex');
-    const now = new Date().toISOString();
-    const result = this.db.run(
-      `UPDATE ${qTable} SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?`,
-      tokenKey, now, idOrEmail, clean
-    );
-    if (Number(result.changes) === 0) {
-      throw new NotFoundError(`Record '${idOrEmail}' not found in '${collectionName}'`);
-    }
+      const handleExisting = (existing: any) => {
+        const tokenKey = crypto.randomBytes(16).toString('hex');
+        const now = new Date().toISOString();
+        const resultRaw = this.db.run(
+          `UPDATE ${qTable} SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?`,
+          tokenKey, now, idOrEmail, clean
+        );
 
-    if (existing?.id) {
-      this.invalidateTokenCache(col.name, existing.id);
-    } else {
-      this.invalidateTokenCache(col.name);
+        const handleResult = (result: any) => {
+          if (Number(result?.changes || 0) === 0) {
+            throw new NotFoundError(`Record '${idOrEmail}' not found in '${collectionName}'`);
+          }
+          if (existing?.id) {
+            this.invalidateTokenCache(col.name, existing.id);
+          } else {
+            this.invalidateTokenCache(col.name);
+          }
+        };
+
+        if (resultRaw && typeof (resultRaw as any).then === 'function') {
+          return (resultRaw as any).then(handleResult);
+        }
+        return handleResult(resultRaw);
+      };
+
+      const existingRaw = this.db.get<{ id: string }>(
+        `SELECT id FROM ${qTable} WHERE id = ? OR email = ?`,
+        idOrEmail, clean
+      );
+      if (existingRaw && typeof (existingRaw as any).then === 'function') {
+        return (existingRaw as any).then(handleExisting);
+      }
+      return handleExisting(existingRaw);
+    };
+
+    if (colRes && typeof (colRes as any).then === 'function') {
+      return (colRes as any).then(executeRevoke);
     }
+    return executeRevoke(colRes);
   }
 
   // --- Collection Auth (Users / Customers etc.) ---
