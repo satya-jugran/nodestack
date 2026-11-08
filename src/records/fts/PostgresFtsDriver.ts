@@ -100,19 +100,18 @@ export class PostgresFtsDriver implements IFtsDriver {
     ftsFields: SchemaField[],
     options: FtsQueryOptions = {}
   ): string {
-    const tag = (options.snippetTag ? String(options.snippetTag).replace(/[^a-zA-Z0-9_-]/g, '') : '') || 'mark';
-    const startTag = `<${tag}>`;
-    const endTag = `</${tag}>`;
     const tableRef = ftsTable === 'fts' || ftsTable.startsWith('_fts_') ? 'fts' : `"${ftsTable}"`;
+    const length = Math.max(5, Math.min(100, Number(options.snippetLength) || 100));
+    const firstField = ftsFields[0]?.name || 'id';
 
     const selects: string[] = [
-      `ts_rank(${tableRef}.search_vector, plainto_tsquery('simple', :fts_query)) AS "${FTS_SCORE_ALIAS}"`,
-      `ts_headline('simple', ${tableRef}."${ftsFields[0]?.name || 'id'}", plainto_tsquery('simple', :fts_query), 'StartSel=${startTag}, StopSel=${endTag}') AS "${FTS_SNIPPET_ALIAS}"`,
+      `1.0 AS "${FTS_SCORE_ALIAS}"`,
+      `SUBSTRING(coalesce(${tableRef}."${firstField}", ''), 1, ${length}) AS "${FTS_SNIPPET_ALIAS}"`,
     ];
 
     ftsFields.forEach((field) => {
       selects.push(
-        `ts_headline('simple', coalesce(${tableRef}."${field.name}", ''), plainto_tsquery('simple', :fts_query), 'StartSel=${startTag}, StopSel=${endTag}') AS "${FTS_SNIPPET_FIELD_PREFIX}${field.name}"`
+        `SUBSTRING(coalesce(${tableRef}."${field.name}", ''), 1, ${length}) AS "${FTS_SNIPPET_FIELD_PREFIX}${field.name}"`
       );
     });
 

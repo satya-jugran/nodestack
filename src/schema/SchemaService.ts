@@ -436,9 +436,13 @@ export class SchemaService {
 
   private validateSchemaFields(schema: SchemaField[], type?: string): void {
     const names = new Set<string>();
-    const reservedNames = ['id', 'created', 'updated'];
+    const reservedNames = new Set(['id', 'created', 'updated']);
     if (type === 'auth') {
-      reservedNames.push('email', 'emailVisibility', 'verified', 'passwordHash', 'tokenKey');
+      reservedNames.add('email');
+      reservedNames.add('emailvisibility');
+      reservedNames.add('verified');
+      reservedNames.add('passwordhash');
+      reservedNames.add('tokenkey');
     }
 
     for (const f of schema) {
@@ -451,7 +455,7 @@ export class SchemaService {
           `Field '${f.name}' cannot have FTS indexing enabled because it is a reserved SQLite FTS5 column name`
         );
       }
-      if (reservedNames.includes(clean)) {
+      if (reservedNames.has(clean)) {
         throw new ConflictError(`Field name '${f.name}' collides with reserved system field`);
       }
       if (isReservedFtsFieldName(clean)) {

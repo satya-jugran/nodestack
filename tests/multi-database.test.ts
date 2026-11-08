@@ -19,9 +19,10 @@ import { DatabaseController } from '../src/http/controllers/DatabaseController';
 import { AdminUIBundler } from '../src/admin/AdminUIBundler';
 import { AuthService } from '../src/auth/AuthService';
 import { AuthMiddleware } from '../src/http/middleware/AuthMiddleware';
-import { UnauthorizedError, NotFoundError } from '../src/core/errors/AppError';
+import { UnauthorizedError, NotFoundError, ConflictError } from '../src/core/errors/AppError';
 import { MssqlDialect } from '../src/database/dialects/MssqlDialect';
 import { MssqlFtsDriver } from '../src/records/fts/MssqlFtsDriver';
+import { PostgresFtsDriver } from '../src/records/fts/PostgresFtsDriver';
 import { RecordService } from '../src/records/RecordService';
 import { SchemaField } from '../src/schema/models/Field';
 import { SchemaService } from '../src/schema/SchemaService';
@@ -1958,6 +1959,49 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(order).toEqual(['flush_started', 'flush_committed', 'delete_executed']);
 
       logService.dispose();
+    });
+
+    it('Round 2 Item 8: should build Postgres FTS snippet select without literal :fts_query placeholder', () => {
+      const fakeDb: any = {
+        dialect: new PostgresDialect(),
+      };
+      const pgFts = new PostgresFtsDriver(fakeDb as any);
+      const fields: SchemaField[] = [
+        { id: 'f1', name: 'title', type: 'text', required: true },
+        { id: 'f2', name: 'content', type: 'text', required: false },
+      ];
+
+      const snippetSelect = pgFts.buildSnippetSelect('_fts_articles', fields, { snippetLength: 50 });
+      expect(snippetSelect).not.toContain(':fts_query');
+      expect(snippetSelect).toContain('1.0 AS "__fts_score"');
+      expect(snippetSelect).toContain('SUBSTRING(coalesce(fts."title", \'\'), 1, 50) AS "__fts_snippet"');
+      expect(snippetSelect).toContain('SUBSTRING(coalesce(fts."title", \'\'), 1, 50) AS "__fts_snippet_title"');
+      expect(snippetSelect).toContain('SUBSTRING(coalesce(fts."content", \'\'), 1, 50) AS "__fts_snippet_content"');
+    });
+
+    it('Round 2 Item 9: should reject auth-reserved camelCase fields passwordHash, tokenKey, emailVisibility in auth collections', () => {
+      const fakeDb: any = {
+        dialect: new NodeSqliteDriver(':memory:').dialect,
+      };
+      const schemaService = new SchemaService(fakeDb as any);
+
+      const reservedFields = ['passwordHash', 'tokenKey', 'emailVisibility', 'PASSWORDHASH', 'TokenKey'];
+      for (const fieldName of reservedFields) {
+        expect(() => {
+          (schemaService as any).validateSchemaFields(
+            [{ id: 'f1', name: fieldName, type: 'text', required: false }],
+            'auth'
+          );
+        }).toThrow(ConflictError);
+      }
+
+      // Base collection should allow them without collision
+      expect(() => {
+        (schemaService as any).validateSchemaFields(
+          [{ id: 'f1', name: 'passwordHash', type: 'text', required: false }],
+          'base'
+        );
+      }).not.toThrow();
     });
   });
 });
