@@ -34,8 +34,10 @@ export class PostgresDriver implements IDatabaseDriver {
   private isTransactionClient = false;
   private isSharedPool = false;
   private savepointDepth = 0;
+  private options: string | PostgresDriverOptions;
 
   constructor(options: string | PostgresDriverOptions) {
+    this.options = options;
     let pgModule: any;
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -395,6 +397,10 @@ export class PostgresDriver implements IDatabaseDriver {
 
   public isOpen(): boolean {
     return this.open;
+  }
+
+  public clone(): PostgresDriver {
+    return new PostgresDriver(this.options);
   }
 
   private checkOpen(): void {

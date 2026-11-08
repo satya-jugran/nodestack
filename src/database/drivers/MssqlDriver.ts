@@ -40,8 +40,10 @@ export class MssqlDriver implements IDatabaseDriver {
   private isTransaction = false;
   private isSharedPool = false;
   private connectPromise?: Promise<any>;
+  private options: string | MssqlDriverOptions;
 
   constructor(options: string | MssqlDriverOptions) {
+    this.options = options;
     let mssqlModule: any;
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -429,6 +431,10 @@ export class MssqlDriver implements IDatabaseDriver {
 
   public isOpen(): boolean {
     return this.open;
+  }
+
+  public clone(): MssqlDriver {
+    return new MssqlDriver(this.options);
   }
 
   private checkOpen(): void {

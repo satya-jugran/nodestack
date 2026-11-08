@@ -132,11 +132,46 @@ export class DatabaseService {
   }
 
   public async reconnect(customDriver?: IDatabaseDriver): Promise<void> {
-    try {
-      await this.driver.close();
-    } catch {}
     if (customDriver) {
+      try {
+        await this.driver.close();
+      } catch {}
       this.driver = customDriver;
+      return;
+    }
+
+    if (this.driver.dialect.name !== 'sqlite') {
+      if (this.driver.isOpen()) {
+        try {
+          const isHealthy = await this.driver.ping();
+          if (isHealthy) {
+            return;
+          }
+        } catch {
+          // ping failed, attempt recreation below
+        }
+      }
+
+      if (typeof (this.driver as any).clone === 'function') {
+        const oldDriver = this.driver;
+        try {
+          await oldDriver.close();
+        } catch {}
+        this.driver = (oldDriver as any).clone();
+        return;
+      }
+
+      // Preserve existing non-sqlite driver if it cannot be cloned
+      return;
+    }
+
+    const oldDriver = this.driver;
+    try {
+      await oldDriver.close();
+    } catch {}
+
+    if (typeof (oldDriver as any).clone === 'function') {
+      this.driver = (oldDriver as any).clone();
     } else {
       this.driver = new NodeSqliteDriver(this.customDbPath || this.config.dbPath);
     }

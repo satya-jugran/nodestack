@@ -61,19 +61,20 @@ export class LogicalSnapshotDriver implements ISnapshotDriver {
     }
 
     const data: Record<string, any[]> = JSON.parse(fs.readFileSync(dumpFile, 'utf-8'));
+    const driver = this.db.getRootDriver();
 
-    await this.db.transaction(async () => {
+    await driver.transaction(async (tx) => {
       for (const [table, rows] of Object.entries(data)) {
         if (!Array.isArray(rows) || rows.length === 0) continue;
         try {
           // Truncate / delete all current rows
-          await this.db.exec(`DELETE FROM ${this.db.dialect.quoteIdentifier(table)}`);
+          await tx.exec(`DELETE FROM ${this.db.dialect.quoteIdentifier(table)}`);
           for (const row of rows) {
             const cols = Object.keys(row);
             const placeholders = cols.map(() => '?').join(', ');
             const quotedCols = cols.map((c) => this.db.dialect.quoteIdentifier(c)).join(', ');
             const values = cols.map((c) => row[c]);
-            await this.db.prepare(
+            await tx.prepare(
               `INSERT INTO ${this.db.dialect.quoteIdentifier(table)} (${quotedCols}) VALUES (${placeholders})`
             ).run(...values);
           }

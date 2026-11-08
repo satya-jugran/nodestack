@@ -1037,5 +1037,119 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       // ensureInitialized must NOT swallow the error
       await expect(failingScope.ensureInitialized()).rejects.toThrow('Remote connection timeout during migration');
     });
+
+    // 8. DatabaseService.reconnect() preserves active remote driver instead of reverting to SQLite
+    it('Review finding: reconnect() preserves and recreates active remote driver type instead of reverting to SQLite', async () => {
+      const config = new ConfigService({ dataDir: testDir });
+      const mockConn = {
+        query: async (sql: string) => {
+          if (sql.includes('SELECT 1')) {
+            return { rows: [{ ok: 1 }] };
+          }
+          return { rows: [] };
+        },
+        release: () => {},
+      };
+      const mockPool = {
+        connect: async () => mockConn,
+        query: async (sql: string) => {
+          if (sql.includes('SELECT 1')) {
+            return { rows: [{ ok: 1 }] };
+          }
+          return { rows: [] };
+        },
+        end: async () => {},
+      };
+
+      const pgDriver = new PostgresDriver({ pool: mockPool, schemaName: 'public' });
+      const db = new DatabaseService(config, pgDriver);
+
+      expect(db.getRootDriver()).toBe(pgDriver);
+      expect(db.dialect.name).toBe('postgres');
+
+      // 1. Calling reconnect() on a healthy, open Postgres driver preserves the active driver instance
+      await db.reconnect();
+      expect(db.getRootDriver()).toBe(pgDriver);
+      expect(db.dialect.name).toBe('postgres');
+      expect(db.isOpen()).toBe(true);
+
+      // 2. Calling reconnect() after driver is closed recreates it via clone() rather than reverting to SQLite
+      await pgDriver.close();
+      expect(db.isOpen()).toBe(false);
+
+      await db.reconnect();
+      expect(db.getRootDriver() instanceof PostgresDriver).toBe(true);
+      expect(db.getRootDriver().dialect.name).toBe('postgres');
+      expect(db.isOpen()).toBe(true);
+
+      // 3. Passing an explicit customDriver replaces it
+      const newCustomPool = {
+        connect: async () => mockConn,
+        query: async () => ({ rows: [{ ok: 1 }] }),
+        end: async () => {},
+      };
+      const newPgDriver = new PostgresDriver({ pool: newCustomPool, schemaName: 'app_custom' });
+      await db.reconnect(newPgDriver);
+      expect(db.getRootDriver()).toBe(newPgDriver);
+      expect(db.dialect.name).toBe('postgres');
+
+      // 4. Test SnapshotService restoreSnapshot keeps remote driver intact
+      const freshPgDriver = new PostgresDriver({ pool: mockPool, schemaName: 'public' });
+      const registry = new AppRegistry(config);
+      await registry.init();
+      const appManager = new AppManager(registry, config, freshPgDriver);
+      const defaultScope = await appManager.getAsync('default');
+      expect(defaultScope.db.getRootDriver() instanceof PostgresDriver).toBe(true);
+
+      // Setup a minimal snapshot directory with snapshot.json and metadata.json
+      const snapshotsDir = defaultScope.snapshots.snapshotsDir;
+      const snapDir = path.join(snapshotsDir, 'snap-test');
+      fs.mkdirSync(snapDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(snapDir, 'snapshot.json'),
+        JSON.stringify({ _collections: [] }),
+        'utf-8'
+      );
+      fs.writeFileSync(
+        path.join(snapDir, 'metadata.json'),
+        JSON.stringify({
+          id: 'snap-test',
+          name: 'Test Snapshot',
+          description: '',
+          tags: [],
+          isProtected: false,
+          createdAt: new Date().toISOString(),
+          dbSizeBytes: 100,
+          storageSizeBytes: 0,
+        }),
+        'utf-8'
+      );
+      fs.writeFileSync(
+        path.join(snapshotsDir, 'manifest.json'),
+        JSON.stringify({
+          activeSnapshotId: null,
+          snapshots: [
+            {
+              id: 'snap-test',
+              name: 'Test Snapshot',
+              description: '',
+              tags: [],
+              isProtected: false,
+              createdAt: new Date().toISOString(),
+              dbSizeBytes: 100,
+              storageSizeBytes: 0,
+            },
+          ],
+        }),
+        'utf-8'
+      );
+
+      // Restore snapshot
+      await defaultScope.snapshots.restoreSnapshot('snap-test');
+
+      // Verify db driver on defaultScope is STILL PostgresDriver, NOT NodeSqliteDriver!
+      expect(defaultScope.db.getRootDriver() instanceof PostgresDriver).toBe(true);
+      expect(defaultScope.db.dialect.name).toBe('postgres');
+    });
   });
 });

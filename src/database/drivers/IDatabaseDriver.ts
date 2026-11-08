@@ -20,4 +20,5 @@ export interface IDatabaseDriver {
   ping(): Promise<boolean>;
   close(): Promise<void>;
   isOpen(): boolean;
+  clone?(): IDatabaseDriver;
 }

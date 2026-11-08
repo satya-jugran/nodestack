@@ -244,6 +244,10 @@ export class NodeSqliteDriver implements IDatabaseDriver {
     return this.open;
   }
 
+  public clone(): NodeSqliteDriver {
+    return new NodeSqliteDriver(this.filePath, { baseDir: this.baseDir });
+  }
+
   private checkOpen(): void {
     if (!this.open) {
       throw new Error('Database is closed');
