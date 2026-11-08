@@ -25,6 +25,7 @@ import { MssqlFtsDriver } from '../src/records/fts/MssqlFtsDriver';
 import { RecordService } from '../src/records/RecordService';
 import { SchemaField } from '../src/schema/models/Field';
 import { SchemaService } from '../src/schema/SchemaService';
+import { LogicalSnapshotDriver } from '../src/snapshots/drivers/LogicalSnapshotDriver';
 
 describe('Multi-Database Architecture & Configuration Tests', () => {
   const testDir = path.resolve(__dirname, '../.test_multi_db_data');
@@ -1790,6 +1791,71 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       await schemaService.deleteCollection('comments');
       const deletedCheck = await schemaService.getCollection('comments');
       expect(deletedCheck).toBeUndefined();
+    });
+
+    // 16. LogicalSnapshotDriver includes _flow_executions in system-table list
+    it('Review finding: LogicalSnapshotDriver includes _flow_executions in system-table list for capture and restore', async () => {
+      const snapTargetDir = path.join(testDir, 'logical_snap_test');
+      fs.mkdirSync(snapTargetDir, { recursive: true });
+
+      const mockFlowExecutions = [
+        {
+          id: 'exec_123',
+          flowId: 'flow_signup',
+          status: 'completed',
+          currentStepIndex: 2,
+          stepResults: '{}',
+          context: '{}',
+          error: null,
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+        },
+      ];
+
+      const queriesExecuted: string[] = [];
+      const mockDriver: any = {
+        dialect: new PostgresDialect(),
+        transaction: async (cb: any) => cb(mockDriver),
+        exec: async (sql: string) => { queriesExecuted.push(sql); },
+        prepare: (sql: string) => ({
+          run: async (...params: any[]) => {
+            queriesExecuted.push(sql);
+            return { changes: 1 };
+          },
+        }),
+      };
+
+      const mockDb: any = {
+        dialect: new PostgresDialect(),
+        getRootDriver: () => mockDriver,
+        all: async (sql: string) => {
+          if (sql.includes('FROM _collections')) {
+            return [];
+          }
+          if (sql.includes('FROM "_flow_executions"')) {
+            return mockFlowExecutions;
+          }
+          return [];
+        },
+      };
+
+      const driver = new LogicalSnapshotDriver(mockDb);
+
+      // 1. Capture snapshot writes _flow_executions to snapshot.json
+      await driver.captureSnapshot(snapTargetDir);
+      const snapJsonPath = path.join(snapTargetDir, 'snapshot.json');
+      expect(fs.existsSync(snapJsonPath)).toBe(true);
+
+      const parsed = JSON.parse(fs.readFileSync(snapJsonPath, 'utf-8'));
+      expect(parsed._flow_executions).toBeDefined();
+      expect(Array.isArray(parsed._flow_executions)).toBe(true);
+      expect(parsed._flow_executions.length).toBe(1);
+      expect(parsed._flow_executions[0].id).toBe('exec_123');
+
+      // 2. Restore snapshot reads _flow_executions and restores them
+      await driver.restoreSnapshot(snapTargetDir);
+      expect(queriesExecuted.some((q) => q.includes('DELETE FROM "_flow_executions"'))).toBe(true);
+      expect(queriesExecuted.some((q) => q.includes('INSERT INTO "_flow_executions"'))).toBe(true);
     });
   });
 });

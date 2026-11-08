@@ -34,6 +34,7 @@ export class LogicalSnapshotDriver implements ISnapshotDriver {
       '_logs',
       '_functions',
       '_flows',
+      '_flow_executions',
       '_queues',
       '_queue_messages',
       '_plugin_settings',
