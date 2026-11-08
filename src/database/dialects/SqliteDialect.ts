@@ -122,7 +122,8 @@ export class SqliteDialect implements ISqlDialect {
 
   public jsonExtractTextSql(column: string, jsonPath: string): string {
     const normalizedPath = jsonPath.startsWith('$.') ? jsonPath : `$.${jsonPath}`;
-    return `json_extract(${column}, '${normalizedPath}')`;
+    const colExpr = column.includes('"') || column.includes('.') ? column : this.quoteIdentifier(column);
+    return `json_extract(${colExpr}, '${normalizedPath}')`;
   }
 
   public substringSql(expr: string, start: number, length?: number): string {

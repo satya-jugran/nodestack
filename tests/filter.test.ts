@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { QueryFilterParser } from '../src/records/QueryFilterParser';
+import { PostgresDialect } from '../src/database/dialects/PostgresDialect';
+import { MssqlDialect } from '../src/database/dialects/MssqlDialect';
+import { SqliteDialect } from '../src/database/dialects/SqliteDialect';
 
 describe('QueryFilterParser', () => {
   const allowed = new Set(['title', 'status', 'views', 'created', 'author']);
@@ -46,5 +49,45 @@ describe('QueryFilterParser', () => {
     const { clause: c2, params: p2 } = QueryFilterParser.parseFilter("title !~ '100%_pure'", allowed);
     expect(c2).toBe("WHERE \"title\" NOT LIKE ? ESCAPE '\\'");
     expect(p2).toEqual(['%100\\%\\_pure%']);
+  });
+
+  describe('nested JSON field filtering across dialects', () => {
+    const jsonAllowed = new Set(['title', 'metadata']);
+
+    it('should format nested JSON filter correctly in SQLite without double quoting', () => {
+      const dialect = new SqliteDialect();
+
+      const { clause: c1, params: p1 } = QueryFilterParser.parseFilter("metadata.author.name = 'John'", jsonAllowed, undefined, dialect);
+      expect(c1).toBe("WHERE json_extract(\"metadata\", '$.author.name') = ?");
+      expect(p1).toEqual(['John']);
+
+      const { clause: c2, params: p2 } = QueryFilterParser.parseFilter("metadata.age >= 30", jsonAllowed, 't', dialect);
+      expect(c2).toBe("WHERE json_extract(\"t\".\"metadata\", '$.age') >= ?");
+      expect(p2).toEqual([30]);
+    });
+
+    it('should format nested JSON filter correctly in PostgreSQL without double quoting', () => {
+      const dialect = new PostgresDialect();
+
+      const { clause: c1, params: p1 } = QueryFilterParser.parseFilter("metadata.author.name = 'John'", jsonAllowed, undefined, dialect);
+      expect(c1).toBe("WHERE (\"metadata\"::jsonb #>> ARRAY['author','name']) = ?");
+      expect(p1).toEqual(['John']);
+
+      const { clause: c2, params: p2 } = QueryFilterParser.parseFilter("metadata.age >= 30", jsonAllowed, 't', dialect);
+      expect(c2).toBe("WHERE (\"t\".\"metadata\"::jsonb #>> ARRAY['age']) >= ?");
+      expect(p2).toEqual([30]);
+    });
+
+    it('should format nested JSON filter correctly in MSSQL without double quoting', () => {
+      const dialect = new MssqlDialect();
+
+      const { clause: c1, params: p1 } = QueryFilterParser.parseFilter("metadata.author.name = 'John'", jsonAllowed, undefined, dialect);
+      expect(c1).toBe("WHERE JSON_VALUE([metadata], '$.author.name') = ?");
+      expect(p1).toEqual(['John']);
+
+      const { clause: c2, params: p2 } = QueryFilterParser.parseFilter("metadata.age >= 30", jsonAllowed, 't', dialect);
+      expect(c2).toBe("WHERE JSON_VALUE([t].[metadata], '$.age') >= ?");
+      expect(p2).toEqual([30]);
+    });
   });
 });

@@ -407,7 +407,8 @@ export class PostgresDialect implements ISqlDialect {
     const cleanPath = jsonPath.replace(/^\$\.?/, '').replace(/\[(\d+)\]/g, '.$1');
     const segments = cleanPath.split('.').filter(Boolean);
     const pathList = segments.map((s) => `'${s.replace(/'/g, "''")}'`).join(',');
-    return `(${this.quoteIdentifier(column)}::jsonb #>> ARRAY[${pathList}])`;
+    const colExpr = column.includes('"') || column.includes('.') ? column : this.quoteIdentifier(column);
+    return `(${colExpr}::jsonb #>> ARRAY[${pathList}])`;
   }
 
   public substringSql(expr: string, start: number, length?: number): string {

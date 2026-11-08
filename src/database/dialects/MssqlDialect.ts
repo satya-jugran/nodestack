@@ -142,7 +142,8 @@ export class MssqlDialect implements ISqlDialect {
 
   public jsonExtractTextSql(column: string, jsonPath: string): string {
     const normalizedPath = jsonPath.startsWith('$.') ? jsonPath : `$.${jsonPath}`;
-    return `JSON_VALUE(${this.quoteIdentifier(column)}, '${normalizedPath}')`;
+    const colExpr = column.includes('[') || column.includes('"') || column.includes('.') ? column : this.quoteIdentifier(column);
+    return `JSON_VALUE(${colExpr}, '${normalizedPath}')`;
   }
 
   public substringSql(expr: string, start: number, length?: number): string {
