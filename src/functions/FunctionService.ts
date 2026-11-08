@@ -99,47 +99,42 @@ export class FunctionService {
    */
   public initTables(): void {
     try {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS _functions (
-          id TEXT PRIMARY KEY,
-          name TEXT UNIQUE NOT NULL,
-          description TEXT DEFAULT '',
-          code TEXT NOT NULL,
-          enabled INTEGER NOT NULL DEFAULT 1,
-          authPolicy TEXT NOT NULL DEFAULT 'public',
-          methods TEXT NOT NULL DEFAULT 'GET,POST',
-          eventTrigger TEXT,
-          timeoutMs INTEGER NOT NULL DEFAULT 1000,
-          memoryLimitMb INTEGER NOT NULL DEFAULT 32,
-          allowedDomains TEXT NOT NULL DEFAULT '[]',
-          elevated INTEGER NOT NULL DEFAULT 0,
-          env TEXT NOT NULL DEFAULT '{}',
-          created TEXT NOT NULL,
-          updated TEXT NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_functions_name ON _functions(name);
-        CREATE INDEX IF NOT EXISTS idx_functions_eventTrigger ON _functions(eventTrigger);
-
-        CREATE TABLE IF NOT EXISTS _function_logs (
-          id TEXT PRIMARY KEY,
-          functionId TEXT NOT NULL,
-          functionName TEXT NOT NULL,
-          trigger TEXT NOT NULL,
-          status TEXT NOT NULL,
-          statusCode INTEGER NOT NULL,
-          durationMs INTEGER NOT NULL,
-          requestPayload TEXT,
-          responsePayload TEXT,
-          logs TEXT,
-          error TEXT,
-          actorId TEXT,
-          timestamp TEXT NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_fnlogs_fnId ON _function_logs(functionId);
-        CREATE INDEX IF NOT EXISTS idx_fnlogs_timestamp ON _function_logs(timestamp DESC);
+      const textType = this.db.dialect.textType();
+      const ddlFunctions = this.db.dialect.createTableIfNotExists('_functions', `
+        id VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) UNIQUE NOT NULL,
+        description ${textType} DEFAULT '',
+        code ${textType} NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        authPolicy VARCHAR(50) NOT NULL DEFAULT 'public',
+        methods VARCHAR(100) NOT NULL DEFAULT 'GET,POST',
+        eventTrigger VARCHAR(255),
+        timeoutMs INTEGER NOT NULL DEFAULT 1000,
+        memoryLimitMb INTEGER NOT NULL DEFAULT 32,
+        allowedDomains ${textType} NOT NULL,
+        elevated INTEGER NOT NULL DEFAULT 0,
+        env ${textType} NOT NULL,
+        created VARCHAR(50) NOT NULL,
+        updated VARCHAR(50) NOT NULL
       `);
+      void this.db.exec(ddlFunctions).catch(() => {});
+
+      const ddlLogs = this.db.dialect.createTableIfNotExists('_function_logs', `
+        id VARCHAR(255) PRIMARY KEY,
+        functionId VARCHAR(255) NOT NULL,
+        functionName VARCHAR(255) NOT NULL,
+        trigger VARCHAR(50) NOT NULL,
+        status VARCHAR(50) NOT NULL,
+        statusCode INTEGER NOT NULL,
+        durationMs INTEGER NOT NULL,
+        requestPayload ${textType},
+        responsePayload ${textType},
+        logs ${textType},
+        error ${textType},
+        actorId VARCHAR(255),
+        timestamp VARCHAR(50) NOT NULL
+      `);
+      void this.db.exec(ddlLogs).catch(() => {});
     } catch (err: any) {
       console.warn(`[FunctionService] initTables warning: ${err.message}`);
     }
@@ -149,7 +144,7 @@ export class FunctionService {
   // Function CRUD
   // ==========================================
 
-  public getAllFunctions(options?: { search?: string; enabled?: boolean }): FunctionConfig[] {
+  public getAllFunctions(options?: { search?: string; enabled?: boolean }): any {
     let sql = 'SELECT * FROM _functions WHERE 1=1';
     const params: any[] = [];
 
@@ -166,21 +161,30 @@ export class FunctionService {
 
     sql += ' ORDER BY name ASC';
 
-    const rows = this.db.prepare(sql).all(...params) as any[];
-    return rows.map((r) => this.mapRowToConfig(r));
+    const rows = this.db.all<any>(sql, ...params);
+    if (rows instanceof Promise) {
+      return rows.then((r: any[]) => (r || []).map((row: any) => this.mapRowToConfig(row)));
+    }
+    return (rows || []).map((r: any) => this.mapRowToConfig(r));
   }
 
-  public getFunctionById(id: string): FunctionConfig | null {
-    const row = this.db.prepare('SELECT * FROM _functions WHERE id = ?').get(id) as any;
+  public getFunctionById(id: string): any {
+    const row = this.db.get<any>('SELECT * FROM _functions WHERE id = ?', id);
+    if (row instanceof Promise) {
+      return row.then((r) => (r ? this.mapRowToConfig(r) : null));
+    }
     return row ? this.mapRowToConfig(row) : null;
   }
 
-  public getFunctionByName(name: string): FunctionConfig | null {
-    const row = this.db.prepare('SELECT * FROM _functions WHERE name = ?').get(name) as any;
+  public getFunctionByName(name: string): any {
+    const row = this.db.get<any>('SELECT * FROM _functions WHERE name = ?', name);
+    if (row instanceof Promise) {
+      return row.then((r) => (r ? this.mapRowToConfig(r) : null));
+    }
     return row ? this.mapRowToConfig(row) : null;
   }
 
-  public createFunction(dto: CreateFunctionDto, actor?: any): FunctionConfig {
+  public createFunction(dto: CreateFunctionDto, actor?: any): any {
     if (!dto.name || !dto.name.trim()) {
       throw new ValidationError('Function name cannot be blank');
     }
@@ -195,23 +199,32 @@ export class FunctionService {
 
     const cleanName = dto.name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
     const existing = this.getFunctionByName(cleanName);
+    if (existing instanceof Promise) {
+      return existing.then((ex) => {
+        if (ex) throw new ConflictError(`Function with name '${cleanName}' already exists`);
+        return this.finishCreateFunction(cleanName, dto, actor);
+      });
+    }
     if (existing) {
       throw new ConflictError(`Function with name '${cleanName}' already exists`);
     }
+    return this.finishCreateFunction(cleanName, dto, actor);
+  }
 
+  private finishCreateFunction(cleanName: string, dto: CreateFunctionDto, actor?: any): any {
     const id = dto.id || `fn_${crypto.randomBytes(6).toString('hex')}`;
     const now = new Date().toISOString();
     const methods = Array.isArray(dto.methods) && dto.methods.length > 0 ? dto.methods.join(',') : 'GET,POST';
     const allowedDomains = JSON.stringify(dto.allowedDomains || []);
     const env = JSON.stringify(dto.env || {});
 
-    this.db.prepare(`
+    const res = this.db.run(`
       INSERT INTO _functions (
         id, name, description, code, enabled, authPolicy, methods,
         eventTrigger, timeoutMs, memoryLimitMb, allowedDomains,
         elevated, env, created, updated
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
       id,
       cleanName,
       dto.description || '',
@@ -229,15 +242,18 @@ export class FunctionService {
       now
     );
 
-    return this.getFunctionById(id)!;
-  }
-
-  public updateFunction(id: string, dto: UpdateFunctionDto, actor?: any): FunctionConfig {
-    const current = this.getFunctionById(id);
-    if (!current) {
-      throw new NotFoundError(`Function '${id}' not found`);
+    if (res instanceof Promise) {
+      return res.then(async () => {
+        const created = await this.getFunctionById(id);
+        return created!;
+      });
     }
 
+    const created = this.getFunctionById(id);
+    return created!;
+  }
+
+  public updateFunction(id: string, dto: UpdateFunctionDto, actor?: any): any {
     if (dto.authPolicy !== undefined) {
       if (!ALLOWED_AUTH_POLICIES.includes(dto.authPolicy as FunctionAuthPolicy)) {
         throw new ValidationError(
@@ -246,16 +262,39 @@ export class FunctionService {
       }
     }
 
+    const current = this.getFunctionById(id);
+    if (current instanceof Promise) {
+      return current.then((curr) => {
+        if (!curr) throw new NotFoundError(`Function '${id}' not found`);
+        return this.finishUpdateFunction(id, curr, dto, actor);
+      });
+    }
+    if (!current) {
+      throw new NotFoundError(`Function '${id}' not found`);
+    }
+    return this.finishUpdateFunction(id, current, dto, actor);
+  }
+
+  private finishUpdateFunction(id: string, current: FunctionConfig, dto: UpdateFunctionDto, actor?: any): any {
     let name = current.name;
     if (dto.name && dto.name.trim() !== current.name) {
       const cleanName = dto.name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
       const conflict = this.getFunctionByName(cleanName);
+      if (conflict instanceof Promise) {
+        return conflict.then((conf) => {
+          if (conf && conf.id !== id) throw new ConflictError(`Function with name '${cleanName}' already exists`);
+          return this.applyUpdateFunction(id, current, cleanName, dto, actor);
+        });
+      }
       if (conflict && conflict.id !== id) {
         throw new ConflictError(`Function with name '${cleanName}' already exists`);
       }
       name = cleanName;
     }
+    return this.applyUpdateFunction(id, current, name, dto, actor);
+  }
 
+  private applyUpdateFunction(id: string, current: FunctionConfig, name: string, dto: UpdateFunctionDto, actor?: any): any {
     const description = dto.description !== undefined ? dto.description : current.description;
     const code = dto.code !== undefined ? dto.code : current.code;
     const enabled = dto.enabled !== undefined ? (dto.enabled ? 1 : 0) : (current.enabled ? 1 : 0);
@@ -269,13 +308,13 @@ export class FunctionService {
     const env = dto.env ? JSON.stringify(dto.env) : JSON.stringify(current.env);
     const now = new Date().toISOString();
 
-    this.db.prepare(`
+    const res = this.db.run(`
       UPDATE _functions SET
         name = ?, description = ?, code = ?, enabled = ?, authPolicy = ?,
         methods = ?, eventTrigger = ?, timeoutMs = ?, memoryLimitMb = ?,
         allowedDomains = ?, elevated = ?, env = ?, updated = ?
       WHERE id = ?
-    `).run(
+    `,
       name,
       description,
       code,
@@ -292,32 +331,74 @@ export class FunctionService {
       id
     );
 
-    if (name !== current.name) {
-      const tableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_queues'").get();
-      if (tableExists) {
-        this.db.prepare('UPDATE _queues SET targetFunction = ? WHERE targetFunction = ?').run(name, current.name);
-      }
+    const cascadeRes = this.cascadeRenames(current.name, name, now);
 
-      const flowsTableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_flows'").get();
-      if (flowsTableExists) {
-        const rows = this.db.prepare('SELECT id, definition FROM _flows').all() as any[];
-        for (const row of rows) {
+    if (res instanceof Promise || cascadeRes instanceof Promise) {
+      return Promise.all([res, cascadeRes]).then(async () => {
+        const updated = await this.getFunctionById(id);
+        return updated!;
+      });
+    }
+
+    const updated = this.getFunctionById(id);
+    return updated!;
+  }
+
+  private cascadeRenames(currentName: string, newName: string, now: string): void | Promise<void> {
+    if (newName === currentName) return;
+
+    const doQueues = () => {
+      try {
+        const q = this.db.run('UPDATE _queues SET targetFunction = ? WHERE targetFunction = ?', newName, currentName);
+        if (q instanceof Promise) return q.catch(() => {});
+      } catch {}
+    };
+
+    const doFlows = () => {
+      try {
+        const rows = this.db.all<any>('SELECT id, definition FROM _flows');
+        if (rows instanceof Promise) {
+          return rows.then(async (rList) => {
+            for (const row of rList || []) {
+              try {
+                const def = JSON.parse(row.definition);
+                const renamed = FlowValidator.renameReferencedFunction(def, currentName, newName);
+                if (renamed) {
+                  await this.db.run(
+                    'UPDATE _flows SET definition = ?, updated = ? WHERE id = ?',
+                    JSON.stringify(def),
+                    now,
+                    row.id
+                  );
+                }
+              } catch {}
+            }
+          }).catch(() => {});
+        }
+
+        for (const row of rows || []) {
           try {
             const def = JSON.parse(row.definition);
-            const renamed = FlowValidator.renameReferencedFunction(def, current.name, name);
+            const renamed = FlowValidator.renameReferencedFunction(def, currentName, newName);
             if (renamed) {
-              this.db.prepare('UPDATE _flows SET definition = ?, updated = ? WHERE id = ?').run(
+              const r = this.db.run(
+                'UPDATE _flows SET definition = ?, updated = ? WHERE id = ?',
                 JSON.stringify(def),
                 now,
                 row.id
               );
+              if (r instanceof Promise) void r.catch(() => {});
             }
           } catch {}
         }
-      }
-    }
+      } catch {}
+    };
 
-    return this.getFunctionById(id)!;
+    const qRes = doQueues();
+    if (qRes instanceof Promise) {
+      return qRes.then(() => doFlows());
+    }
+    return doFlows();
   }
 
   public setFlowService(flowService: FlowService): void {
@@ -338,35 +419,36 @@ export class FunctionService {
 
   /**
    * Finds all flows that reference a function by name or ID.
-   * Uses wired FlowService if available, or falls back to direct SQLite query on _flows table.
+   * Uses wired FlowService if available, or falls back to direct query on _flows table.
    */
-  public getDependentFlows(functionName: string, functionId?: string): Array<{ id: string; name: string }> {
+  public getDependentFlows(functionName: string, functionId?: string): any {
     if (this.flowService) {
-      return this.flowService.getFlowsReferencingFunction(functionName, functionId).map((f) => ({
-        id: f.id,
-        name: f.name,
-      }));
+      const res = this.flowService.getFlowsReferencingFunction(functionName, functionId);
+      if (res instanceof Promise) {
+        return res.then((flows: any[]) => flows.map((f) => ({ id: f.id, name: f.name })));
+      }
+      return (res || []).map((f: any) => ({ id: f.id, name: f.name }));
     }
 
-    // Direct SQLite fallback: query _flows table if it exists
-    const tableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_flows'").get();
-    if (!tableExists) {
-      return [];
+    const rows = typeof (this.db as any).prepare === 'function'
+      ? (this.db as any).prepare('SELECT id, name, definition FROM _flows').all()
+      : this.db.all<{ id: string; name: string; definition: string }>('SELECT id, name, definition FROM _flows');
+    if (rows instanceof Promise) {
+      return rows.then((r: any) => this.filterDependentFlows(r, functionName, functionId));
     }
-    const rows = this.db.prepare('SELECT id, name, definition FROM _flows').all() as Array<{
-      id: string;
-      name: string;
-      definition: string;
-    }>;
+    return this.filterDependentFlows(rows, functionName, functionId);
+  }
+
+  private filterDependentFlows(rows: any[], functionName: string, functionId?: string): Array<{ id: string; name: string }> {
     const targetName = functionName ? functionName.trim() : '';
     const targetId = functionId ? functionId.trim() : '';
     const dependent: Array<{ id: string; name: string }> = [];
 
-    for (const row of rows) {
+    for (const row of rows || []) {
       let def: any;
       try {
         def = typeof row.definition === 'string' ? JSON.parse(row.definition) : row.definition;
-      } catch (err: any) {
+      } catch {
         throw new AppError(
           `Failed to inspect flow dependencies: malformed definition in flow '${row.name || row.id}'`,
           500
@@ -389,50 +471,89 @@ export class FunctionService {
   /**
    * Finds all queues that bind this function as their targetFunction worker.
    */
-  public getDependentQueues(functionName: string, functionId?: string): Array<{ name: string }> {
-    const tableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_queues'").get();
-    if (!tableExists) {
+  public getDependentQueues(functionName: string, functionId?: string): any {
+    try {
+      const rows = this.db.all<{ name: string; targetFunction: string }>('SELECT name, targetFunction FROM _queues WHERE targetFunction IS NOT NULL');
+      if (rows instanceof Promise) {
+        return rows.then((r) => this.filterDependentQueues(r, functionName, functionId)).catch(() => []);
+      }
+      return this.filterDependentQueues(rows, functionName, functionId);
+    } catch {
       return [];
     }
+  }
+
+  private filterDependentQueues(rows: any[], functionName: string, functionId?: string): Array<{ name: string }> {
     const targetName = functionName ? functionName.trim() : '';
     const targetId = functionId ? functionId.trim() : '';
-    const rows = this.db.prepare('SELECT name, targetFunction FROM _queues WHERE targetFunction IS NOT NULL').all() as Array<{
-      name: string;
-      targetFunction: string;
-    }>;
-
-    return rows
+    return (rows || [])
       .filter((r) => (targetName && r.targetFunction === targetName) || (targetId && r.targetFunction === targetId))
       .map((r) => ({ name: r.name }));
   }
 
-  public deleteFunction(id: string, actor?: any, options?: { force?: boolean }): boolean {
+  public deleteFunction(id: string, actor?: any, options?: { force?: boolean }): any {
     const current = this.getFunctionById(id) || this.getFunctionByName(id);
+    if (current instanceof Promise) {
+      return current.then((curr) => {
+        if (!curr) throw new NotFoundError(`Function '${id}' not found`);
+        return this.finishDeleteFunction(curr, actor, options);
+      });
+    }
     if (!current) {
       throw new NotFoundError(`Function '${id}' not found`);
     }
+    return this.finishDeleteFunction(current, actor, options);
+  }
 
-    if (!options?.force) {
-      const dependent = this.getDependentFlows(current.name, current.id);
-      if (dependent.length > 0) {
-        const flowList = dependent.map((f) => `'${f.name}'`).join(', ');
-        throw new ConflictError(
-          `Cannot delete function '${current.name}': referenced by ${dependent.length} flow(s) (${flowList})`
-        );
+  private finishDeleteFunction(current: FunctionConfig, actor?: any, options?: { force?: boolean }): any {
+    const doDelete = () => {
+      const del1 = this.db.run('DELETE FROM _function_logs WHERE functionId = ?', current.id);
+      const del2 = this.db.run('DELETE FROM _functions WHERE id = ?', current.id);
+      if (del1 instanceof Promise || del2 instanceof Promise) {
+        return Promise.all([del1, del2]).then(() => true);
       }
+      return true;
+    };
 
-      const dependentQueues = this.getDependentQueues(current.name, current.id);
-      if (dependentQueues.length > 0) {
-        const queueList = dependentQueues.map((q) => `'${q.name}'`).join(', ');
-        throw new ConflictError(
-          `Cannot delete function '${current.name}': bound as targetFunction by ${dependentQueues.length} queue(s) (${queueList})`
-        );
-      }
+    if (options?.force) {
+      return doDelete();
     }
 
-    this.db.prepare('DELETE FROM _function_logs WHERE functionId = ?').run(current.id);
-    this.db.prepare('DELETE FROM _functions WHERE id = ?').run(current.id);
-    return true;
+    const deps = this.getDependentFlows(current.name, current.id);
+    const queues = this.getDependentQueues(current.name, current.id);
+
+    if (deps instanceof Promise || queues instanceof Promise) {
+      return Promise.all([deps, queues]).then(([dependent, dependentQueues]) => {
+        if (dependent.length > 0) {
+          const flowList = dependent.map((f: any) => `'${f.name}'`).join(', ');
+          throw new ConflictError(
+            `Cannot delete function '${current.name}': referenced by ${dependent.length} flow(s) (${flowList})`
+          );
+        }
+        if (dependentQueues.length > 0) {
+          const queueList = dependentQueues.map((q: any) => `'${q.name}'`).join(', ');
+          throw new ConflictError(
+            `Cannot delete function '${current.name}': bound as targetFunction by ${dependentQueues.length} queue(s) (${queueList})`
+          );
+        }
+        return doDelete();
+      });
+    }
+
+    if (deps && deps.length > 0) {
+      const flowList = deps.map((f: any) => `'${f.name}'`).join(', ');
+      throw new ConflictError(
+        `Cannot delete function '${current.name}': referenced by ${deps.length} flow(s) (${flowList})`
+      );
+    }
+    if (queues && queues.length > 0) {
+      const queueList = queues.map((q: any) => `'${q.name}'`).join(', ');
+      throw new ConflictError(
+        `Cannot delete function '${current.name}': bound as targetFunction by ${queues.length} queue(s) (${queueList})`
+      );
+    }
+
+    return doDelete();
   }
 
   // ==========================================
@@ -468,7 +589,7 @@ export class FunctionService {
     requestCtx?: FunctionRequestContext,
     actor?: any
   ): Promise<FunctionExecutionResult> {
-    const fn = this.getFunctionById(functionIdOrName) || this.getFunctionByName(functionIdOrName);
+    const fn = (await this.getFunctionById(functionIdOrName)) || (await this.getFunctionByName(functionIdOrName));
     if (!fn) {
       throw new NotFoundError(`Function '${functionIdOrName}' not found`);
     }
@@ -479,7 +600,7 @@ export class FunctionService {
 
     // Verify HTTP method permission
     if (requestCtx?.method && fn.methods.length > 0 && !fn.methods.includes('*')) {
-      const allowedMethods = fn.methods.map((m) => m.toUpperCase());
+      const allowedMethods = fn.methods.map((m: any) => m.toUpperCase());
       if (!allowedMethods.includes(requestCtx.method.toUpperCase())) {
         throw new AppError(`HTTP method '${requestCtx.method}' is not allowed for this function`, 405);
       }
@@ -546,7 +667,7 @@ export class FunctionService {
     message: { id: string; queue: string; payload: any; attempts: number; maxAttempts: number; groupKey?: string | null },
     actor?: any
   ): Promise<FunctionExecutionResult> {
-    const fn = this.getFunctionById(functionIdOrName) || this.getFunctionByName(functionIdOrName);
+    const fn = (await this.getFunctionById(functionIdOrName)) || (await this.getFunctionByName(functionIdOrName));
     if (!fn) {
       throw new NotFoundError(`Function '${functionIdOrName}' not found`);
     }
@@ -634,7 +755,7 @@ export class FunctionService {
     return Boolean(this.authService || this.apiKeyService);
   }
 
-  public resolveAuthFromHeaders(headers: Record<string, any> = {}): { hasAuthHeader: boolean; resolvedAuth: any } {
+  public async resolveAuthFromHeaders(headers: Record<string, any> = {}): Promise<{ hasAuthHeader: boolean; resolvedAuth: any }> {
     let authHeader: string | undefined;
     let xApiKey: string | undefined;
 
@@ -650,7 +771,7 @@ export class FunctionService {
     if (xApiKey && xApiKey.trim()) {
       const key = xApiKey.trim();
       if (this.apiKeyService) {
-        const result = this.apiKeyService.verifyKey(key);
+        const result = await this.apiKeyService.verifyKey(key);
         if (result.valid && result.apiKey) {
           const isSuperAdmin = result.apiKey.role === 'admin' || result.apiKey.scopes.includes('*') || result.apiKey.scopes.includes('admin:*');
           return {
@@ -690,7 +811,7 @@ export class FunctionService {
       if (token) {
         if (isApiKeyHeader || token.startsWith('nsk_')) {
           if (this.apiKeyService) {
-            const result = this.apiKeyService.verifyKey(token);
+            const result = await this.apiKeyService.verifyKey(token);
             if (result.valid && result.apiKey) {
               const isSuperAdmin = result.apiKey.role === 'admin' || result.apiKey.scopes.includes('*') || result.apiKey.scopes.includes('admin:*');
               return {
@@ -715,7 +836,7 @@ export class FunctionService {
 
         if (this.authService) {
           try {
-            const claims = this.authService.verifyToken(token);
+            const claims = await this.authService.verifyToken(token);
             return { hasAuthHeader: true, resolvedAuth: claims };
           } catch {
             return { hasAuthHeader: true, resolvedAuth: null };
@@ -733,13 +854,13 @@ export class FunctionService {
     mockRequest: Partial<FunctionRequestContext> = {},
     actor?: any
   ): Promise<FunctionExecutionResult> {
-    const fn = this.getFunctionById(id);
+    const fn = await this.getFunctionById(id);
     if (!fn) {
       throw new NotFoundError(`Function '${id}' not found`);
     }
 
     const rawHeaders = mockRequest.headers || {};
-    const { hasAuthHeader, resolvedAuth } = this.resolveAuthFromHeaders(rawHeaders);
+    const { hasAuthHeader, resolvedAuth } = await this.resolveAuthFromHeaders(rawHeaders);
 
     let effectiveAuth: any;
     let effectiveActor: any;
@@ -844,11 +965,11 @@ export class FunctionService {
     const hookTrigger = `${eventCtx.collection}:${eventCtx.isBefore ? 'before' : 'after'}${action.charAt(0).toUpperCase() + action.slice(1)}`;
     const wildcardTrigger = `*:${eventCtx.isBefore ? 'before' : 'after'}${action.charAt(0).toUpperCase() + action.slice(1)}`;
 
-    const matchingFunctions = this.db.prepare(`
+    const matchingFunctions = await this.db.all<any>(`
       SELECT * FROM _functions
       WHERE enabled = 1
         AND (eventTrigger = ? OR eventTrigger = ? OR eventTrigger = '*:*' OR eventTrigger = '*')
-    `).all(hookTrigger, wildcardTrigger) as any[];
+    `, hookTrigger, wildcardTrigger);
 
     if (matchingFunctions.length === 0) return;
 
@@ -974,7 +1095,7 @@ export class FunctionService {
   public getLogs(
     functionId?: string,
     options: { page?: number; perPage?: number; status?: string } = {}
-  ): { items: FunctionLog[]; totalItems: number; totalPages: number; page: number; perPage: number } {
+  ): any {
     const page = Math.max(1, options.page || 1);
     const perPage = Math.max(1, Math.min(options.perPage || 25, 100));
     const offset = (page - 1) * perPage;
@@ -992,51 +1113,54 @@ export class FunctionService {
       params.push(options.status);
     }
 
-    const countRow = this.db.prepare(`SELECT COUNT(*) as count FROM _function_logs ${whereClause}`).get(...params) as any;
+    const countRow = this.db.get<any>(`SELECT COUNT(*) as count FROM _function_logs ${whereClause}`, ...params);
+    const baseSql = `SELECT * FROM _function_logs ${whereClause} ORDER BY timestamp DESC`;
+    const paginatedSql = this.db.dialect.paginate(baseSql, perPage, offset);
+
+    if (countRow instanceof Promise) {
+      return Promise.all([countRow, this.db.all<any>(paginatedSql, ...params)]).then(([cRow, rows]) => {
+        const totalItems = cRow?.count || 0;
+        const totalPages = Math.ceil(totalItems / perPage) || 1;
+        return { items: rows, totalItems, totalPages, page, perPage };
+      });
+    }
+
     const totalItems = countRow?.count || 0;
     const totalPages = Math.ceil(totalItems / perPage) || 1;
-
-    const rows = this.db.prepare(`
-      SELECT * FROM _function_logs
-      ${whereClause}
-      ORDER BY timestamp DESC
-      LIMIT ? OFFSET ?
-    `).all(...params, perPage, offset) as any[];
-
-    return {
-      items: rows,
-      totalItems,
-      totalPages,
-      page,
-      perPage,
-    };
-  }
-
-  public clearLogs(functionId?: string): void {
-    if (functionId) {
-      this.db.prepare('DELETE FROM _function_logs WHERE functionId = ?').run(functionId);
-    } else {
-      this.db.prepare('DELETE FROM _function_logs').run();
+    const rows = this.db.all<any>(paginatedSql, ...params);
+    if (rows instanceof Promise) {
+      return rows.then((r) => ({ items: r, totalItems, totalPages, page, perPage }));
     }
+    return { items: rows, totalItems, totalPages, page, perPage };
   }
 
-  public getStats(): {
-    totalFunctions: number;
-    activeFunctions: number;
-    totalExecutions: number;
-    successExecutions: number;
-    failedExecutions: number;
-    successRate: string;
-  } {
-    const fns = this.db.prepare('SELECT COUNT(*) as total, SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as active FROM _functions').get() as any;
-    const logs = this.db.prepare(`
+  public clearLogs(functionId?: string): any {
+    if (functionId) {
+      const res = this.db.run('DELETE FROM _function_logs WHERE functionId = ?', functionId);
+      if (res instanceof Promise) return res.then(() => {});
+      return;
+    }
+    const res = this.db.run('DELETE FROM _function_logs');
+    if (res instanceof Promise) return res.then(() => {});
+  }
+
+  public getStats(): any {
+    const fns = this.db.get<any>('SELECT COUNT(*) as total, SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as active FROM _functions');
+    const logs = this.db.get<any>(`
       SELECT
         COUNT(*) as total,
         SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
         SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) as failed
       FROM _function_logs
-    `).get() as any;
+    `);
 
+    if (fns instanceof Promise || logs instanceof Promise) {
+      return Promise.all([fns, logs]).then(([f, l]) => this.calculateStatsFromRows(f, l));
+    }
+    return this.calculateStatsFromRows(fns, logs);
+  }
+
+  private calculateStatsFromRows(fns: any, logs: any) {
     const totalExecutions = logs?.total || 0;
     const successExecutions = logs?.success || 0;
     const failedExecutions = logs?.failed || 0;
@@ -1081,7 +1205,8 @@ export class FunctionService {
             throw err;
           }
         }
-        return this.db.prepare(`SELECT * FROM "${collection}" WHERE id = ?`).get(id) as any;
+        const quotedCol = this.db.dialect.quoteIdentifier(collection);
+        return await this.db.get<any>(`SELECT * FROM ${quotedCol} WHERE id = ?`, id);
       },
       list: async (collection: string, options?: FunctionRecordQueryOptions) => {
         if (this.recordService) {
@@ -1097,8 +1222,13 @@ export class FunctionService {
             effectiveAuth
           );
         }
-        const rows = this.db.prepare(`SELECT * FROM "${collection}" LIMIT ?`).all(options?.perPage || 30);
-        return { items: rows, totalItems: rows.length, totalPages: 1, page: 1, perPage: options?.perPage || 30 };
+        const quotedCol = this.db.dialect.quoteIdentifier(collection);
+        const limit = options?.perPage || 30;
+        const page = options?.page || 1;
+        const offset = (page - 1) * limit;
+        const sql = this.db.dialect.paginate(`SELECT * FROM ${quotedCol}`, limit, offset);
+        const rows = await this.db.all<any>(sql);
+        return { items: rows, totalItems: rows.length, totalPages: 1, page, perPage: limit };
       },
       create: async (collection: string, data: Record<string, any>) => {
         if (this.recordService) {

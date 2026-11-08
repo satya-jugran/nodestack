@@ -13,7 +13,7 @@ export class ApiKeyController extends BaseController {
 
   public async list(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const service = this.getService(req);
-    const keys = service.listKeys();
+    const keys = await service.listKeys();
     this.ok(reply, keys);
   }
 
@@ -21,7 +21,7 @@ export class ApiKeyController extends BaseController {
     const service = this.getService(req);
     const body = (req.body as CreateApiKeyDto) || {};
     const createdBy = req.auth?.id;
-    const result = service.createKey({
+    const result = await service.createKey({
       ...body,
       createdBy,
     });
@@ -33,7 +33,7 @@ export class ApiKeyController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getService(req);
-    const key = service.getKey(req.params.id);
+    const key = await service.getKey(req.params.id);
     this.ok(reply, key);
   }
 
@@ -43,7 +43,7 @@ export class ApiKeyController extends BaseController {
   ): Promise<void> {
     const service = this.getService(req);
     const body = (req.body as UpdateApiKeyDto) || {};
-    const updated = service.updateKey(req.params.id, body);
+    const updated = await service.updateKey(req.params.id, body);
     this.ok(reply, updated);
   }
 
@@ -52,7 +52,7 @@ export class ApiKeyController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getService(req);
-    service.deleteKey(req.params.id);
+    await service.deleteKey(req.params.id);
     this.noContent(reply);
   }
 
@@ -61,7 +61,7 @@ export class ApiKeyController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getService(req);
-    const result = service.rotateKey(req.params.id);
+    const result = await service.rotateKey(req.params.id);
     this.ok(reply, result);
   }
 }

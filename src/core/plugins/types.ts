@@ -155,7 +155,7 @@ export interface NodeStackPluginContext {
   ) => void;
 
   /** Register or idempotently declare a system collection */
-  registerSystemCollection: (dto: CreateCollectionDto) => CollectionModel;
+  registerSystemCollection: (dto: CreateCollectionDto) => Promise<CollectionModel> | CollectionModel;
 
   /** Register a navigation item in the Admin UI sidebar */
   registerAdminNav: (item: AdminNavItem) => void;

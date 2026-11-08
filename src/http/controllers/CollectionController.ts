@@ -32,7 +32,7 @@ export class CollectionController extends BaseController {
 
   public async list(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const schema = this.getSchema(req);
-    const collections = schema.getAllCollections();
+    const collections = await schema.getAllCollections();
     this.ok(reply, {
       items: collections,
       totalItems: collections.length,
@@ -44,7 +44,7 @@ export class CollectionController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const schema = this.getSchema(req);
-    const col = schema.getCollectionOrThrow(req.params.collection);
+    const col = await schema.getCollectionOrThrow(req.params.collection);
     this.ok(reply, col);
   }
 
@@ -53,7 +53,7 @@ export class CollectionController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const schema = this.getSchema(req);
-    const col = schema.createCollection(req.body);
+    const col = await schema.createCollection(req.body);
     this.ok(reply, col, 201);
   }
 
@@ -62,7 +62,7 @@ export class CollectionController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const schema = this.getSchema(req);
-    const col = schema.updateCollection(req.params.collection, req.body);
+    const col = await schema.updateCollection(req.params.collection, req.body);
     this.ok(reply, col);
   }
 
@@ -75,7 +75,7 @@ export class CollectionController extends BaseController {
     }
     const schema = this.getSchema(req);
     const files = this.getFiles(req);
-    const col = schema.getCollectionOrThrow(req.params.collection);
+    const col = await schema.getCollectionOrThrow(req.params.collection);
     // Clean storage files before dropping the collection to prevent orphaned files
     if (files) {
       try {
@@ -87,7 +87,7 @@ export class CollectionController extends BaseController {
         );
       }
     }
-    schema.deleteCollection(req.params.collection);
+    await schema.deleteCollection(req.params.collection);
     this.noContent(reply);
   }
 

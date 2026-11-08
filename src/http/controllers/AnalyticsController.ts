@@ -9,7 +9,7 @@ export class AnalyticsController extends BaseController {
 
   public async getMetrics(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const analytics = (req as any).appScope?.analytics || this.analyticsService;
-    const metrics = analytics.getMetrics();
+    const metrics = await analytics.getMetrics();
     this.ok(reply, metrics);
   }
 }

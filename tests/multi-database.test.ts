@@ -1,0 +1,877 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import { ConfigService } from '../src/core/config/ConfigService';
+import { DatabaseService } from '../src/database/DatabaseService';
+import { DatabaseConfigService } from '../src/database/config/DatabaseConfigService';
+import { DriverRegistry, DatabaseConfig } from '../src/database/drivers/DriverRegistry';
+import { DatabaseMigrationService } from '../src/database/migration/DatabaseMigrationService';
+import { SystemMigrations } from '../src/database/migrations/SystemMigrations';
+import { NodeSqliteDriver } from '../src/database/drivers/NodeSqliteDriver';
+import { PostgresDriver } from '../src/database/drivers/PostgresDriver';
+import { MssqlDriver } from '../src/database/drivers/MssqlDriver';
+import { FtsService } from '../src/records/FtsService';
+import { NodeStack } from '../src/NodeStack';
+import { AppManager } from '../src/apps/AppManager';
+import { AppRegistry } from '../src/apps/AppRegistry';
+import { DatabaseController } from '../src/http/controllers/DatabaseController';
+import { AdminUIBundler } from '../src/admin/AdminUIBundler';
+
+describe('Multi-Database Architecture & Configuration Tests', () => {
+  const testDir = path.resolve(__dirname, '../.test_multi_db_data');
+
+  beforeEach(() => {
+    if (fs.existsSync(testDir)) {
+      try {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      } catch {}
+    }
+    fs.mkdirSync(testDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(testDir)) {
+      try {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      } catch {}
+    }
+  });
+
+  // ============================================================
+  // 1. DatabaseConfigService & AES-256-GCM Encryption Tests
+  // ============================================================
+  describe('DatabaseConfigService & Encryption', () => {
+    it('should encrypt and decrypt database credentials symmetrically using AES-256-GCM', () => {
+      const config = new ConfigService({ dataDir: testDir, jwtSecret: 'super-secret-key-12345' });
+      const service = new DatabaseConfigService(config);
+
+      const plainConfig: DatabaseConfig = {
+        provider: 'postgres',
+        host: 'localhost',
+        port: 5432,
+        user: 'postgres_admin',
+        password: 'TopSecretPassword!',
+        database: 'production_db',
+        connectionString: 'postgresql://postgres_admin:TopSecretPassword!@localhost:5432/production_db',
+      };
+
+      const encrypted = service.encryptConfig(plainConfig);
+      expect(encrypted.encryptedConfig).toBeDefined();
+      expect(encrypted.iv).toBeDefined();
+      expect(encrypted.authTag).toBeDefined();
+      expect(encrypted.encryptedConfig).not.toContain('TopSecretPassword!');
+
+      const decrypted = service.decryptConfig(encrypted.encryptedConfig, encrypted.iv, encrypted.authTag);
+      expect(decrypted.provider).toBe('postgres');
+      expect(decrypted.password).toBe('TopSecretPassword!');
+      expect(decrypted.database).toBe('production_db');
+    });
+
+    it('should redact sensitive passwords and connection strings for safe public API exposure', () => {
+      const config = new ConfigService({ dataDir: testDir });
+      const service = new DatabaseConfigService(config);
+
+      const rawConfig: DatabaseConfig = {
+        provider: 'postgres',
+        host: 'db.example.com',
+        user: 'app_user',
+        password: 'sensitive_db_password',
+        connectionString: 'postgres://app_user:sensitive_db_password@db.example.com:5432/nodestack',
+        readReplicas: [
+          'postgres://app_user:replica_secret1@replica1.example.com:5432/nodestack',
+          'postgres://app_user:replica_secret2@replica2.example.com:5432/nodestack',
+        ],
+      };
+
+      const redacted = service.redactConfig(rawConfig);
+      expect(redacted.password).toBe('••••••••');
+      expect(redacted.connectionString).toBe('postgres://app_user:••••••••@db.example.com:5432/nodestack');
+      expect(redacted.host).toBe('db.example.com');
+      expect(redacted.readReplicas).toBeDefined();
+      expect(redacted.readReplicas![0]).toBe('postgres://app_user:••••••••@replica1.example.com:5432/nodestack');
+      expect(redacted.readReplicas![1]).toBe('postgres://app_user:••••••••@replica2.example.com:5432/nodestack');
+    });
+
+    it('should initialize _db_configs table and return default SQLite config if none is active', async () => {
+      const config = new ConfigService({ dataDir: testDir });
+      const systemDriver = new NodeSqliteDriver(':memory:');
+      const service = new DatabaseConfigService(config, systemDriver);
+
+      const activeConfig = await service.getActiveConfig();
+      expect(activeConfig.provider).toBe('sqlite');
+      expect(activeConfig.dbPath).toBe(config.dbPath);
+
+      // Verify that saving another configuration sets it as active
+      const pgConfig: DatabaseConfig = {
+        provider: 'postgres',
+        host: '127.0.0.1',
+        port: 5432,
+        user: 'admin',
+        password: 'pwd',
+        database: 'mydb',
+      };
+
+      await service.saveConfig(pgConfig, true);
+      const updatedActive = await service.getActiveConfig();
+      expect(updatedActive.provider).toBe('postgres');
+      expect(updatedActive.host).toBe('127.0.0.1');
+      expect(updatedActive.password).toBe('pwd');
+
+      await systemDriver.close();
+    });
+  });
+
+  // ============================================================
+  // 2. DriverRegistry Tests
+  // ============================================================
+  describe('DriverRegistry', () => {
+    it('should list all supported database providers symmetrically', () => {
+      const providers = DriverRegistry.listAvailableProviders();
+      expect(providers).toContain('sqlite');
+      expect(providers).toContain('postgres');
+      expect(providers).toContain('mssql');
+    });
+
+    it('should create and ping SQLite driver seamlessly', async () => {
+      const driver = await DriverRegistry.createDriver({
+        provider: 'sqlite',
+        dbPath: ':memory:',
+      });
+
+      expect(driver).toBeDefined();
+      expect(driver.isOpen()).toBe(true);
+      expect(await driver.ping()).toBe(true);
+      expect(driver.dialect.quoteIdentifier('users')).toBe('"users"');
+
+      await driver.close();
+    });
+
+    it('should route SELECT queries to read replicas and mutations to primary pool in PostgresDriver', async () => {
+      const primaryQueries: string[] = [];
+      const replicaQueries: string[] = [];
+
+      const mockPrimaryPool: any = {
+        query: async (sql: string, params?: any[]) => {
+          primaryQueries.push(sql);
+          return { rows: [{ id: 1, name: 'primary' }], rowCount: 1 };
+        },
+        connect: async () => ({
+          query: async (sql: string, params?: any[]) => {
+            if (sql.startsWith('SET search_path') || sql.startsWith('DISCARD')) {
+              return { rows: [] };
+            }
+            return mockPrimaryPool.query(sql, params);
+          },
+          release: () => {},
+        }),
+        end: async () => {},
+      };
+
+      const mockReplicaPool: any = {
+        query: async (sql: string, params?: any[]) => {
+          replicaQueries.push(sql);
+          return { rows: [{ id: 1, name: 'replica' }], rowCount: 1 };
+        },
+        connect: async () => ({
+          query: async (sql: string, params?: any[]) => {
+            if (sql.startsWith('SET search_path') || sql.startsWith('DISCARD')) {
+              return { rows: [] };
+            }
+            return mockReplicaPool.query(sql, params);
+          },
+          release: () => {},
+        }),
+        end: async () => {},
+      };
+
+      const driver = new PostgresDriver({
+        pool: mockPrimaryPool,
+        replicaPools: [mockReplicaPool],
+      });
+
+      // 1. SELECT query should route to replica
+      const selectRes = await driver.prepare('SELECT * FROM users WHERE id = ?').all(1);
+      expect(selectRes[0].name).toBe('replica');
+      expect(replicaQueries.length).toBe(1);
+      expect(primaryQueries.length).toBe(0);
+
+      // 2. INSERT query should route to primary
+      await driver.prepare('INSERT INTO users (name) VALUES (?)').run('Alice');
+      expect(primaryQueries.length).toBe(1);
+      expect(replicaQueries.length).toBe(1);
+
+      // 3. Fallback: if replica query drops, falls back to primary automatically
+      mockReplicaPool.query = async () => {
+        throw new Error('replica connection dropped');
+      };
+      const fallbackRes = await driver.prepare('SELECT * FROM users WHERE id = ?').all(1);
+      expect(fallbackRes[0].name).toBe('primary');
+      expect(primaryQueries.length).toBe(2);
+
+      await driver.close();
+    });
+  });
+
+  // ============================================================
+  // 3. Symmetric DatabaseMigrationService Tests
+  // ============================================================
+  describe('DatabaseMigrationService', () => {
+    it('should perform symmetric schema and data migration between two databases', async () => {
+      const sourceDriver = new NodeSqliteDriver(':memory:');
+      const targetDriver = new NodeSqliteDriver(':memory:');
+
+      // 1. Setup source database with collections and records
+      await sourceDriver.exec(`
+        CREATE TABLE _collections (
+          id TEXT PRIMARY KEY,
+          name TEXT UNIQUE NOT NULL,
+          type TEXT NOT NULL,
+          schema TEXT NOT NULL,
+          system INTEGER NOT NULL DEFAULT 0,
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL
+        );
+      `);
+
+      const now = new Date().toISOString();
+      await sourceDriver.prepare(`
+        INSERT INTO _collections (id, name, type, schema, system, created, updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run('col_articles', 'articles', 'base', JSON.stringify([
+        { id: 'f_title', name: 'title', type: 'text', required: true },
+        { id: 'f_views', name: 'views', type: 'number', required: false },
+      ]), 0, now, now);
+
+      await sourceDriver.exec(`
+        CREATE TABLE articles (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          views INTEGER,
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL
+        );
+      `);
+
+      await sourceDriver.prepare(`
+        INSERT INTO articles (id, title, views, created, updated)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('art_1', 'Hello NodeStack', 42, now, now);
+
+      await sourceDriver.prepare(`
+        INSERT INTO articles (id, title, views, created, updated)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('art_2', 'Multi-Database Architecture', 100, now, now);
+
+      // 2. Perform migration
+      const res = await DatabaseMigrationService.migrateAppScope(sourceDriver, targetDriver);
+      expect(res.collectionsCount).toBe(1);
+      expect(res.recordsCount).toBe(2);
+
+      // 3. Verify target database has matching collections and records
+      const targetCols = await targetDriver.prepare('SELECT * FROM _collections').all<any>();
+      const userCol = targetCols.find((c: any) => c.name === 'articles');
+      expect(userCol).toBeDefined();
+      expect(userCol.name).toBe('articles');
+
+      const targetRecords = await targetDriver.prepare('SELECT * FROM articles ORDER BY id ASC').all<any>();
+      expect(targetRecords).toHaveLength(2);
+      expect(targetRecords[0].title).toBe('Hello NodeStack');
+      expect(Number(targetRecords[0].views)).toBe(42);
+      expect(targetRecords[1].title).toBe('Multi-Database Architecture');
+      expect(Number(targetRecords[1].views)).toBe(100);
+
+      await sourceDriver.close();
+      await targetDriver.close();
+    });
+  });
+
+  // ============================================================
+  // 4. HTTP Admin Endpoints & DatabaseController Integration
+  // ============================================================
+  describe('DatabaseController HTTP Integration', () => {
+    it('should expose /api/system/database/status and return active SQLite provider status', async () => {
+      const app = new NodeStack({ dataDir: testDir });
+
+      await app.auth.createAdmin('admin@nodestack.dev', 'password123');
+      const { token: adminToken } = await app.auth.authenticateAdmin('admin@nodestack.dev', 'password123');
+
+      const res = await app.server.inject({
+        method: 'GET',
+        url: '/api/system/database/status',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.payload);
+      expect(json.provider).toBe('sqlite');
+      expect(json.connected).toBe(true);
+      expect(json.availableProviders).toContain('sqlite');
+      expect(json.availableProviders).toContain('postgres');
+      expect(json.availableProviders).toContain('mssql');
+
+      app.close();
+    });
+
+    it('should test connections via /api/system/database/test including read replicas', async () => {
+      const app = new NodeStack({ dataDir: testDir });
+
+      await app.auth.createAdmin('admin@nodestack.dev', 'password123');
+      const { token: adminToken } = await app.auth.authenticateAdmin('admin@nodestack.dev', 'password123');
+
+      // 1. Valid test with primary and valid replicas
+      const res = await app.server.inject({
+        method: 'POST',
+        url: '/api/system/database/test',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+        payload: {
+          provider: 'sqlite',
+          dbPath: ':memory:',
+          readReplicas: [':memory:'],
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.payload);
+      expect(json.ok).toBe(true);
+      expect(json.replicas).toBeDefined();
+      expect(json.replicas.length).toBe(1);
+      expect(json.replicas[0].ok).toBe(true);
+
+      // 2. Test with an unreachable / invalid replica URL
+      const failRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/system/database/test',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+        payload: {
+          provider: 'sqlite',
+          dbPath: ':memory:',
+          readReplicas: ['Z:\\nonexistent_invalid_drive\\db.sqlite'],
+        },
+      });
+
+      expect(failRes.statusCode).toBe(200);
+      const failJson = JSON.parse(failRes.payload);
+      expect(failJson.ok).toBe(false);
+      expect(failJson.replicas).toBeDefined();
+      expect(failJson.replicas[0].ok).toBe(false);
+      expect(failJson.error).toContain('One or more read replicas failed connection test');
+
+      app.close();
+    });
+  });
+  // ============================================================
+  // 5. Admin UI Integration & Bundler Tests
+  // ============================================================
+  describe("Admin UI Database Integration", () => {
+    it("should bundle database.js and include database controls in Admin UI", () => {
+      const uiDir = path.resolve(__dirname, "../src/admin/ui");
+      const html = AdminUIBundler.bundle(uiDir);
+
+      expect(html).toContain("btn-database-switcher");
+      expect(html).toContain("topbar-database-label");
+      expect(html).toContain("sidebar-database-link");
+      expect(html).toContain("sidebar-database-badge");
+      expect(html).toContain("Database Engine Configuration");
+      expect(html).toContain("openDatabaseModal");
+      expect(html).toContain("executeDatabaseSwitch");
+      expect(html).toContain("nav-database");
+      expect(html).toContain("db-field-replicas");
+      expect(html).toContain("Read Replicas (Optional — HA Multi-Cluster)");
+    });
+  });
+
+  // ============================================================
+  // 6. Review Assessment Remediation Unit Tests (Items 1-12)
+  // ============================================================
+  describe('Review Assessment Remediation Unit Tests (Items 1-12)', () => {
+    // Finding 1: PostgreSQL Connection Pool search_path Pollution
+    it('Finding 1: should set search_path on checkout and reset to public before connection release in PostgresDriver', async () => {
+      const executedCommands: string[] = [];
+      let released = false;
+
+      const mockConn = {
+        query: async (sql: string) => {
+          executedCommands.push(sql);
+          return { rows: [{ id: 1 }] };
+        },
+        release: () => {
+          released = true;
+        },
+      };
+
+      const mockPool = {
+        connect: async () => mockConn,
+        query: async (sql: string) => mockConn.query(sql),
+        end: async () => {},
+      };
+
+      const driver = new PostgresDriver({
+        pool: mockPool,
+        schemaName: 'app_tenant_alpha',
+      });
+
+      await driver.prepare('SELECT * FROM users').all();
+
+      // Check search_path isolation lifecycle
+      expect(executedCommands).toContain('SET search_path TO "app_tenant_alpha", public');
+      expect(executedCommands).toContain('DISCARD TEMP; SET search_path TO public;');
+      expect(released).toBe(true);
+
+      await driver.close();
+    });
+
+    // Finding 2: Multi-Tenant Schema Naming & MSSQL Schema Isolation
+    it('Finding 2: should normalize schema naming and qualify MSSQL tables with [schemaName]', async () => {
+      const mockPool = {
+        query: async () => ({ rows: [] }),
+        end: async () => {},
+      };
+
+      const pgDriver = new PostgresDriver({ pool: mockPool });
+      const defaultPg = await pgDriver.withSchema('default');
+      expect(defaultPg.getSchemaName()).toBe('public');
+
+      const tenantPg = await pgDriver.withSchema('ecommerce-store');
+      expect(tenantPg.getSchemaName()).toBe('app_ecommerce_store');
+
+      const mssqlExecuted: string[] = [];
+      const mockMssqlPool = {
+        request: () => ({
+          input: () => {},
+          query: async (sql: string) => {
+            mssqlExecuted.push(sql);
+            return { recordset: [] };
+          },
+        }),
+        close: async () => {},
+      };
+
+      const mssqlDriver = new MssqlDriver({
+        connectionPool: mockMssqlPool,
+        schemaName: 'app_beta',
+      });
+
+      expect(mssqlDriver.getSchemaName()).toBe('app_beta');
+
+      await mssqlDriver.prepare('SELECT id, name FROM users WHERE id = @p1').all(1);
+      expect(mssqlExecuted[0]).toContain('[app_beta].[users]');
+
+      await mssqlDriver.prepare('SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = SCHEMA_NAME()').all();
+      expect(mssqlExecuted[1]).toContain("TABLE_SCHEMA = 'app_beta'");
+    });
+
+    // Finding 3: FtsService Hot-Swap Driver Refresh
+    it('Finding 3: should refresh IFtsDriver dynamically when database dialect changes', () => {
+      const config = new ConfigService();
+      const dbService = new DatabaseService(config);
+
+      const fts = new FtsService(dbService);
+      expect(fts.getFtsDriver().constructor.name).toBe('SqliteFts5Driver');
+
+      // Emulate hot-swap to postgres dialect
+      Object.defineProperty(dbService, 'dialect', {
+        get: () => ({ name: 'postgres' }),
+        configurable: true,
+      });
+
+      expect(fts.getFtsDriver().constructor.name).toBe('PostgresFtsDriver');
+    });
+
+    // Finding 4: Async Function Support in DatabaseService.transaction()
+    it('Finding 4: should permit async transaction callbacks on async drivers and only reject on SQLite', async () => {
+      const config = new ConfigService();
+      const sqliteDb = new DatabaseService(config);
+
+      // 1. SQLite rejects async callbacks
+      expect(() => {
+        sqliteDb.transaction(async () => {
+          return 1;
+        });
+      }).toThrow('Asynchronous functions cannot be used with synchronous transaction()');
+
+      // 2. Async driver (PostgreSQL) allows async callbacks
+      const mockPgDriver: any = {
+        dialect: { name: 'postgres' },
+        isOpen: () => true,
+        transaction: async (cb: any) => {
+          return await cb(mockPgDriver);
+        },
+      };
+
+      const pgDb = new DatabaseService(config, mockPgDriver);
+      const res = await pgDb.transaction(async () => {
+        return 42;
+      });
+      expect(res).toBe(42);
+    });
+
+    // Finding 6: MSSQL ADO.NET Password Redaction
+    it('Finding 6: should redact passwords in both URI and ADO.NET connection strings', () => {
+      const config = new ConfigService();
+      const service = new DatabaseConfigService(config);
+
+      // ADO.NET formats
+      const ado1 = 'Server=localhost;Database=mydb;User Id=sa;Password=Secret123!;Encrypt=true';
+      expect(service.redactConnectionString(ado1)).toBe(
+        'Server=localhost;Database=mydb;User Id=sa;Password=••••••••;Encrypt=true'
+      );
+
+      const ado2 = 'Server=127.0.0.1,1433;Database=test;User Id=app;Pwd=SuperSecretPassword;';
+      expect(service.redactConnectionString(ado2)).toBe(
+        'Server=127.0.0.1,1433;Database=test;User Id=app;Pwd=••••••••;'
+      );
+
+      // URI format
+      const uri = 'postgresql://admin:super_secret_pg_pass@pg.cluster.internal:5432/production';
+      expect(service.redactConnectionString(uri)).toBe(
+        'postgresql://admin:••••••••@pg.cluster.internal:5432/production'
+      );
+    });
+
+    // Finding 7: Mutating CTE & Row Locking Routing in Read-Write Classifier
+    it('Finding 7: should route mutating CTEs and row locking clauses to primary, not read replica', async () => {
+      const primaryQueries: string[] = [];
+      const replicaQueries: string[] = [];
+
+      const mockConn = (poolName: string, queries: string[]) => ({
+        query: async (sql: string) => {
+          if (sql.startsWith('SET search_path') || sql.startsWith('DISCARD')) return { rows: [] };
+          queries.push(sql);
+          return { rows: [{ id: 1, name: poolName }] };
+        },
+        release: () => {},
+      });
+
+      const mockPrimaryPool = {
+        connect: async () => mockConn('primary', primaryQueries),
+        query: async (sql: string) => {
+          primaryQueries.push(sql);
+          return { rows: [{ id: 1, name: 'primary' }] };
+        },
+        end: async () => {},
+      };
+
+      const mockReplicaPool = {
+        connect: async () => mockConn('replica', replicaQueries),
+        query: async (sql: string) => {
+          replicaQueries.push(sql);
+          return { rows: [{ id: 1, name: 'replica' }] };
+        },
+        end: async () => {},
+      };
+
+      const driver = new PostgresDriver({
+        pool: mockPrimaryPool,
+        replicaPools: [mockReplicaPool],
+      });
+
+      // 1. Mutating CTE should route to primary
+      const cteSql = 'WITH updated AS (UPDATE users SET name = $1 RETURNING *) SELECT * FROM updated';
+      await driver.prepare(cteSql).all('Alice');
+      expect(primaryQueries).toContain(cteSql);
+      expect(replicaQueries.length).toBe(0);
+
+      // 2. SELECT ... FOR UPDATE should route to primary
+      const lockSql = 'SELECT * FROM accounts WHERE id = $1 FOR UPDATE';
+      await driver.prepare(lockSql).all(1);
+      expect(primaryQueries).toContain(lockSql);
+      expect(replicaQueries.length).toBe(0);
+
+      // 3. Regular read should route to replica
+      const readSql = 'SELECT * FROM accounts WHERE id = $1';
+      await driver.prepare(readSql).all(1);
+      expect(replicaQueries).toContain(readSql);
+
+      await driver.close();
+    });
+
+    // Finding 9: DriverRegistry Respects options.trustServerCertificate
+    it('Finding 9: should forward trustServerCertificate and encrypt options in DriverRegistry', async () => {
+      let createdOptions: any = null;
+      DriverRegistry.register('mock-mssql', (config) => {
+        createdOptions = {
+          trustServerCertificate: config.options?.trustServerCertificate !== undefined
+            ? Boolean(config.options.trustServerCertificate)
+            : true,
+          encrypt: config.options?.encrypt !== undefined
+            ? Boolean(config.options.encrypt)
+            : (typeof config.ssl === 'boolean' ? config.ssl : true),
+        };
+        return { dialect: { name: 'mssql' } } as any;
+      });
+
+      await DriverRegistry.createDriver({
+        provider: 'mock-mssql',
+        options: { trustServerCertificate: false, encrypt: false },
+      });
+
+      expect(createdOptions).toEqual({
+        trustServerCertificate: false,
+        encrypt: false,
+      });
+
+      const mssqlDriver = new MssqlDriver({
+        connectionPool: { close: async () => {} },
+        options: { trustServerCertificate: false },
+      });
+      expect(mssqlDriver.dialect.name).toBe('mssql');
+    });
+
+    // Finding 11: CLI Active Database Driver Loading
+    it('Finding 11: should expose loadActiveDatabaseDriver on NodeStack instance', async () => {
+      const app = new NodeStack({ dataDir: testDir });
+      expect(typeof app.loadActiveDatabaseDriver).toBe('function');
+      await expect(app.loadActiveDatabaseDriver()).resolves.toBeUndefined();
+      app.close();
+    });
+
+    // Finding 5: MaintenanceGate Lock during Switch
+    it('Finding 5: should execute switchDatabase within MaintenanceGate.executeExclusive', async () => {
+      let exclusiveCalled = false;
+      const mockMaintenanceGate: any = {
+        executeExclusive: async (fn: any) => {
+          exclusiveCalled = true;
+          return await fn();
+        },
+      };
+
+      const mockDbConfigService: any = {
+        testConnection: async () => ({ ok: true }),
+        saveConfig: async () => 'cfg_123',
+      };
+
+      const mockRootDriver: any = {
+        close: async () => {},
+        dialect: { name: 'sqlite' },
+      };
+
+      const mockRootDb: any = {
+        getRootDriver: () => mockRootDriver,
+      };
+
+      const mockAppManager: any = {
+        registry: { getAllApps: async () => [] },
+        switchDriver: async () => {},
+      };
+
+      const controller = new DatabaseController(
+        mockDbConfigService,
+        mockAppManager,
+        mockRootDb,
+        mockMaintenanceGate
+      );
+
+      let replyData: any = null;
+      const mockReply: any = {
+        status: () => mockReply,
+        code: () => mockReply,
+        send: (d: any) => { replyData = d; },
+      };
+
+      await controller.switchDatabase(
+        { body: { config: { provider: 'sqlite', dbPath: ':memory:' }, migrateData: false } } as any,
+        mockReply
+      );
+
+      expect(exclusiveCalled).toBe(true);
+      expect(replyData?.success).toBe(true);
+    });
+
+    // Finding 8: Post-migration count verification failure
+    it('Finding 8: should throw on record count mismatch during migration verification', async () => {
+      const source = new NodeSqliteDriver(':memory:');
+      const target = new NodeSqliteDriver(':memory:');
+
+      await SystemMigrations.run(source);
+      await SystemMigrations.run(target);
+
+      await source.exec(`CREATE TABLE posts (id TEXT PRIMARY KEY, title TEXT, created TEXT, updated TEXT)`);
+      const now = new Date().toISOString();
+      const postSchema = JSON.stringify([
+        { id: 'f_title', name: 'title', type: 'text', required: false, unique: false },
+      ]);
+      await source.prepare(`
+        INSERT INTO _collections (id, name, type, system, schema, indexes, options, created, updated)
+        VALUES ('col_posts', 'posts', 'base', 0, ?, '[]', '{}', ?, ?)
+      `).run(postSchema, now, now);
+
+      await source.prepare(`INSERT INTO posts (id, title, created, updated) VALUES ('p1', 'Post 1', ?, ?)`).run(now, now);
+      await source.prepare(`INSERT INTO posts (id, title, created, updated) VALUES ('p2', 'Post 2', ?, ?)`).run(now, now);
+
+      // Monkey-patch target to simulate record count mismatch
+      const originalPrepare = target.prepare.bind(target);
+      target.prepare = (sql: string) => {
+        if (sql.includes('SELECT COUNT(*) AS total FROM "posts"')) {
+          return {
+            get: async () => ({ total: 1 }), // Return 1 instead of 2
+          } as any;
+        }
+        return originalPrepare(sql);
+      };
+
+      await expect(
+        DatabaseMigrationService.migrateAppScope(source, target)
+      ).rejects.toThrow("Migration verification failed for collection 'posts': count mismatch (source: 2, target: 1)");
+
+      await source.close();
+      await target.close();
+    });
+
+    // Finding 12: Concurrent replica testing & strip replicas from primary test driver
+    it('Finding 12: should strip readReplicas when testing primary driver and test replicas concurrently', async () => {
+      const config = new ConfigService();
+      const service = new DatabaseConfigService(config);
+
+      let primaryHadReplicas = true;
+      DriverRegistry.register('test-finding-12', (cfg) => {
+        if (!cfg.connectionString?.includes('replica')) {
+          primaryHadReplicas = Array.isArray(cfg.readReplicas) && cfg.readReplicas.length > 0;
+        }
+        return {
+          ping: async () => true,
+          exec: async () => {},
+          close: async () => {},
+          dialect: { name: 'sqlite' },
+        } as any;
+      });
+
+      const res = await service.testConnection({
+        provider: 'test-finding-12',
+        readReplicas: ['test://replica1', 'test://replica2'],
+      });
+
+      expect(res.ok).toBe(true);
+      expect(primaryHadReplicas).toBe(false);
+      expect(res.replicas?.length).toBe(2);
+      expect(res.replicas?.[0].ok).toBe(true);
+      expect(res.replicas?.[1].ok).toBe(true);
+    });
+  });
+
+  // ============================================================
+  // 7. Round 2 Review Edge Case Tests
+  // ============================================================
+  describe('Round 2 Review Edge Case Tests', () => {
+    // 1. _params table migration without id column
+    it('Round 2 Item 1: should migrate _params key-value table using key as primary key without error', async () => {
+      const source = new NodeSqliteDriver(':memory:');
+      const target = new NodeSqliteDriver(':memory:');
+
+      await SystemMigrations.run(source);
+      await SystemMigrations.run(target);
+
+      // Insert custom system params into source
+      await source.prepare('INSERT INTO _params (key, value) VALUES (?, ?)').run('app_title', 'My Custom Title');
+      await source.prepare('INSERT INTO _params (key, value) VALUES (?, ?)').run('app_color', '#ff5500');
+
+      // Migrate
+      await DatabaseMigrationService.migrateAppScope(source, target);
+
+      // Verify records on target
+      const titleRow = await target.prepare('SELECT value FROM _params WHERE key = ?').get<any>('app_title');
+      const colorRow = await target.prepare('SELECT value FROM _params WHERE key = ?').get<any>('app_color');
+      expect(titleRow?.value).toBe('My Custom Title');
+      expect(colorRow?.value).toBe('#ff5500');
+
+      await source.close();
+      await target.close();
+    });
+
+    // 2. 5-second self-drain delay exemption on /database/switch
+    it('Round 2 Item 2: should exempt POST /api/system/database/switch from MaintenanceGate blocking', async () => {
+      const app = new NodeStack({ dataDir: testDir });
+      await app.auth.createAdmin('admin@nodestack.dev', 'password123');
+      const { token: adminToken } = await app.auth.authenticateAdmin('admin@nodestack.dev', 'password123');
+
+      // Emulate switch request and verify it responds well under the 5000ms drainTimeoutMs
+      const start = Date.now();
+      const res = await app.server.inject({
+        method: 'POST',
+        url: '/api/system/database/switch',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+        payload: {
+          config: {
+            provider: 'sqlite',
+            dbPath: ':memory:',
+          },
+          migrateData: false,
+        },
+      });
+
+      const elapsed = Date.now() - start;
+      expect(res.statusCode).toBe(200);
+      expect(elapsed).toBeLessThan(3000);
+
+      app.close();
+    });
+
+    // 3. Shared pool closure on driver switch or shutdown
+    it('Round 2 Item 3: should close previous root customDriver on switchDriver and during closeAllAsync', async () => {
+      let root1Closed = false;
+      let root2Closed = false;
+
+      const mockRoot1: any = {
+        withSchema: async () => ({
+          close: async () => {},
+          dialect: { name: 'postgres' },
+        }),
+        close: async () => {
+          root1Closed = true;
+        },
+      };
+
+      const mockRoot2: any = {
+        withSchema: async () => ({
+          close: async () => {},
+          dialect: { name: 'postgres' },
+        }),
+        close: async () => {
+          root2Closed = true;
+        },
+      };
+
+      const config = new ConfigService();
+      const registry = new AppRegistry(config);
+      const appManager = new AppManager(registry, config, mockRoot1);
+
+      // Switch to mockRoot2 -> mockRoot1 should be closed
+      await appManager.switchDriver(mockRoot2);
+      expect(root1Closed).toBe(true);
+      expect(root2Closed).toBe(false);
+
+      // Close all -> mockRoot2 should be closed
+      await appManager.closeAllAsync();
+      expect(root2Closed).toBe(true);
+    });
+
+    // 4. MssqlDriver qualifySql rewrites OBJECT_ID('table') to [app_<slug>].[table]
+    it('Round 2 Item 4: should qualify OBJECT_ID table arguments with tenant schema', () => {
+      const mockPool = { close: async () => {} };
+      const driver = new MssqlDriver({
+        connectionPool: mockPool,
+        schemaName: 'app_ecommerce',
+      });
+
+      const ddl1 = "IF OBJECT_ID('orders', 'U') IS NOT NULL DROP TABLE orders";
+      const qualified1 = driver.qualifySql(ddl1);
+      expect(qualified1).toContain("OBJECT_ID('[app_ecommerce].[orders]', 'U')");
+      expect(qualified1).toContain("DROP TABLE [app_ecommerce].[orders]");
+
+      const ddl2 = "IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_orders_status' AND object_id = OBJECT_ID('orders'))";
+      const qualified2 = driver.qualifySql(ddl2);
+      expect(qualified2).toContain("OBJECT_ID('[app_ecommerce].[orders]')");
+
+      // Should not alter if already qualified
+      const ddl3 = "IF OBJECT_ID('[app_ecommerce].[orders]') IS NOT NULL";
+      expect(driver.qualifySql(ddl3)).toBe(ddl3);
+    });
+  });
+});

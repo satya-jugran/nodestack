@@ -171,14 +171,14 @@ function toggleIncludeSystemQueues(checked) {
 
 function switchQueuesTab(tab, pushState = true) {
   const isMessages = tab === 'messages' || tab === 'jobs';
-  queuesState.subTab = isMessages ? 'messages' : 'queues';
+  queuesState.subTab = isMessages ? (tab === 'jobs' ? 'jobs' : 'messages') : 'queues';
   const btnList = document.getElementById('tab-btn-queues-list');
   const btnMessages = document.getElementById('tab-btn-queues-messages') || document.getElementById('tab-btn-queues-jobs');
   if (btnList) btnList.classList.toggle('active', !isMessages);
   if (btnMessages) btnMessages.classList.toggle('active', isMessages);
 
   if (pushState && typeof updateUrl === 'function') {
-    const path = isMessages ? '/_/queues/messages' : '/_/queues';
+    const path = isMessages ? (tab === 'jobs' ? '/_/queues/jobs' : '/_/queues/messages') : '/_/queues';
     updateUrl(path);
   }
 

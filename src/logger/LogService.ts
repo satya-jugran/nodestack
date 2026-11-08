@@ -37,7 +37,12 @@ export class LogService {
 
   constructor(private db: DatabaseService) {
     this.flushTimer = setInterval(() => {
-      this.flush();
+      try {
+        const res = this.flush();
+        if (res && typeof res.catch === 'function') {
+          res.catch(() => {});
+        }
+      } catch {}
     }, 250);
     if (this.flushTimer.unref) {
       this.flushTimer.unref();
@@ -75,7 +80,7 @@ export class LogService {
       });
 
       if (this.buffer.length >= this.maxBufferSize) {
-        this.flush();
+        this.flush().catch(() => {});
       }
 
       // Console output with color formatting
@@ -87,81 +92,143 @@ export class LogService {
     }
   }
 
-  public flush(): void {
+  public flush(): any {
     if (this.buffer.length === 0) return;
     const items = [...this.buffer];
     this.buffer = [];
 
     try {
-      this.db.transaction(() => {
-        const stmt = this.db.prepare(`
-          INSERT INTO _logs (id, method, url, status, duration, ip, authId, authCollection, userAgent, data, created)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        for (const item of items) {
-          stmt.run(
-            item.id,
-            item.method,
-            item.url,
-            item.status,
-            item.duration,
-            item.ip,
-            item.authId,
-            item.authCollection,
-            item.userAgent,
-            item.data,
-            item.created
-          );
-        }
-      });
+      if (this.db.dialect.name === 'sqlite') {
+        this.db.transaction(() => {
+          const stmt = this.db.prepare(`
+            INSERT INTO _logs (id, method, url, status, duration, ip, authId, authCollection, userAgent, data, created)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const item of items) {
+            stmt.run(
+              item.id,
+              item.method,
+              item.url,
+              item.status,
+              item.duration,
+              item.ip,
+              item.authId,
+              item.authCollection,
+              item.userAgent,
+              item.data,
+              item.created
+            );
+          }
+        });
+      } else {
+        return this.db.transaction(async (tx) => {
+          for (const item of items) {
+            await tx.prepare(`
+              INSERT INTO _logs (id, method, url, status, duration, ip, authId, authCollection, userAgent, data, created)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+              item.id,
+              item.method,
+              item.url,
+              item.status,
+              item.duration,
+              item.ip,
+              item.authId,
+              item.authCollection,
+              item.userAgent,
+              item.data,
+              item.created
+            );
+          }
+        });
+      }
     } catch {
       // Don't let log write errors break request flow
     }
   }
 
-  public getLogs(page = 1, perPage = 50): { items: any[]; totalItems: number; totalPages: number; page: number; perPage: number } {
-    this.flush();
-    const offset = (page - 1) * perPage;
-    const totalRow = this.db.get<any>('SELECT COUNT(*) as count FROM _logs');
-    const totalItems = totalRow?.count || 0;
-    const totalPages = Math.ceil(totalItems / perPage);
+  public getLogs(page = 1, perPage = 50): any {
+    const flushRes = this.flush();
+    const fetch = () => {
+      const offset = (page - 1) * perPage;
+      const totalRow = this.db.get<any>('SELECT COUNT(*) as count FROM _logs');
+      const processItems = (totalCount: number, items: any[]) => {
+        const totalPages = Math.ceil(totalCount / perPage);
+        return {
+          items: (items || []).map((item) => ({
+            ...item,
+            data: item.data ? (typeof item.data === 'string' ? JSON.parse(item.data) : item.data) : null,
+          })),
+          totalItems: totalCount,
+          totalPages,
+          page,
+          perPage,
+        };
+      };
 
-    const items = this.db.all<any>(
-      'SELECT * FROM _logs ORDER BY created DESC LIMIT ? OFFSET ?',
-      [perPage, offset]
-    );
+      if (totalRow && typeof (totalRow as any).then === 'function') {
+        return (totalRow as any).then(async (tr: any) => {
+          const count = tr?.count || 0;
+          const paginatedSql = this.db.dialect.paginate('SELECT * FROM _logs ORDER BY created DESC', perPage, offset);
+          const items = await this.db.all<any>(paginatedSql);
+          return processItems(count, items);
+        });
+      }
 
-    return {
-      items: items.map((item) => ({
-        ...item,
-        data: item.data ? JSON.parse(item.data) : null,
-      })),
-      totalItems,
-      totalPages,
-      page,
-      perPage,
+      const totalItems = totalRow?.count || 0;
+      const paginatedSql = this.db.dialect.paginate('SELECT * FROM _logs ORDER BY created DESC', perPage, offset);
+      const items = this.db.all<any>(paginatedSql);
+      if (items && typeof (items as any).then === 'function') {
+        return (items as any).then((rawItems: any[]) => processItems(totalItems, rawItems));
+      }
+      return processItems(totalItems, items);
     };
+
+    if (flushRes && typeof flushRes.then === 'function') {
+      return flushRes.then(fetch);
+    }
+    return fetch();
   }
 
-  public pruneLogs(olderThanDays: number): number {
-    this.flush();
+  public pruneLogs(olderThanDays: number): any {
     const days = Number(olderThanDays);
     if (!Number.isFinite(days) || days < 0) {
       throw new Error('Invalid olderThanDays parameter: must be a non-negative finite number');
     }
+    const flushRes = this.flush();
     const cutoff = new Date(Date.now() - days * 86400000).toISOString();
-    const result = this.db.prepare('DELETE FROM _logs WHERE created < ?').run(cutoff);
-    return Number(result.changes);
+    const doDelete = () => {
+      const result = this.db.prepare('DELETE FROM _logs WHERE created < ?').run(cutoff);
+      if (result && typeof (result as any).then === 'function') {
+        return (result as any).then((res: any) => Number(res.changes));
+      }
+      return Number((result as any).changes);
+    };
+
+    if (flushRes && typeof flushRes.then === 'function') {
+      return flushRes.then(doDelete);
+    }
+    return doDelete();
   }
 
-  public clearLogs(olderThanDays?: number): number {
-    this.flush();
+  public clearLogs(olderThanDays?: number): any {
+    const flushRes = this.flush();
     if (olderThanDays !== undefined && olderThanDays !== null) {
       return this.pruneLogs(olderThanDays);
     }
     this.buffer = [];
-    const result = this.db.prepare('DELETE FROM _logs').run();
-    return Number(result.changes);
+    const doDelete = () => {
+      const result = this.db.prepare('DELETE FROM _logs').run();
+      if (result && typeof (result as any).then === 'function') {
+        return (result as any).then((res: any) => Number(res.changes));
+      }
+      return Number((result as any).changes);
+    };
+
+    if (flushRes && typeof flushRes.then === 'function') {
+      return flushRes.then(doDelete);
+    }
+    return doDelete();
   }
 
   public dispose(): void {

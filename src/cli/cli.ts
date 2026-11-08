@@ -2,6 +2,8 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import * as readline from 'readline';
 import { NodeStack } from '../NodeStack';
+import { DriverRegistry, DatabaseConfig } from '../database/drivers/DriverRegistry';
+import { DatabaseMigrationService } from '../database/migration/DatabaseMigrationService';
 
 export async function runCli(argv = process.argv): Promise<Command | undefined> {
   const program = new Command();
@@ -211,7 +213,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
     .action(async (options) => {
       const app = new NodeStack({ dataDir: options.dir });
       try {
-        const types = app.generateTypes();
+        const types = await app.generateTypes();
         if (options.out) {
           const fs = await import('fs');
           const path = await import('path');
@@ -242,7 +244,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
     .action(async (options) => {
       const app = new NodeStack({ dataDir: options.dir });
       try {
-        const specJson = app.generateOpenApiJson(!options.compact);
+        const specJson = await app.generateOpenApiJson(!options.compact);
         if (options.out) {
           const fs = await import('fs');
           const path = await import('path');
@@ -399,23 +401,23 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             console.error(chalk.red('\n✗ Collection name is required: npx nodestack collection delete <name>\n'));
             process.exit(1);
           }
-          const col = app.schema.getCollectionOrThrow(name);
+          const col = await app.schema.getCollectionOrThrow(name);
           // Clean storage files before dropping the collection to prevent orphaned files
           try {
             await app.files.deleteCollectionFiles(col.id);
           } catch (fileErr: any) {
             throw new Error(`Failed to delete storage directory for collection '${name}': ${fileErr.message}. Aborting deletion to prevent orphaned data.`);
           }
-          app.schema.deleteCollection(name);
+          await app.schema.deleteCollection(name);
           console.log(chalk.green(`\n✓ Collection '${name}' and its SQLite table were successfully deleted!\n`));
         } else {
           // List collections
-          const collections = app.schema.getAllCollections();
+          const collections = await app.schema.getAllCollections();
           console.log(chalk.bold.cyan('\n  Database Collections:\n'));
           for (const c of collections) {
             let recordCount = 0;
             try {
-              const countRow = app.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM "${c.name}"`);
+              const countRow = await app.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM "${c.name}"`);
               recordCount = countRow ? countRow.count : 0;
             } catch {}
             console.log(
@@ -471,7 +473,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
           await app.snapshots.clearAllSnapshots();
           console.log(chalk.yellow(`\n✓ All snapshots cleared.\n`));
         } else {
-          const status = app.snapshots.getStatus();
+          const status = await app.snapshots.getStatus();
           if (status.snapshots.length === 0) {
             console.log(chalk.yellow(`\nℹ No snapshots found.`));
             console.log(chalk.dim(`  Create snapshot with: npx nodestack snapshots create\n`));
@@ -490,6 +492,126 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
         }
       } catch (err: any) {
         console.error(chalk.red(`\n✗ Snapshots error: ${err.message}\n`));
+        process.exit(1);
+      } finally {
+        app.close();
+      }
+    });
+
+  // Command: db (status, test, switch, configure)
+  program
+    .command('db [action] [targetProvider] [targetUri]')
+    .description('Manage database provider configuration, connection tests, and live migration')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('-p, --provider <provider>', 'Target database provider (sqlite, postgres, mssql)')
+    .option('-c, --connection-string <uri>', 'Connection URI string')
+    .option('--host <host>', 'Database server host')
+    .option('--port <port>', 'Database server port')
+    .option('-u, --user <user>', 'Database username')
+    .option('--password <password>', 'Database password')
+    .option('--database <database>', 'Database name')
+    .option('-m, --migrate', 'Migrate existing schema and data to target database', false)
+    .action(async (actionArg, targetProviderArg, targetUriArg, options) => {
+      const action = actionArg || 'status';
+      const provider = options.provider || targetProviderArg;
+      const connectionString = options.connectionString || (targetUriArg && !targetUriArg.startsWith('-') ? targetUriArg : undefined);
+      const app = new NodeStack({ dataDir: options.dir });
+      try {
+        await app.loadActiveDatabaseDriver();
+        if (action === 'status') {
+          const status = await app.databaseConfig.getStatus(app.db.getRootDriver());
+          console.log(chalk.bold.cyan('\n  NodeStack Database Status:\n'));
+          console.log(`  • Active Provider:      ${chalk.bold.white(status.provider.toUpperCase())}`);
+          console.log(`  • Connected:            ${status.connected ? chalk.green('✓ Yes') : chalk.red('✗ No')}`);
+          console.log(`  • Latency:              ${chalk.yellow(`${status.latencyMs}ms`)}`);
+          console.log(`  • Available Providers:  ${chalk.dim(status.availableProviders.join(', '))}`);
+          console.log(`  • Configuration:        ${chalk.gray(JSON.stringify(status.config, null, 2))}\n`);
+        } else if (action === 'test') {
+          if (!provider) {
+            console.error(chalk.red('\n✗ Target provider is required: db test <sqlite|postgres|mssql> [uri] or --provider <provider>\n'));
+            process.exit(1);
+          }
+          const targetConfig: DatabaseConfig = {
+            provider: provider as any,
+            connectionString,
+            host: options.host,
+            port: options.port ? parseInt(options.port, 10) : undefined,
+            user: options.user,
+            password: options.password,
+            database: options.database,
+          };
+          console.log(chalk.cyan(`\nTesting connection to ${targetConfig.provider.toUpperCase()}...`));
+          const res = await app.databaseConfig.testConnection(targetConfig);
+          if (res.ok) {
+            console.log(chalk.green(`\n✓ Connection successful! (${res.latencyMs}ms)`));
+            if (res.version) console.log(chalk.dim(`  Server info: ${res.version}\n`));
+          } else {
+            console.error(chalk.red(`\n✗ Connection failed: ${res.error}\n`));
+            process.exit(1);
+          }
+        } else if (action === 'configure') {
+          if (!provider) {
+            console.error(chalk.red('\n✗ Target provider is required: db configure <sqlite|postgres|mssql> [uri]\n'));
+            process.exit(1);
+          }
+          const targetConfig: DatabaseConfig = {
+            provider: provider as any,
+            connectionString,
+            host: options.host,
+            port: options.port ? parseInt(options.port, 10) : undefined,
+            user: options.user,
+            password: options.password,
+            database: options.database,
+          };
+          const savedId = await app.databaseConfig.saveConfig(targetConfig, false);
+          console.log(chalk.green(`\n✓ Database configuration saved (ID: ${savedId})\n`));
+        } else if (action === 'switch') {
+          if (!provider) {
+            console.error(chalk.red('\n✗ Target provider is required: db switch <sqlite|postgres|mssql> [--migrate] or --provider <provider>\n'));
+            process.exit(1);
+          }
+          const targetConfig: DatabaseConfig = {
+            provider: provider as any,
+            connectionString,
+            host: options.host,
+            port: options.port ? parseInt(options.port, 10) : undefined,
+            user: options.user,
+            password: options.password,
+            database: options.database,
+          };
+
+          console.log(chalk.cyan(`\nValidating target database ${targetConfig.provider.toUpperCase()}...`));
+          const testRes = await app.databaseConfig.testConnection(targetConfig);
+          if (!testRes.ok) {
+            console.error(chalk.red(`\n✗ Target database connection test failed: ${testRes.error}\n`));
+            process.exit(1);
+          }
+
+          if (options.migrate) {
+            console.log(chalk.yellow(`Migrating schema and data from current database...`));
+            const targetDriver = await DriverRegistry.createDriver(targetConfig);
+            const allApps = await app.apps.registry.getAllApps();
+            const slugs = allApps.map((a: any) => a.slug);
+            const summary = await DatabaseMigrationService.migrateAllApps(
+              app.db.getRootDriver(),
+              targetDriver,
+              slugs
+            );
+            console.log(chalk.green(`✓ Migration completed in ${summary.elapsedMs}ms:`));
+            console.log(`  • Apps: ${summary.appsCount}`);
+            console.log(`  • Collections: ${summary.collectionsCount}`);
+            console.log(`  • Records: ${summary.recordsCount}`);
+            await targetDriver.close();
+          }
+
+          await app.databaseConfig.saveConfig(targetConfig, true);
+          console.log(chalk.green(`\n✓ Active database switched successfully to ${targetConfig.provider.toUpperCase()}!\n`));
+        } else {
+          console.error(chalk.red(`\n✗ Unknown db action: '${action}'. Expected: status, test, switch, configure\n`));
+          process.exit(1);
+        }
+      } catch (err: any) {
+        console.error(chalk.red(`\n✗ Database error: ${err.message}\n`));
         process.exit(1);
       } finally {
         app.close();

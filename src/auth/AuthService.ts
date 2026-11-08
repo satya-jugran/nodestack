@@ -76,16 +76,16 @@ export class AuthService {
 
   private initEventBusSubscriptions(): void {
     if (!this.eventBus) return;
-    this.eventBus.onRecordAfterUpdate((ctx) => {
+    this.eventBus.onRecordAfterUpdate(async (ctx) => {
       const colName = typeof ctx.collection === 'string' ? ctx.collection : (ctx.collection as any)?.name;
-      const col = colName ? this.schemaService.getCollection(colName) : undefined;
+      const col = colName ? await this.schemaService.getCollection(colName) : undefined;
       if (col && col.type === 'auth') {
         this.invalidateTokenCache(col.name, ctx.record.id);
       }
     });
-    this.eventBus.onRecordAfterDelete((ctx) => {
+    this.eventBus.onRecordAfterDelete(async (ctx) => {
       const colName = typeof ctx.collection === 'string' ? ctx.collection : (ctx.collection as any)?.name;
-      const col = colName ? this.schemaService.getCollection(colName) : undefined;
+      const col = colName ? await this.schemaService.getCollection(colName) : undefined;
       if (col && col.type === 'auth') {
         this.invalidateTokenCache(col.name, ctx.record.id);
       }
@@ -182,7 +182,7 @@ export class AuthService {
           ? this.registry.getAdminById(decoded.id)
           : undefined;
         if (!admin) {
-          admin = this.db.get<any>('SELECT * FROM _admins WHERE id = ?', [decoded.id]);
+          admin = this.db.get<any>('SELECT * FROM _admins WHERE id = ?', decoded.id);
           if (admin && this.registry) {
             try {
               this.registry.getDriver().prepare(`
@@ -207,9 +207,10 @@ export class AuthService {
             throw new UnauthorizedError('Authentication token has been revoked or expired');
           }
         } else {
+          const qTable = this.db.dialect.quoteIdentifier(col.name);
           const record = this.db.get<any>(
-            `SELECT tokenKey FROM "${col.name}" WHERE id = ?`,
-            [decoded.id]
+            `SELECT tokenKey FROM ${qTable} WHERE id = ?`,
+            decoded.id
           );
           if (!record || !record.tokenKey || record.tokenKey !== decoded.tokenKey) {
             throw new UnauthorizedError('Authentication token has been revoked or expired');
@@ -226,10 +227,20 @@ export class AuthService {
 
   // --- Admin Auth ---
 
-  public hasAdmins(): boolean {
+  public hasAdmins(): any {
     const registryHas = this.registry ? this.registry.hasAdmins() : false;
+    if (registryHas && typeof (registryHas as any).then === 'function') {
+      return (registryHas as any).then(async (has: boolean) => {
+        if (has) return true;
+        const row = await this.db.get<any>('SELECT COUNT(*) as count FROM _admins');
+        return (row?.count || 0) > 0;
+      });
+    }
     if (registryHas) return true;
     const row = this.db.get<any>('SELECT COUNT(*) as count FROM _admins');
+    if (row && typeof (row as any).then === 'function') {
+      return (row as any).then((r: any) => (r?.count || 0) > 0);
+    }
     return (row?.count || 0) > 0;
   }
 
@@ -243,12 +254,12 @@ export class AuthService {
     }
 
     if (this.registry) {
-      const regExisting = this.registry.getAdminByEmail(cleanEmail);
+      const regExisting = await this.registry.getAdminByEmail(cleanEmail);
       if (regExisting) {
         throw new ConflictError(`Admin with email '${cleanEmail}' already exists`);
       }
     }
-    const existing = this.db.get<any>('SELECT id FROM _admins WHERE email = ?', [cleanEmail]);
+    const existing = await this.db.get<any>('SELECT id FROM _admins WHERE email = ?', cleanEmail);
     if (existing) {
       throw new ConflictError(`Admin with email '${cleanEmail}' already exists`);
     }
@@ -258,14 +269,15 @@ export class AuthService {
     const tokenKey = crypto.randomBytes(16).toString('hex');
     const now = new Date().toISOString();
 
-    this.db.prepare(`
-      INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(id, cleanEmail, passwordHash, tokenKey, avatar || null, now, now);
+    await this.db.run(
+      `INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      id, cleanEmail, passwordHash, tokenKey, avatar || null, now, now
+    );
 
     if (this.registry) {
       try {
-        this.registry.getDriver().prepare(`
+        await this.registry.getDriver().prepare(`
           INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(id, cleanEmail, passwordHash, tokenKey, avatar || null, now, now);
@@ -286,13 +298,13 @@ export class AuthService {
   public async authenticateAdmin(email: string, password: string): Promise<AuthResult> {
     const cleanEmail = email.trim().toLowerCase();
     let admin = this.registry
-      ? this.registry.getAdminByEmail(cleanEmail)
+      ? await this.registry.getAdminByEmail(cleanEmail)
       : undefined;
     if (!admin) {
-      admin = this.db.get<any>('SELECT * FROM _admins WHERE email = ?', [cleanEmail]);
+      admin = await this.db.get<any>('SELECT * FROM _admins WHERE email = ?', cleanEmail);
       if (admin && this.registry) {
         try {
-          this.registry.getDriver().prepare(`
+          await this.registry.getDriver().prepare(`
             INSERT OR REPLACE INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
             VALUES (?, ?, ?, ?, ?, ?, ?)
           `).run(admin.id, admin.email, admin.passwordHash, admin.tokenKey, admin.avatar || null, admin.created, admin.updated);
@@ -325,12 +337,12 @@ export class AuthService {
     };
   }
 
-  public getAdminById(id: string): Record<string, any> | undefined {
+  public async getAdminById(id: string): Promise<Record<string, any> | undefined> {
     let admin = this.registry
-      ? this.registry.getAdminById(id)
+      ? await this.registry.getAdminById(id)
       : undefined;
     if (!admin) {
-      admin = this.db.get<any>('SELECT * FROM _admins WHERE id = ?', [id]);
+      admin = await this.db.get<any>('SELECT * FROM _admins WHERE id = ?', id);
     }
     if (!admin) return undefined;
     const { passwordHash, tokenKey, ...adminSafe } = admin;
@@ -340,8 +352,8 @@ export class AuthService {
   public async updateAdminPassword(email: string, newPassword: string): Promise<void> {
     const cleanEmail = email.trim().toLowerCase();
     const admin = this.registry
-      ? this.registry.getAdminByEmail(cleanEmail)
-      : this.db.get<any>('SELECT id FROM _admins WHERE email = ?', [cleanEmail]);
+      ? await this.registry.getAdminByEmail(cleanEmail)
+      : await this.db.get<any>('SELECT id FROM _admins WHERE email = ?', cleanEmail);
     if (!admin) {
       throw new NotFoundError(`Admin with email '${cleanEmail}' not found`);
     }
@@ -353,13 +365,14 @@ export class AuthService {
     const now = new Date().toISOString();
 
     if (this.registry) {
-      this.registry.updateAdminPassword(cleanEmail, passwordHash, tokenKey);
+      await this.registry.updateAdminPassword(cleanEmail, passwordHash, tokenKey);
     }
 
     try {
-      this.db.prepare(
-        'UPDATE _admins SET passwordHash = ?, tokenKey = ?, updated = ? WHERE email = ?'
-      ).run(passwordHash, tokenKey, now, cleanEmail);
+      await this.db.run(
+        'UPDATE _admins SET passwordHash = ?, tokenKey = ?, updated = ? WHERE email = ?',
+        passwordHash, tokenKey, now, cleanEmail
+      );
     } catch {
       // non-fatal if table doesn't exist in app database
     }
@@ -375,7 +388,7 @@ export class AuthService {
     let registryFound = false;
     let targetId: string | undefined = undefined;
     if (this.registry) {
-      const regAdmin = this.registry.getAdminById(idOrEmail) || this.registry.getAdminByEmail(clean);
+      const regAdmin = (this.registry.getAdminById(idOrEmail) || this.registry.getAdminByEmail(clean));
       if (regAdmin) {
         this.registry.revokeAdminSessions(idOrEmail, tokenKey);
         registryFound = true;
@@ -387,7 +400,7 @@ export class AuthService {
     if (!targetId) {
       const dbAdmin = this.db.get<{ id: string }>(
         'SELECT id FROM _admins WHERE id = ? OR email = ?',
-        [idOrEmail, clean]
+        idOrEmail, clean
       );
       if (dbAdmin) {
         targetId = dbAdmin.id;
@@ -396,9 +409,10 @@ export class AuthService {
 
     let dbChanges = 0;
     try {
-      const result = this.db.prepare(
-        'UPDATE _admins SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?'
-      ).run(tokenKey, now, idOrEmail, clean);
+      const result = this.db.run(
+        'UPDATE _admins SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?',
+        tokenKey, now, idOrEmail, clean
+      );
       dbChanges = Number(result.changes);
     } catch {
       // non-fatal if table doesn't exist in app database
@@ -421,19 +435,21 @@ export class AuthService {
       throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
     }
     const clean = idOrEmail.trim().toLowerCase();
+    const qTable = this.db.dialect.quoteIdentifier(col.name);
 
     // Resolve canonical record id from table so we invalidate exact cache key (${col.name}:${id})
     const existing = this.db.get<{ id: string }>(
-      `SELECT id FROM "${col.name}" WHERE id = ? OR email = ?`,
-      [idOrEmail, clean]
+      `SELECT id FROM ${qTable} WHERE id = ? OR email = ?`,
+      idOrEmail, clean
     );
 
     const tokenKey = crypto.randomBytes(16).toString('hex');
     const now = new Date().toISOString();
-    const result = this.db.prepare(
-      `UPDATE "${col.name}" SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?`
-    ).run(tokenKey, now, idOrEmail, clean);
-    if (result.changes === 0) {
+    const result = this.db.run(
+      `UPDATE ${qTable} SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?`,
+      tokenKey, now, idOrEmail, clean
+    );
+    if (Number(result.changes) === 0) {
       throw new NotFoundError(`Record '${idOrEmail}' not found in '${collectionName}'`);
     }
 
@@ -451,15 +467,16 @@ export class AuthService {
     identity: string,
     password: string
   ): Promise<AuthResult> {
-    const col = this.schemaService.getCollectionOrThrow(collectionName);
+    const col = await this.schemaService.getCollectionOrThrow(collectionName);
     if (col.type !== 'auth') {
       throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
     }
 
     const cleanIdentity = identity.trim().toLowerCase();
-    const record = this.db.get<any>(
-      `SELECT * FROM "${col.name}" WHERE email = ?`,
-      [cleanIdentity]
+    const qTable = this.db.dialect.quoteIdentifier(col.name);
+    const record = await this.db.get<any>(
+      `SELECT * FROM ${qTable} WHERE email = ?`,
+      cleanIdentity
     );
 
     if (!record) {
@@ -490,8 +507,8 @@ export class AuthService {
 
   // --- OAuth2 / Social Logins ---
 
-  public listAuthMethods(collectionName: string, redirectUri?: string): { authProviders: AuthMethodProviderInfo[] } {
-    const col = this.schemaService.getCollectionOrThrow(collectionName);
+  public async listAuthMethods(collectionName: string, redirectUri?: string): Promise<{ authProviders: AuthMethodProviderInfo[] }> {
+    const col = await this.schemaService.getCollectionOrThrow(collectionName);
     if (col.type !== 'auth') {
       throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
     }
@@ -513,7 +530,7 @@ export class AuthService {
     state?: string,
     httpContext?: any
   ): Promise<OAuthAuthResult> {
-    const col = this.schemaService.getCollectionOrThrow(collectionName);
+    const col = await this.schemaService.getCollectionOrThrow(collectionName);
     if (col.type !== 'auth') {
       throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
     }
@@ -545,30 +562,31 @@ export class AuthService {
     const cleanEmail = (rawEmail || '').toLowerCase().trim();
 
     // 2. Check if external auth identity is already linked
-    const existingLink = this.db.get<any>(
+    const existingLink = await this.db.get<any>(
       'SELECT * FROM _external_auths WHERE collection = ? AND provider = ? AND providerUserId = ?',
-      [col.name, cleanProviderName, providerUserId]
+      col.name, cleanProviderName, providerUserId
     );
 
     let targetRecord: Record<string, any> | undefined;
     let isNewUser = false;
     const now = new Date().toISOString();
+    const qTable = this.db.dialect.quoteIdentifier(col.name);
 
     if (existingLink) {
-      targetRecord = this.db.get<any>(`SELECT * FROM "${col.name}" WHERE id = ?`, [existingLink.recordId]);
+      targetRecord = await this.db.get<any>(`SELECT * FROM ${qTable} WHERE id = ?`, existingLink.recordId);
       if (targetRecord) {
-        this.db.prepare('UPDATE _external_auths SET updated = ? WHERE id = ?').run(now, existingLink.id);
+        await this.db.run('UPDATE _external_auths SET updated = ? WHERE id = ?', now, existingLink.id);
       } else {
-        this.db.prepare('DELETE FROM _external_auths WHERE id = ?').run(existingLink.id);
+        await this.db.run('DELETE FROM _external_auths WHERE id = ?', existingLink.id);
       }
     }
 
     if (!targetRecord) {
       // 3. Check if account with same email already exists
       if (cleanEmail) {
-        const existingByEmail = this.db.get<any>(
-          `SELECT * FROM "${col.name}" WHERE email = ?`,
-          [cleanEmail]
+        const existingByEmail = await this.db.get<any>(
+          `SELECT * FROM ${qTable} WHERE email = ?`,
+          cleanEmail
         );
 
         if (existingByEmail) {
@@ -583,10 +601,11 @@ export class AuthService {
           targetRecord = existingByEmail;
           // Link this external auth to the existing user
           const linkId = `ea_${crypto.randomBytes(6).toString('hex')}`;
-          this.db.prepare(`
-            INSERT INTO _external_auths (id, collection, recordId, provider, providerUserId, email, created, updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(linkId, col.name, existingByEmail.id, cleanProviderName, providerUserId, cleanEmail || null, now, now);
+          await this.db.run(
+            `INSERT INTO _external_auths (id, collection, recordId, provider, providerUserId, email, created, updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            linkId, col.name, existingByEmail.id, cleanProviderName, providerUserId, cleanEmail || null, now, now
+          );
         }
       }
     }
@@ -684,21 +703,23 @@ export class AuthService {
       }
 
       // 4. Insert into database
-      const columns = Object.keys(insertRecord).map((k) => `"${k}"`);
+      const columns = Object.keys(insertRecord).map((k) => this.db.dialect.quoteIdentifier(k));
       const placeholders = Object.keys(insertRecord).map(() => '?');
       const values = Object.values(insertRecord);
 
-      this.db.prepare(`
-        INSERT INTO "${col.name}" (${columns.join(', ')})
-        VALUES (${placeholders.join(', ')})
-      `).run(...values);
+      await this.db.run(
+        `INSERT INTO ${qTable} (${columns.join(', ')})
+        VALUES (${placeholders.join(', ')})`,
+        ...values
+      );
 
       // 5. Link external social identity
       const linkId = `ea_${crypto.randomBytes(6).toString('hex')}`;
-      this.db.prepare(`
-        INSERT INTO _external_auths (id, collection, recordId, provider, providerUserId, email, created, updated)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(linkId, col.name, newId, cleanProviderName, providerUserId, cleanEmail || null, now, now);
+      await this.db.run(
+        `INSERT INTO _external_auths (id, collection, recordId, provider, providerUserId, email, created, updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        linkId, col.name, newId, cleanProviderName, providerUserId, cleanEmail || null, now, now
+      );
 
       targetRecord = insertRecord;
 
@@ -749,20 +770,20 @@ export class AuthService {
     };
   }
 
-  public getExternalAuths(collectionName: string, recordId: string): ExternalAuthModel[] {
-    const rows = this.db.all<any>(
+  public async getExternalAuths(collectionName: string, recordId: string): Promise<ExternalAuthModel[]> {
+    const rows = await this.db.all<any>(
       'SELECT * FROM _external_auths WHERE collection = ? AND recordId = ? ORDER BY created ASC',
-      [collectionName, recordId]
+      collectionName, recordId
     );
     return rows;
   }
 
-  public unlinkExternalAuth(collectionName: string, recordId: string, provider: string): void {
-    const result = this.db.run(
+  public async unlinkExternalAuth(collectionName: string, recordId: string, provider: string): Promise<void> {
+    const result = await this.db.run(
       'DELETE FROM _external_auths WHERE collection = ? AND recordId = ? AND provider = ?',
-      [collectionName, recordId, provider.toLowerCase()]
+      collectionName, recordId, provider.toLowerCase()
     );
-    if (result.changes === 0) {
+    if (Number(result.changes) === 0) {
       throw new NotFoundError(`External auth '${provider}' not linked to record '${recordId}'`);
     }
   }

@@ -65,14 +65,12 @@ export class AppScope {
     this.app = app;
     this.config = config;
     this.db = db;
-    this.db.init();
-
     this.maintenanceGate = new MaintenanceGate();
     this.eventBus = new EventBus();
 
     this.fts = new FtsService(this.db);
     this.schema = new SchemaService(this.db, this.fts);
-    this.fts.syncAll(this.schema.getAllCollections());
+    this.init().catch(() => {});
 
     this.typegen = new TypeGenerator(this.schema);
     const openApiTitle = app.slug === 'default'
@@ -237,6 +235,21 @@ export class AppScope {
     });
   }
 
+  public async init(): Promise<void> {
+    if (this.app.slug !== 'default' && this.db.getRootDriver()?.withSchema) {
+      const cleanSchema = `app_${this.app.slug.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+      const currentSchema = (this.db.getRootDriver() as any).getSchemaName?.();
+      if (currentSchema && currentSchema !== cleanSchema) {
+        const schemaDriver = await this.db.getRootDriver().withSchema(this.app.slug);
+        await this.db.switchDriver(schemaDriver);
+      }
+    }
+    await this.db.init();
+    this.fts.refreshDriver();
+    const cols = await this.schema.getAllCollections();
+    await this.fts.syncAll(cols);
+  }
+
   public static create(
     app: AppModel,
     config: ConfigService,
@@ -255,8 +268,37 @@ export class AppScope {
     const factoryDriver = driverFactory ? driverFactory(app, appDbPath) : undefined;
     if (factoryDriver) {
       db = new DatabaseService(config, factoryDriver, appDbPath);
-    } else if (app.slug === 'default' && customDriver) {
-      db = new DatabaseService(config, customDriver, appDbPath);
+    } else if (customDriver) {
+      if (app.slug === 'default' || app.isDefault) {
+        db = new DatabaseService(config, customDriver, appDbPath);
+      } else if (customDriver.dialect.name !== 'sqlite') {
+        if (customDriver.dialect.name === 'postgres') {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { PostgresDriver } = require('../database/drivers/PostgresDriver');
+          const schemaDriver = new PostgresDriver({
+            pool: (customDriver as any).pool,
+            replicaPools: (customDriver as any).replicaPools,
+            connectionString: (customDriver as any).connectionString,
+            schemaName: `app_${app.slug.replace(/[^a-zA-Z0-9_]/g, '_')}`,
+            isSharedPool: true,
+          });
+          db = new DatabaseService(config, schemaDriver, appDbPath);
+        } else if (customDriver.dialect.name === 'mssql') {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { MssqlDriver } = require('../database/drivers/MssqlDriver');
+          const schemaDriver = new MssqlDriver({
+            connectionPool: (customDriver as any).pool,
+            replicaPools: (customDriver as any).replicaPools,
+            schemaName: `app_${app.slug.replace(/[^a-zA-Z0-9_]/g, '_')}`,
+            isSharedPool: true,
+          });
+          db = new DatabaseService(config, schemaDriver, appDbPath);
+        } else {
+          db = new DatabaseService(config, undefined, appDbPath);
+        }
+      } else {
+        db = new DatabaseService(config, undefined, appDbPath);
+      }
     } else {
       if (app.slug === 'default') {
         AppScope.migrateLegacyDefault(config, registry);

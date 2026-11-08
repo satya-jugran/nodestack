@@ -78,8 +78,8 @@ export class RealtimeService {
     }
   }
 
-  public broadcast(action: RealtimeAction, collectionName: string, record: Record<string, any>): void {
-    const collection = this.schemaService.getCollection(collectionName);
+  public async broadcast(action: RealtimeAction, collectionName: string, record: Record<string, any>): Promise<void> {
+    const collection = await this.schemaService.getCollection(collectionName);
     if (!collection) return;
 
     for (const [, client] of this.clients) {

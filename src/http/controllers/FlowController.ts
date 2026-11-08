@@ -27,7 +27,7 @@ export class FlowController extends BaseController {
         ? req.query.enabled === 'true' || req.query.enabled === '1'
         : undefined;
 
-    const flows = service.getAllFlows({
+    const flows = await service.getAllFlows({
       search: req.query.search,
       enabled,
     });
@@ -39,7 +39,7 @@ export class FlowController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getFlowsService(req);
-    const flow = service.getFlowById(req.params.id) || service.getFlowByName(req.params.id);
+    const flow = (await service.getFlowById(req.params.id)) || (await service.getFlowByName(req.params.id));
     if (!flow) {
       this.error(reply, 'Flow not found', 404);
       return;
@@ -53,7 +53,7 @@ export class FlowController extends BaseController {
   ): Promise<void> {
     const service = this.getFlowsService(req);
     try {
-      const created = service.createFlow(req.body, (req as any).auth);
+      const created = await service.createFlow(req.body, (req as any).auth);
       this.ok(reply, created, 201);
     } catch (err: any) {
       if (err instanceof AppError) {
@@ -70,7 +70,7 @@ export class FlowController extends BaseController {
   ): Promise<void> {
     const service = this.getFlowsService(req);
     try {
-      const updated = service.updateFlow(req.params.id, req.body, (req as any).auth);
+      const updated = await service.updateFlow(req.params.id, req.body, (req as any).auth);
       this.ok(reply, updated);
     } catch (err: any) {
       if (err instanceof AppError) {
@@ -87,7 +87,7 @@ export class FlowController extends BaseController {
   ): Promise<void> {
     const service = this.getFlowsService(req);
     try {
-      service.deleteFlow(req.params.id, (req as any).auth);
+      await service.deleteFlow(req.params.id, (req as any).auth);
       this.ok(reply, { success: true, message: 'Flow deleted successfully' });
     } catch (err: any) {
       if (err instanceof AppError) {
@@ -107,7 +107,7 @@ export class FlowController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getFlowsService(req);
-    const flow = service.getFlowById(req.params.id) || service.getFlowByName(req.params.id);
+    const flow = (await service.getFlowById(req.params.id)) || (await service.getFlowByName(req.params.id));
     if (!flow) {
       this.error(reply, 'Flow not found', 404);
       return;
@@ -189,7 +189,7 @@ export class FlowController extends BaseController {
     const rawFlowId = req.params?.id || req.query.flowId;
     let flowId = rawFlowId;
     if (rawFlowId) {
-      const resolved = service.getFlowById(rawFlowId) || service.getFlowByName(rawFlowId);
+      const resolved = (await service.getFlowById(rawFlowId)) || (await service.getFlowByName(rawFlowId));
       if (resolved) {
         flowId = resolved.id;
       }
@@ -197,7 +197,7 @@ export class FlowController extends BaseController {
     const page = req.query.page ? parseInt(req.query.page, 10) : 1;
     const perPage = req.query.perPage ? parseInt(req.query.perPage, 10) : 20;
 
-    const result = service.getExecutions({
+    const result = await service.getExecutions({
       flowId,
       status: req.query.status,
       page,
@@ -211,13 +211,13 @@ export class FlowController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getFlowsService(req);
-    const execution = service.getExecutionById(req.params.executionId);
+    const execution = await service.getExecutionById(req.params.executionId);
     if (!execution) {
       this.error(reply, 'Flow execution not found', 404);
       return;
     }
 
-    const flow = service.getFlowById(execution.flowId);
+    const flow = await service.getFlowById(execution.flowId);
     if (flow && flow.triggerType !== 'http') {
       const auth = (req as any).auth;
       if (!auth || !auth.isAdmin) {
@@ -237,12 +237,12 @@ export class FlowController extends BaseController {
     const rawFlowId = req.params?.id;
     let flowId = rawFlowId;
     if (rawFlowId) {
-      const resolved = service.getFlowById(rawFlowId) || service.getFlowByName(rawFlowId);
+      const resolved = (await service.getFlowById(rawFlowId)) || (await service.getFlowByName(rawFlowId));
       if (resolved) {
         flowId = resolved.id;
       }
     }
-    service.clearExecutions(flowId);
+    await service.clearExecutions(flowId);
     this.ok(reply, { success: true, message: 'Executions cleared' });
   }
 
@@ -274,7 +274,7 @@ export class FlowController extends BaseController {
     const service = this.getFlowsService(req);
     try {
       const reason = req.body?.reason || 'Execution aborted by admin';
-      const execution = service.abortExecution(req.params.executionId, reason);
+      const execution = await service.abortExecution(req.params.executionId, reason);
       this.ok(reply, execution);
     } catch (err: any) {
       if (err instanceof AppError) {

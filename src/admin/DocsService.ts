@@ -30,7 +30,7 @@ export class DocsService {
         ? (this.config?.appName || 'NodeStack')
         : (scope?.app?.name || this.config?.appName || 'NodeStack');
       const appSlug = scope?.app?.slug || 'default';
-      const spec = generator.generate({
+      const spec = await generator.generate({
         title: `${appName} API`,
         appSlug,
         appName,
@@ -60,7 +60,7 @@ export class DocsService {
         updated: new Date().toISOString(),
       };
       const allApps: AppModel[] = this.appManager
-        ? this.appManager.list()
+        ? await this.appManager.list()
         : [currentApp];
 
       const html = this.renderDocsHtml(uiMode, currentApp, allApps);

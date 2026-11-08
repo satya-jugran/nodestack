@@ -41,4 +41,6 @@ export const TOKENS = {
   QueueController: Symbol('QueueController'),
   AppRegistry: Symbol('AppRegistry'),
   AppManager: Symbol('AppManager'),
+  DatabaseConfigService: Symbol('DatabaseConfigService'),
+  DatabaseController: Symbol('DatabaseController'),
 } as const;

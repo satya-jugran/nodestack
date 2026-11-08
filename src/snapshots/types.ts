@@ -18,6 +18,7 @@ export interface SnapshotMetadata {
   dbSizeBytes: number;
   contentHash?: string;
   isActive?: boolean;
+  isProtected?: boolean;
 }
 
 export interface SnapshotDrift {

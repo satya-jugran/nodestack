@@ -63,6 +63,7 @@ export class AdminUIBundler {
         'flows-designer-modal.js',
         'flows-designer-diagram.js',
         'queues.js',
+        'database.js',
         'app.js',
       ];
 

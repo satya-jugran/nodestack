@@ -93,7 +93,8 @@ export class RecordService {
     options: QueryOptions = {},
     auth?: any
   ): Promise<ListResult> {
-    const col = this.schemaService.getCollectionOrThrow(collectionName);
+    const col = await this.schemaService.getCollectionOrThrow(collectionName);
+    const dialect = this.db.dialect;
 
     const page = Math.max(1, Number(options.page) || 1);
     const perPage = Math.min(500, Math.max(1, Number(options.perPage) || 30));
@@ -132,7 +133,8 @@ export class RecordService {
 
     const searchTerm = typeof options.search === 'string' ? options.search.trim() : '';
     const ftsFields = this.ftsService.getFtsFields(col);
-    const hasFts = Boolean(searchTerm && ftsFields.length > 0 && this.ftsService.hasFtsIndex(col.name));
+    const hasFtsIndex = await this.ftsService.hasFtsIndex(col.name);
+    const hasFts = Boolean(searchTerm && ftsFields.length > 0 && hasFtsIndex);
 
     if (hasFts) {
       const sanitizedQuery = this.ftsService.sanitizeQuery(searchTerm);
@@ -147,14 +149,22 @@ export class RecordService {
       }
 
       const ftsTable = this.ftsService.getFtsTableName(col.name);
-      const whereConditions: string[] = [`"${ftsTable}" MATCH ?`];
+      let matchClause = `${dialect.quoteIdentifier(ftsTable)} MATCH ?`;
+      if (dialect.name === 'postgres') {
+        matchClause = `${dialect.quoteIdentifier(ftsTable)}.search_vector @@ plainto_tsquery('simple', ?)`;
+      } else if (dialect.name === 'mssql') {
+        matchClause = `1=1`;
+      }
+
+      const whereConditions: string[] = [matchClause];
       const queryParams: any[] = [sanitizedQuery];
 
       if (effectiveFilter && effectiveFilter.trim()) {
         const { clause: filterClause, params: filterParams } = QueryFilterParser.parseFilter(
           effectiveFilter,
           allowedFields,
-          't'
+          't',
+          dialect
         );
         if (filterClause) {
           const innerClause = filterClause.replace(/^WHERE\s+/i, '');
@@ -165,7 +175,6 @@ export class RecordService {
 
       const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
 
-      // Ordering: default to BM25 relevance score (ORDER BY fts.rank ASC in SQLite FTS5)
       let orderClause: string;
       if (options.sort && options.sort.trim()) {
         const cleanSort = options.sort.trim();
@@ -175,37 +184,39 @@ export class RecordService {
           cleanSort === '+_score' ||
           (cleanSort === 'rank' && !allowedFields.has('rank'))
         ) {
-          orderClause = 'ORDER BY fts.rank ASC';
+          orderClause = dialect.name === 'sqlite' ? 'ORDER BY fts.rank ASC' : 'ORDER BY t.created DESC';
         } else if (cleanSort === '-rank' && !allowedFields.has('rank')) {
-          orderClause = 'ORDER BY fts.rank DESC';
+          orderClause = dialect.name === 'sqlite' ? 'ORDER BY fts.rank DESC' : 'ORDER BY t.created ASC';
         } else {
-          orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, 't');
+          orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, 't', dialect);
         }
       } else {
-        orderClause = 'ORDER BY fts.rank ASC';
+        orderClause = dialect.name === 'sqlite' ? 'ORDER BY fts.rank ASC' : 'ORDER BY t.created DESC';
       }
 
       // Count query
-      const countSql = `SELECT COUNT(*) as count FROM "${ftsTable}" fts JOIN "${col.name}" t ON t.id = fts.id ${whereClause}`;
-      const totalRow = this.db.get<any>(countSql, queryParams);
-      const totalItems = totalRow?.count || 0;
+      const countSql = `SELECT COUNT(*) as count FROM ${dialect.quoteIdentifier(ftsTable)} fts JOIN ${dialect.quoteIdentifier(col.name)} t ON t.id = fts.id ${whereClause}`;
+      const totalRow = await this.db.get<any>(countSql, ...queryParams);
+      const totalItems = Number(totalRow?.count || 0);
       const totalPages = Math.ceil(totalItems / perPage);
 
-      // Records query with BM25 score and snippet generation
+      // Records query with score and snippet generation
       const snippetSelect = this.ftsService.buildSnippetSelect(ftsTable, ftsFields, {
         snippetTag: options.snippetTag,
         snippetLength: options.snippetLength,
         snippetEllipsis: options.snippetEllipsis,
       });
 
-      const querySql = `SELECT t.*, ${snippetSelect} FROM "${ftsTable}" fts JOIN "${col.name}" t ON t.id = fts.id ${whereClause} ${orderClause} LIMIT ? OFFSET ?`;
-      const rawItems = this.db.all<any>(querySql, [...queryParams, perPage, offset]);
+      const pag = dialect.paginationSql('?', '?', Boolean(orderClause));
+      const querySql = `SELECT t.*, ${snippetSelect} FROM ${dialect.quoteIdentifier(ftsTable)} fts JOIN ${dialect.quoteIdentifier(col.name)} t ON t.id = fts.id ${whereClause} ${orderClause} ${pag.clause}`;
+      const pagParams = pag.paramOrder === 'limit-first' ? [perPage, offset] : [offset, perPage];
+      const rawItems = await this.db.all<any>(querySql, ...queryParams, ...pagParams);
 
       this.ftsService.attachSnippetsAndScore(rawItems, ftsFields);
 
       // Sanitize and expand
       const items = await Promise.all(
-        rawItems.map(async (item) => {
+        rawItems.map(async (item: any) => {
           const clean = this.sanitizeRecord(item, col, auth);
           if (options.expand) {
             await this.expandRecord(clean, col, options.expand, auth);
@@ -242,20 +253,23 @@ export class RecordService {
 
     const { clause: whereClause, params: filterParams } = QueryFilterParser.parseFilter(
       effectiveFilter,
-      allowedFields
+      allowedFields,
+      undefined,
+      dialect
     );
-    const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields);
+    const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, undefined, dialect);
 
     // Count query
-    const countSql = `SELECT COUNT(*) as count FROM "${col.name}" ${whereClause}`;
-    const totalRow = this.db.get<any>(countSql, filterParams);
-    const totalItems = totalRow?.count || 0;
+    const countSql = `SELECT COUNT(*) as count FROM ${dialect.quoteIdentifier(col.name)} ${whereClause}`;
+    const totalRow = await this.db.get<any>(countSql, ...filterParams);
+    const totalItems = Number(totalRow?.count || 0);
     const totalPages = Math.ceil(totalItems / perPage);
 
     // Records query
-    const querySql = `SELECT * FROM "${col.name}" ${whereClause} ${orderClause} LIMIT ? OFFSET ?`;
-    const queryParams = [...filterParams, perPage, offset];
-    const rawItems = this.db.all<any>(querySql, queryParams);
+    const pag = dialect.paginationSql('?', '?', Boolean(orderClause));
+    const pagParams = pag.paramOrder === 'limit-first' ? [perPage, offset] : [offset, perPage];
+    const querySql = `SELECT * FROM ${dialect.quoteIdentifier(col.name)} ${whereClause} ${orderClause} ${pag.clause}`;
+    const rawItems = await this.db.all<any>(querySql, ...filterParams, ...pagParams);
 
     // Sanitize and expand
     const CHUNK_SIZE = 500;
@@ -263,7 +277,7 @@ export class RecordService {
     for (let i = 0; i < rawItems.length; i += CHUNK_SIZE) {
       const chunk = rawItems.slice(i, i + CHUNK_SIZE);
       const processedChunk = await Promise.all(
-        chunk.map(async (item) => {
+        chunk.map(async (item: any) => {
           const clean = this.sanitizeRecord(item, col, auth);
           if (options.expand) {
             await this.expandRecord(clean, col, options.expand, auth);
@@ -289,8 +303,12 @@ export class RecordService {
     options: QueryOptions = {},
     auth?: any
   ): Promise<Record<string, any>> {
-    const col = this.schemaService.getCollectionOrThrow(collectionName);
-    const raw = this.db.get<any>(`SELECT * FROM "${col.name}" WHERE id = ?`, [id]);
+    const col = await this.schemaService.getCollectionOrThrow(collectionName);
+    const dialect = this.db.dialect;
+    const raw = await this.db.get<any>(
+      `SELECT * FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('id')} = ?`,
+      id
+    );
 
     if (!raw) {
       throw new NotFoundError(`Record with id '${id}' not found in '${collectionName}'`);
@@ -321,7 +339,8 @@ export class RecordService {
     auth?: any,
     httpContext?: any
   ): Promise<Record<string, any>> {
-    const col = this.schemaService.getCollectionOrThrow(collectionName);
+    const col = await this.schemaService.getCollectionOrThrow(collectionName);
+    const dialect = this.db.dialect;
 
     if (auth?.isApiKey) {
       if (!hasScope(auth, col.name, 'create')) {
@@ -363,9 +382,10 @@ export class RecordService {
       }
 
       // Check unique email
-      const existing = this.db.get<any>(`SELECT id FROM "${col.name}" WHERE email = ?`, [
-        processedData.email.trim().toLowerCase(),
-      ]);
+      const existing = await this.db.get<any>(
+        `SELECT id FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('email')} = ?`,
+        processedData.email.trim().toLowerCase()
+      );
       if (existing) {
         throw new ConflictError(`Email '${processedData.email}' is already registered`);
       }
@@ -385,13 +405,12 @@ export class RecordService {
     }
 
     // Insert into DB
-    const columns = Object.keys(recordToInsert).map((k) => `"${k}"`);
+    const columns = Object.keys(recordToInsert).map((k) => dialect.quoteIdentifier(k));
     const placeholders = Object.keys(recordToInsert).map(() => '?');
     const values = Object.values(recordToInsert);
 
-    const sql = `INSERT INTO "${col.name}" (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
-
-    this.db.run(sql, values);
+    const sql = `INSERT INTO ${dialect.quoteIdentifier(col.name)} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+    await this.db.run(sql, ...values);
 
     const insertedRecord = this.sanitizeRecord(recordToInsert, col, auth, true);
     const hookRecord = (col.type === 'auth' && recordToInsert.passwordHash)
@@ -414,8 +433,12 @@ export class RecordService {
     auth?: any,
     httpContext?: any
   ): Promise<Record<string, any>> {
-    const col = this.schemaService.getCollectionOrThrow(collectionName);
-    const current = this.db.get<any>(`SELECT * FROM "${col.name}" WHERE id = ?`, [id]);
+    const col = await this.schemaService.getCollectionOrThrow(collectionName);
+    const dialect = this.db.dialect;
+    const current = await this.db.get<any>(
+      `SELECT * FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('id')} = ?`,
+      id
+    );
 
     if (!current) {
       throw new NotFoundError(`Record '${id}' not found in '${collectionName}'`);
@@ -456,10 +479,11 @@ export class RecordService {
       }
       if (processedData.email && processedData.email !== current.email) {
         const cleanEmail = processedData.email.trim().toLowerCase();
-        const existing = this.db.get<any>(`SELECT id FROM "${col.name}" WHERE email = ? AND id != ?`, [
+        const existing = await this.db.get<any>(
+          `SELECT id FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('email')} = ? AND ${dialect.quoteIdentifier('id')} != ?`,
           cleanEmail,
-          id,
-        ]);
+          id
+        );
         if (existing) {
           throw new ConflictError(`Email '${cleanEmail}' is already registered`);
         }
@@ -482,17 +506,19 @@ export class RecordService {
       }
     }
 
-    const setClauses = Object.keys(updates).map((k) => `"${k}" = ?`);
+    const setClauses = Object.keys(updates).map((k) => `${dialect.quoteIdentifier(k)} = ?`);
     const values = [...Object.values(updates), id];
-    const sql = `UPDATE "${col.name}" SET ${setClauses.join(', ')} WHERE id = ?`;
+    const sql = `UPDATE ${dialect.quoteIdentifier(col.name)} SET ${setClauses.join(', ')} WHERE ${dialect.quoteIdentifier('id')} = ?`;
 
-    this.db.run(sql, values);
+    await this.db.run(sql, ...values);
 
-    const updatedRaw = this.db.get<any>(`SELECT * FROM "${col.name}" WHERE id = ?`, [id]);
+    const updatedRaw = await this.db.get<any>(
+      `SELECT * FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('id')} = ?`,
+      id
+    );
     const updatedRecord = this.sanitizeRecord(updatedRaw, col, auth);
     const sanitizedCurrent = this.sanitizeRecord(current, col, auth);
 
-    // If password changed on auth record, preserve a redacted password marker so audit diff captures it without leaking hashes
     const passwordChanged = Boolean(
       updates.passwordHash ||
       (current.passwordHash && updatedRaw.passwordHash && current.passwordHash !== updatedRaw.passwordHash)
@@ -519,8 +545,12 @@ export class RecordService {
     auth?: any,
     httpContext?: any
   ): Promise<void> {
-    const col = this.schemaService.getCollectionOrThrow(collectionName);
-    const current = this.db.get<any>(`SELECT * FROM "${col.name}" WHERE id = ?`, [id]);
+    const col = await this.schemaService.getCollectionOrThrow(collectionName);
+    const dialect = this.db.dialect;
+    const current = await this.db.get<any>(
+      `SELECT * FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('id')} = ?`,
+      id
+    );
 
     if (!current) {
       throw new NotFoundError(`Record '${id}' not found in '${collectionName}'`);
@@ -543,7 +573,10 @@ export class RecordService {
     // Remove record files
     await this.fileStorageService?.deleteRecordFiles(col.id, id);
 
-    this.db.run(`DELETE FROM "${col.name}" WHERE id = ?`, [id]);
+    await this.db.run(
+      `DELETE FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('id')} = ?`,
+      id
+    );
 
     const deletedRecord = this.sanitizeRecord(current, col, auth);
     const hookRecord = (col.type === 'auth' && current.passwordHash)
@@ -563,7 +596,8 @@ export class RecordService {
     options: QueryOptions = {},
     auth?: any
   ): Promise<ExportResult> {
-    const col = this.schemaService.getCollectionOrThrow(collectionName);
+    const col = await this.schemaService.getCollectionOrThrow(collectionName);
+    const dialect = this.db.dialect;
 
     if (auth?.isApiKey) {
       if (!hasScope(auth, col.name, 'export') && !hasScope(auth, col.name, 'read')) {
@@ -597,7 +631,8 @@ export class RecordService {
     }
     const searchTerm = typeof options.search === 'string' ? options.search.trim() : '';
     const ftsFields = this.ftsService.getFtsFields(col);
-    const hasFts = Boolean(searchTerm && ftsFields.length > 0 && this.ftsService.hasFtsIndex(col.name));
+    const hasFtsIndex = await this.ftsService.hasFtsIndex(col.name);
+    const hasFts = Boolean(searchTerm && ftsFields.length > 0 && hasFtsIndex);
 
     let rawItems: any[];
     if (hasFts) {
@@ -606,14 +641,15 @@ export class RecordService {
         rawItems = [];
       } else {
         const ftsTable = this.ftsService.getFtsTableName(col.name);
-        const whereConditions: string[] = [`"${ftsTable}" MATCH ?`];
+        const whereConditions: string[] = [`${dialect.quoteIdentifier(ftsTable)} MATCH ?`];
         const queryParams: any[] = [sanitizedQuery];
 
         if (effectiveFilter && effectiveFilter.trim()) {
           const { clause: filterClause, params: filterParams } = QueryFilterParser.parseFilter(
             effectiveFilter,
             allowedFields,
-            't'
+            't',
+            dialect
           );
           if (filterClause) {
             const innerClause = filterClause.replace(/^WHERE\s+/i, '');
@@ -633,17 +669,17 @@ export class RecordService {
             cleanSort === '+_score' ||
             (cleanSort === 'rank' && !allowedFields.has('rank'))
           ) {
-            orderClause = 'ORDER BY fts.rank ASC';
+            orderClause = dialect.name === 'sqlite' ? 'ORDER BY fts.rank ASC' : 'ORDER BY t.created DESC';
           } else if (cleanSort === '-rank' && !allowedFields.has('rank')) {
-            orderClause = 'ORDER BY fts.rank DESC';
+            orderClause = dialect.name === 'sqlite' ? 'ORDER BY fts.rank DESC' : 'ORDER BY t.created ASC';
           } else {
-            orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, 't');
+            orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, 't', dialect);
           }
         } else {
-          orderClause = 'ORDER BY fts.rank ASC';
+          orderClause = dialect.name === 'sqlite' ? 'ORDER BY fts.rank ASC' : 'ORDER BY t.created DESC';
         }
-        const querySql = `SELECT t.* FROM "${ftsTable}" fts JOIN "${col.name}" t ON t.id = fts.id ${whereClause} ${orderClause}`;
-        rawItems = this.db.all<any>(querySql, queryParams);
+        const querySql = `SELECT t.* FROM ${dialect.quoteIdentifier(ftsTable)} fts JOIN ${dialect.quoteIdentifier(col.name)} t ON t.id = fts.id ${whereClause} ${orderClause}`;
+        rawItems = await this.db.all<any>(querySql, ...queryParams);
       }
     } else {
       if (searchTerm && !hasFts) {
@@ -656,20 +692,24 @@ export class RecordService {
           effectiveFilter = effectiveFilter ? `(${effectiveFilter}) && (${searchFilter})` : searchFilter;
           const { clause: whereClause, params: filterParams } = QueryFilterParser.parseFilter(
             effectiveFilter,
-            allowedFields
+            allowedFields,
+            undefined,
+            dialect
           );
-          const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields);
-          const querySql = `SELECT * FROM "${col.name}" ${whereClause} ${orderClause}`;
-          rawItems = this.db.all<any>(querySql, filterParams);
+          const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, undefined, dialect);
+          const querySql = `SELECT * FROM ${dialect.quoteIdentifier(col.name)} ${whereClause} ${orderClause}`;
+          rawItems = await this.db.all<any>(querySql, ...filterParams);
         }
       } else {
         const { clause: whereClause, params: filterParams } = QueryFilterParser.parseFilter(
           effectiveFilter,
-          allowedFields
+          allowedFields,
+          undefined,
+          dialect
         );
-        const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields);
-        const querySql = `SELECT * FROM "${col.name}" ${whereClause} ${orderClause}`;
-        rawItems = this.db.all<any>(querySql, filterParams);
+        const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, undefined, dialect);
+        const querySql = `SELECT * FROM ${dialect.quoteIdentifier(col.name)} ${whereClause} ${orderClause}`;
+        rawItems = await this.db.all<any>(querySql, ...filterParams);
       }
     }
 
@@ -678,7 +718,7 @@ export class RecordService {
     for (let i = 0; i < rawItems.length; i += CHUNK_SIZE) {
       const chunk = rawItems.slice(i, i + CHUNK_SIZE);
       const processedChunk = await Promise.all(
-        chunk.map(async (item) => {
+        chunk.map(async (item: any) => {
           const clean = this.sanitizeRecord(item, col, auth);
           if (options.expand) {
             await this.expandRecord(clean, col, options.expand, auth);
@@ -724,7 +764,8 @@ export class RecordService {
     options: ImportOptions = {},
     httpContext?: any
   ): Promise<ImportResult> {
-    const col = this.schemaService.getCollectionOrThrow(collectionName);
+    const col = await this.schemaService.getCollectionOrThrow(collectionName);
+    const dialect = this.db.dialect;
 
     if (auth?.isApiKey) {
       if (!hasScope(auth, col.name, 'import') && !hasScope(auth, col.name, 'write')) {
@@ -788,7 +829,10 @@ export class RecordService {
           }
           const email = String(data.email).trim().toLowerCase();
           // Check unique email in DB
-          const existing = this.db.get<any>(`SELECT id FROM "${col.name}" WHERE email = ?`, [email]);
+          const existing = await this.db.get<any>(
+            `SELECT id FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('email')} = ?`,
+            email
+          );
           if (existing && existing.id !== id) {
             throw new ConflictError(`Email '${email}' is already registered`);
           }
@@ -835,22 +879,39 @@ export class RecordService {
       };
     }
 
-    // Insert inside SQLite transaction for speed and integrity
+    // Insert inside database transaction
     const insertedRecords: Array<Record<string, any>> = [];
-    this.db.transaction(() => {
-      for (const item of validPreparedRecords) {
-        const recordToInsert = item.insertData;
-        const columns = Object.keys(recordToInsert).map((k) => `"${k}"`);
-        const placeholders = Object.keys(recordToInsert).map(() => '?');
-        const values = Object.values(recordToInsert);
+    if (dialect.name === 'sqlite') {
+      this.db.transaction(() => {
+        for (const item of validPreparedRecords) {
+          const recordToInsert = item.insertData;
+          const columns = Object.keys(recordToInsert).map((k) => dialect.quoteIdentifier(k));
+          const placeholders = Object.keys(recordToInsert).map(() => '?');
+          const values = Object.values(recordToInsert);
 
-        const sql = `INSERT INTO "${col.name}" (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
-        this.db.run(sql, values);
+          const sql = `INSERT INTO ${dialect.quoteIdentifier(col.name)} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+          this.db.run(sql, ...values);
 
-        const sanitized = this.sanitizeRecord(recordToInsert, col, auth, true);
-        insertedRecords.push(sanitized);
-      }
-    });
+          const sanitized = this.sanitizeRecord(recordToInsert, col, auth, true);
+          insertedRecords.push(sanitized);
+        }
+      });
+    } else {
+      await this.db.transaction(async (tx) => {
+        for (const item of validPreparedRecords) {
+          const recordToInsert = item.insertData;
+          const columns = Object.keys(recordToInsert).map((k) => dialect.quoteIdentifier(k));
+          const placeholders = Object.keys(recordToInsert).map(() => '?');
+          const values = Object.values(recordToInsert);
+
+          const sql = `INSERT INTO ${dialect.quoteIdentifier(col.name)} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+          await tx.prepare(sql).run(...values);
+
+          const sanitized = this.sanitizeRecord(recordToInsert, col, auth, true);
+          insertedRecords.push(sanitized);
+        }
+      });
+    }
 
     // Trigger lifecycle hooks & broadcast realtime
     for (const rec of insertedRecords) {
@@ -925,7 +986,7 @@ export class RecordService {
     for (const fieldName of expandFields) {
       const field = col.schema.find((f) => f.name === fieldName);
       if (field && field.type === 'relation' && field.options?.collectionId) {
-        const relatedCol = this.schemaService.getCollection(field.options.collectionId);
+        const relatedCol = await this.schemaService.getCollection(field.options.collectionId);
         const relatedId = record[fieldName];
         if (relatedCol && relatedId) {
           try {

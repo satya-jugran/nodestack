@@ -90,8 +90,8 @@ export class TemplateService {
     const targetCollectionNames = template.collections.map((c) => c.name);
 
     // 1. Check existing collections
-    const existingCollections = targetCollectionNames.map((name) =>
-      this.schemaService.getCollection(name)
+    const existingCollections = await Promise.all(
+      targetCollectionNames.map((name) => this.schemaService.getCollection(name))
     );
     const allExist = existingCollections.every((c) => c !== undefined);
 
@@ -100,8 +100,8 @@ export class TemplateService {
       if (this.functionService && template.functions) {
         for (const fn of template.functions) {
           try {
-            if (!this.functionService.getFunctionByName(fn.name)) {
-              this.functionService.createFunction(fn);
+            if (!(await this.functionService.getFunctionByName(fn.name))) {
+              await this.functionService.createFunction(fn);
             }
           } catch {}
         }
@@ -109,8 +109,8 @@ export class TemplateService {
       if (this.flowService && template.flows) {
         for (const flow of template.flows) {
           try {
-            if (!this.flowService.getFlowByName(flow.name)) {
-              this.flowService.createFlow(flow);
+            if (!(await this.flowService.getFlowByName(flow.name))) {
+              await this.flowService.createFlow(flow);
             }
           } catch {}
         }
@@ -131,13 +131,13 @@ export class TemplateService {
     // 2. If overwrite is requested, drop existing collections in reverse order
     if (options.overwrite) {
       for (const colDef of [...template.collections].reverse()) {
-        const existing = this.schemaService.getCollection(colDef.name);
+        const existing = await this.schemaService.getCollection(colDef.name);
         if (existing) {
           try {
             await this.fileStorageService.deleteRecordFiles(existing.id, '');
           } catch {}
           try {
-            this.schemaService.deleteCollection(existing.name);
+            await this.schemaService.deleteCollection(existing.name);
           } catch {}
         }
       }
@@ -147,7 +147,7 @@ export class TemplateService {
     const collectionIdMap = new Map<string, string>();
 
     for (const colDef of template.collections) {
-      let col = this.schemaService.getCollection(colDef.name);
+      let col = await this.schemaService.getCollection(colDef.name);
 
       if (!col) {
         // Clone DTO
@@ -169,7 +169,7 @@ export class TemplateService {
           }),
         };
 
-        col = this.schemaService.createCollection(dto);
+        col = await this.schemaService.createCollection(dto);
       }
 
       collectionIdMap.set(colDef.name, col.id);
@@ -187,14 +187,15 @@ export class TemplateService {
     let totalImages = 0;
 
     for (const colDef of template.collections) {
-      const col = this.schemaService.getCollectionOrThrow(colDef.name);
+      const col = await this.schemaService.getCollectionOrThrow(colDef.name);
+      const qTable = this.db.dialect.quoteIdentifier(col.name);
 
       // Check if table already has rows (skip seeding this collection if not overwriting)
-      const existingCountRow = this.db.get<{ count: number }>(
-        `SELECT COUNT(*) as count FROM "${col.name}"`
+      const existingCountRow = await this.db.get<{ count: number }>(
+        `SELECT COUNT(*) as count FROM ${qTable}`
       );
       if (existingCountRow && existingCountRow.count > 0 && !options.overwrite) {
-        const existingRows = this.db.all<any>(`SELECT * FROM "${col.name}" LIMIT 200`);
+        const existingRows = await this.db.all<any>(this.db.dialect.paginate(`SELECT * FROM ${qTable}`, 200, 0));
         seededRecordsMap.set(col.name, existingRows);
         continue;
       }
@@ -244,24 +245,36 @@ export class TemplateService {
         preparedRows.push(record);
       }
 
-      // High-speed SQLite transaction insert
+      // Database transaction insert
       if (preparedRows.length > 0) {
         const sampleRow = preparedRows[0];
         const columns = Object.keys(sampleRow);
         const placeholders = columns.map(() => '?').join(', ');
-        const insertSql = `INSERT INTO "${col.name}" (${columns
-          .map((c) => `"${c}"`)
+        const insertSql = `INSERT INTO ${qTable} (${columns
+          .map((c) => this.db.dialect.quoteIdentifier(c))
           .join(', ')}) VALUES (${placeholders})`;
-        const insertStmt = this.db.prepare(insertSql);
 
-        this.db.transaction(() => {
-          for (const row of preparedRows) {
-            const values = columns.map((colName) =>
-              row[colName] !== undefined ? row[colName] : null
-            );
-            insertStmt.run(...values);
-          }
-        });
+        if (this.db.dialect.name === 'sqlite') {
+          const insertStmt = this.db.prepare(insertSql);
+          this.db.transaction(() => {
+            for (const row of preparedRows) {
+              const values = columns.map((colName) =>
+                row[colName] !== undefined ? row[colName] : null
+              );
+              insertStmt.run(...values);
+            }
+          });
+        } else {
+          await this.db.transaction(async (tx) => {
+            const insertStmt = tx.prepare(insertSql);
+            for (const row of preparedRows) {
+              const values = columns.map((colName) =>
+                row[colName] !== undefined ? row[colName] : null
+              );
+              await insertStmt.run(...values);
+            }
+          });
+        }
 
         // Trigger events & SSE broadcast
         for (const rec of preparedRows) {
@@ -279,12 +292,12 @@ export class TemplateService {
     if (this.functionService && template.functions && template.functions.length > 0) {
       for (const fnDto of template.functions) {
         try {
-          const existing = this.functionService.getFunctionByName(fnDto.name);
+          const existing = await this.functionService.getFunctionByName(fnDto.name);
           if (!existing) {
-            this.functionService.createFunction(fnDto);
+            await this.functionService.createFunction(fnDto);
             totalFunctions++;
           } else if (options.overwrite) {
-            this.functionService.updateFunction(existing.id, fnDto);
+            await this.functionService.updateFunction(existing.id, fnDto);
             totalFunctions++;
           }
         } catch (err: any) {
@@ -298,12 +311,12 @@ export class TemplateService {
     if (this.flowService && template.flows && template.flows.length > 0) {
       for (const flowDto of template.flows) {
         try {
-          const existing = this.flowService.getFlowByName(flowDto.name);
+          const existing = await this.flowService.getFlowByName(flowDto.name);
           if (!existing) {
-            this.flowService.createFlow(flowDto);
+            await this.flowService.createFlow(flowDto);
             totalFlows++;
           } else if (options.overwrite) {
-            this.flowService.updateFlow(existing.id, flowDto);
+            await this.flowService.updateFlow(existing.id, flowDto);
             totalFlows++;
           }
         } catch (err: any) {

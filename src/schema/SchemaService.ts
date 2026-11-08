@@ -14,13 +14,14 @@ export class SchemaService {
 
   public getAllCollections(): CollectionModel[] {
     const rows = this.db.all<any>('SELECT * FROM _collections ORDER BY name ASC');
-    return rows.map((r) => this.mapRowToCollection(r));
+    return (rows || []).map((r: any) => this.mapRowToCollection(r));
   }
 
   public getCollection(nameOrId: string): CollectionModel | undefined {
     const row = this.db.get<any>(
       'SELECT * FROM _collections WHERE id = ? OR name = ?',
-      [nameOrId, nameOrId]
+      nameOrId,
+      nameOrId
     );
     if (!row) return undefined;
     return this.mapRowToCollection(row);
@@ -35,7 +36,6 @@ export class SchemaService {
   }
 
   public createCollection(dto: CreateCollectionDto): CollectionModel {
-    // Validation
     const cleanName = dto.name.trim().toLowerCase();
     if (!cleanName || !/^[a-zA-Z0-9_]+$/.test(cleanName)) {
       throw new AppError('Collection name must only contain alphanumeric characters and underscores', 400);
@@ -71,7 +71,7 @@ export class SchemaService {
     const indexes = dto.indexes || [];
     const options = dto.options || {};
 
-    const col = this.db.transaction(() => {
+    return this.db.transaction(() => {
       // 1. Create SQL table
       this.createSqlTable(cleanName, type, schema);
 
@@ -98,17 +98,13 @@ export class SchemaService {
       );
 
       const created = this.getCollectionOrThrow(id);
-      this.ftsService?.syncCollection(created);
+      if (this.ftsService) {
+        this.ftsService.syncCollection(created);
+      }
       return created;
     });
-    return col;
   }
 
-  /**
-   * Register or idempotent ensure a system collection (used by plugins & system modules).
-   * Does not throw ConflictError if already created as a system collection; syncs any newly declared fields.
-   * Rejects existing non-system collections with ConflictError to prevent altering user collections.
-   */
   public registerSystemCollection(dto: CreateCollectionDto): CollectionModel {
     const cleanName = dto.name.trim().toLowerCase();
     if (!cleanName || !/^[a-zA-Z0-9_]+$/.test(cleanName)) {
@@ -119,26 +115,31 @@ export class SchemaService {
     if (existing) {
       if (!existing.system) {
         throw new ConflictError(
-          `Cannot register system collection '${cleanName}': a non-system collection with this name already exists`
+          `Cannot register system collection '${cleanName}': a non-system collection with this name already exists.`
         );
       }
 
-      if (dto.schema && dto.schema.length > 0) {
-        this.validateSchemaFields(dto.schema, existing.type);
-        const existingFieldNames = new Set(existing.schema.map((f) => f.name.toLowerCase()));
-        const mergedSchema = [...existing.schema];
-        for (const field of dto.schema) {
-          if (!existingFieldNames.has(field.name.toLowerCase())) {
-            mergedSchema.push(field);
-          }
-        }
+      const declaredFields = dto.schema || [];
+      const currentSchema = existing.schema || [];
+      const currentNames = new Set(currentSchema.map((f) => f.name.toLowerCase()));
+      const fieldsToAdd: SchemaField[] = [];
 
+      for (const field of declaredFields) {
+        if (!currentNames.has(field.name.toLowerCase())) {
+          fieldsToAdd.push({
+            ...field,
+            id: field.id || `f_${crypto.randomBytes(4).toString('hex')}`,
+          });
+        }
+      }
+
+      if (fieldsToAdd.length > 0) {
+        const mergedSchema = [...currentSchema, ...fieldsToAdd];
         return this.updateCollection(existing.id, {
           schema: mergedSchema,
-          indexes: dto.indexes || existing.indexes,
-          options: dto.options ? { ...existing.options, ...dto.options } : existing.options,
         });
       }
+
       return existing;
     }
 
@@ -149,22 +150,19 @@ export class SchemaService {
       updateRule: '',
       deleteRule: '',
       ...dto,
+      name: cleanName,
       system: true,
     });
   }
 
   public updateCollection(nameOrId: string, dto: UpdateCollectionDto): CollectionModel {
     const current = this.getCollectionOrThrow(nameOrId);
-    if (current.system) {
-      // Allow modifying rules and non-system fields on system collections like users
-    }
+    let targetName = current.name;
+    const now = new Date().toISOString();
 
-    const res = this.db.transaction(() => {
-      const now = new Date().toISOString();
-      let targetName = current.name;
-
-      // Handle rename
-      if (dto.name && dto.name !== current.name) {
+    return this.db.transaction(() => {
+      // Handle rename if provided and changed
+      if (dto.name && dto.name.trim().toLowerCase() !== current.name) {
         if (current.system) {
           throw new AppError('Cannot rename system collections', 400);
         }
@@ -173,8 +171,10 @@ export class SchemaService {
         if (existing && existing.id !== current.id) {
           throw new ConflictError(`Collection '${cleanNewName}' already exists`);
         }
-        this.ftsService?.dropCollectionFts(current.name);
-        this.db.exec(`ALTER TABLE "${current.name}" RENAME TO "${cleanNewName}";`);
+        if (this.ftsService) {
+          this.ftsService.dropCollectionFts(current.name);
+        }
+        this.db.exec(this.db.dialect.renameTableSql(current.name, cleanNewName));
         targetName = cleanNewName;
       }
 
@@ -221,10 +221,11 @@ export class SchemaService {
       );
 
       const updated = this.getCollectionOrThrow(current.id);
-      this.ftsService?.syncCollection(updated);
+      if (this.ftsService) {
+        this.ftsService.syncCollection(updated);
+      }
       return updated;
     });
-    return res;
   }
 
   public deleteCollection(nameOrId: string): void {
@@ -238,78 +239,60 @@ export class SchemaService {
     }
 
     this.db.transaction(() => {
-      this.ftsService?.dropCollectionFts(current.name);
-      this.db.exec(`DROP TABLE IF EXISTS "${current.name}";`);
+      if (this.ftsService) {
+        this.ftsService.dropCollectionFts(current.name);
+      }
+      this.db.exec(this.db.dialect.dropTableIfExists(current.name));
       this.db.prepare('DELETE FROM _collections WHERE id = ?').run(current.id);
     });
   }
 
-  /**
-   * Validates collection schema fields against syntax rules, reserved system names,
-   * search metadata names (_score, _snippet, _snippets, _snippet_*), and duplicates.
-   */
-  public validateSchemaFields(schema: SchemaField[], collectionType?: string): void {
-    if (!Array.isArray(schema)) return;
-
-    const seen = new Set<string>();
-    const reservedSys = new Set<string>(['id', 'created', 'updated']);
-    if (collectionType === 'auth') {
-      reservedSys.add('email');
-      reservedSys.add('emailvisibility');
-      reservedSys.add('verified');
-      reservedSys.add('password');
-      reservedSys.add('passwordhash');
-      reservedSys.add('tokenkey');
+  private validateSchemaFields(schema: SchemaField[], type?: string): void {
+    const names = new Set<string>();
+    const reservedNames = ['id', 'created', 'updated'];
+    if (type === 'auth') {
+      reservedNames.push('email', 'emailVisibility', 'verified', 'passwordHash', 'tokenKey');
     }
 
-    for (const field of schema) {
-      if (!field || typeof field.name !== 'string' || !field.name.trim()) {
-        throw new AppError('Field name must be a non-empty string', 400);
+    for (const f of schema) {
+      const clean = f.name?.trim().toLowerCase();
+      if (!clean || !/^[a-zA-Z0-9_]+$/.test(clean)) {
+        throw new AppError(`Field name '${f.name}' is invalid. Only letters, numbers, and underscores allowed.`, 400);
       }
-      if (field.id !== undefined && field.id !== null && String(field.id).trim() !== '') {
-        const cleanFieldId = String(field.id).trim();
-        if (!/^[a-zA-Z0-9_-]+$/.test(cleanFieldId)) {
-          throw new AppError(`Field ID '${field.id}' must only contain alphanumeric characters, underscores, and hyphens`, 400);
-        }
-      }
-      const rawName = field.name.trim();
-      if (!/^[a-zA-Z0-9_]+$/.test(rawName)) {
-        throw new AppError(`Field name '${rawName}' must only contain alphanumeric characters and underscores`, 400);
-      }
-      if (/^[0-9]/.test(rawName)) {
-        throw new AppError(`Field name '${rawName}' cannot start with a number`, 400);
-      }
-
-      if (isReservedFtsFieldName(rawName)) {
-        throw new ConflictError(`Field name '${rawName}' is reserved for search metadata`);
-      }
-
-      const lower = rawName.toLowerCase();
-      if ((field.fts === true || field.options?.fts === true) && (lower === 'rank' || lower === 'rowid')) {
+      if ((f.fts === true || f.options?.fts === true) && (clean === 'rank' || clean === 'rowid')) {
         throw new ConflictError(
-          `Field '${rawName}' cannot have FTS indexing enabled because it is a reserved SQLite FTS5 column name`
+          `Field '${f.name}' cannot have FTS indexing enabled because it is a reserved SQLite FTS5 column name`
         );
       }
-      if (reservedSys.has(lower)) {
-        throw new ConflictError(`Field name '${rawName}' collides with reserved system field`);
+      if (reservedNames.includes(clean)) {
+        throw new ConflictError(`Field name '${f.name}' collides with reserved system field`);
       }
-
-      if (seen.has(lower)) {
-        throw new ConflictError(`Field name collision: field '${rawName}' already exists in schema`);
+      if (isReservedFtsFieldName(clean)) {
+        throw new ConflictError(`Field name '${f.name}' is reserved for search metadata`);
       }
-      seen.add(lower);
+      if (names.has(clean)) {
+        throw new AppError(`Duplicate field name '${f.name}' in collection schema`, 400);
+      }
+      names.add(clean);
     }
   }
 
   private createSqlTable(name: string, type: string, schema: SchemaField[]): void {
-    const columns: string[] = ['"id" TEXT PRIMARY KEY'];
+    const dialect = this.db.dialect;
+    const pkType = dialect.mapFieldType('text', { isPrimaryKey: true });
+    const txtType = dialect.mapFieldType('text');
+    const boolType = dialect.mapFieldType('bool');
+    const dateType = dialect.mapFieldType('date');
+
+    const columns: string[] = [`${dialect.quoteIdentifier('id')} ${pkType} PRIMARY KEY`];
 
     if (type === 'auth') {
-      columns.push('"email" TEXT UNIQUE NOT NULL');
-      columns.push('"emailVisibility" INTEGER NOT NULL DEFAULT 0');
-      columns.push('"verified" INTEGER NOT NULL DEFAULT 0');
-      columns.push('"passwordHash" TEXT NOT NULL');
-      columns.push('"tokenKey" TEXT NOT NULL');
+      const emailType = dialect.mapFieldType('email', { isUnique: true });
+      columns.push(`${dialect.quoteIdentifier('email')} ${emailType} UNIQUE NOT NULL`);
+      columns.push(`${dialect.quoteIdentifier('emailVisibility')} ${boolType} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`);
+      columns.push(`${dialect.quoteIdentifier('verified')} ${boolType} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`);
+      columns.push(`${dialect.quoteIdentifier('passwordHash')} ${txtType} NOT NULL`);
+      columns.push(`${dialect.quoteIdentifier('tokenKey')} ${txtType} NOT NULL`);
     }
 
     for (const field of schema) {
@@ -317,24 +300,22 @@ export class SchemaService {
       columns.push(colDef);
     }
 
-    columns.push('"created" TEXT NOT NULL');
-    columns.push('"updated" TEXT NOT NULL');
+    columns.push(`${dialect.quoteIdentifier('created')} ${dateType} NOT NULL`);
+    columns.push(`${dialect.quoteIdentifier('updated')} ${dateType} NOT NULL`);
 
-    const sql = `CREATE TABLE IF NOT EXISTS "${name}" (${columns.join(', ')});`;
+    const sql = dialect.createTableIfNotExists(name, columns.join(', '));
     this.db.exec(sql);
   }
 
   private syncTableColumns(tableName: string, oldSchema: SchemaField[], newSchema: SchemaField[]): void {
     const oldFieldNames = new Set(oldSchema.map((f) => f.name.toLowerCase()));
-    
-    // Check for new fields that need ALTER TABLE ADD COLUMN
+
     for (const field of newSchema) {
       if (!oldFieldNames.has(field.name.toLowerCase())) {
         const colDef = this.fieldToColumnDef(field);
         try {
-          this.db.exec(`ALTER TABLE "${tableName}" ADD COLUMN ${colDef};`);
+          this.db.exec(this.db.dialect.addColumnSql(tableName, colDef));
         } catch (e: any) {
-          // Column might already exist
           console.warn(`Column ${field.name} warning:`, e.message);
         }
       }
@@ -342,26 +323,16 @@ export class SchemaService {
   }
 
   private fieldToColumnDef(field: SchemaField): string {
-    const sqlType = this.mapFieldTypeToSqlType(field.type);
-    let def = `"${field.name}" ${sqlType}`;
+    const dialect = this.db.dialect;
+    const sqlType = dialect.mapFieldType(field.type, { isUnique: field.unique });
+    let def = `${dialect.quoteIdentifier(field.name)} ${sqlType}`;
     if (field.required) {
-      def += ' NOT NULL DEFAULT ""';
+      def += " NOT NULL DEFAULT ''";
     }
     if (field.unique) {
       def += ' UNIQUE';
     }
     return def;
-  }
-
-  private mapFieldTypeToSqlType(type: FieldType): string {
-    switch (type) {
-      case 'number':
-        return 'NUMERIC';
-      case 'bool':
-        return 'INTEGER';
-      default:
-        return 'TEXT';
-    }
   }
 
   private mapRowToCollection(row: any): CollectionModel {

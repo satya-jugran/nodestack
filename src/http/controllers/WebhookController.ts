@@ -21,7 +21,7 @@ export class WebhookController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getWebhooksService(req);
-    const webhooks = service.getWebhooks(req.query || {});
+    const webhooks = await service.getWebhooks(req.query || {});
     this.ok(reply, webhooks);
   }
 
@@ -43,7 +43,7 @@ export class WebhookController extends BaseController {
   ): Promise<void> {
     const service = this.getWebhooksService(req);
     try {
-      const created = service.createWebhook(req.body);
+      const created = await service.createWebhook(req.body);
       this.ok(reply, created, 201);
     } catch (err: any) {
       if (err instanceof AppError) {
@@ -59,7 +59,7 @@ export class WebhookController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getWebhooksService(req);
-    const webhook = service.getWebhookById(req.params.id);
+    const webhook = await service.getWebhookById(req.params.id);
     if (!webhook) {
       this.error(reply, 'Webhook not found', 404);
       return;
@@ -86,7 +86,7 @@ export class WebhookController extends BaseController {
   ): Promise<void> {
     const service = this.getWebhooksService(req);
     try {
-      const updated = service.updateWebhook(req.params.id, req.body);
+      const updated = await service.updateWebhook(req.params.id, req.body);
       this.ok(reply, updated);
     } catch (err: any) {
       if (err instanceof AppError) {
@@ -102,7 +102,7 @@ export class WebhookController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getWebhooksService(req);
-    service.deleteWebhook(req.params.id);
+    await service.deleteWebhook(req.params.id);
     this.noContent(reply);
   }
 
@@ -120,7 +120,7 @@ export class WebhookController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getWebhooksService(req);
-    const stats = service.getStats();
+    const stats = await service.getStats();
     this.ok(reply, stats);
   }
 
@@ -129,7 +129,7 @@ export class WebhookController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getWebhooksService(req);
-    const deliveries = service.getDeliveries(req.query || {});
+    const deliveries = await service.getDeliveries(req.query || {});
     this.ok(reply, deliveries);
   }
 
@@ -138,7 +138,7 @@ export class WebhookController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const service = this.getWebhooksService(req);
-    const delivery = service.getDeliveryById(req.params.id);
+    const delivery = await service.getDeliveryById(req.params.id);
     if (!delivery) {
       this.error(reply, 'Delivery log not found', 404);
       return;
@@ -173,7 +173,7 @@ export class WebhookController extends BaseController {
     }
 
     try {
-      const deletedCount = service.clearDeliveries(olderThanDays);
+      const deletedCount = await service.clearDeliveries(olderThanDays);
       this.ok(reply, { success: true, deletedCount });
     } catch (err: any) {
       this.error(reply, err.message || 'Failed to clear deliveries', 400);
