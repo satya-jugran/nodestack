@@ -481,6 +481,9 @@ export class NodeStack {
     // 0.1 Ensure active database driver from control plane SQLite is initialized
     await this.loadActiveDatabaseDriver();
 
+    // 0.2 Ensure default app scope has completed initialization (migrations, FTS)
+    await this.defaultApp.ensureInitialized();
+
     // 1. Ensure all plugins have completed asynchronous initialization
     await this.pluginManager.ensureInitialized();
 
@@ -491,7 +494,7 @@ export class NodeStack {
     const allApps = await this.apps.registry.getAllApps();
     for (const app of allApps) {
       try {
-        const scope = this.apps.get(app.slug);
+        const scope = await this.apps.getAsync(app.slug);
         await scope.queue.start();
       } catch (err: any) {
         console.warn(`[NodeStack] Failed to start queue for app '${app.slug}': ${err.message}`);

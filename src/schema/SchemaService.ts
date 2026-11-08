@@ -12,17 +12,27 @@ export class SchemaService {
     this.ftsService = ftsService;
   }
 
-  public getAllCollections(): CollectionModel[] {
+  public getAllCollections(): CollectionModel[];
+  public getAllCollections(): Promise<CollectionModel[]>;
+  public getAllCollections(): any {
     const rows = this.db.all<any>('SELECT * FROM _collections ORDER BY name ASC');
+    if (rows && typeof (rows as any).then === 'function') {
+      return (rows as any).then((r: any[]) => (r || []).map((x: any) => this.mapRowToCollection(x)));
+    }
     return (rows || []).map((r: any) => this.mapRowToCollection(r));
   }
 
-  public getCollection(nameOrId: string): CollectionModel | undefined {
+  public getCollection(nameOrId: string): CollectionModel | undefined;
+  public getCollection(nameOrId: string): Promise<CollectionModel | undefined>;
+  public getCollection(nameOrId: string): any {
     const row = this.db.get<any>(
       'SELECT * FROM _collections WHERE id = ? OR name = ?',
       nameOrId,
       nameOrId
     );
+    if (row && typeof (row as any).then === 'function') {
+      return (row as any).then((r: any) => (!r ? undefined : this.mapRowToCollection(r)));
+    }
     if (!row) return undefined;
     return this.mapRowToCollection(row);
   }
@@ -121,7 +131,7 @@ export class SchemaService {
 
       const declaredFields = dto.schema || [];
       const currentSchema = existing.schema || [];
-      const currentNames = new Set(currentSchema.map((f) => f.name.toLowerCase()));
+      const currentNames = new Set(currentSchema.map((f: any) => f.name.toLowerCase()));
       const fieldsToAdd: SchemaField[] = [];
 
       for (const field of declaredFields) {

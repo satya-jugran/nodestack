@@ -61,7 +61,7 @@ export class AppManager {
         });
         await scope.db.switchDriver(sqliteDriver);
       }
-      await scope.init();
+      await scope.init(true);
     }
     if (oldRootDriver && oldRootDriver !== newDriver) {
       try {
@@ -118,7 +118,7 @@ export class AppManager {
         });
       }
 
-      const scope = this.get('ecommerce-demo');
+      const scope = await this.getAsync('ecommerce-demo');
 
       // Idempotently apply ecommerce template: bootstraps or repairs missing collections,
       // serverless functions, and orchestration flows even on partially initialized scopes.
@@ -325,27 +325,30 @@ export class AppManager {
   public async getAsync(slugOrId?: string): Promise<AppScope> {
     const target = (slugOrId || 'default').trim();
 
-    if (this.appCache.has(target)) {
-      return this.appCache.get(target)!;
-    }
-
-    let appModel: AppModel | undefined;
-    const lookup = this.registry.getApp(target);
-    if (lookup && typeof (lookup as any).then === 'function') {
-      appModel = await lookup;
-    } else {
-      appModel = lookup;
-    }
-
-    if (!appModel) {
-      if (target === 'default' || target === 'app_default') {
-        appModel = this.registry.getDefaultAppModel();
+    let scope = this.appCache.get(target);
+    if (!scope) {
+      let appModel: AppModel | undefined;
+      const lookup = this.registry.getApp(target);
+      if (lookup && typeof (lookup as any).then === 'function') {
+        appModel = await lookup;
       } else {
-        throw new NotFoundError(`Application '${target}' not found`);
+        appModel = lookup;
       }
+
+      if (!appModel) {
+        if (target === 'default' || target === 'app_default') {
+          appModel = this.registry.getDefaultAppModel();
+        } else {
+          throw new NotFoundError(`Application '${target}' not found`);
+        }
+      }
+
+      scope = this.createAndCacheScope(appModel);
     }
 
-    return this.createAndCacheScope(appModel);
+    // Await initialization before exposing the scope to callers
+    await scope.ensureInitialized();
+    return scope;
   }
 
   private createAndCacheScope(appModel: AppModel): AppScope {
@@ -385,7 +388,7 @@ export class AppManager {
 
   public async create(dto: CreateAppDto): Promise<AppScope> {
     const appModel = await this.registry.createApp(dto);
-    const scope = this.get(appModel.slug);
+    const scope = await this.getAsync(appModel.slug);
     await scope.queue.start();
 
     if (dto.template && dto.template.trim()) {

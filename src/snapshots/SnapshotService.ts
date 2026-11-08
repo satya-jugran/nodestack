@@ -636,7 +636,7 @@ export class SnapshotService {
   public async computeStateHash(): Promise<string> {
     const hash = crypto.createHash('sha256');
 
-    const collections = (await this.schemaService.getAllCollections()).sort((a, b) => a.name.localeCompare(b.name));
+    const collections = (await this.schemaService.getAllCollections()).sort((a: any, b: any) => a.name.localeCompare(b.name));
     for (const c of collections) {
       hash.update(`col:${c.id}:${c.name}:${c.type}:${c.system ? 1 : 0}`);
       hash.update(`schema:${JSON.stringify(c.schema || [])}`);

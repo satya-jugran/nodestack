@@ -57,6 +57,7 @@ export class AppScope {
   public readonly functions: FunctionService;
   public readonly queue: QueueService;
   public readonly flows: FlowService;
+  private initPromise?: Promise<void>;
 
   constructor(
     app: AppModel,
@@ -72,7 +73,8 @@ export class AppScope {
 
     this.fts = new FtsService(this.db);
     this.schema = new SchemaService(this.db, this.fts);
-    this.init().catch(() => {});
+    this.initPromise = this.doInit();
+    this.initPromise.catch(() => {});
 
     this.typegen = new TypeGenerator(this.schema);
     const openApiTitle = app.slug === 'default'
@@ -237,7 +239,19 @@ export class AppScope {
     });
   }
 
-  public async init(): Promise<void> {
+  public async init(force = false): Promise<void> {
+    if (!this.initPromise || force) {
+      this.initPromise = this.doInit();
+      this.initPromise.catch(() => {});
+    }
+    return this.initPromise;
+  }
+
+  public async ensureInitialized(): Promise<void> {
+    return this.init();
+  }
+
+  private async doInit(): Promise<void> {
     if (this.app.slug !== 'default' && this.db.getRootDriver()?.withSchema) {
       const cleanSchema = `app_${this.app.slug.replace(/[^a-zA-Z0-9_]/g, '_')}`;
       const currentSchema = (this.db.getRootDriver() as any).getSchemaName?.();

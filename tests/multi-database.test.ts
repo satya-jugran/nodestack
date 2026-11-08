@@ -994,5 +994,48 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(stack.registry.getDriver() instanceof NodeSqliteDriver).toBe(true);
       expect(stack.defaultApp.db.getRootDriver()).toBe(mockAsyncDriver);
     });
+
+    // 7. AppScope async initialization tracking & error surfacing
+    it('Review finding: should track and await AppScope async initialization and surface errors without swallowing', async () => {
+      const config = new ConfigService();
+      const registry = new AppRegistry(config);
+      await registry.init();
+
+      // Successful scope initialization
+      const appManager = new AppManager(registry, config);
+      const defaultScope = appManager.get('default');
+      expect(defaultScope.ensureInitialized).toBeDefined();
+      await expect(defaultScope.ensureInitialized()).resolves.toBeUndefined();
+
+      // Scope with failing database initialization
+      const failingDbService: any = {
+        init: async () => {
+          throw new Error('Remote connection timeout during migration');
+        },
+        getRootDriver: () => null,
+        dialect: { quoteIdentifier: (i: string) => `"${i}"` },
+      };
+
+      const failingApp = {
+        id: 'app_failing',
+        name: 'Failing App',
+        slug: 'failing',
+        description: '',
+        icon: 'box',
+        isDefault: false,
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
+      };
+
+      const failingScope = new (defaultScope.constructor as any)(
+        failingApp,
+        config,
+        failingDbService,
+        registry
+      );
+
+      // ensureInitialized must NOT swallow the error
+      await expect(failingScope.ensureInitialized()).rejects.toThrow('Remote connection timeout during migration');
+    });
   });
 });
