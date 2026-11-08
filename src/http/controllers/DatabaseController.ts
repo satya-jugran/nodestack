@@ -81,11 +81,11 @@ export class DatabaseController extends BaseController {
           );
         }
 
-        // 3. Persist new encrypted config in control plane SQLite (_db_configs)
-        await this.dbConfigService.saveConfig(config, true);
-
-        // 4. Hot-swap active drivers in runtime across all scopes
+        // 3. Hot-swap active drivers in runtime across all scopes
         await this.appManager.switchDriver(newDriver);
+
+        // 4. Persist new encrypted config in control plane SQLite (_db_configs) only after hot-swap succeeds
+        await this.dbConfigService.saveConfig(config, true);
 
         return migrationSummary;
       } catch (err) {

@@ -39,36 +39,41 @@ export class AppManager {
 
   public async switchDriver(newDriver?: IDatabaseDriver): Promise<void> {
     const oldRootDriver = this.customDriver;
-    this.customDriver = newDriver;
-    for (const scope of this.getCachedScopes()) {
-      if (newDriver) {
-        let appDriver: IDatabaseDriver;
-        if (newDriver.dialect.name === 'sqlite' && (newDriver as any).getPath?.() !== ':memory:') {
-          const appDbPath = this.config.getAppDbPath(scope.app.slug);
-          if (scope.app.slug === 'default' && (newDriver as any).getPath?.() === appDbPath) {
-            appDriver = newDriver;
+    try {
+      this.customDriver = newDriver;
+      for (const scope of this.getCachedScopes()) {
+        if (newDriver) {
+          let appDriver: IDatabaseDriver;
+          if (newDriver.dialect.name === 'sqlite' && (newDriver as any).getPath?.() !== ':memory:') {
+            const appDbPath = this.config.getAppDbPath(scope.app.slug);
+            if (scope.app.slug === 'default' && (newDriver as any).getPath?.() === appDbPath) {
+              appDriver = newDriver;
+            } else {
+              appDriver = await newDriver.withSchema(scope.app.slug);
+            }
           } else {
             appDriver = await newDriver.withSchema(scope.app.slug);
           }
+          await scope.db.switchDriver(appDriver);
         } else {
-          appDriver = await newDriver.withSchema(scope.app.slug);
+          const appDbPath = this.config.getAppDbPath(scope.app.slug);
+          const sqliteDriver = new NodeSqliteDriver(appDbPath, {
+            baseDir: this.config.appsDir,
+          });
+          await scope.db.switchDriver(sqliteDriver);
         }
-        await scope.db.switchDriver(appDriver);
-      } else {
-        const appDbPath = this.config.getAppDbPath(scope.app.slug);
-        const sqliteDriver = new NodeSqliteDriver(appDbPath, {
-          baseDir: this.config.appsDir,
-        });
-        await scope.db.switchDriver(sqliteDriver);
+        await scope.init(true);
       }
-      await scope.init(true);
-    }
-    if (oldRootDriver && oldRootDriver !== newDriver) {
-      try {
-        await oldRootDriver.close();
-      } catch {
-        // ignore
+      if (oldRootDriver && oldRootDriver !== newDriver) {
+        try {
+          await oldRootDriver.close();
+        } catch {
+          // ignore
+        }
       }
+    } catch (err) {
+      this.customDriver = oldRootDriver;
+      throw err;
     }
   }
 

@@ -1360,5 +1360,72 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       await sourceDriver.close();
       await targetDriver.close();
     });
+
+    // 12. DatabaseController.switchDatabase does not mark configuration active if switchDriver fails
+    it('Review finding: DatabaseController.switchDatabase does not mark configuration active if switchDriver fails', async () => {
+      const sqliteDir = path.join(testDir, 'switch_fail_test');
+      const configService = new ConfigService({ dataDir: sqliteDir });
+      const dbConfigService = new DatabaseConfigService(configService);
+      await dbConfigService.init();
+
+      // Ensure initial active config is sqlite
+      const initialActive = await dbConfigService.getActiveConfig();
+      expect(initialActive.provider).toBe('sqlite');
+
+      const mockRootDriver: any = {
+        close: async () => {},
+        dialect: { name: 'sqlite' },
+      };
+      const mockRootDb: any = {
+        getRootDriver: () => mockRootDriver,
+      };
+
+      // Mock appManager whose switchDriver intentionally throws an error
+      const mockAppManager: any = {
+        config: configService,
+        registry: { getAllApps: async () => [] },
+        switchDriver: async () => {
+          throw new Error('Simulated runtime hot-swap switchDriver failure');
+        },
+      };
+
+      const controller = new DatabaseController(
+        dbConfigService,
+        mockAppManager,
+        mockRootDb
+      );
+
+      let sentStatus = 0;
+      let sentBody: any = null;
+      const mockReply: any = {
+        status: (code: number) => {
+          sentStatus = code;
+          return mockReply;
+        },
+        code: (code: number) => {
+          sentStatus = code;
+          return mockReply;
+        },
+        send: (b: any) => {
+          sentBody = b;
+          return mockReply;
+        },
+      };
+
+      // Attempt to switch to an in-memory database where switchDriver fails
+      await controller.switchDatabase(
+        { body: { config: { provider: 'sqlite', dbPath: ':memory:' }, migrateData: false } } as any,
+        mockReply
+      );
+
+      // Verify that the HTTP handler returned an error
+      expect(sentStatus).toBe(500);
+      expect(sentBody?.message).toContain('Simulated runtime hot-swap switchDriver failure');
+
+      // Verify that _db_configs was NOT updated to mark the failed provider active
+      const activeAfterFail = await dbConfigService.getActiveConfig();
+      expect(activeAfterFail.provider).toBe('sqlite');
+      expect(activeAfterFail.dbPath).not.toBe(':memory:');
+    });
   });
 });
