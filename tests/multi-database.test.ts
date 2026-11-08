@@ -17,6 +17,9 @@ import { AppManager } from '../src/apps/AppManager';
 import { AppRegistry } from '../src/apps/AppRegistry';
 import { DatabaseController } from '../src/http/controllers/DatabaseController';
 import { AdminUIBundler } from '../src/admin/AdminUIBundler';
+import { AuthService } from '../src/auth/AuthService';
+import { AuthMiddleware } from '../src/http/middleware/AuthMiddleware';
+import { UnauthorizedError } from '../src/core/errors/AppError';
 
 describe('Multi-Database Architecture & Configuration Tests', () => {
   const testDir = path.resolve(__dirname, '../.test_multi_db_data');
@@ -1426,6 +1429,103 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       const activeAfterFail = await dbConfigService.getActiveConfig();
       expect(activeAfterFail.provider).toBe('sqlite');
       expect(activeAfterFail.dbPath).not.toBe(':memory:');
+    });
+
+    // 13. AuthService.verifyToken awaits Promise-valued schema and database reads on non-SQLite drivers
+    it('Review finding: AuthService.verifyToken awaits Promise-valued schema and database reads on non-SQLite drivers', async () => {
+      const config = new ConfigService({ dataDir: testDir, jwtSecret: 'test-secret-key-12345' });
+
+      // Mock database service with async Promise returns for PostgreSQL/MSSQL
+      const mockDb: any = {
+        dialect: { quoteIdentifier: (col: string) => `"${col}"` },
+        get: async (sql: string, ...params: any[]) => {
+          if (sql.includes('FROM "users"')) {
+            const id = params[0];
+            if (id === 'usr_valid') {
+              return { id: 'usr_valid', tokenKey: 'valid_user_tk' };
+            }
+          }
+          if (sql.includes('FROM _admins')) {
+            const id = params[0];
+            if (id === 'adm_valid') {
+              return { id: 'adm_valid', email: 'admin@nodestack.dev', tokenKey: 'valid_admin_tk' };
+            }
+          }
+          return undefined;
+        },
+      };
+
+      // Mock schema service with async Promise returns
+      const mockSchemaService: any = {
+        getCollection: async (nameOrId: string) => {
+          if (nameOrId === 'users' || nameOrId === 'col_users') {
+            return { id: 'col_users', name: 'users', type: 'auth' };
+          }
+          return undefined;
+        },
+      };
+
+      const authService = new AuthService(mockDb, config, mockSchemaService);
+
+      // 1. Verify valid user token on async driver
+      const userToken = authService.generateToken({
+        id: 'usr_valid',
+        email: 'user@example.com',
+        collection: 'users',
+        tokenKey: 'valid_user_tk',
+      });
+
+      const userClaims = await authService.verifyToken(userToken);
+      expect(userClaims).toBeDefined();
+      expect(userClaims.id).toBe('usr_valid');
+      expect(userClaims.collection).toBe('users');
+
+      // 2. Verify AuthMiddleware sets req.auth asynchronously
+      const middleware = new AuthMiddleware(authService);
+      const req: any = {
+        headers: { authorization: `Bearer ${userToken}` },
+      };
+      await middleware.handle(req);
+      expect(req.auth).toBeDefined();
+      expect(req.auth.id).toBe('usr_valid');
+      expect(req.auth.email).toBe('user@example.com');
+
+      // 3. Verify valid admin token on async driver
+      const adminToken = authService.generateToken({
+        id: 'adm_valid',
+        email: 'admin@nodestack.dev',
+        collection: '_admins',
+        tokenKey: 'valid_admin_tk',
+        isAdmin: true,
+      });
+
+      const adminClaims = await authService.verifyToken(adminToken);
+      expect(adminClaims).toBeDefined();
+      expect(adminClaims.id).toBe('adm_valid');
+      expect(adminClaims.isAdmin).toBe(true);
+
+      const adminReq: any = {
+        headers: { authorization: `Bearer ${adminToken}` },
+      };
+      await middleware.handle(adminReq);
+      expect(adminReq.auth).toBeDefined();
+      expect(adminReq.auth.isAdmin).toBe(true);
+
+      // 4. Verify revoked / mismatched tokenKey is rejected on async driver
+      const revokedToken = authService.generateToken({
+        id: 'usr_valid',
+        email: 'user@example.com',
+        collection: 'users',
+        tokenKey: 'rotated_old_tk',
+      });
+
+      await expect(authService.verifyToken(revokedToken)).rejects.toThrow(UnauthorizedError);
+
+      const revokedReq: any = {
+        headers: { authorization: `Bearer ${revokedToken}` },
+      };
+      await middleware.handle(revokedReq);
+      expect(revokedReq.auth).toBeNull();
     });
   });
 });

@@ -157,7 +157,9 @@ export class AuthService {
     return jwt.sign(claims, this.config.jwtSecret, { expiresIn: expiresIn as any });
   }
 
-  public verifyToken(token: string): AuthClaims {
+  public verifyToken(token: string): AuthClaims;
+  public verifyToken(token: string): Promise<AuthClaims>;
+  public verifyToken(token: string): any {
     let decoded: AuthClaims;
     try {
       decoded = jwt.verify(token, this.config.jwtSecret) as AuthClaims;
@@ -177,52 +179,96 @@ export class AuthService {
         if (cached !== decoded.tokenKey) {
           throw new UnauthorizedError('Authentication token has been revoked or expired');
         }
-      } else {
-        let admin = this.registry
-          ? this.registry.getAdminById(decoded.id)
-          : undefined;
-        if (!admin) {
-          admin = this.db.get<any>('SELECT * FROM _admins WHERE id = ?', decoded.id);
-          if (admin && this.registry) {
-            try {
-              this.registry.getDriver().prepare(`
-                INSERT OR REPLACE INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-              `).run(admin.id, admin.email, admin.passwordHash, admin.tokenKey, admin.avatar || null, admin.created, admin.updated);
-            } catch {}
-          }
-        }
+        return decoded;
+      }
+
+      const adminRaw = this.registry
+        ? this.registry.getAdminById(decoded.id)
+        : undefined;
+
+      const finalizeAdmin = (admin: any) => {
         if (!admin || !admin.tokenKey || admin.tokenKey !== decoded.tokenKey) {
           throw new UnauthorizedError('Authentication token has been revoked or expired');
         }
         this.setCachedTokenKey(cacheKey, admin.tokenKey);
+        return decoded;
+      };
+
+      const checkAndSaveAdmin = (admin: any) => {
+        if (admin && this.registry) {
+          try {
+            const runRes = this.registry.getDriver().prepare(`
+              INSERT OR REPLACE INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).run(admin.id, admin.email, admin.passwordHash, admin.tokenKey, admin.avatar || null, admin.created, admin.updated);
+            if (runRes && typeof (runRes as any).then === 'function') {
+              return (runRes as any).then(
+                () => finalizeAdmin(admin),
+                () => finalizeAdmin(admin)
+              );
+            }
+          } catch {}
+        }
+        return finalizeAdmin(admin);
+      };
+
+      const resolveAdmin = (admin: any) => {
+        if (!admin) {
+          const dbAdmin = this.db.get<any>('SELECT * FROM _admins WHERE id = ?', decoded.id);
+          if (dbAdmin && typeof (dbAdmin as any).then === 'function') {
+            return (dbAdmin as any).then((resolvedDbAdmin: any) => checkAndSaveAdmin(resolvedDbAdmin));
+          }
+          return checkAndSaveAdmin(dbAdmin);
+        }
+        return checkAndSaveAdmin(admin);
+      };
+
+      if (adminRaw && typeof (adminRaw as any).then === 'function') {
+        return (adminRaw as any).then((resolvedAdmin: any) => resolveAdmin(resolvedAdmin));
       }
+      return resolveAdmin(adminRaw);
     } else {
-      const col = this.schemaService.getCollection(decoded.collection);
-      if (col && col.type === 'auth') {
+      const colRaw = this.schemaService.getCollection(decoded.collection);
+
+      const resolveCol = (col: any) => {
+        if (!col || col.type !== 'auth') {
+          throw new UnauthorizedError('Authentication token collection not found');
+        }
+
         const cacheKey = `${col.name}:${decoded.id}`;
         const cached = this.getCachedTokenKey(cacheKey);
         if (cached !== null) {
           if (cached !== decoded.tokenKey) {
             throw new UnauthorizedError('Authentication token has been revoked or expired');
           }
-        } else {
-          const qTable = this.db.dialect.quoteIdentifier(col.name);
-          const record = this.db.get<any>(
-            `SELECT tokenKey FROM ${qTable} WHERE id = ?`,
-            decoded.id
-          );
+          return decoded;
+        }
+
+        const qTable = this.db.dialect.quoteIdentifier(col.name);
+        const recordRaw = this.db.get<any>(
+          `SELECT tokenKey FROM ${qTable} WHERE id = ?`,
+          decoded.id
+        );
+
+        const finalizeRecord = (record: any) => {
           if (!record || !record.tokenKey || record.tokenKey !== decoded.tokenKey) {
             throw new UnauthorizedError('Authentication token has been revoked or expired');
           }
           this.setCachedTokenKey(cacheKey, record.tokenKey);
-        }
-      } else {
-        throw new UnauthorizedError('Authentication token collection not found');
-      }
-    }
+          return decoded;
+        };
 
-    return decoded;
+        if (recordRaw && typeof (recordRaw as any).then === 'function') {
+          return (recordRaw as any).then((resolvedRecord: any) => finalizeRecord(resolvedRecord));
+        }
+        return finalizeRecord(recordRaw);
+      };
+
+      if (colRaw && typeof (colRaw as any).then === 'function') {
+        return (colRaw as any).then((resolvedCol: any) => resolveCol(resolvedCol));
+      }
+      return resolveCol(colRaw);
+    }
   }
 
   // --- Admin Auth ---
