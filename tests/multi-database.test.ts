@@ -27,6 +27,7 @@ import { RecordService } from '../src/records/RecordService';
 import { SchemaField } from '../src/schema/models/Field';
 import { SchemaService } from '../src/schema/SchemaService';
 import { LogicalSnapshotDriver } from '../src/snapshots/drivers/LogicalSnapshotDriver';
+import { SqliteToRemoteSnapshotDriver } from '../src/snapshots/drivers/SqliteToRemoteSnapshotDriver';
 import { AnalyticsService } from '../src/analytics/AnalyticsService';
 import { LogService } from '../src/logger/LogService';
 
@@ -2086,6 +2087,130 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
 
       expect(html).toContain('selectedProvider: null');
       expect(html).toContain('const selected = (databaseState.selectedProvider || activeProvider).toLowerCase()');
+    });
+
+    it('should capture both data.db and snapshot.json on SQLite for universal cross-database portability', async () => {
+      const snapTestDir = path.join(testDir, 'universal_snap_test');
+      fs.mkdirSync(snapTestDir, { recursive: true });
+
+      const app = new NodeStack({ dataDir: snapTestDir });
+      await app.auth.createAdmin('snap_admin@nodestack.dev', 'password123');
+
+      await app.schema.createCollection({
+        name: 'posts',
+        type: 'base',
+        createRule: '',
+        listRule: '',
+        schema: [{ name: 'title', type: 'text' }],
+      });
+      await app.records.create('posts', { title: 'Cross DB Test' });
+
+      const snapshot = await app.snapshots.createSnapshot({ name: 'Dual Engine Snapshot' });
+      const snapDir = path.join(app.snapshots.snapshotsDir, snapshot.id);
+
+      expect(fs.existsSync(path.join(snapDir, 'data.db'))).toBe(true);
+      expect(fs.existsSync(path.join(snapDir, 'snapshot.json'))).toBe(true);
+
+      const jsonDump = JSON.parse(fs.readFileSync(path.join(snapDir, 'snapshot.json'), 'utf-8'));
+      expect(jsonDump.posts).toBeDefined();
+      expect(jsonDump.posts.length).toBe(1);
+      expect(jsonDump.posts[0].title).toBe('Cross DB Test');
+
+      app.close();
+    });
+
+    it('should restore logical snapshot.json into SQLite when restoring a PostgreSQL-originated snapshot', async () => {
+      const snapTestDir = path.join(testDir, 'logical_into_sqlite');
+      fs.mkdirSync(snapTestDir, { recursive: true });
+
+      const app = new NodeStack({ dataDir: snapTestDir });
+      await app.auth.createAdmin('snap_admin2@nodestack.dev', 'password123');
+
+      const snapId = 'snap_pg_originated';
+      const snapDir = path.join(app.snapshots.snapshotsDir, snapId);
+      fs.mkdirSync(snapDir, { recursive: true });
+
+      const mockCol = {
+        id: 'col_mock_articles',
+        name: 'articles',
+        type: 'base',
+        system: false,
+        schema: JSON.stringify([{ name: 'headline', type: 'text' }]),
+        indexes: JSON.stringify([]),
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
+      };
+
+      const mockJson = {
+        _collections: [mockCol],
+        articles: [
+          { id: 'art_1', headline: 'Article from Postgres Snapshot', created: new Date().toISOString(), updated: new Date().toISOString() }
+        ]
+      };
+
+      fs.writeFileSync(path.join(snapDir, 'snapshot.json'), JSON.stringify(mockJson, null, 2), 'utf-8');
+      fs.writeFileSync(path.join(snapDir, 'metadata.json'), JSON.stringify({
+        id: snapId,
+        name: 'PostgreSQL Snapshot',
+        description: 'Captured on PostgreSQL',
+        createdAt: new Date().toISOString(),
+        collections: ['articles'],
+        totalCollections: 1,
+        totalRecords: 1,
+        totalFiles: 0,
+        storageSizeBytes: 0,
+        dbSizeBytes: 500,
+        isActive: false
+      }, null, 2), 'utf-8');
+
+      const res = await app.snapshots.restoreSnapshot(snapId);
+      expect(res.success).toBe(true);
+
+      const articles = await app.db.all('SELECT * FROM articles');
+      expect(articles.length).toBe(1);
+      expect(articles[0].headline).toBe('Article from Postgres Snapshot');
+
+      app.close();
+    });
+
+    it('should restore SQLite data.db snapshot into a remote database target via SqliteToRemoteSnapshotDriver', async () => {
+      const sqliteSnapDir = path.join(testDir, 'sqlite_snap_source');
+      fs.mkdirSync(sqliteSnapDir, { recursive: true });
+
+      const sourceDbFile = path.join(sqliteSnapDir, 'data.db');
+      const sourceDriver = new NodeSqliteDriver(sourceDbFile);
+      await SystemMigrations.run(sourceDriver);
+
+      await sourceDriver.prepare(`
+        INSERT INTO _collections (id, name, type, system, schema, indexes, created, updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('col_notes', 'notes', 'base', 0, JSON.stringify([{ name: 'body', type: 'text' }]), '[]', new Date().toISOString(), new Date().toISOString());
+
+      await sourceDriver.exec(`
+        CREATE TABLE notes (id TEXT PRIMARY KEY, body TEXT, created TEXT, updated TEXT);
+        INSERT INTO notes (id, body, created, updated) VALUES ('n1', 'Note from SQLite Snapshot', '2026-01-01', '2026-01-01');
+      `);
+      await sourceDriver.close();
+
+      const targetDriver = new NodeSqliteDriver(':memory:');
+      await SystemMigrations.run(targetDriver);
+
+      const mockDbService = {
+        dialect: { name: 'postgres' },
+        getRootDriver: () => targetDriver,
+        all: (sql) => targetDriver.prepare(sql).all(),
+      };
+
+      const driver = new SqliteToRemoteSnapshotDriver(mockDbService);
+      await driver.restoreSnapshot(sqliteSnapDir);
+
+      const targetNotes = await targetDriver.prepare('SELECT * FROM notes').all();
+      expect(targetNotes.length).toBe(1);
+      expect(targetNotes[0].body).toBe('Note from SQLite Snapshot');
+
+      expect(fs.existsSync(path.join(sqliteSnapDir, 'snapshot.json'))).toBe(true);
+
+      await targetDriver.close();
     });
   });
 });

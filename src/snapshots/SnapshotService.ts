@@ -21,6 +21,7 @@ import {
 import { ISnapshotDriver } from './drivers/ISnapshotDriver';
 import { SqliteSnapshotDriver } from './drivers/SqliteSnapshotDriver';
 import { LogicalSnapshotDriver } from './drivers/LogicalSnapshotDriver';
+import { SqliteToRemoteSnapshotDriver } from './drivers/SqliteToRemoteSnapshotDriver';
 
 interface SnapshotsManifest {
   activeSnapshotId: string | null;
@@ -49,11 +50,34 @@ export class SnapshotService {
     return this.maintenanceGate;
   }
 
-  private getSnapshotDriver(): ISnapshotDriver {
+  private getCaptureDriver(): ISnapshotDriver {
     if (this.db.dialect.name === 'sqlite') {
       return new SqliteSnapshotDriver(this.db, this.dbPath);
     }
     return new LogicalSnapshotDriver(this.db);
+  }
+
+  private getRestoreDriver(snapDir: string): ISnapshotDriver {
+    const hasSqliteDb = fs.existsSync(path.join(snapDir, 'data.db'));
+    const hasLogicalJson = fs.existsSync(path.join(snapDir, 'snapshot.json'));
+
+    if (this.db.dialect.name === 'sqlite') {
+      if (hasSqliteDb) {
+        return new SqliteSnapshotDriver(this.db, this.dbPath);
+      }
+      if (hasLogicalJson) {
+        return new LogicalSnapshotDriver(this.db);
+      }
+      throw new NotFoundError(`Snapshot at '${snapDir}' does not contain 'data.db' or 'snapshot.json'.`);
+    } else {
+      if (hasLogicalJson) {
+        return new LogicalSnapshotDriver(this.db);
+      }
+      if (hasSqliteDb) {
+        return new SqliteToRemoteSnapshotDriver(this.db);
+      }
+      throw new NotFoundError(`Snapshot at '${snapDir}' does not contain 'snapshot.json' or 'data.db'.`);
+    }
   }
 
   public get dbPath(): string {
@@ -291,7 +315,7 @@ export class SnapshotService {
       fs.mkdirSync(snapDir, { recursive: true });
 
       try {
-        const { dbSizeBytes } = await this.getSnapshotDriver().captureSnapshot(snapDir);
+        const { dbSizeBytes } = await this.getCaptureDriver().captureSnapshot(snapDir);
 
         const snapStorageDir = path.join(snapDir, 'storage');
         fs.mkdirSync(snapStorageDir, { recursive: true });
@@ -384,7 +408,7 @@ export class SnapshotService {
       await this.db.checkpoint();
 
       try {
-        await this.getSnapshotDriver().restoreSnapshot(snapDir);
+        await this.getRestoreDriver(snapDir).restoreSnapshot(snapDir);
 
         if (fs.existsSync(this.storageDir)) {
           fs.rmSync(this.storageDir, { recursive: true, force: true });

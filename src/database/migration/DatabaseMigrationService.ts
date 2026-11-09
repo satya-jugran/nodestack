@@ -336,7 +336,7 @@ export class DatabaseMigrationService {
     return { collectionsCount, recordsCount };
   }
 
-  private static async ensurePhysicalCollectionTable(
+  public static async ensurePhysicalCollectionTable(
     col: any,
     targetDriver: IDatabaseDriver
   ): Promise<Set<string>> {
@@ -406,7 +406,7 @@ export class DatabaseMigrationService {
     return definedCols;
   }
 
-  private static async ensureCollectionIndexes(
+  public static async ensureCollectionIndexes(
     col: any,
     targetDriver: IDatabaseDriver
   ): Promise<void> {
@@ -479,7 +479,7 @@ export class DatabaseMigrationService {
     return 'id';
   }
 
-  private static insertOrUpdateRecord(
+  public static insertOrUpdateRecord(
     tableName: string,
     row: Record<string, any>,
     targetDriver: IDatabaseDriver,

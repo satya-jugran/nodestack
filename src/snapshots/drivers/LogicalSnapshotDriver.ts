@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DatabaseService } from '../../database/DatabaseService';
 import { ISnapshotDriver } from './ISnapshotDriver';
+import { DatabaseMigrationService } from '../../database/migration/DatabaseMigrationService';
 
 export class LogicalSnapshotDriver implements ISnapshotDriver {
   constructor(private db: DatabaseService) {}
@@ -33,6 +34,7 @@ export class LogicalSnapshotDriver implements ISnapshotDriver {
       '_audit_logs',
       '_logs',
       '_functions',
+      '_function_logs',
       '_flows',
       '_flow_executions',
       '_queues',
@@ -64,27 +66,51 @@ export class LogicalSnapshotDriver implements ISnapshotDriver {
     const data: Record<string, any[]> = JSON.parse(fs.readFileSync(dumpFile, 'utf-8'));
     const driver = this.db.getRootDriver();
 
-    await driver.transaction(async (tx) => {
-      for (const [table, rows] of Object.entries(data)) {
-        if (!Array.isArray(rows)) continue;
+    // 1. If _collections exists in data, ensure physical collection tables and indexes exist on the target
+    if (Array.isArray(data._collections)) {
+      for (const col of data._collections) {
         try {
-          // Truncate / delete all current rows so an empty snapshot table clears newly added rows
-          await tx.exec(`DELETE FROM ${this.db.dialect.quoteIdentifier(table)}`);
-          if (rows.length === 0) continue;
-
-          for (const row of rows) {
-            const cols = Object.keys(row);
-            const placeholders = cols.map(() => '?').join(', ');
-            const quotedCols = cols.map((c) => this.db.dialect.quoteIdentifier(c)).join(', ');
-            const values = cols.map((c) => row[c]);
-            await tx.prepare(
-              `INSERT INTO ${this.db.dialect.quoteIdentifier(table)} (${quotedCols}) VALUES (${placeholders})`
-            ).run(...values);
-          }
+          await DatabaseMigrationService.ensurePhysicalCollectionTable(col, driver);
+          await DatabaseMigrationService.ensureCollectionIndexes(col, driver);
         } catch {
-          // Ignore restore errors on secondary tables
+          // ignore
         }
       }
-    });
+    }
+
+    // 2. Clear and restore tables with dialect-aware serialization
+    if (this.db.dialect.name === 'sqlite') {
+      driver.transaction((tx) => {
+        for (const [table, rows] of Object.entries(data)) {
+          if (!Array.isArray(rows)) continue;
+          try {
+            tx.exec(`DELETE FROM ${this.db.dialect.quoteIdentifier(table)}`);
+            if (rows.length === 0) continue;
+
+            for (const row of rows) {
+              DatabaseMigrationService.insertOrUpdateRecord(table, row, tx);
+            }
+          } catch {
+            // ignore restore errors on secondary tables
+          }
+        }
+      });
+    } else {
+      await driver.transaction(async (tx) => {
+        for (const [table, rows] of Object.entries(data)) {
+          if (!Array.isArray(rows)) continue;
+          try {
+            await tx.exec(`DELETE FROM ${this.db.dialect.quoteIdentifier(table)}`);
+            if (rows.length === 0) continue;
+
+            for (const row of rows) {
+              await DatabaseMigrationService.insertOrUpdateRecord(table, row, tx);
+            }
+          } catch {
+            // ignore restore errors on secondary tables
+          }
+        }
+      });
+    }
   }
 }

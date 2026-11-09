@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DatabaseService } from '../../database/DatabaseService';
 import { ISnapshotDriver } from './ISnapshotDriver';
+import { LogicalSnapshotDriver } from './LogicalSnapshotDriver';
 
 export class SqliteSnapshotDriver implements ISnapshotDriver {
   constructor(
@@ -18,6 +19,14 @@ export class SqliteSnapshotDriver implements ISnapshotDriver {
 
     if (!fs.existsSync(snapDbPath) || fs.statSync(snapDbPath).size === 0) {
       throw new Error('VACUUM INTO failed to generate a valid snapshot database file.');
+    }
+
+    // Also export logical snapshot JSON for seamless cross-database engine portability (Postgres / SQL Server)
+    try {
+      const logicalDriver = new LogicalSnapshotDriver(this.db);
+      await logicalDriver.captureSnapshot(targetDir);
+    } catch (e: any) {
+      console.warn('[Snapshot] Warning: Failed to export cross-database logical snapshot JSON:', e.message);
     }
 
     return { dbSizeBytes: fs.statSync(snapDbPath).size };
