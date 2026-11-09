@@ -35,15 +35,15 @@ NodeStack Queues delivers:
 
 ```mermaid
 graph TD
-    Producer["Producer (API / Function / SDK / Flow)"] -->|Enqueue Message| QueueService["QueueService"]
-    QueueService -->|ACID Transaction| SqliteDriver["SqliteQueueDriver (_queue_messages)"]
+    Producer["Producer (API / Function / SDK / Flow)"] -->|"Enqueue Message"| QueueService["QueueService"]
+    QueueService -->|"ACID Transaction"| SqliteDriver["SqliteQueueDriver (_queue_messages)"]
 
-    subgraph Dispatch & Processing
-        SqliteDriver -->|Atomic Claim with Token| Worker["Worker Loop / Function Runner"]
-        Worker -->|Heartbeat / Touch| SqliteDriver
-        Worker -->|Ack Success| Completed["Status: completed"]
-        Worker -->|Nack Failure (attempts < max)| Retry["Status: queued (backoff delay)"]
-        Worker -->|Exhausted Attempts| DLQ["Status: dead_letter (DLQ)"]
+    subgraph DispatchProcessing["Dispatch & Processing"]
+        SqliteDriver -->|"Atomic Claim with Token"| Worker["Worker Loop / Function Runner"]
+        Worker -->|"Heartbeat / Touch"| SqliteDriver
+        Worker -->|"Ack Success"| Completed["Status: completed"]
+        Worker -->|"Nack Failure (attempts &lt; max)"| Retry["Status: queued (backoff delay)"]
+        Worker -->|"Exhausted Attempts"| DLQ["Status: dead_letter (DLQ)"]
     end
 ```
 
