@@ -106,7 +106,7 @@
                   <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Storage Size</span>
                 </div>
                 <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-size">--</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">data.db + WAL journal</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-size-sub">data.db + WAL journal</div>
               </div>
 
               <!-- KPI 4: Realtime Streams -->
@@ -310,6 +310,17 @@
         const sizeEl = document.getElementById('home-stat-size');
         if (sizeEl && metrics.database?.sizeFormatted) {
           sizeEl.textContent = metrics.database.sizeFormatted;
+        }
+
+        const sizeSubEl = document.getElementById('home-stat-size-sub');
+        if (sizeSubEl && metrics.database?.provider) {
+          if (metrics.database.provider === 'postgres') {
+            sizeSubEl.textContent = 'PostgreSQL database';
+          } else if (metrics.database.provider === 'mssql') {
+            sizeSubEl.textContent = 'SQL Server database';
+          } else {
+            sizeSubEl.textContent = 'data.db + WAL journal';
+          }
         }
 
         const rtEl = document.getElementById('home-stat-realtime');

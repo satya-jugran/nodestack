@@ -17,6 +17,7 @@ export interface DatabaseMetrics {
   walSizeBytes: number;
   totalRecords: number;
   collectionsBreakdown: CollectionRecordCount[];
+  provider?: string;
 }
 
 export interface RealtimeMetrics {
@@ -105,6 +106,23 @@ export class AnalyticsService {
 
     if (isAsync) {
       return (async (): Promise<DatabaseMetrics> => {
+        let effectiveSizeBytes = sizeBytes;
+        if (this.db.dialect?.name === 'postgres') {
+          try {
+            const sizeRow = await this.db.get<{ size: number | string }>('SELECT pg_database_size(current_database()) as size');
+            if (sizeRow && sizeRow.size !== undefined && sizeRow.size !== null) {
+              effectiveSizeBytes = Number(sizeRow.size);
+            }
+          } catch {}
+        } else if (this.db.dialect?.name === 'mssql') {
+          try {
+            const sizeRow = await this.db.get<{ size: number | string }>('SELECT SUM(size) * 8 * 1024 as size FROM sys.database_files');
+            if (sizeRow && sizeRow.size !== undefined && sizeRow.size !== null) {
+              effectiveSizeBytes = Number(sizeRow.size);
+            }
+          } catch {}
+        }
+
         const cols = collections && typeof (collections as any).then === 'function'
           ? await collections
           : collections;
@@ -133,11 +151,12 @@ export class AnalyticsService {
         }
 
         return {
-          sizeBytes,
-          sizeFormatted: formatBytes(sizeBytes),
+          sizeBytes: effectiveSizeBytes,
+          sizeFormatted: formatBytes(effectiveSizeBytes),
           walSizeBytes,
           totalRecords,
           collectionsBreakdown,
+          provider: this.db.dialect?.name || 'sqlite',
         };
       })();
     }
@@ -172,6 +191,7 @@ export class AnalyticsService {
       walSizeBytes,
       totalRecords,
       collectionsBreakdown,
+      provider: 'sqlite',
     };
   }
 
