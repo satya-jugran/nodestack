@@ -252,6 +252,11 @@ export class SystemMigrations {
       `),
       dialect.createIndexIfNotExists('idx_flow_exec_flow', '_flow_executions', 'flowId, startedAt DESC'),
       dialect.createIndexIfNotExists('idx_flow_exec_status', '_flow_executions', 'status'),
+      dialect.createTableIfNotExists('_plugin_settings', `
+        pluginName ${pk} PRIMARY KEY,
+        settings ${txt} NOT NULL,
+        updatedAt ${txt} NOT NULL
+      `),
     ];
 
     const userSchema = JSON.stringify([

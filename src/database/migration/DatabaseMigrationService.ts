@@ -162,6 +162,7 @@ export class DatabaseMigrationService {
       '_audit_logs',
       '_logs',
       '_functions',
+      '_function_logs',
       '_flows',
       '_flow_executions',
       '_queues',
@@ -312,6 +313,13 @@ export class DatabaseMigrationService {
     return new Set();
   }
 
+  public static getPrimaryKeyColumn(tableName: string): string {
+    if (tableName === '_params') return 'key';
+    if (tableName === '_queues') return 'name';
+    if (tableName === '_plugin_settings') return 'pluginName';
+    return 'id';
+  }
+
   private static insertOrUpdateRecord(
     tableName: string,
     row: Record<string, any>,
@@ -337,7 +345,7 @@ export class DatabaseMigrationService {
       return val;
     });
 
-    const pkCol = tableName === '_params' ? 'key' : 'id';
+    const pkCol = DatabaseMigrationService.getPrimaryKeyColumn(tableName);
     const updateCols = columns.filter((c) => c !== pkCol);
     const upsertSql = dialect.upsertSql(tableName, columns, pkCol, updateCols);
     return targetDriver.prepare(upsertSql).run(...values);
@@ -362,9 +370,10 @@ export class DatabaseMigrationService {
         return;
       }
 
-      const pkCol = tableName === '_params' ? 'key' : 'id';
+      const pkCol = DatabaseMigrationService.getPrimaryKeyColumn(tableName);
       const targetColumns = await DatabaseMigrationService.getTargetTableColumns(tableName, targetDriver);
       if (targetColumns.size === 0) {
+        console.warn(`[Migration] Target table ${tableName} does not exist or has no columns; skipping.`);
         return;
       }
       const chunkSize = 500;
