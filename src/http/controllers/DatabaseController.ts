@@ -31,6 +31,10 @@ export class DatabaseController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     try {
+      if (!req.body || !req.body.provider) {
+        this.error(reply, "Missing target database configuration or 'provider'", 400);
+        return;
+      }
       const result = await this.dbConfigService.testConnection(req.body);
       this.ok(reply, result);
     } catch (err: any) {

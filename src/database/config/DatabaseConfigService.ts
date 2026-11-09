@@ -171,6 +171,13 @@ export class DatabaseConfigService {
   }
 
   public async testConnection(targetConfig: DatabaseConfig): Promise<ConnectionTestResult> {
+    if (!targetConfig || !targetConfig.provider) {
+      return {
+        ok: false,
+        latencyMs: 0,
+        error: "Missing database configuration or 'provider'",
+      };
+    }
     const start = Date.now();
     let tempDriver: IDatabaseDriver | null = null;
     try {
@@ -242,7 +249,7 @@ export class DatabaseConfigService {
       return {
         ok: allReplicasOk,
         latencyMs,
-        version: `${targetConfig.provider.toUpperCase()} (verified)`,
+        version: `${(targetConfig?.provider || 'unknown').toUpperCase()} (verified)`,
         error: allReplicasOk
           ? undefined
           : `One or more read replicas failed connection test: ${replicaResults

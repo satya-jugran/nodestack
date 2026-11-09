@@ -322,6 +322,10 @@ function renderProviderFields(selected) {
 }
 
 function renderUrlInputs(selected) {
+  const currentVal = databaseState.enteredUrl !== undefined
+    ? databaseState.enteredUrl
+    : (databaseState.status?.config?.connectionString || '');
+
   if (selected === 'postgres') {
     return `
       <div class="form-group" style="margin: 0;">
@@ -330,7 +334,8 @@ function renderUrlInputs(selected) {
           type="text" 
           id="db-field-url" 
           class="form-input" 
-          placeholder="postgresql://postgres:secret@localhost:5432/nodestack?sslmode=prefer"
+          value="${escapeDbHtml(currentVal)}"
+          placeholder="postgresql://postgres:postgres@localhost:5432/nodestack?sslmode=disable"
           style="font-family: var(--font-mono, monospace); font-size: 12px;"
         />
         <span style="font-size: 10.5px; color: var(--text-muted);">Format: <code>postgresql://[user]:[password]@[host]:[port]/[database]?sslmode=[mode]</code></span>
@@ -344,6 +349,7 @@ function renderUrlInputs(selected) {
           type="text" 
           id="db-field-url" 
           class="form-input" 
+          value="${escapeDbHtml(currentVal)}"
           placeholder="Server=localhost,1433;Database=nodestack;User Id=sa;Password=Secret123!;TrustServerCertificate=true"
           style="font-family: var(--font-mono, monospace); font-size: 12px;"
         />
@@ -355,43 +361,52 @@ function renderUrlInputs(selected) {
 
 function renderParameterInputs(selected) {
   const isPg = selected === 'postgres';
+  const cfg = databaseState.status?.config || {};
+  const currentHost = databaseState.enteredHost !== undefined ? databaseState.enteredHost : (cfg.host || '');
+  const currentPort = databaseState.enteredPort !== undefined ? databaseState.enteredPort : (cfg.port || '');
+  const currentDb = databaseState.enteredDatabase !== undefined ? databaseState.enteredDatabase : (cfg.database || '');
+  const currentUser = databaseState.enteredUser !== undefined ? databaseState.enteredUser : (cfg.user || '');
+  const currentPass = databaseState.enteredPassword !== undefined ? databaseState.enteredPassword : '';
+  const currentSsl = databaseState.enteredSsl !== undefined ? databaseState.enteredSsl : Boolean(cfg.ssl);
+  const currentTrustCert = databaseState.enteredTrustCert !== undefined ? databaseState.enteredTrustCert : true;
+
   return `
     <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 8px;">
       <div class="form-group" style="margin: 0;">
         <label class="form-label" for="db-field-host" style="font-size: 11.5px;">${isPg ? 'Host' : 'Server Host'} *</label>
-        <input type="text" id="db-field-host" class="form-input" placeholder="localhost" style="font-size: 12px;" />
+        <input type="text" id="db-field-host" class="form-input" value="${escapeDbHtml(currentHost)}" placeholder="localhost" style="font-size: 12px;" />
       </div>
       <div class="form-group" style="margin: 0;">
         <label class="form-label" for="db-field-port" style="font-size: 11.5px;">Port</label>
-        <input type="number" id="db-field-port" class="form-input" placeholder="${isPg ? '5432' : '1433'}" style="font-size: 12px;" />
+        <input type="number" id="db-field-port" class="form-input" value="${currentPort ? escapeDbHtml(currentPort) : ''}" placeholder="${isPg ? '5432' : '1433'}" style="font-size: 12px;" />
       </div>
     </div>
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
       <div class="form-group" style="margin: 0;">
         <label class="form-label" for="db-field-database" style="font-size: 11.5px;">Database Name *</label>
-        <input type="text" id="db-field-database" class="form-input" placeholder="nodestack" style="font-size: 12px;" />
+        <input type="text" id="db-field-database" class="form-input" value="${escapeDbHtml(currentDb)}" placeholder="nodestack" style="font-size: 12px;" />
       </div>
       <div class="form-group" style="margin: 0;">
         <label class="form-label" for="db-field-user" style="font-size: 11.5px;">Username *</label>
-        <input type="text" id="db-field-user" class="form-input" placeholder="${isPg ? 'postgres' : 'sa'}" style="font-size: 12px;" />
+        <input type="text" id="db-field-user" class="form-input" value="${escapeDbHtml(currentUser)}" placeholder="${isPg ? 'postgres' : 'sa'}" style="font-size: 12px;" />
       </div>
     </div>
 
     <div class="form-group" style="margin: 0;">
       <label class="form-label" for="db-field-password" style="font-size: 11.5px;">Password *</label>
-      <input type="password" id="db-field-password" class="form-input" placeholder="••••••••" style="font-size: 12px;" />
+      <input type="password" id="db-field-password" class="form-input" value="${escapeDbHtml(currentPass)}" placeholder="••••••••" style="font-size: 12px;" />
     </div>
 
     <div style="display: flex; align-items: center; gap: 1rem; margin-top: 2px;">
       ${isPg ? `
         <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer;">
-          <input type="checkbox" id="db-field-ssl" />
+          <input type="checkbox" id="db-field-ssl" ${currentSsl ? 'checked' : ''} />
           <span>Enable SSL Connection</span>
         </label>
       ` : `
         <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer;">
-          <input type="checkbox" id="db-field-trust-cert" checked />
+          <input type="checkbox" id="db-field-trust-cert" ${currentTrustCert ? 'checked' : ''} />
           <span>Trust Server Certificate</span>
         </label>
       `}
@@ -474,19 +489,35 @@ function getEnteredDatabaseConfig() {
   let config = {};
   if (isUrlMode) {
     const urlEl = document.getElementById('db-field-url');
-    const url = urlEl ? urlEl.value.trim() : '';
+    const url = urlEl ? urlEl.value.trim() : (databaseState.enteredUrl || '');
+    databaseState.enteredUrl = url;
     config = {
       provider,
       connectionString: url,
     };
   } else {
-    const host = document.getElementById('db-field-host')?.value?.trim();
-    const port = parseInt(document.getElementById('db-field-port')?.value?.trim() || '0', 10);
-    const database = document.getElementById('db-field-database')?.value?.trim();
-    const user = document.getElementById('db-field-user')?.value?.trim();
-    const password = document.getElementById('db-field-password')?.value || '';
-    const ssl = Boolean(document.getElementById('db-field-ssl')?.checked);
-    const trustServerCertificate = Boolean(document.getElementById('db-field-trust-cert')?.checked);
+    const hostEl = document.getElementById('db-field-host');
+    const host = hostEl ? hostEl.value.trim() : (databaseState.enteredHost || '');
+    const portEl = document.getElementById('db-field-port');
+    const port = parseInt(portEl?.value?.trim() || String(databaseState.enteredPort || '0'), 10);
+    const dbEl = document.getElementById('db-field-database');
+    const database = dbEl ? dbEl.value.trim() : (databaseState.enteredDatabase || '');
+    const userEl = document.getElementById('db-field-user');
+    const user = userEl ? userEl.value.trim() : (databaseState.enteredUser || '');
+    const passEl = document.getElementById('db-field-password');
+    const password = passEl ? passEl.value : (databaseState.enteredPassword || '');
+    const sslEl = document.getElementById('db-field-ssl');
+    const ssl = sslEl ? Boolean(sslEl.checked) : Boolean(databaseState.enteredSsl);
+    const trustCertEl = document.getElementById('db-field-trust-cert');
+    const trustServerCertificate = trustCertEl ? Boolean(trustCertEl.checked) : (databaseState.enteredTrustCert !== undefined ? databaseState.enteredTrustCert : true);
+
+    databaseState.enteredHost = host;
+    databaseState.enteredPort = port > 0 ? port : undefined;
+    databaseState.enteredDatabase = database;
+    databaseState.enteredUser = user;
+    databaseState.enteredPassword = password;
+    databaseState.enteredSsl = ssl;
+    databaseState.enteredTrustCert = trustServerCertificate;
 
     config = {
       provider,
@@ -532,7 +563,7 @@ async function handleTestConnectionClick() {
   try {
     const res = await api('/api/system/database/test', {
       method: 'POST',
-      body: config,
+      body: JSON.stringify(config),
     });
     databaseState.testResult = res;
     if (typeof toast === 'function') {
@@ -650,10 +681,10 @@ async function executeDatabaseSwitch() {
   try {
     const res = await api('/api/system/database/switch', {
       method: 'POST',
-      body: {
+      body: JSON.stringify({
         config,
         migrateData,
-      },
+      }),
     });
 
     if (res && res.success) {

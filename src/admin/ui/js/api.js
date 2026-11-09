@@ -6,7 +6,11 @@
 
       // Only set Content-Type: application/json if body is a string (e.g. JSON.stringify)
       // Do NOT set it for GET, DELETE (prevents Fastify empty body error), or FormData
-      if (options.body && typeof options.body === 'string') {
+      // Automatically serialize object bodies to JSON and set Content-Type
+      if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
+        options.body = JSON.stringify(options.body);
+        headers['Content-Type'] = 'application/json';
+      } else if (options.body && typeof options.body === 'string') {
         headers['Content-Type'] = 'application/json';
       }
 
