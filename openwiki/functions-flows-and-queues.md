@@ -4,7 +4,7 @@ title: "Serverless Functions, Workflows & Queues"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-07T08:27:51.831Z
+    at: 2026-11-08T15:20:09.692Z
 sources:
   - id: openwiki-source-e69860785030352a5a6b3062
     resource: repo://src/flows/FlowEngine.ts
@@ -30,7 +30,7 @@ sources:
     resource: repo://src/queue/drivers/SqliteQueueDriver.ts
   - id: openwiki-source-75c9cc054eb2d6fc3f07ef6a
     resource: repo://src/queue/QueueService.ts
-generated: { by: "antigravity", at: "2026-11-07T08:27:51.831Z" }
+generated: { by: "doc-gen", at: "2026-11-07T08:27:51.831Z" }
 ---
 
 # Serverless Functions, Workflows & Queues

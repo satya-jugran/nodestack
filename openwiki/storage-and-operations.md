@@ -4,7 +4,7 @@ title: "Files, Realtime, Webhooks, Snapshots & Observability"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-07T08:27:51.831Z
+    at: 2026-11-08T15:20:09.692Z
 sources:
   - id: openwiki-source-f89e861107ff41a995cce15a
     resource: repo://src/analytics/AnalyticsService.ts
@@ -20,7 +20,7 @@ sources:
     resource: repo://src/snapshots/SnapshotService.ts
   - id: openwiki-source-42775f04299d5f47c666d7ad
     resource: repo://src/webhooks/WebhookService.ts
-generated: { by: "antigravity", at: "2026-11-05T17:08:40.212Z" }
+generated: { by: "doc-gen", at: "2026-11-05T17:08:40.212Z" }
 ---
 
 # Files, Realtime, Webhooks, Snapshots & Observability

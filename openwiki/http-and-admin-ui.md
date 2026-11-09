@@ -4,7 +4,7 @@ title: "HTTP Server, REST Controllers & Admin UI"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-07T08:27:51.831Z
+    at: 2026-11-08T15:20:09.692Z
 sources:
   - id: openwiki-source-4bb0492330e9cc8fed4432fd
     resource: repo://src/admin/AdminUIBundler.ts
@@ -24,7 +24,7 @@ sources:
     resource: repo://src/http/middleware/AppResolutionMiddleware.ts
   - id: openwiki-source-3e62e37659aa60446b558759
     resource: repo://src/http/middleware/ChaosMiddleware.ts
-generated: { by: "antigravity", at: "2026-11-05T17:08:40.212Z" }
+generated: { by: "doc-gen", at: "2026-11-05T17:08:40.212Z" }
 ---
 
 # HTTP Server, REST Controllers & Admin UI

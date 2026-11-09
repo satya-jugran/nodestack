@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:e28a0b22bad9a0156453f932c1c97e425dfff4391ae1859c4c49483fac9e6d6b",
+  "pageVersion": "sha256:4abb9783f102bb1147d6c5ae67adc15258f5d1dc1b143ac730e9319f4e469c1f",
   "claims": [
     {
       "id": "claim_8a8b9d89e7b340a4b9bb2285225cdc4e",
@@ -8,7 +8,7 @@
       "evidence": [
         {
           "resource": "repo://src/http/HttpServer.ts",
-          "version": "repo-file-v1:sha256:4b2ca7ebd94fece677f1fa327e16d8676b8f705fe605f48d98d18de1fdad4c1a"
+          "version": "repo-file-v1:sha256:9f5d3a234645a45ff7ec385c289231b4607d7ce60de4a053892822e0100222bb"
         },
         {
           "resource": "repo://src/http/controllers/BaseController.ts",
@@ -16,11 +16,11 @@
         },
         {
           "resource": "repo://src/http/controllers/CollectionController.ts",
-          "version": "repo-file-v1:sha256:13ebea8bf3b05355dc90c9af927f4fdd8d42cf5c4caa5b80ac9cfda73a66ec89"
+          "version": "repo-file-v1:sha256:b75c72bddaaec35fe6d9157d2398b371ae931ad58ed11932577475210d602321"
         },
         {
           "resource": "repo://src/http/controllers/RecordController.ts",
-          "version": "repo-file-v1:sha256:975ba4c56165fba9281fe9ed616f694ecb582d94fe27816e1ea46f1a408ac9b6"
+          "version": "repo-file-v1:sha256:64b0c6c7908ebac07813631eb2927ecc2488b317e6b6a94eef97db242561b97a"
         }
       ]
     },
@@ -30,7 +30,7 @@
       "evidence": [
         {
           "resource": "repo://src/http/middleware/AppResolutionMiddleware.ts",
-          "version": "repo-file-v1:sha256:cad0c3c7c7486856c0581f1e4ec5de8738afb86a128bd4147f7ee18993d5bfe4"
+          "version": "repo-file-v1:sha256:243d97c89904b1ac017829689e6889455432cc1e30732dff85f3030d4bb8fe32"
         }
       ]
     },
@@ -40,7 +40,7 @@
       "evidence": [
         {
           "resource": "repo://src/http/middleware/ChaosMiddleware.ts",
-          "version": "repo-file-v1:sha256:5e961059f96ba3c048070ba52c0f34621d76f43115cb29e6a9fb073a2f264be5"
+          "version": "repo-file-v1:sha256:10f9852d72b4069bba2620fd1c0d4bee8f9ed9b9eab2ce2f1a24d5257f6d40de"
         }
       ]
     },
@@ -50,7 +50,7 @@
       "evidence": [
         {
           "resource": "repo://src/admin/AdminUIBundler.ts",
-          "version": "repo-file-v1:sha256:0e32ff6c6f3ca41494879d5fefa3bae7fb05a65f51ba43f0c6c5ea9dbe94ce1f"
+          "version": "repo-file-v1:sha256:76d402eca699ff3535bc42fff1adefdb1f22c5df7cba252fdb25cbdb6eb389e0"
         },
         {
           "resource": "repo://src/admin/AdminUIService.ts",
@@ -64,13 +64,13 @@
       "evidence": [
         {
           "resource": "repo://src/admin/DocsService.ts",
-          "version": "repo-file-v1:sha256:cb432772deb65e54e8c2eaf13333fc2a03a810642c71cf384e6f565cec253401"
+          "version": "repo-file-v1:sha256:a9d56762affc29ce30a613134a2f9dcac609d41d05cdae580b90d59fdf989f01"
         }
       ]
     }
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-07T08:27:51.831Z"
+    "at": "2026-11-08T15:20:09.692Z"
   }
 }

@@ -4,7 +4,7 @@ title: "Plugins, Starter Templates & Client SDK"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-07T08:27:51.831Z
+    at: 2026-11-08T15:20:09.692Z
 sources:
   - id: openwiki-source-986c92d89ee5ef388488c0d6
     resource: repo://packages/client/src/auth/BaseAuthStore.ts
@@ -26,7 +26,7 @@ sources:
     resource: repo://src/templates/TemplateImageGenerator.ts
   - id: openwiki-source-830900714b998dab2d6de1b4
     resource: repo://src/templates/TemplateService.ts
-generated: { by: "antigravity", at: "2026-11-05T17:08:40.212Z" }
+generated: { by: "doc-gen", at: "2026-11-05T17:08:40.212Z" }
 ---
 
 # Plugins, Starter Templates & Client SDK

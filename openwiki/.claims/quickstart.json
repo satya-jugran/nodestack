@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:2305ddc51d0b04f3e6995e12b4d918ffe2c2f82a56f1c5568d1a1de95d11f6e0",
+  "pageVersion": "sha256:233f76af961a48682bb21a09cfc13b7de54e73dbd23b46bb49870e3a1fe8679e",
   "claims": [
     {
       "id": "claim_e0a4841e457a4b0cbe35115f2034eb88",
@@ -8,11 +8,11 @@
       "evidence": [
         {
           "resource": "repo://package.json",
-          "version": "repo-file-v1:sha256:57bb67a63546890a970c351fbac7f1144a400acfe31462dadd2ab17de92d025d"
+          "version": "repo-file-v1:sha256:66ef3fe32ae00db2f5f43868773bf33ba9ae8db01dbb655fe88c2213e24b6b6a"
         },
         {
           "resource": "repo://src/cli/cli.ts",
-          "version": "repo-file-v1:sha256:a094a89be6374d501c5d4918d70c012a09feecac1b89343f86e3e8374666f264"
+          "version": "repo-file-v1:sha256:53a5046aaf0f4038c4c728842341e48e042dd8038afdedf1bbb6e285ce6c9d97"
         }
       ]
     },
@@ -22,11 +22,11 @@
       "evidence": [
         {
           "resource": "repo://src/NodeStack.ts",
-          "version": "repo-file-v1:sha256:1c28ddb39591935ebab2e346c61bbca596ac10de40be1d20dde7ad4d08750f6a"
+          "version": "repo-file-v1:sha256:d592d7afab62d8c08285228d8a85e878904c216b6c3fd89586b37343a813f3cf"
         },
         {
           "resource": "repo://src/index.ts",
-          "version": "repo-file-v1:sha256:bbf633486622fbf083393e9cb8be3204c2d31e8405fb20054d654e1a5edcac3e"
+          "version": "repo-file-v1:sha256:83c1258b0ac1e112ddf48b9d91e6c05e9e2c36cc2a9cfe8d688c69b0213fdba6"
         },
         {
           "resource": "repo://tests/nodestack.test.ts",
@@ -40,15 +40,15 @@
       "evidence": [
         {
           "resource": "repo://src/cli/cli.ts",
-          "version": "repo-file-v1:sha256:a094a89be6374d501c5d4918d70c012a09feecac1b89343f86e3e8374666f264"
+          "version": "repo-file-v1:sha256:53a5046aaf0f4038c4c728842341e48e042dd8038afdedf1bbb6e285ce6c9d97"
         },
         {
           "resource": "repo://src/core/config/ConfigService.ts",
-          "version": "repo-file-v1:sha256:e14bdcbcbd4e86c723448326e696842cdc179a400c326a08abd69ce352613fe2"
+          "version": "repo-file-v1:sha256:dccd3d8eea96af42a85122c4d9ef38543053f2b34e2c19d618a38844b9e47eba"
         },
         {
           "resource": "repo://src/core/config/EnvLoader.ts",
-          "version": "repo-file-v1:sha256:17144047d3b71f54eef8b145586be9815880ebff6884564399bcf5377ab0ba37"
+          "version": "repo-file-v1:sha256:b3324b9a0dba030e85cac10e2b4ff3a63a7d59586bba1b4baeaa2f5ea02537f6"
         }
       ]
     },
@@ -58,7 +58,7 @@
       "evidence": [
         {
           "resource": "repo://package.json",
-          "version": "repo-file-v1:sha256:57bb67a63546890a970c351fbac7f1144a400acfe31462dadd2ab17de92d025d"
+          "version": "repo-file-v1:sha256:66ef3fe32ae00db2f5f43868773bf33ba9ae8db01dbb655fe88c2213e24b6b6a"
         },
         {
           "resource": "repo://src/cli/sea-entry.ts",
@@ -69,6 +69,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-07T08:27:51.831Z"
+    "at": "2026-11-08T15:20:09.692Z"
   }
 }

@@ -4,7 +4,7 @@ title: "Database, Schema & Record Management"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-07T08:27:51.831Z
+    at: 2026-11-08T15:20:09.692Z
 sources:
   - id: openwiki-source-a7511f573894f05c34c471d2
     resource: repo://src/database/DatabaseService.ts
@@ -28,7 +28,7 @@ sources:
     resource: repo://src/schema/SchemaService.ts
   - id: openwiki-source-0135a8c502d832c59da98841
     resource: repo://src/schema/TypeGenerator.ts
-generated: { by: "antigravity", at: "2026-11-05T17:08:40.212Z" }
+generated: { by: "doc-gen", at: "2026-11-05T17:08:40.212Z" }
 ---
 
 # Database, Schema & Record Management

@@ -4,7 +4,7 @@ title: "Quickstart & Repository Overview"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-07T08:27:51.831Z
+    at: 2026-11-08T15:20:09.692Z
 sources:
   - id: openwiki-source-5b54a58d1b51cd490b0e7162
     resource: repo://package.json
@@ -22,7 +22,7 @@ sources:
     resource: repo://src/NodeStack.ts
   - id: openwiki-source-6ef2b73e0eabdb84d8cc7283
     resource: repo://tests/nodestack.test.ts
-generated: { by: "antigravity", at: "2026-11-05T17:08:40.212Z" }
+generated: { by: "doc-gen", at: "2026-11-05T17:08:40.212Z" }
 ---
 
 # Quickstart & Repository Overview

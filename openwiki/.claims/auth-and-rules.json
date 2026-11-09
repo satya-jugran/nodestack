@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:3c675f5a559541f5ab0f25af53e071a968026329cee126d415ef7045c9f20c41",
+  "pageVersion": "sha256:ff43b8b0693b3c49f6eba5c58725996534cb8d2c33d4782f3bcd1617eb683253",
   "claims": [
     {
       "id": "claim_ddf66823442f460399dfeddeb5b19534",
@@ -8,7 +8,7 @@
       "evidence": [
         {
           "resource": "repo://src/auth/AuthService.ts",
-          "version": "repo-file-v1:sha256:9c5caad3d5fa34612b70d10ed1e3fb737ab2d79fa88ab70b931ba039ae23fe53"
+          "version": "repo-file-v1:sha256:f4c222625675fa00c1bbc1cf484b16b6ce1ad11ca6eb27db3cbded2709713095"
         },
         {
           "resource": "repo://tests/auth-session-revocation.test.ts",
@@ -22,11 +22,11 @@
       "evidence": [
         {
           "resource": "repo://src/auth/oauth/BaseOAuthProvider.ts",
-          "version": "repo-file-v1:sha256:a18cdba8787f8687d322caf44793fbaa4b614d1f35556c89e4bcb238e2545d02"
+          "version": "repo-file-v1:sha256:03851e3404db3efbafa2716a2e6c0cfba0acbfc21e44cd6a96b567cb067f7a53"
         },
         {
           "resource": "repo://src/auth/oauth/OAuthProviderRegistry.ts",
-          "version": "repo-file-v1:sha256:a380e313842eccc0fa6252498ca8f330972240be45934b872914de7a610ca209"
+          "version": "repo-file-v1:sha256:01831e85da3faf63c06ec7a2396d66758827934d707ae63a2fdf953fa3ceab5d"
         },
         {
           "resource": "repo://tests/oauth2.test.ts",
@@ -40,7 +40,7 @@
       "evidence": [
         {
           "resource": "repo://src/auth/AuthService.ts",
-          "version": "repo-file-v1:sha256:9c5caad3d5fa34612b70d10ed1e3fb737ab2d79fa88ab70b931ba039ae23fe53"
+          "version": "repo-file-v1:sha256:f4c222625675fa00c1bbc1cf484b16b6ce1ad11ca6eb27db3cbded2709713095"
         },
         {
           "resource": "repo://tests/oauth2.test.ts",
@@ -54,7 +54,7 @@
       "evidence": [
         {
           "resource": "repo://src/auth/ApiKeyService.ts",
-          "version": "repo-file-v1:sha256:ec2e129906c1c33c3a412c26ce4c65aa8d7ca7849287b6e75552668dd460c9e5"
+          "version": "repo-file-v1:sha256:7df4ce9e4dcbbb846498507681c5ed6f752657a757ef697fbe30b9afca236fcf"
         },
         {
           "resource": "repo://tests/api-keys.test.ts",
@@ -68,11 +68,11 @@
       "evidence": [
         {
           "resource": "repo://src/auth/ApiKeyService.ts",
-          "version": "repo-file-v1:sha256:ec2e129906c1c33c3a412c26ce4c65aa8d7ca7849287b6e75552668dd460c9e5"
+          "version": "repo-file-v1:sha256:7df4ce9e4dcbbb846498507681c5ed6f752657a757ef697fbe30b9afca236fcf"
         },
         {
           "resource": "repo://src/http/middleware/AuthMiddleware.ts",
-          "version": "repo-file-v1:sha256:762f0cb7b4aa662131e18a60bd9ac639f98ad62ab5d4aabd43f18d6eceb9a412"
+          "version": "repo-file-v1:sha256:62551f61a1483ea5aa2bd65cbe76bcd034830714741cec382fdf3edd225fa09e"
         },
         {
           "resource": "repo://tests/api-keys.test.ts",
@@ -86,11 +86,11 @@
       "evidence": [
         {
           "resource": "repo://src/rules/RuleBuilder.ts",
-          "version": "repo-file-v1:sha256:6ab3295e55c25c28ed5259b89b778f46f9b143771340881e3eae16855c830e85"
+          "version": "repo-file-v1:sha256:0b1b83652d00aef3d01e3ee4f892b6a92a632a1c94029e8267a2e6baa2d1cfec"
         },
         {
           "resource": "repo://src/rules/RuleEngine.ts",
-          "version": "repo-file-v1:sha256:767bbc19ef60b0ab34e49c6714b30d292b1d0f312cac42735364777c05075eef"
+          "version": "repo-file-v1:sha256:0dc25de7a7e07083f3a04a1b9af730928cb2442ad4cf2eb2eba5707f806d5ac2"
         },
         {
           "resource": "repo://tests/rule-builder.test.ts",
@@ -105,6 +105,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-05T17:08:40.212Z"
+    "at": "2026-11-08T15:20:09.692Z"
   }
 }

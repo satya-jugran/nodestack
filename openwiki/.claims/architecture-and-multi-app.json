@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:a577724f5189578fa7c2887684bf48eb05610c62365043bcbbd85988509a5c70",
+  "pageVersion": "sha256:f27b06521e475326a4e2e040e0abc73a554c508688ea2787261ad82748f3e83f",
   "claims": [
     {
       "id": "claim_c8432bbd7dd24b64ab928e9c10483259",
@@ -8,13 +8,13 @@
       "evidence": [
         {
           "resource": "repo://src/NodeStack.ts",
-          "version": "repo-file-v1:sha256:1c28ddb39591935ebab2e346c61bbca596ac10de40be1d20dde7ad4d08750f6a"
+          "version": "repo-file-v1:sha256:d592d7afab62d8c08285228d8a85e878904c216b6c3fd89586b37343a813f3cf"
         }
       ]
     }
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-07T08:27:51.831Z"
+    "at": "2026-11-08T15:20:09.692Z"
   }
 }

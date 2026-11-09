@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:1f69d94ca90205bbd853dd4455fc4367df4f7ad569973bdb09b6e3539821a013",
+  "pageVersion": "sha256:4b06bb12d67cdbcdcfb76b4b73cc673990b2d5b34dc616163c3fd1bb9739b3d0",
   "claims": [
     {
       "id": "claim_b690f0f49d864dcbad52372147d84577",
@@ -8,15 +8,15 @@
       "evidence": [
         {
           "resource": "repo://src/core/plugins/PluginManager.ts",
-          "version": "repo-file-v1:sha256:c472e4ffaa4ca9adf7a01ac4050b753f4a32b5892aa3f836c1e55f22c50a78b0"
+          "version": "repo-file-v1:sha256:fe020db3585f393d8b205e9b411a24de899d4bbb4aea6196b9d9979e2bba3ee8"
         },
         {
           "resource": "repo://src/core/plugins/types.ts",
-          "version": "repo-file-v1:sha256:04e9d372fab8defb221a10ca12f618e292e397cfe108943f929dfd8930fb5d0e"
+          "version": "repo-file-v1:sha256:9129721d08f5a7a96cf5c42efa8ea3503c757eccb772d407c8feb66edd96d2b6"
         },
         {
           "resource": "repo://src/plugins/index.ts",
-          "version": "repo-file-v1:sha256:9170f3fa103af997895d429d7fd091fc2fddfa6bd98a0283c105b53821302c84"
+          "version": "repo-file-v1:sha256:ada13edbcf333cbdbc84a9ade292330013baed0a24bbe6b6cdc54184f7f69a46"
         }
       ]
     },
@@ -26,7 +26,7 @@
       "evidence": [
         {
           "resource": "repo://src/core/plugins/PluginManager.ts",
-          "version": "repo-file-v1:sha256:c472e4ffaa4ca9adf7a01ac4050b753f4a32b5892aa3f836c1e55f22c50a78b0"
+          "version": "repo-file-v1:sha256:fe020db3585f393d8b205e9b411a24de899d4bbb4aea6196b9d9979e2bba3ee8"
         }
       ]
     },
@@ -36,15 +36,15 @@
       "evidence": [
         {
           "resource": "repo://src/templates/TemplateImageGenerator.ts",
-          "version": "repo-file-v1:sha256:977476fdb28947037ead80d9a0d1965b09409aebbaf899db848cfb3406a46877"
+          "version": "repo-file-v1:sha256:9d607b69aca0bfebc6e1bcdc5f02779cf2cd75ace3f6225edf957641df66e874"
         },
         {
           "resource": "repo://src/templates/TemplateService.ts",
-          "version": "repo-file-v1:sha256:97c09fb9345a8817bc667ff81053c44cbfaafeeea642660e9ff81820b3c7a7e3"
+          "version": "repo-file-v1:sha256:862dccffb7b4fa567998277c716b09d546a37b7aaa294bc5236675512375d86a"
         },
         {
           "resource": "repo://src/templates/definitions/index.ts",
-          "version": "repo-file-v1:sha256:03ab8cf352f53410a73f9d5a40b88e313ad402bce828ba8221778d717374b3b7"
+          "version": "repo-file-v1:sha256:c88867905881a71f336591c566825143e94bc5dfd5f85c51bac48a000d1835c0"
         }
       ]
     },
@@ -73,6 +73,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-07T08:27:51.831Z"
+    "at": "2026-11-08T15:20:09.692Z"
   }
 }

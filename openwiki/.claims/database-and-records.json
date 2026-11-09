@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:296a6f48938a9853c716b38e73f29668fc04cfb93e02a33ff2d7b769efaa7026",
+  "pageVersion": "sha256:ce15eb1ebced6976df60dee29de471a5e34342bb72936e3f908507280f5ac871",
   "claims": [
     {
       "id": "claim_94d5e801b563413891e89f45f2242afe",
@@ -8,11 +8,11 @@
       "evidence": [
         {
           "resource": "repo://src/database/DatabaseService.ts",
-          "version": "repo-file-v1:sha256:da7f53563aa86e8641edf7ffc0b0f8b58c22fb1c76fe6022b0f5e5b5bf525d54"
+          "version": "repo-file-v1:sha256:e629d7ad9178878f220f8f257420dcadc918b5ca3aa9241d78d48700fa1d27f5"
         },
         {
           "resource": "repo://src/database/drivers/NodeSqliteDriver.ts",
-          "version": "repo-file-v1:sha256:7113f60529d383ca33cc1290a9d0c992be1fa2afe3c2b4385f4353704865ce12"
+          "version": "repo-file-v1:sha256:74d05b8689010813e353e76edbec34f9d0875bf2a238589d527d0e461e632e72"
         }
       ]
     },
@@ -22,7 +22,7 @@
       "evidence": [
         {
           "resource": "repo://src/database/migrations/SystemMigrations.ts",
-          "version": "repo-file-v1:sha256:b59b37bf24bf70a82077d73396d5ca46ddd4f1699285405b617f41cd407f24e9"
+          "version": "repo-file-v1:sha256:6f063ba75d2dfbdbbbcc6aea6e3cc4a502d265ec08b34114e546e9c6067baa9e"
         }
       ]
     },
@@ -32,11 +32,11 @@
       "evidence": [
         {
           "resource": "repo://src/records/FtsService.ts",
-          "version": "repo-file-v1:sha256:dfcb24b9e67aed7cf2e1a08a8bd4e375ddf6205f48d51bc50c910d54adf77233"
+          "version": "repo-file-v1:sha256:027c3ddcc1ceca30b1462247cfa41a89bcdcaa0246e8fed351ad4527b57f3817"
         },
         {
           "resource": "repo://src/schema/SchemaService.ts",
-          "version": "repo-file-v1:sha256:784f12867e315cec6a366bd1785487ab49015b9495567db70d7444c3db91bb38"
+          "version": "repo-file-v1:sha256:12f5d3d95aca77098054351e428788e4066366d6ef9fdc8939196d93eb162488"
         }
       ]
     },
@@ -46,15 +46,15 @@
       "evidence": [
         {
           "resource": "repo://src/schema/OpenApiGenerator.ts",
-          "version": "repo-file-v1:sha256:75daf9a9aae70a53b3ff839d3d99f2513ffab8bbe78b21db563e34ada307fd92"
+          "version": "repo-file-v1:sha256:16c9bd85180fd2448cc344416ad319a7997ece80ec76034c80177b2a5e56bb3b"
         },
         {
           "resource": "repo://src/schema/SchemaInferenceService.ts",
-          "version": "repo-file-v1:sha256:4365251b4431eb06bf38f51f33be09d679a47b9e4f3a9c9493683e12c238db2c"
+          "version": "repo-file-v1:sha256:79173184ed98c93a3c502cc8778fa4cc3b5b3abc285bad37d276b38464fdd285"
         },
         {
           "resource": "repo://src/schema/TypeGenerator.ts",
-          "version": "repo-file-v1:sha256:4a04fe1802e7eaf2f2f2315b496a13dbe7eebcc6f708c881c47e390adaa532c5"
+          "version": "repo-file-v1:sha256:ee7fd04f827d2427436fc28c4354d16d5f61b71a7a7a3157ad3dfab993d13452"
         }
       ]
     },
@@ -64,21 +64,21 @@
       "evidence": [
         {
           "resource": "repo://src/records/MockDataService.ts",
-          "version": "repo-file-v1:sha256:37d0f830e63c8d3c3865a6928a1b0522a7866170ca5b7895cd95ebb4096a8a70"
+          "version": "repo-file-v1:sha256:6ab19b056b51d2f1f037fc9b379e4493a6c151a88b1d892c4640976ebb5a90b1"
         },
         {
           "resource": "repo://src/records/QueryFilterParser.ts",
-          "version": "repo-file-v1:sha256:eba2d44e9f6e5c8710791d4c216ee35985cf958297e621b67e611b365c65379a"
+          "version": "repo-file-v1:sha256:15dc4459cc0d8f9659389075845080888d112817895f7c4ac32d64abbf68f009"
         },
         {
           "resource": "repo://src/records/RecordService.ts",
-          "version": "repo-file-v1:sha256:2922a42176a0678469f5c667f5448533cc99932b2a43d75e0983d3c92728fce7"
+          "version": "repo-file-v1:sha256:2a26187c8bd93ef5a3eaabc66a5ad24d335a5b789d72d577a8d81b6ea846f997"
         }
       ]
     }
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-07T08:27:51.831Z"
+    "at": "2026-11-08T15:20:09.692Z"
   }
 }

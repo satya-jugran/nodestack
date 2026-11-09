@@ -4,11 +4,11 @@ title: "Core Architecture & Multi-Application Engine"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-07T08:27:51.831Z
+    at: 2026-11-08T15:20:09.692Z
 sources:
   - id: openwiki-source-b4b029988cbb0f1f8db7496e
     resource: repo://src/NodeStack.ts
-generated: { by: "antigravity", at: "2026-11-07T08:27:51.831Z" }
+generated: { by: "doc-gen", at: "2026-11-07T08:27:51.831Z" }
 ---
 
 # Core Architecture & Multi-Application Engine

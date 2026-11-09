@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:2475be8d1116bb421bce093e7c9f781cb4d40b5ea1076faf77dca99847b11bf9",
+  "pageVersion": "sha256:4a4e21b66b8071b0dadea3b8c72dee6d66d53c3fc1a24413a4041fe40d9af8e8",
   "claims": [
     {
       "id": "claim_d8170633bd4a4cb798aa45ef105ae15f",
@@ -8,7 +8,7 @@
       "evidence": [
         {
           "resource": "repo://src/files/FileStorageService.ts",
-          "version": "repo-file-v1:sha256:ed3012e862c2dcb5faf5e8b4587d4f6b0b9bdafccb2699c9f342cf06c2713bf1"
+          "version": "repo-file-v1:sha256:a3513a4bb435635c40b62de9dffc2ae522e905d76d347a851785f5f3e46cae83"
         }
       ]
     },
@@ -18,7 +18,7 @@
       "evidence": [
         {
           "resource": "repo://src/realtime/RealtimeService.ts",
-          "version": "repo-file-v1:sha256:180cce474318455014788fdd61ae1f39aa05f92de488342a151da0d2d0b5a1df"
+          "version": "repo-file-v1:sha256:b7e463f51114bb87770730ebc747a55b79f8107862cdc8df40cbac646691d73e"
         }
       ]
     },
@@ -28,7 +28,7 @@
       "evidence": [
         {
           "resource": "repo://src/webhooks/WebhookService.ts",
-          "version": "repo-file-v1:sha256:739ef5327339e17ca74d067b2187a691a4e97a8e000a2a2acf1ecac9c09cfc8e"
+          "version": "repo-file-v1:sha256:f3e9cede0ba902b53373efc8f369f4a21205a26f8e721fccb03ba03f5713629b"
         }
       ]
     },
@@ -38,7 +38,7 @@
       "evidence": [
         {
           "resource": "repo://src/snapshots/SnapshotService.ts",
-          "version": "repo-file-v1:sha256:8847cafe158fa5b97b3ef347121c0e75de5a94442d9e34353ca16d87e2e2048b"
+          "version": "repo-file-v1:sha256:dd11706ac2c6ce88be9630fd461feceb8cb184ef75202f3dbf0bc39049325d5c"
         }
       ]
     },
@@ -48,7 +48,7 @@
       "evidence": [
         {
           "resource": "repo://src/audit/AuditLogService.ts",
-          "version": "repo-file-v1:sha256:9286a66c1be288406ffdae9e7ea2b4959847a0a8d6291d26391455ec97980336"
+          "version": "repo-file-v1:sha256:b92819acce2a5ac0cc2b42487c6d170e6909ee4f63ed082fe544c6ccb1ef6b85"
         }
       ]
     },
@@ -58,17 +58,17 @@
       "evidence": [
         {
           "resource": "repo://src/analytics/AnalyticsService.ts",
-          "version": "repo-file-v1:sha256:16ac319f67c5b3b65c23b75a9030e7dffbe2166b53563fa012421156b9b6188c"
+          "version": "repo-file-v1:sha256:171a98de2c15143a2f7a2db29eab6a46ecd265a4c45d80a154dd34d96221c3e9"
         },
         {
           "resource": "repo://src/logger/LogService.ts",
-          "version": "repo-file-v1:sha256:4a83ab0077a8a9b3fbe7d37701bf268f12bc91c827da60c6a2f9b4e6acea6781"
+          "version": "repo-file-v1:sha256:2f2b82f09f3a32f5825e1297d58541c84abf0e12b349a530a02d9454fc818ca8"
         }
       ]
     }
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-07T08:27:51.831Z"
+    "at": "2026-11-08T15:20:09.692Z"
   }
 }

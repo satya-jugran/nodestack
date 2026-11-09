@@ -4,7 +4,7 @@ title: "Authentication, OAuth2, API Keys & Access Rules"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-05T17:08:40.212Z
+    at: 2026-11-08T15:20:09.692Z
 sources:
   - id: openwiki-source-46bed1e718db2844a20df5a0
     resource: repo://src/auth/ApiKeyService.ts
@@ -30,7 +30,7 @@ sources:
     resource: repo://tests/rule-builder.test.ts
   - id: openwiki-source-7a6d6991cdc34a8bbf49c67a
     resource: repo://tests/rules.test.ts
-generated: { by: "antigravity", at: "2026-11-05T17:08:40.212Z" }
+generated: { by: "doc-gen", at: "2026-11-05T17:08:40.212Z" }
 ---
 
 # Authentication, OAuth2, API Keys & Access Rules
