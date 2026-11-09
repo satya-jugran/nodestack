@@ -97,7 +97,7 @@ export class DatabaseMigrationService {
       }
 
       // Ensure physical collection table exists on target
-      await DatabaseMigrationService.ensurePhysicalCollectionTable(col, targetDriver);
+      const targetColumns = await DatabaseMigrationService.ensurePhysicalCollectionTable(col, targetDriver);
 
       // Recreate collection indexes on target
       await DatabaseMigrationService.ensureCollectionIndexes(col, targetDriver);
@@ -122,14 +122,14 @@ export class DatabaseMigrationService {
         if (targetDriver.dialect.name === 'sqlite') {
           targetDriver.transaction((tx) => {
             for (const row of rows) {
-              DatabaseMigrationService.insertOrUpdateRecord(col.name, row, tx);
+              DatabaseMigrationService.insertOrUpdateRecord(col.name, row, tx, targetColumns);
               recordsCount++;
             }
           });
         } else {
           await targetDriver.transaction(async (tx) => {
             for (const row of rows) {
-              await DatabaseMigrationService.insertOrUpdateRecord(col.name, row, tx);
+              await DatabaseMigrationService.insertOrUpdateRecord(col.name, row, tx, targetColumns);
               recordsCount++;
             }
           });
@@ -179,7 +179,7 @@ export class DatabaseMigrationService {
   private static async ensurePhysicalCollectionTable(
     col: any,
     targetDriver: IDatabaseDriver
-  ): Promise<void> {
+  ): Promise<Set<string>> {
     const dialect = targetDriver.dialect;
     const fields: any[] = typeof col.schema === 'string' ? JSON.parse(col.schema || '[]') : col.schema || [];
 
@@ -214,6 +214,36 @@ export class DatabaseMigrationService {
 
     const createSql = dialect.createTableIfNotExists(col.name, columnDefs.join(', '));
     await targetDriver.exec(createSql);
+
+    const existingCols = await DatabaseMigrationService.getTargetTableColumns(col.name, targetDriver);
+    if (existingCols.size > 0) {
+      for (const f of fields) {
+        if (!existingCols.has(f.name)) {
+          const colType = dialect.mapFieldType(f.type, { isUnique: f.unique });
+          const def = `${dialect.quoteIdentifier(f.name)} ${colType}`;
+          try {
+            await targetDriver.exec(dialect.addColumnSql(col.name, def));
+            existingCols.add(f.name);
+          } catch {
+            // column might already exist
+          }
+        }
+      }
+      return existingCols;
+    }
+
+    const definedCols = new Set<string>(['id', 'created', 'updated']);
+    if (col.type === 'auth') {
+      definedCols.add('email');
+      definedCols.add('emailVisibility');
+      definedCols.add('verified');
+      definedCols.add('passwordHash');
+      definedCols.add('tokenKey');
+    }
+    for (const f of fields) {
+      definedCols.add(f.name);
+    }
+    return definedCols;
   }
 
   private static async ensureCollectionIndexes(
@@ -264,13 +294,35 @@ export class DatabaseMigrationService {
     }
   }
 
+  public static async getTargetTableColumns(
+    tableName: string,
+    targetDriver: IDatabaseDriver
+  ): Promise<Set<string>> {
+    try {
+      const { sql, mapRow } = targetDriver.dialect.getTableColumnsSql(tableName);
+      const params = sql.includes('?') ? [tableName] : [];
+      const res = targetDriver.prepare(sql).all(...params);
+      const rows = res && typeof (res as any).then === 'function' ? await res : res;
+      if (Array.isArray(rows) && rows.length > 0) {
+        return new Set(rows.map(mapRow).map((c) => c.name));
+      }
+    } catch {
+      // ignore
+    }
+    return new Set();
+  }
+
   private static insertOrUpdateRecord(
     tableName: string,
     row: Record<string, any>,
-    targetDriver: IDatabaseDriver
+    targetDriver: IDatabaseDriver,
+    allowedColumns?: Set<string>
   ): any {
     const dialect = targetDriver.dialect;
-    const columns = Object.keys(row);
+    const allCols = Object.keys(row);
+    const columns = allowedColumns && allowedColumns.size > 0
+      ? allCols.filter((col) => allowedColumns.has(col))
+      : allCols;
     if (columns.length === 0) return;
 
     const values = columns.map((col) => {
@@ -311,6 +363,10 @@ export class DatabaseMigrationService {
       }
 
       const pkCol = tableName === '_params' ? 'key' : 'id';
+      const targetColumns = await DatabaseMigrationService.getTargetTableColumns(tableName, targetDriver);
+      if (targetColumns.size === 0) {
+        return;
+      }
       const chunkSize = 500;
       let offset = 0;
 
@@ -326,7 +382,7 @@ export class DatabaseMigrationService {
           targetDriver.transaction((tx) => {
             for (const row of rows) {
               try {
-                DatabaseMigrationService.insertOrUpdateRecord(tableName, row, tx);
+                DatabaseMigrationService.insertOrUpdateRecord(tableName, row, tx, targetColumns);
               } catch (rowErr: any) {
                 console.warn(`[Migration] Could not copy row ${row[pkCol] ?? row.id} in ${tableName}: ${rowErr.message}`);
               }
@@ -336,7 +392,7 @@ export class DatabaseMigrationService {
           await targetDriver.transaction(async (tx) => {
             for (const row of rows) {
               try {
-                await DatabaseMigrationService.insertOrUpdateRecord(tableName, row, tx);
+                await DatabaseMigrationService.insertOrUpdateRecord(tableName, row, tx, targetColumns);
               } catch (rowErr: any) {
                 console.warn(`[Migration] Could not copy row ${row[pkCol] ?? row.id} in ${tableName}: ${rowErr.message}`);
               }
