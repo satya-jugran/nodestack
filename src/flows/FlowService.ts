@@ -206,9 +206,9 @@ export class FlowService {
       const stats = await this.queueService.getStats(queueName, true);
       const hasPendingJobs = stats.queued > 0 || stats.processing > 0;
 
-      const queuedExecsRow = this.db
+      const queuedExecsRow = (await this.db
         .prepare("SELECT COUNT(*) as count FROM _flow_executions WHERE flowId = ? AND status = 'queued'")
-        .get(flow.id) as any;
+        .get(flow.id)) as any;
       const queuedExecCount = Number(queuedExecsRow?.count || 0);
 
       if (hasPendingJobs || queuedExecCount > 0) {

@@ -92,6 +92,7 @@ export class QueueService {
   }
 
   private resolveMemoryHandler(queueName: string): MessageHandler<any, any> | undefined {
+    if (!queueName || typeof queueName !== 'string') return undefined;
     const exact = this.handlers.get(queueName);
     if (exact) return exact;
     for (const [prefix, handler] of this.prefixHandlers.entries()) {
@@ -391,6 +392,7 @@ export class QueueService {
    * Holds zero state in memory once the drain completes.
    */
   public wakeWorker(queueName: string): void {
+    if (!queueName || typeof queueName !== 'string') return;
     if (this.isDisposed) return;
     if (this.pendingWake.has(queueName)) {
       return;
