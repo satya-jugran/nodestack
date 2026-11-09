@@ -66,15 +66,20 @@ function updateDatabaseStatusUI(status) {
   }
 }
 
-function openDatabaseModal(providerToSelect) {
-  if (typeof closeModal === 'function') closeModal();
+function renderDatabaseUI() {
+  if (typeof state !== 'undefined' && state.activeNav === 'database' && typeof renderDatabaseView === 'function') {
+    renderDatabaseView();
+  }
   const modalRoot = document.getElementById('modal-root');
-  if (!modalRoot) return;
+  if (modalRoot && modalRoot.innerHTML.trim() !== '') {
+    renderDatabaseModal();
+  }
+}
 
+function openDatabaseModal(providerToSelect) {
   if (providerToSelect) {
     databaseState.selectedProvider = providerToSelect;
   } else if (databaseState.status?.provider) {
-    // Default to the next available provider or current
     databaseState.selectedProvider = databaseState.status.provider;
   }
 
@@ -82,9 +87,17 @@ function openDatabaseModal(providerToSelect) {
   databaseState.showConfirmSwitch = false;
   databaseState.isSwitching = false;
 
+  if (typeof selectNav === 'function') {
+    selectNav('database');
+    return;
+  }
+
+  if (typeof closeModal === 'function') closeModal();
+  const modalRoot = document.getElementById('modal-root');
+  if (!modalRoot) return;
+
   renderDatabaseModal();
 
-  // Freshly refresh status in background
   fetchDatabaseStatus().then(() => {
     renderDatabaseModal();
   });
@@ -101,16 +114,211 @@ function closeDatabaseModal() {
 }
 
 function setDatabaseProviderTab(provider) {
+  try { getEnteredDatabaseConfig(); } catch {}
   databaseState.selectedProvider = provider;
   databaseState.testResult = null;
   databaseState.showConfirmSwitch = false;
-  renderDatabaseModal();
+  renderDatabaseUI();
 }
 
 function setDatabaseConfigMode(mode) {
+  try { getEnteredDatabaseConfig(); } catch {}
   databaseState.configMode = mode;
   databaseState.testResult = null;
-  renderDatabaseModal();
+  renderDatabaseUI();
+}
+
+function renderDatabaseView() {
+  const container = document.getElementById('page-view-database') || document.getElementById('main-body');
+  if (!container) return;
+
+  const status = databaseState.status || {
+    provider: 'sqlite',
+    connected: true,
+    latencyMs: 1,
+    availableProviders: ['sqlite', 'postgres', 'mssql'],
+  };
+
+  const activeProvider = (status.provider || 'sqlite').toLowerCase();
+  const selected = databaseState.selectedProvider || (activeProvider !== 'sqlite' ? activeProvider : 'postgres');
+  const isSelectedActive = selected === activeProvider;
+
+  const labelMap = {
+    sqlite: 'SQLite (Embedded)',
+    postgres: 'PostgreSQL',
+    mssql: 'Microsoft SQL Server',
+  };
+
+  container.innerHTML = `
+    <div style="width: 100%; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem; padding-bottom: 2.5rem;">
+      
+      <!-- Top Overview Banner -->
+      <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 1.25rem 1.75rem; display: flex; flex-direction: column; gap: 1rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-primary);">
+                <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+              </svg>
+            </div>
+            <div>
+              <h2 style="font-size: 18px; font-weight: 800; color: var(--text-heading); margin: 0; letter-spacing: -0.01em;">
+                Database Engine & Infrastructure
+              </h2>
+              <p style="font-size: 12px; color: var(--text-muted); margin: 3px 0 0 0; line-height: 1.4;">
+                Configure storage engines, scale read replicas across multi-cluster nodes, and execute zero-downtime data migrations.
+              </p>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="fetchDatabaseStatus().then(() => renderDatabaseView())" style="display: flex; align-items: center; gap: 6px; padding: 6px 12px;">
+              <span>↻</span><span>Refresh Status</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Telemetry & Status Strip -->
+        <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 0.9rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <div style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.06em;">Active Storage Engine</div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+              <span style="font-size: 17px; font-weight: 800; color: var(--text-heading);">${labelMap[activeProvider] || activeProvider}</span>
+              <span class="badge ${status.connected ? 'badge-success' : 'badge-danger'}" style="font-size: 10.5px; padding: 2px 8px;">
+                ${status.connected ? '● Connected' : '✕ Disconnected'}
+              </span>
+              ${status.latencyMs !== undefined ? `<span style="font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); font-weight: 600;">(${status.latencyMs}ms latency)</span>` : ''}
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; font-size: 12px; color: var(--text-muted);">
+            <div>Tenant Isolation: <strong style="color: var(--text-heading); font-family: var(--font-mono);">app_&lt;slug&gt; schema</strong></div>
+            <div>Control Plane: <strong style="color: var(--text-heading);">Encrypted AES-256</strong></div>
+            <div>Driver: <strong style="color: var(--text-heading); text-transform: capitalize;">${activeProvider}</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Engine Selector Cards -->
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <label style="font-weight: 700; font-size: 13px; color: var(--text-heading); text-transform: uppercase; letter-spacing: 0.04em;">
+            Select Database Engine
+          </label>
+          <span style="font-size: 11.5px; color: var(--text-muted);">Click an engine card to view credentials & clustering configuration</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1rem;">
+          
+          <!-- SQLite Card -->
+          <div onclick="setDatabaseProviderTab('sqlite')" 
+               style="background: ${selected === 'sqlite' ? 'rgba(59, 130, 246, 0.06)' : 'var(--bg-card)'}; border: 2px solid ${selected === 'sqlite' ? 'var(--accent-primary)' : 'var(--border-subtle)'}; border-radius: 10px; padding: 1.25rem; cursor: pointer; transition: all 0.15s ease; display: flex; flex-direction: column; justify-content: space-between; gap: 0.85rem;">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 24px;">⚡</span>
+                  <span style="font-size: 16px; font-weight: 800; color: var(--text-heading);">SQLite</span>
+                </div>
+                ${activeProvider === 'sqlite' ? '<span class="badge badge-success" style="font-size: 10px; padding: 2px 7px;">ACTIVE</span>' : ''}
+              </div>
+              <div style="font-size: 11.5px; font-weight: 600; color: var(--accent-primary); margin-bottom: 4px;">Embedded / Single-File</div>
+              <p style="font-size: 12px; color: var(--text-muted); line-height: 1.45; margin: 0;">
+                Zero-setup embedded database powered by Node.js native <code>node:sqlite</code>. High-speed local disk storage with WAL journaling.
+              </p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span class="badge" style="font-size: 10px; padding: 2px 7px;">Zero Config</span>
+              <span class="badge" style="font-size: 10px; padding: 2px 7px;">WAL Mode</span>
+              <span class="badge" style="font-size: 10px; padding: 2px 7px;">Local File</span>
+            </div>
+          </div>
+
+          <!-- PostgreSQL Card -->
+          <div onclick="setDatabaseProviderTab('postgres')" 
+               style="background: ${selected === 'postgres' ? 'rgba(59, 130, 246, 0.06)' : 'var(--bg-card)'}; border: 2px solid ${selected === 'postgres' ? 'var(--accent-primary)' : 'var(--border-subtle)'}; border-radius: 10px; padding: 1.25rem; cursor: pointer; transition: all 0.15s ease; display: flex; flex-direction: column; justify-content: space-between; gap: 0.85rem;">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 24px;">🐘</span>
+                  <span style="font-size: 16px; font-weight: 800; color: var(--text-heading);">PostgreSQL</span>
+                </div>
+                ${activeProvider === 'postgres' ? '<span class="badge badge-success" style="font-size: 10px; padding: 2px 7px;">ACTIVE</span>' : ''}
+              </div>
+              <div style="font-size: 11.5px; font-weight: 600; color: var(--accent-primary); margin-bottom: 4px;">Multi-Cluster / HA Replicas</div>
+              <p style="font-size: 12px; color: var(--text-muted); line-height: 1.45; margin: 0;">
+                Enterprise-grade ACID SQL engine. Features schema-isolated multi-tenancy, built-in connection pooling, and horizontal read replicas.
+              </p>
+            </div>
+            <div style="display: flex; align-items: gap: 6px; flex-wrap: wrap;">
+              <span class="badge" style="font-size: 10px; padding: 2px 7px;">Connection Pool</span>
+              <span class="badge" style="font-size: 10px; padding: 2px 7px;">HA Replicas</span>
+              <span class="badge" style="font-size: 10px; padding: 2px 7px;">Multi-Tenant Schemas</span>
+            </div>
+          </div>
+
+          <!-- SQL Server Card -->
+          <div onclick="setDatabaseProviderTab('mssql')" 
+               style="background: ${selected === 'mssql' ? 'rgba(59, 130, 246, 0.06)' : 'var(--bg-card)'}; border: 2px solid ${selected === 'mssql' ? 'var(--accent-primary)' : 'var(--border-subtle)'}; border-radius: 10px; padding: 1.25rem; cursor: pointer; transition: all 0.15s ease; display: flex; flex-direction: column; justify-content: space-between; gap: 0.85rem;">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 24px;">🏢</span>
+                  <span style="font-size: 16px; font-weight: 800; color: var(--text-heading);">SQL Server</span>
+                </div>
+                ${activeProvider === 'mssql' ? '<span class="badge badge-success" style="font-size: 10px; padding: 2px 7px;">ACTIVE</span>' : ''}
+              </div>
+              <div style="font-size: 11.5px; font-weight: 600; color: var(--accent-primary); margin-bottom: 4px;">Enterprise / Azure SQL</div>
+              <p style="font-size: 12px; color: var(--text-muted); line-height: 1.45; margin: 0;">
+                Microsoft SQL Server for enterprise environments and Azure Cloud. TDS protocol support, encrypted TLS connections, and HA clustering.
+              </p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span class="badge" style="font-size: 10px; padding: 2px 7px;">Azure SQL</span>
+              <span class="badge" style="font-size: 10px; padding: 2px 7px;">TDS Protocol</span>
+              <span class="badge" style="font-size: 10px; padding: 2px 7px;">Enterprise HA</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Provider Configuration Card -->
+      <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+        ${databaseState.showConfirmSwitch ? renderConfirmSwitchStep(activeProvider, selected) : `
+          ${renderProviderFields(selected)}
+          ${renderTestResultBanner()}
+          
+          <!-- Actions Footer -->
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-top: 0.5rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle);">
+            <div style="font-size: 12px; color: var(--text-muted);">
+              ${isSelectedActive ? '✓ This database engine is currently running your live applications.' : 'Test connectivity before switching.'}
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              ${selected !== 'sqlite' ? `
+                <button type="button" class="btn btn-secondary btn-sm" onclick="handleTestConnectionClick()" ${databaseState.isTesting ? 'disabled' : ''} style="display: flex; align-items: center; gap: 6px; padding: 7px 14px; font-weight: 600;">
+                  <span>🔌</span>
+                  <span>${databaseState.isTesting ? 'Testing connection...' : 'Test Connection'}</span>
+                </button>
+              ` : ''}
+
+              ${!isSelectedActive ? `
+                <button type="button" class="btn btn-primary btn-sm" onclick="proceedToSwitchConfirm()" style="display: flex; align-items: center; gap: 6px; padding: 7px 16px; font-weight: 700;">
+                  <span>Switch to ${selected === 'sqlite' ? 'SQLite' : selected === 'postgres' ? 'PostgreSQL' : 'SQL Server'}</span>
+                  <span>➔</span>
+                </button>
+              ` : `
+                <button type="button" class="btn btn-secondary btn-sm" disabled style="opacity: 0.6; padding: 7px 14px; font-weight: 600;">
+                  Active Engine
+                </button>
+              `}
+            </div>
+          </div>
+        `}
+      </div>
+
+    </div>
+  `;
 }
 
 function renderDatabaseModal() {
@@ -558,7 +766,7 @@ async function handleTestConnectionClick() {
 
   databaseState.isTesting = true;
   databaseState.testResult = null;
-  renderDatabaseModal();
+  renderDatabaseUI();
 
   try {
     const res = await api('/api/system/database/test', {
@@ -581,7 +789,7 @@ async function handleTestConnectionClick() {
     if (typeof toast === 'function') toast(err.message || 'Connection test failed', 'error');
   } finally {
     databaseState.isTesting = false;
-    renderDatabaseModal();
+    renderDatabaseUI();
   }
 }
 
@@ -592,12 +800,12 @@ function proceedToSwitchConfirm() {
     return;
   }
   databaseState.showConfirmSwitch = true;
-  renderDatabaseModal();
+  renderDatabaseUI();
 }
 
 function cancelSwitchConfirm() {
   databaseState.showConfirmSwitch = false;
-  renderDatabaseModal();
+  renderDatabaseUI();
 }
 
 function renderConfirmSwitchStep(activeProvider, targetProvider) {
@@ -628,7 +836,7 @@ function renderConfirmSwitchStep(activeProvider, targetProvider) {
           type="checkbox" 
           id="db-migrate-data-checkbox" 
           ${databaseState.migrateData ? 'checked' : ''} 
-          onchange="databaseState.migrateData = this.checked; renderDatabaseModal();" 
+          onchange="databaseState.migrateData = this.checked; renderDatabaseUI();" 
           style="margin-top: 3px; width: 16px; height: 16px; cursor: pointer;"
         />
         <div>
@@ -676,7 +884,7 @@ async function executeDatabaseSwitch() {
   const migrateData = Boolean(databaseState.migrateData);
 
   databaseState.isSwitching = true;
-  renderDatabaseModal();
+  renderDatabaseUI();
 
   try {
     const res = await api('/api/system/database/switch', {
@@ -701,6 +909,7 @@ async function executeDatabaseSwitch() {
       }
 
       closeDatabaseModal();
+      renderDatabaseUI();
     } else {
       throw new Error(res?.message || 'Database switch failed');
     }
@@ -709,7 +918,7 @@ async function executeDatabaseSwitch() {
       toast(err.message || 'Failed to switch database', 'error');
     }
     databaseState.isSwitching = false;
-    renderDatabaseModal();
+    renderDatabaseUI();
   }
 }
 
@@ -719,6 +928,8 @@ if (typeof window !== 'undefined') {
   window.fetchDatabaseStatus = fetchDatabaseStatus;
   window.openDatabaseModal = openDatabaseModal;
   window.closeDatabaseModal = closeDatabaseModal;
+  window.renderDatabaseView = renderDatabaseView;
+  window.renderDatabaseUI = renderDatabaseUI;
   window.setDatabaseProviderTab = setDatabaseProviderTab;
   window.setDatabaseConfigMode = setDatabaseConfigMode;
   window.handleTestConnectionClick = handleTestConnectionClick;

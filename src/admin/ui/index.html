@@ -86,6 +86,11 @@
           <span>Snapshots</span>
           <span id="sidebar-snapshot-dot" style="margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: #10b981; display: none;"></span>
         </div>
+        <div class="sidebar-nav-item" id="sidebar-database-link" onclick="selectNav('database')" style="cursor: pointer;" title="Configure & Switch Database Engine">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+          <span>Database</span>
+          <span class="badge badge-primary" id="sidebar-database-badge" style="margin-left: auto; font-size: 10px; padding: 1px 6px; text-transform: uppercase;">SQLite</span>
+        </div>
         <div class="sidebar-nav-item" id="nav-logs" onclick="selectNav('logs')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           <span>Audit Logs</span>
@@ -121,11 +126,6 @@
           <span>API Docs (OpenAPI)</span>
           <span style="margin-left: auto; font-size: 11px; opacity: 0.6; color: var(--accent-primary);">↗</span>
         </a>
-        <div class="sidebar-nav-item" id="sidebar-database-link" onclick="openDatabaseModal()" style="cursor: pointer;" title="Configure & Switch Database Engine">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
-          <span>Database</span>
-          <span class="badge badge-primary" id="sidebar-database-badge" style="margin-left: auto; font-size: 10px; padding: 1px 6px; text-transform: uppercase;">SQLite</span>
-        </div>
         <div class="sidebar-nav-item" onclick="logout()" style="margin-top: 0.5rem; border-top: 1px solid var(--border-subtle); padding-top: 0.75rem;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
           <span id="admin-user-email">Logout</span>
@@ -152,7 +152,7 @@
         </div>
         <div class="top-bar-right-group" style="display: flex; align-items: center; gap: 8px;">
                     <!-- Database Switcher Button -->
-          <button class="btn btn-secondary btn-sm" id="btn-database-switcher" onclick="openDatabaseModal()" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; font-weight: 600; font-size: 12px; border-radius: 6px; background: var(--bg-card-hover); border: 1px solid var(--border-subtle); cursor: pointer;" title="Configure & Switch Database Engine">
+          <button class="btn btn-secondary btn-sm" id="btn-database-switcher" onclick="selectNav('database')" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; font-weight: 600; font-size: 12px; border-radius: 6px; background: var(--bg-card-hover); border: 1px solid var(--border-subtle); cursor: pointer;" title="Configure & Switch Database Engine">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
             <span id="topbar-database-label">Database: SQLite</span>
           </button>
@@ -348,6 +348,9 @@
 
         <!-- 5. Demo Snapshots Page View -->
         <div id="page-view-snapshots" class="app-page-view" style="display: none;"></div>
+
+        <!-- 5.5 Database Engine Page View -->
+        <div id="page-view-database" class="app-page-view" style="display: none;"></div>
 
         <!-- 6. Audit Logs Page View -->
         <div id="page-view-logs" class="app-page-view" style="display: none;"></div>

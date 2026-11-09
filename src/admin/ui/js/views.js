@@ -54,7 +54,7 @@
                       <span class="live-dot" style="width: 6px; height: 6px;"></span>
                       <span>Server Online</span>
                     </span>
-                    <button type="button" class="badge badge-primary" id="home-status-db-label" onclick="openDatabaseModal()" style="font-size: 10.5px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; border: none;" title="Configure & Switch Database Engine">
+                    <button type="button" class="badge badge-primary" id="home-status-db-label" onclick="selectNav('database')" style="font-size: 10.5px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; border: none;" title="Configure & Switch Database Engine">
                       <span>🗄️</span>
                       <span>DB: ${(typeof databaseState !== "undefined" && databaseState.status?.provider) ? (databaseState.status.provider === "postgres" ? "PostgreSQL" : databaseState.status.provider === "mssql" ? "SQL Server" : "SQLite") : "SQLite"}</span>
                     </button>

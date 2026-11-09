@@ -145,7 +145,7 @@ function getAllCommandPaletteItems() {
     badge: "CONFIG",
     icon: "🗄️",
     keywords: ["database", "db", "postgres", "postgresql", "mssql", "sql server", "sqlite", "cluster", "migrate", "switch database"],
-    action: () => { if (typeof openDatabaseModal === "function") openDatabaseModal(); }
+    action: () => selectNav('database')
   });
 
   // 2.5 Plugin navigation items

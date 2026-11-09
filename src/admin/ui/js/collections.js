@@ -396,6 +396,8 @@ function updateBreadcrumbs() {
     crumbs.push({ label: 'Analytics', active: true });
   } else if (state.activeNav === 'snapshots') {
     crumbs.push({ label: 'Snapshots', active: true });
+  } else if (state.activeNav === 'database') {
+    crumbs.push({ label: 'Database Engine', active: true });
   } else if (state.activeNav === 'logs') {
     crumbs.push({ label: 'Audit Logs', active: true });
 

@@ -206,8 +206,7 @@ async function parseUrlAndNavigate(initial = false) {
       if (typeof switchLogsSubTab === 'function') switchLogsSubTab('traffic', false);
     }
   } else if (root === "database") {
-    await selectNav("home", false);
-    if (typeof openDatabaseModal === "function") openDatabaseModal();
+    await selectNav("database", false);
   } else if (state.pluginNavItems && state.pluginNavItems.some(p => p.id === root)) {
     await selectNav(root, false);
   } else {
@@ -240,7 +239,7 @@ function initRouter() {
 
 
 function showPageView(viewName) {
-  const views = ['home', 'collections', 'plugins', 'webhooks', 'functions', 'flows', 'queues', 'analytics', 'snapshots', 'logs'];
+  const views = ['home', 'collections', 'plugins', 'webhooks', 'functions', 'flows', 'queues', 'analytics', 'snapshots', 'database', 'logs'];
   for (const v of views) {
     const el = document.getElementById('page-view-' + v);
     if (el) {
@@ -254,7 +253,7 @@ function showPageView(viewName) {
 }
 
 function clearSidebarNavActive() {
-  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-functions', 'nav-flows', 'nav-queues', 'nav-analytics', 'nav-snapshots', 'nav-logs'];
+  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-functions', 'nav-flows', 'nav-queues', 'nav-analytics', 'nav-snapshots', 'nav-database', 'nav-logs'];
   for (const id of navIds) {
     document.getElementById(id)?.classList.remove('active');
   }
@@ -437,6 +436,28 @@ async function selectNav(nav, pushState = true) {
       </button>
     `;
     if (typeof renderSnapshotsView === 'function') renderSnapshotsView();
+  } else if (nav === 'database') {
+    state.activeCollection = null;
+    if (typeof renderCollectionsList === 'function') renderCollectionsList();
+    showPageView('database');
+    document.getElementById('collection-tabs').style.display = 'none';
+    document.getElementById('view-badge').style.display = 'none';
+    document.getElementById('sidebar-database-link')?.classList.add('active');
+    document.getElementById('nav-database')?.classList.add('active');
+    document.getElementById('view-title').textContent = 'Database Engine & Infrastructure';
+    document.getElementById('view-actions').innerHTML = `
+      <button class="btn btn-secondary btn-sm" onclick="fetchDatabaseStatus().then(() => renderDatabaseView())" title="Refresh Status">
+        ↻ Refresh Status
+      </button>
+    `;
+    if (typeof renderDatabaseView === 'function') renderDatabaseView();
+    if (typeof fetchDatabaseStatus === 'function') {
+      fetchDatabaseStatus().then(() => {
+        if (state.activeNav === 'database' && typeof renderDatabaseView === 'function') {
+          renderDatabaseView();
+        }
+      });
+    }
   } else if (nav === 'logs') {
     state.activeCollection = null;
     if (pushState && typeof auditState !== 'undefined') {
@@ -484,6 +505,8 @@ async function selectNav(nav, pushState = true) {
       updateUrl('/_/analytics');
     } else if (nav === 'snapshots') {
       updateUrl('/_/snapshots');
+    } else if (nav === 'database') {
+      updateUrl('/_/database');
     } else if (nav === 'logs') {
       updateUrl('/_/logs');
     } else if (nav === 'plugins') {
