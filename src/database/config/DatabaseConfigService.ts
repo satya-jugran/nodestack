@@ -152,6 +152,28 @@ export class DatabaseConfigService {
     }
   }
 
+  public async getLatestConfigForProvider(provider: string): Promise<DatabaseConfig | null> {
+    await this.init();
+    const row = await this.systemDriver
+      .prepare('SELECT * FROM _db_configs WHERE provider = ? ORDER BY updated_at DESC LIMIT 1')
+      .get<{
+        id: string;
+        provider: string;
+        encrypted_config: string;
+        iv: string;
+        auth_tag: string;
+        updated_at: string;
+      }>(provider);
+
+    if (!row) return null;
+    try {
+      const cfg = this.decryptConfig(row.encrypted_config, row.iv, row.auth_tag);
+      return { ...cfg, id: row.id, provider: row.provider as any };
+    } catch {
+      return null;
+    }
+  }
+
   public async saveConfig(config: DatabaseConfig, setActive = true): Promise<string> {
     await this.init();
     const id = config.id || `dbcfg_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;

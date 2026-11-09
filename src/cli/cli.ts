@@ -531,18 +531,30 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             console.error(chalk.red('\n✗ Target provider is required: db test <sqlite|postgres|mssql> [uri] or --provider <provider>\n'));
             process.exit(1);
           }
+          let savedConfigForProvider: DatabaseConfig | null = null;
+          if (!connectionString && !options.host && provider !== 'sqlite') {
+            savedConfigForProvider = await app.databaseConfig.getLatestConfigForProvider(provider);
+          }
           const targetConfig: DatabaseConfig = {
             provider: provider as any,
-            connectionString,
-            host: options.host,
-            port: options.port ? parseInt(options.port, 10) : undefined,
-            user: options.user,
-            password: options.password,
-            database: options.database,
+            connectionString: connectionString || savedConfigForProvider?.connectionString,
+            host: options.host || savedConfigForProvider?.host,
+            port: options.port ? parseInt(options.port, 10) : savedConfigForProvider?.port,
+            user: options.user || savedConfigForProvider?.user,
+            password: options.password || savedConfigForProvider?.password,
+            database: options.database || savedConfigForProvider?.database,
+            ssl: options.ssl !== undefined ? Boolean(options.ssl) : savedConfigForProvider?.ssl,
+            options: savedConfigForProvider?.options,
+            readReplicas: savedConfigForProvider?.readReplicas,
             dataDir: provider === 'sqlite' ? app.config.dataDir : undefined,
             appsDir: provider === 'sqlite' ? app.config.appsDir : undefined,
             dbPath: provider === 'sqlite' ? (connectionString || options.dbPath || app.config.getAppDbPath('default')) : undefined,
           };
+          if (!targetConfig.connectionString && !targetConfig.host && provider !== 'sqlite') {
+            console.error(chalk.red(`\n✗ Target database credentials missing for ${provider.toUpperCase()}.`));
+            console.error(chalk.yellow(`  Please specify credentials or connection URI:\n    nodestack db test ${provider} <connection-uri>\n`));
+            process.exit(1);
+          }
           console.log(chalk.cyan(`\nTesting connection to ${targetConfig.provider.toUpperCase()}...`));
           const res = await app.databaseConfig.testConnection(targetConfig);
           if (res.ok) {
@@ -576,18 +588,30 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             console.error(chalk.red('\n✗ Target provider is required: db switch <sqlite|postgres|mssql> [--migrate] or --provider <provider>\n'));
             process.exit(1);
           }
+          let savedConfigForProvider: DatabaseConfig | null = null;
+          if (!connectionString && !options.host && provider !== 'sqlite') {
+            savedConfigForProvider = await app.databaseConfig.getLatestConfigForProvider(provider);
+          }
           const targetConfig: DatabaseConfig = {
             provider: provider as any,
-            connectionString,
-            host: options.host,
-            port: options.port ? parseInt(options.port, 10) : undefined,
-            user: options.user,
-            password: options.password,
-            database: options.database,
+            connectionString: connectionString || savedConfigForProvider?.connectionString,
+            host: options.host || savedConfigForProvider?.host,
+            port: options.port ? parseInt(options.port, 10) : savedConfigForProvider?.port,
+            user: options.user || savedConfigForProvider?.user,
+            password: options.password || savedConfigForProvider?.password,
+            database: options.database || savedConfigForProvider?.database,
+            ssl: options.ssl !== undefined ? Boolean(options.ssl) : savedConfigForProvider?.ssl,
+            options: savedConfigForProvider?.options,
+            readReplicas: savedConfigForProvider?.readReplicas,
             dataDir: provider === 'sqlite' ? app.config.dataDir : undefined,
             appsDir: provider === 'sqlite' ? app.config.appsDir : undefined,
             dbPath: provider === 'sqlite' ? (connectionString || options.dbPath || app.config.getAppDbPath('default')) : undefined,
           };
+          if (!targetConfig.connectionString && !targetConfig.host && provider !== 'sqlite') {
+            console.error(chalk.red(`\n✗ Target database credentials missing for ${provider.toUpperCase()}.`));
+            console.error(chalk.yellow(`  Please specify credentials or connection URI:\n    nodestack db switch ${provider} <connection-uri> [--migrate]\n`));
+            process.exit(1);
+          }
 
           console.log(chalk.cyan(`\nValidating target database ${targetConfig.provider.toUpperCase()}...`));
           const testRes = await app.databaseConfig.testConnection(targetConfig);

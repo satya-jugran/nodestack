@@ -11,6 +11,11 @@ function renderAnalyticsView() {
   const main = document.getElementById('page-view-analytics') || document.getElementById('main-body');
   if (!main) return;
 
+  const curDbProvider = (typeof databaseState !== 'undefined' && databaseState.status?.provider ? databaseState.status.provider : 'sqlite').toLowerCase();
+  const isPg = curDbProvider === 'postgres';
+  const isMssql = curDbProvider === 'mssql';
+  const isSqlite = !isPg && !isMssql;
+
   main.innerHTML = `
     <div class="analytics-container">
       <!-- Top Title and Controls Bar -->
@@ -57,24 +62,24 @@ function renderAnalyticsView() {
           </div>
           <div class="analytics-card-sub">
             <span id="kpi-collections-count">Across -- collections</span>
-            <span class="badge badge-get" style="font-size:10px;">SQLite</span>
+            <span class="badge ${isPg ? 'badge-success' : isMssql ? 'badge-warning' : 'badge-get'}" id="kpi-db-provider-badge" style="font-size:10px;">${isPg ? 'PostgreSQL' : isMssql ? 'SQL Server' : 'SQLite'}</span>
           </div>
         </div>
 
-        <!-- Card 2: Database Size on Disk -->
+        <!-- Card 2: Database Storage Size -->
         <div class="analytics-card analytics-card-accent-emerald">
           <div class="analytics-card-header">
-            <span class="analytics-card-title">Database Size on Disk</span>
+            <span class="analytics-card-title" id="kpi-db-size-title">${isSqlite ? 'Database Size on Disk' : 'Database Storage Size'}</span>
             <div class="analytics-card-icon">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12H2M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12H2M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="10.01" y2="16"/></svg>
             </div>
           </div>
           <div class="analytics-card-value" id="kpi-db-size">
             <span>--</span>
           </div>
           <div class="analytics-card-sub">
-            <span id="kpi-db-wal">data.db + WAL</span>
-            <span class="badge badge-status-200" style="font-size:10px;">WAL Mode</span>
+            <span id="kpi-db-wal">${isPg ? 'PostgreSQL database' : isMssql ? 'SQL Server database' : 'data.db + WAL'}</span>
+            <span class="badge ${isPg ? 'badge-success' : isMssql ? 'badge-warning' : 'badge-status-200'}" id="kpi-db-mode-badge" style="font-size:10px;">${isPg ? 'Postgres' : isMssql ? 'MSSQL' : 'WAL Mode'}</span>
           </div>
         </div>
 
@@ -251,15 +256,57 @@ function updateAnalyticsUI(data) {
     }
   }
 
-  const kpiDbWal = document.getElementById('kpi-db-wal');
-  if (kpiDbWal) {
-    const walBytes = data.database?.walSizeBytes || 0;
-    const appSlug = (typeof state !== 'undefined' && state.activeApp?.slug) ? state.activeApp.slug : 'default';
-    const dbFileName = appSlug === 'default' ? 'data.db' : `apps/${appSlug}/data.db`;
-    if (walBytes > 0) {
-      kpiDbWal.textContent = `${dbFileName} • WAL: ${formatBytesInClient(walBytes)}`;
+  const provider = (data.database?.provider || (typeof databaseState !== 'undefined' && databaseState.status?.provider) || 'sqlite').toLowerCase();
+
+  const kpiProviderBadge = document.getElementById('kpi-db-provider-badge');
+  if (kpiProviderBadge) {
+    if (provider === 'postgres') {
+      kpiProviderBadge.textContent = 'PostgreSQL';
+      kpiProviderBadge.className = 'badge badge-success';
+    } else if (provider === 'mssql') {
+      kpiProviderBadge.textContent = 'SQL Server';
+      kpiProviderBadge.className = 'badge badge-warning';
     } else {
-      kpiDbWal.textContent = `${dbFileName} • WAL Synced`;
+      kpiProviderBadge.textContent = 'SQLite';
+      kpiProviderBadge.className = 'badge badge-get';
+    }
+  }
+
+  const kpiDbSizeTitle = document.getElementById('kpi-db-size-title');
+  if (kpiDbSizeTitle) {
+    kpiDbSizeTitle.textContent = provider === 'sqlite' ? 'Database Size on Disk' : 'Database Storage Size';
+  }
+
+  const kpiDbWal = document.getElementById('kpi-db-wal');
+  const kpiDbModeBadge = document.getElementById('kpi-db-mode-badge');
+  if (kpiDbWal) {
+    if (provider === 'postgres') {
+      const dbName = (typeof databaseState !== 'undefined' && databaseState.status?.config?.database) ? databaseState.status.config.database : 'PostgreSQL Database';
+      kpiDbWal.textContent = `PostgreSQL • ${dbName}`;
+      if (kpiDbModeBadge) {
+        kpiDbModeBadge.textContent = 'Postgres';
+        kpiDbModeBadge.className = 'badge badge-success';
+      }
+    } else if (provider === 'mssql') {
+      const dbName = (typeof databaseState !== 'undefined' && databaseState.status?.config?.database) ? databaseState.status.config.database : 'SQL Server Database';
+      kpiDbWal.textContent = `SQL Server • ${dbName}`;
+      if (kpiDbModeBadge) {
+        kpiDbModeBadge.textContent = 'MSSQL';
+        kpiDbModeBadge.className = 'badge badge-warning';
+      }
+    } else {
+      const walBytes = data.database?.walSizeBytes || 0;
+      const appSlug = (typeof state !== 'undefined' && state.activeApp?.slug) ? state.activeApp.slug : 'default';
+      const dbFileName = appSlug === 'default' ? 'data.db' : `apps/${appSlug}/data.db`;
+      if (walBytes > 0) {
+        kpiDbWal.textContent = `${dbFileName} • WAL: ${formatBytesInClient(walBytes)}`;
+      } else {
+        kpiDbWal.textContent = `${dbFileName} • WAL Synced`;
+      }
+      if (kpiDbModeBadge) {
+        kpiDbModeBadge.textContent = 'WAL Mode';
+        kpiDbModeBadge.className = 'badge badge-status-200';
+      }
     }
   }
 

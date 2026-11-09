@@ -225,6 +225,11 @@ export class DatabaseMigrationService {
       // Recreate collection indexes on target
       await DatabaseMigrationService.ensureCollectionIndexes(col, targetDriver);
 
+      // Clear any pre-existing records on target collection to avoid duplicate or unique key collisions
+      try {
+        await targetDriver.exec(`DELETE FROM ${targetDriver.dialect.quoteIdentifier(col.name)}`);
+      } catch {}
+
       // Copy records with deterministic pagination & batched transactions
       const total = tableTotalRows;
       const chunkSize = 500;
@@ -531,6 +536,12 @@ export class DatabaseMigrationService {
         console.warn(`[Migration] Target table ${tableName} does not exist or has no columns; skipping.`);
         return;
       }
+
+      // Truncate/clear target table first so records from source are imported cleanly without unique key or ID collisions
+      try {
+        await targetDriver.exec(`DELETE FROM ${targetDriver.dialect.quoteIdentifier(tableName)}`);
+      } catch {}
+
       const chunkSize = 500;
       let offset = 0;
 

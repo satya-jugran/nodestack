@@ -2,6 +2,8 @@
     function renderHomeView() {
       const main = document.getElementById('page-view-home') || document.getElementById('main-body');
       const collections = state.collections || [];
+      const curDbProvider = (typeof databaseState !== 'undefined' && databaseState.status?.provider ? databaseState.status.provider : 'sqlite').toLowerCase();
+      const initialSubText = curDbProvider === 'postgres' ? 'PostgreSQL database' : (curDbProvider === 'mssql' ? 'SQL Server database' : 'data.db + WAL journal');
       const collectionsCount = collections.length;
 
       // Webhooks initial count
@@ -106,7 +108,7 @@
                   <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Storage Size</span>
                 </div>
                 <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-size">--</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-size-sub">data.db + WAL journal</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-size-sub">${initialSubText}</div>
               </div>
 
               <!-- KPI 4: Realtime Streams -->
