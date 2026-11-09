@@ -202,7 +202,9 @@ export class WebhookService {
       normalizedHeaders = { ...data.headers };
     }
 
-    const enabled = data.enabled !== undefined ? (data.enabled ? 1 : 0) : 1;
+    const isPg = this.db.dialect?.name === 'postgres';
+    const enabled = data.enabled !== undefined ? Boolean(data.enabled) : true;
+    const enabledDbVal = isPg ? enabled : (enabled ? 1 : 0);
     const secret = data.secret && data.secret.trim() ? data.secret.trim() : null;
     const method = (data.method || 'POST').trim().toUpperCase();
     if (!ALLOWED_WEBHOOK_METHODS.includes(method as any)) {
@@ -222,7 +224,7 @@ export class WebhookService {
       method,
       headers: normalizedHeaders,
       secret,
-      enabled: Boolean(enabled),
+      enabled,
       created: now,
       updated: now,
     };
@@ -241,7 +243,7 @@ export class WebhookService {
       method,
       JSON.stringify(normalizedHeaders),
       secret,
-      enabled,
+      enabledDbVal,
       now,
       now
     );
@@ -266,7 +268,8 @@ export class WebhookService {
     }
     if (options.enabled !== undefined) {
       whereClauses.push('enabled = ?');
-      params.push(options.enabled ? 1 : 0);
+      const isPg = this.db.dialect?.name === 'postgres';
+      params.push(isPg ? Boolean(options.enabled) : (options.enabled ? 1 : 0));
     }
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
@@ -354,7 +357,9 @@ export class WebhookService {
         secret = updates.secret && updates.secret.trim() ? updates.secret.trim() : null;
       }
 
-      const enabled = updates.enabled !== undefined ? (updates.enabled ? 1 : 0) : existing.enabled ? 1 : 0;
+      const isPg = this.db.dialect?.name === 'postgres';
+      const enabled = updates.enabled !== undefined ? Boolean(updates.enabled) : Boolean(existing.enabled);
+      const enabledDbVal = isPg ? enabled : (enabled ? 1 : 0);
       const now = new Date().toISOString();
 
       const updatedObj: WebhookConfig = {
@@ -367,7 +372,7 @@ export class WebhookService {
         method,
         headers,
         secret,
-        enabled: Boolean(enabled),
+        enabled,
         created: existing.created,
         updated: now,
       };
@@ -386,7 +391,7 @@ export class WebhookService {
         method,
         JSON.stringify(headers),
         secret,
-        enabled,
+        enabledDbVal,
         now,
         id
       );
@@ -520,8 +525,9 @@ export class WebhookService {
   }
 
   public getStats(): any {
+    const trueVal = this.db.dialect?.booleanLiteral ? this.db.dialect.booleanLiteral(true) : '1';
     const totalRes = this.db.get<{ total: number; active: number }>(`
-      SELECT COUNT(*) as total, SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as active FROM _webhooks
+      SELECT COUNT(*) as total, SUM(CASE WHEN enabled = ${trueVal} THEN 1 ELSE 0 END) as active FROM _webhooks
     `);
     const deliveriesRes = this.db.get<{ total: number; success: number; failed: number }>(`
       SELECT COUNT(*) as total,

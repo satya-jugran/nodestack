@@ -314,7 +314,9 @@
 
         const rtEl = document.getElementById('home-stat-realtime');
         if (rtEl && metrics.realtime?.connectedClients !== undefined) {
-          rtEl.textContent = metrics.realtime.connectedClients.toString();
+          const count = metrics.realtime.connectedClients;
+          const effectiveCount = (count === 0 && state.realtimeEventSource && state.realtimeEventSource.readyState === 1) ? 1 : count;
+          rtEl.textContent = effectiveCount.toString();
         }
 
         // System & Traffic Snapshot

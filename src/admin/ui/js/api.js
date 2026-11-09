@@ -110,6 +110,16 @@
             subscriptions: ['*'],
           }),
         }).catch(() => {});
+
+        // Refresh realtime counter on Overview if displayed
+        const rtEl = document.getElementById('home-stat-realtime');
+        if (rtEl) {
+          api('/api/metrics').then((m) => {
+            if (m?.realtime?.connectedClients !== undefined) {
+              rtEl.textContent = m.realtime.connectedClients.toString();
+            }
+          }).catch(() => {});
+        }
       };
 
       es.addEventListener('NS_CONNECT', handleConnect);
