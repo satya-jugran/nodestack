@@ -450,9 +450,15 @@ async function selectNav(nav, pushState = true) {
         ↻ Refresh Status
       </button>
     `;
+    if (pushState && typeof databaseState !== 'undefined' && !databaseState.showConfirmSwitch && !databaseState.isSwitching) {
+      databaseState.selectedProvider = databaseState.status?.provider ? databaseState.status.provider.toLowerCase() : null;
+    }
     if (typeof renderDatabaseView === 'function') renderDatabaseView();
     if (typeof fetchDatabaseStatus === 'function') {
-      fetchDatabaseStatus().then(() => {
+      fetchDatabaseStatus().then((status) => {
+        if (pushState && typeof databaseState !== 'undefined' && !databaseState.showConfirmSwitch && !databaseState.isSwitching && status?.provider) {
+          databaseState.selectedProvider = status.provider.toLowerCase();
+        }
         if (state.activeNav === 'database' && typeof renderDatabaseView === 'function') {
           renderDatabaseView();
         }

@@ -2,12 +2,14 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { DatabaseConfigService } from '../../database/config/DatabaseConfigService';
 import { AppManager } from '../../apps/AppManager';
-import { DatabaseMigrationService } from '../../database/migration/DatabaseMigrationService';
+import { DatabaseMigrationService, MigrationProgress } from '../../database/migration/DatabaseMigrationService';
 import { DriverRegistry, DatabaseConfig } from '../../database/drivers/DriverRegistry';
 import { DatabaseService } from '../../database/DatabaseService';
 import { MaintenanceGate } from '../../core/maintenance/MaintenanceGate';
 
 export class DatabaseController extends BaseController {
+  private activeMigrationProgress: MigrationProgress | null = null;
+
   constructor(
     private dbConfigService: DatabaseConfigService,
     private appManager: AppManager,
@@ -24,6 +26,10 @@ export class DatabaseController extends BaseController {
     } catch (err: any) {
       this.error(reply, err.message || 'Failed to retrieve database status', 500);
     }
+  }
+
+  public async getMigrationProgress(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    this.ok(reply, this.activeMigrationProgress || { active: false, percent: 0, message: 'Idle' });
   }
 
   public async testConnection(
@@ -62,8 +68,19 @@ export class DatabaseController extends BaseController {
       config.dbPath = config.dbPath || activeDbPath;
     }
 
+    this.activeMigrationProgress = {
+      phase: 'starting',
+      percent: 1,
+      message: `Initializing cutover to ${config.provider.toUpperCase()}...`,
+    };
+
     const executeSwitch = async () => {
       // 1. Verify connection to target database
+      this.activeMigrationProgress = {
+        phase: 'starting',
+        percent: 2,
+        message: `Testing connection to ${config.provider.toUpperCase()}...`,
+      };
       const testRes = await this.dbConfigService.testConnection(config);
       if (!testRes.ok) {
         throw new Error(`Target database connection test failed: ${testRes.error}`);
@@ -81,18 +98,44 @@ export class DatabaseController extends BaseController {
           migrationSummary = await DatabaseMigrationService.migrateAllApps(
             oldDriver,
             newDriver,
-            appSlugs
+            appSlugs,
+            (progress) => {
+              this.activeMigrationProgress = { ...progress };
+            }
           );
         }
+
+        this.activeMigrationProgress = {
+          phase: 'verifying',
+          percent: 96,
+          message: 'Hot-swapping active drivers across runtime scopes...',
+        };
 
         // 3. Hot-swap active drivers in runtime across all scopes
         await this.appManager.switchDriver(newDriver);
 
+        this.activeMigrationProgress = {
+          phase: 'verifying',
+          percent: 98,
+          message: 'Saving updated database engine configuration...',
+        };
+
         // 4. Persist new encrypted config in control plane SQLite (_db_configs) only after hot-swap succeeds
         await this.dbConfigService.saveConfig(config, true);
 
+        this.activeMigrationProgress = {
+          phase: 'completed',
+          percent: 100,
+          message: `Database switched successfully to ${config.provider.toUpperCase()}`,
+        };
+
         return migrationSummary;
-      } catch (err) {
+      } catch (err: any) {
+        this.activeMigrationProgress = {
+          phase: 'failed',
+          percent: 0,
+          message: err?.message || 'Database migration failed',
+        };
         try {
           await newDriver.close();
         } catch {
@@ -117,6 +160,13 @@ export class DatabaseController extends BaseController {
         migration: migrationSummary,
       });
     } catch (err: any) {
+      if (this.activeMigrationProgress?.phase !== 'failed') {
+        this.activeMigrationProgress = {
+          phase: 'failed',
+          percent: 0,
+          message: err.message || 'Failed to switch database',
+        };
+      }
       this.error(reply, err.message || 'Failed to switch database', 500);
     }
   }

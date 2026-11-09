@@ -8,24 +8,54 @@ export interface MigrationSummary {
   elapsedMs: number;
 }
 
+export interface MigrationProgress {
+  phase: 'starting' | 'system_migrations' | 'collections' | 'records' | 'system_tables' | 'verifying' | 'completed' | 'failed';
+  currentTable?: string;
+  tableIndex?: number;
+  totalTables?: number;
+  rowsCopiedInTable?: number;
+  totalRowsInTable?: number;
+  totalRowsCopied?: number;
+  totalRowsOverall?: number;
+  percent?: number;
+  message: string;
+}
+
+export type MigrationProgressCallback = (progress: MigrationProgress) => void;
+
 export class DatabaseMigrationService {
   public static async migrateAllApps(
     sourceRootDriver: IDatabaseDriver,
     targetRootDriver: IDatabaseDriver,
-    appSlugs: string[] = ['default']
+    appSlugs: string[] = ['default'],
+    onProgress?: MigrationProgressCallback
   ): Promise<MigrationSummary> {
     const start = Date.now();
     let totalCollections = 0;
     let totalRecords = 0;
 
-    for (const slug of appSlugs) {
+    onProgress?.({
+      phase: 'starting',
+      percent: 0,
+      message: `Starting migration for ${appSlugs.length} app(s)...`,
+      totalRowsCopied: 0,
+      totalRowsOverall: 0,
+    });
+
+    for (let i = 0; i < appSlugs.length; i++) {
+      const slug = appSlugs[i];
       let sourceAppDriver: IDatabaseDriver | null = null;
       let targetAppDriver: IDatabaseDriver | null = null;
       try {
         sourceAppDriver = await sourceRootDriver.withSchema(slug);
         targetAppDriver = await targetRootDriver.withSchema(slug);
 
-        const res = await DatabaseMigrationService.migrateAppScope(sourceAppDriver, targetAppDriver);
+        const res = await DatabaseMigrationService.migrateAppScope(
+          sourceAppDriver,
+          targetAppDriver,
+          onProgress,
+          { appIndex: i, totalApps: appSlugs.length, appSlug: slug }
+        );
         totalCollections += res.collectionsCount;
         totalRecords += res.recordsCount;
       } finally {
@@ -42,6 +72,14 @@ export class DatabaseMigrationService {
       }
     }
 
+    onProgress?.({
+      phase: 'completed',
+      percent: 100,
+      message: `Migration completed: ${totalRecords} records across ${totalCollections} collections migrated.`,
+      totalRowsCopied: totalRecords,
+      totalRowsOverall: totalRecords,
+    });
+
     return {
       appsCount: appSlugs.length,
       collectionsCount: totalCollections,
@@ -52,8 +90,16 @@ export class DatabaseMigrationService {
 
   public static async migrateAppScope(
     sourceDriver: IDatabaseDriver,
-    targetDriver: IDatabaseDriver
+    targetDriver: IDatabaseDriver,
+    onProgress?: MigrationProgressCallback,
+    scopeContext?: { appIndex: number; totalApps: number; appSlug: string }
   ): Promise<{ collectionsCount: number; recordsCount: number }> {
+    onProgress?.({
+      phase: 'system_migrations',
+      percent: 3,
+      message: `Running system migrations on target schema (${scopeContext?.appSlug || 'default'})...`,
+    });
+
     // 1. Ensure system tables exist on target
     await SystemMigrations.run(targetDriver);
 
@@ -65,8 +111,85 @@ export class DatabaseMigrationService {
       .prepare('SELECT * FROM _collections ORDER BY created ASC')
       .all<any>();
 
+    const systemTables = [
+      '_admins',
+      '_params',
+      '_webhooks',
+      '_webhook_deliveries',
+      '_external_auths',
+      '_api_keys',
+      '_audit_logs',
+      '_logs',
+      '_functions',
+      '_function_logs',
+      '_flows',
+      '_flow_executions',
+      '_queues',
+      '_queue_messages',
+      '_plugin_settings',
+    ];
+
+    const totalTables = collections.length + systemTables.length;
+    let currentTableIdx = 0;
+
+    // Pre-calculate approximate row counts for smooth, accurate progress calculation
+    let totalRowsOverall = 0;
+    const tableCounts = new Map<string, number>();
+
     for (const col of collections) {
+      try {
+        const countRes = await sourceDriver
+          .prepare(`SELECT COUNT(*) AS total FROM ${sourceDriver.dialect.quoteIdentifier(col.name)}`)
+          .get<{ total: number | string }>();
+        const count = Number(countRes?.total || 0);
+        tableCounts.set(col.name, count);
+        totalRowsOverall += count;
+      } catch {
+        tableCounts.set(col.name, 0);
+      }
+    }
+
+    for (const table of systemTables) {
+      try {
+        const countRes = await sourceDriver
+          .prepare(`SELECT COUNT(*) AS total FROM ${sourceDriver.dialect.quoteIdentifier(table)}`)
+          .get<{ total: number | string }>();
+        const count = Number(countRes?.total || 0);
+        tableCounts.set(table, count);
+        totalRowsOverall += count;
+      } catch {
+        tableCounts.set(table, 0);
+      }
+    }
+
+    const calculatePercent = (copied: number, tableIdx: number): number => {
+      if (totalRowsOverall > 0) {
+        return Math.min(95, Math.max(5, Math.round(5 + (copied / totalRowsOverall) * 90)));
+      }
+      if (totalTables > 0) {
+        return Math.min(95, Math.max(5, Math.round(5 + (tableIdx / totalTables) * 90)));
+      }
+      return 50;
+    };
+
+    for (const col of collections) {
+      currentTableIdx++;
       collectionsCount++;
+
+      const tableTotalRows = tableCounts.get(col.name) || 0;
+      onProgress?.({
+        phase: 'collections',
+        currentTable: col.name,
+        tableIndex: currentTableIdx,
+        totalTables,
+        rowsCopiedInTable: 0,
+        totalRowsInTable: tableTotalRows,
+        totalRowsCopied: recordsCount,
+        totalRowsOverall,
+        percent: calculatePercent(recordsCount, currentTableIdx),
+        message: `Setting up collection '${col.name}' (${currentTableIdx}/${totalTables})...`,
+      });
+
       // Save metadata in target _collections
       const exists = await targetDriver
         .prepare('SELECT id FROM _collections WHERE name = ?')
@@ -103,13 +226,10 @@ export class DatabaseMigrationService {
       await DatabaseMigrationService.ensureCollectionIndexes(col, targetDriver);
 
       // Copy records with deterministic pagination & batched transactions
-      const sourceCount = await sourceDriver
-        .prepare(`SELECT COUNT(*) AS total FROM ${sourceDriver.dialect.quoteIdentifier(col.name)}`)
-        .get<{ total: number | string }>();
-
-      const total = Number(sourceCount?.total || 0);
+      const total = tableTotalRows;
       const chunkSize = 500;
       let offset = 0;
+      let tableRowsCopied = 0;
 
       while (offset < total) {
         const pag = sourceDriver.dialect.paginationSql('?', '?', true);
@@ -124,6 +244,7 @@ export class DatabaseMigrationService {
             for (const row of rows) {
               DatabaseMigrationService.insertOrUpdateRecord(col.name, row, tx, targetColumns);
               recordsCount++;
+              tableRowsCopied++;
             }
           });
         } else {
@@ -131,11 +252,25 @@ export class DatabaseMigrationService {
             for (const row of rows) {
               await DatabaseMigrationService.insertOrUpdateRecord(col.name, row, tx, targetColumns);
               recordsCount++;
+              tableRowsCopied++;
             }
           });
         }
 
         offset += rows.length;
+
+        onProgress?.({
+          phase: 'records',
+          currentTable: col.name,
+          tableIndex: currentTableIdx,
+          totalTables,
+          rowsCopiedInTable: tableRowsCopied,
+          totalRowsInTable: total,
+          totalRowsCopied: recordsCount,
+          totalRowsOverall,
+          percent: calculatePercent(recordsCount, currentTableIdx),
+          message: `Migrating collection '${col.name}': ${tableRowsCopied}/${total} records copied...`,
+        });
       }
 
       // Post-migration count verification
@@ -152,26 +287,45 @@ export class DatabaseMigrationService {
     }
 
     // 3. Migrate standard system tables (admins, webhooks, audit logs, api keys, etc.)
-    const systemTables = [
-      '_admins',
-      '_params',
-      '_webhooks',
-      '_webhook_deliveries',
-      '_external_auths',
-      '_api_keys',
-      '_audit_logs',
-      '_logs',
-      '_functions',
-      '_function_logs',
-      '_flows',
-      '_flow_executions',
-      '_queues',
-      '_queue_messages',
-      '_plugin_settings',
-    ];
-
     for (const table of systemTables) {
-      await DatabaseMigrationService.copyTableIfSourceExists(table, sourceDriver, targetDriver);
+      currentTableIdx++;
+      const sysCount = tableCounts.get(table) || 0;
+
+      onProgress?.({
+        phase: 'system_tables',
+        currentTable: table,
+        tableIndex: currentTableIdx,
+        totalTables,
+        rowsCopiedInTable: 0,
+        totalRowsInTable: sysCount,
+        totalRowsCopied: recordsCount,
+        totalRowsOverall,
+        percent: calculatePercent(recordsCount, currentTableIdx),
+        message: `Migrating system table '${table}' (${currentTableIdx}/${totalTables})...`,
+      });
+
+      let sysRowsCopied = 0;
+      await DatabaseMigrationService.copyTableIfSourceExists(
+        table,
+        sourceDriver,
+        targetDriver,
+        (chunkCount) => {
+          recordsCount += chunkCount;
+          sysRowsCopied += chunkCount;
+          onProgress?.({
+            phase: 'system_tables',
+            currentTable: table,
+            tableIndex: currentTableIdx,
+            totalTables,
+            rowsCopiedInTable: sysRowsCopied,
+            totalRowsInTable: sysCount,
+            totalRowsCopied: recordsCount,
+            totalRowsOverall,
+            percent: calculatePercent(recordsCount, currentTableIdx),
+            message: `Migrating system table '${table}': ${sysRowsCopied}/${sysCount} records copied...`,
+          });
+        }
+      );
     }
 
     return { collectionsCount, recordsCount };
@@ -354,7 +508,8 @@ export class DatabaseMigrationService {
   private static async copyTableIfSourceExists(
     tableName: string,
     sourceDriver: IDatabaseDriver,
-    targetDriver: IDatabaseDriver
+    targetDriver: IDatabaseDriver,
+    onChunkCopied?: (rowsCount: number) => void
   ): Promise<void> {
     try {
       const countRes = await sourceDriver
@@ -410,6 +565,9 @@ export class DatabaseMigrationService {
         }
 
         offset += rows.length;
+        if (onChunkCopied) {
+          onChunkCopied(rows.length);
+        }
       }
     } catch {
       // Table doesn't exist on source; harmless

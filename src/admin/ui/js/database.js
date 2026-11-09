@@ -3,13 +3,15 @@
 let databaseState = {
   status: null,
   loading: false,
-  selectedProvider: 'postgres',
+  selectedProvider: null,
   configMode: 'url', // 'url' or 'params'
   testResult: null,
   isTesting: false,
   isSwitching: false,
   showConfirmSwitch: false,
   migrateData: true,
+  migrationProgress: null,
+  migrationInterval: null,
 };
 
 async function fetchDatabaseStatus() {
@@ -17,6 +19,9 @@ async function fetchDatabaseStatus() {
     const res = await api('/api/system/database/status');
     if (res && res.provider) {
       databaseState.status = res;
+      if (!databaseState.selectedProvider) {
+        databaseState.selectedProvider = (res.provider || 'sqlite').toLowerCase();
+      }
       updateDatabaseStatusUI(res);
     }
     return res;
@@ -80,7 +85,9 @@ function openDatabaseModal(providerToSelect) {
   if (providerToSelect) {
     databaseState.selectedProvider = providerToSelect;
   } else if (databaseState.status?.provider) {
-    databaseState.selectedProvider = databaseState.status.provider;
+    databaseState.selectedProvider = databaseState.status.provider.toLowerCase();
+  } else {
+    databaseState.selectedProvider = null;
   }
 
   databaseState.testResult = null;
@@ -140,7 +147,7 @@ function renderDatabaseView() {
   };
 
   const activeProvider = (status.provider || 'sqlite').toLowerCase();
-  const selected = databaseState.selectedProvider || (activeProvider !== 'sqlite' ? activeProvider : 'postgres');
+  const selected = (databaseState.selectedProvider || activeProvider).toLowerCase();
   const isSelectedActive = selected === activeProvider;
 
   const labelMap = {
@@ -333,7 +340,7 @@ function renderDatabaseModal() {
   };
 
   const activeProvider = (status.provider || 'sqlite').toLowerCase();
-  const selected = databaseState.selectedProvider || 'postgres';
+  const selected = (databaseState.selectedProvider || activeProvider).toLowerCase();
   const isSelectedActive = selected === activeProvider;
 
   const labelMap = {
@@ -688,7 +695,8 @@ function renderTestResultBanner() {
 }
 
 function getEnteredDatabaseConfig() {
-  const provider = databaseState.selectedProvider;
+  const activeProvider = (databaseState.status?.provider || 'sqlite').toLowerCase();
+  const provider = (databaseState.selectedProvider || activeProvider).toLowerCase();
   if (provider === 'sqlite') {
     return { provider: 'sqlite' };
   }
@@ -856,14 +864,7 @@ function renderConfirmSwitchStep(activeProvider, targetProvider) {
       ` : ''}
 
       <!-- Progress / Switching State -->
-      ${databaseState.isSwitching ? `
-        <div style="display: flex; align-items: center; justify-content: center; gap: 10px; padding: 1rem; background: var(--bg-input); border-radius: 8px;">
-          <span class="live-dot" style="width: 10px; height: 10px;"></span>
-          <span style="font-weight: 700; font-size: 13px; color: var(--accent-primary);">
-            Migrating schemas, data, and activating new database engine...
-          </span>
-        </div>
-      ` : ''}
+      ${databaseState.isSwitching ? renderMigrationProgressBar() : ''}
 
       <!-- Actions -->
       <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 0.5rem; pt: 0.5rem; border-top: 1px solid var(--border-subtle); padding-top: 0.85rem;">
@@ -879,12 +880,114 @@ function renderConfirmSwitchStep(activeProvider, targetProvider) {
   `;
 }
 
+function renderMigrationProgressBar() {
+  const p = databaseState.migrationProgress || {
+    percent: 0,
+    message: 'Preparing database cutover & schema initialization...',
+    currentTable: '',
+    tableIndex: 0,
+    totalTables: 0,
+    rowsCopiedInTable: 0,
+    totalRowsInTable: 0,
+    totalRowsCopied: 0,
+    totalRowsOverall: 0,
+  };
+
+  const percent = Math.min(100, Math.max(0, p.percent || 0));
+  const hasRows = (p.totalRowsOverall || 0) > 0;
+  const tableText = p.currentTable ? `Table: <strong>${escapeDbHtml(p.currentTable)}</strong>` : '';
+  const rowsText = p.totalRowsInTable > 0 ? ` (${p.rowsCopiedInTable || 0} / ${p.totalRowsInTable} rows)` : '';
+  const overallText = hasRows ? `Overall: ${p.totalRowsCopied || 0} / ${p.totalRowsOverall} records` : (p.totalTables > 0 ? `Step ${p.tableIndex || 0} of ${p.totalTables}` : '');
+
+  return `
+    <div id="db-migration-progress-card" style="background: var(--bg-input); border: 1.5px solid var(--accent-primary); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 4px 14px rgba(0,0,0,0.06);">
+      
+      <!-- Header row: Message & Percentage badge -->
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+          <span class="live-dot" style="width: 10px; height: 10px; flex-shrink: 0;"></span>
+          <span id="db-migration-msg" style="font-weight: 700; font-size: 13px; color: var(--text-heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            ${escapeDbHtml(p.message || 'Migrating database...')}
+          </span>
+        </div>
+        <span id="db-migration-pct" class="badge badge-primary" style="font-size: 12.5px; font-weight: 800; padding: 3px 10px; font-family: var(--font-mono, monospace);">
+          ${percent}%
+        </span>
+      </div>
+
+      <!-- Outer Progress Track -->
+      <div style="width: 100%; height: 12px; background: rgba(0, 0, 0, 0.12); border-radius: 999px; overflow: hidden; position: relative;">
+        <!-- Inner Progress Fill -->
+        <div id="db-migration-fill" style="width: ${percent}%; height: 100%; background: linear-gradient(90deg, #3b82f6, #10b981); border-radius: 999px; transition: width 0.3s ease;"></div>
+      </div>
+
+      <!-- Detail Status Row -->
+      <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; color: var(--text-muted); flex-wrap: wrap; gap: 6px;">
+        <span id="db-migration-detail">${tableText}${rowsText}</span>
+        <span id="db-migration-overall">${overallText}</span>
+      </div>
+
+    </div>
+  `;
+}
+
+function updateMigrationProgressDOM(p) {
+  if (!p) return;
+  const percent = Math.min(100, Math.max(0, p.percent || 0));
+  const fill = document.getElementById('db-migration-fill');
+  const pct = document.getElementById('db-migration-pct');
+  const msg = document.getElementById('db-migration-msg');
+  const detail = document.getElementById('db-migration-detail');
+  const overall = document.getElementById('db-migration-overall');
+
+  if (fill) fill.style.width = `${percent}%`;
+  if (pct) pct.textContent = `${percent}%`;
+  if (msg && p.message) msg.textContent = p.message;
+  
+  if (detail) {
+    const tableText = p.currentTable ? `Table: ${p.currentTable}` : '';
+    const rowsText = p.totalRowsInTable > 0 ? ` (${p.rowsCopiedInTable || 0} / ${p.totalRowsInTable} rows)` : '';
+    detail.textContent = `${tableText}${rowsText}`;
+  }
+  
+  if (overall) {
+    const hasRows = (p.totalRowsOverall || 0) > 0;
+    const overallText = hasRows ? `Overall: ${p.totalRowsCopied || 0} / ${p.totalRowsOverall} records` : (p.totalTables > 0 ? `Step ${p.tableIndex || 0} of ${p.totalTables}` : '');
+    overall.textContent = overallText;
+  }
+}
+
 async function executeDatabaseSwitch() {
   const config = getEnteredDatabaseConfig();
   const migrateData = Boolean(databaseState.migrateData);
 
   databaseState.isSwitching = true;
+  databaseState.migrationProgress = {
+    percent: 1,
+    message: 'Initiating database cutover...',
+  };
   renderDatabaseUI();
+
+  if (databaseState.migrationInterval) {
+    clearInterval(databaseState.migrationInterval);
+    databaseState.migrationInterval = null;
+  }
+
+  // Frequent polling for smooth progress updates
+  databaseState.migrationInterval = setInterval(async () => {
+    try {
+      const prog = await api('/api/system/database/migration-progress');
+      if (prog && databaseState.isSwitching) {
+        databaseState.migrationProgress = prog;
+        const fill = document.getElementById('db-migration-fill');
+        if (fill) {
+          updateMigrationProgressDOM(prog);
+        } else {
+          renderDatabaseUI();
+        }
+      }
+    } catch {}
+  }, 250);
 
   try {
     const res = await api('/api/system/database/switch', {
@@ -896,6 +999,12 @@ async function executeDatabaseSwitch() {
     });
 
     if (res && res.success) {
+      databaseState.migrationProgress = {
+        percent: 100,
+        message: 'Switch completed successfully!',
+      };
+      updateMigrationProgressDOM(databaseState.migrationProgress);
+
       if (typeof toast === 'function') {
         const recCount = res.migration?.recordsCount ?? res.migration?.totalRecords ?? 0;
         const colCount = res.migration?.collectionsCount ?? res.migration?.totalCollections ?? 0;
@@ -908,6 +1017,8 @@ async function executeDatabaseSwitch() {
         await loadCollections();
       }
 
+      databaseState.showConfirmSwitch = false;
+      databaseState.selectedProvider = (config.provider || 'sqlite').toLowerCase();
       closeDatabaseModal();
       renderDatabaseUI();
     } else {
@@ -916,6 +1027,12 @@ async function executeDatabaseSwitch() {
   } catch (err) {
     if (typeof toast === 'function') {
       toast(err.message || 'Failed to switch database', 'error');
+    }
+    renderDatabaseUI();
+  } finally {
+    if (databaseState.migrationInterval) {
+      clearInterval(databaseState.migrationInterval);
+      databaseState.migrationInterval = null;
     }
     databaseState.isSwitching = false;
     renderDatabaseUI();
@@ -936,4 +1053,6 @@ if (typeof window !== 'undefined') {
   window.proceedToSwitchConfirm = proceedToSwitchConfirm;
   window.cancelSwitchConfirm = cancelSwitchConfirm;
   window.executeDatabaseSwitch = executeDatabaseSwitch;
+  window.renderMigrationProgressBar = renderMigrationProgressBar;
+  window.updateMigrationProgressDOM = updateMigrationProgressDOM;
 }

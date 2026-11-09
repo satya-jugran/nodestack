@@ -192,6 +192,7 @@ export class HttpServer {
           isExclusiveMutation ||
           req.url.includes('/restore') ||
           req.url.includes('/database/switch') ||
+          req.url.includes('/database/migration-progress') ||
           req.url.startsWith('/api/realtime');
         try {
           await gate.trackRequestStart(reqId, isExempt);
@@ -386,6 +387,9 @@ export class HttpServer {
     if (this.databaseController) {
       app.get('/api/system/database/status', { preHandler: requireAdmin }, (req, reply) =>
         this.databaseController!.getStatus(req, reply)
+      );
+      app.get('/api/system/database/migration-progress', { preHandler: requireAdmin }, (req, reply) =>
+        this.databaseController!.getMigrationProgress(req, reply)
       );
       app.post('/api/system/database/test', { preHandler: requireAdmin }, (req: any, reply) =>
         this.databaseController!.testConnection(req, reply)

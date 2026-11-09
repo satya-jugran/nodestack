@@ -597,15 +597,46 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
           }
 
           if (options.migrate) {
-            console.log(chalk.yellow(`Migrating schema and data from current database...`));
+            console.log(chalk.yellow(`\nMigrating schema and data from current database...`));
             const targetDriver = await DriverRegistry.createDriver(targetConfig);
             const allApps = await app.apps.registry.getAllApps();
             const slugs = allApps.map((a: any) => a.slug);
+
+            const renderCliProgressBar = (percent: number, message: string) => {
+              const barWidth = 26;
+              const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+              const filled = Math.round((barWidth * clamped) / 100);
+              const empty = barWidth - filled;
+              const bar = chalk.green('█'.repeat(filled)) + chalk.gray('░'.repeat(empty));
+              const pctStr = `${clamped.toString().padStart(3)}%`;
+              const maxCols = (process.stdout.columns || 80) - 2;
+              const line = `  [${bar}] ${chalk.bold(pctStr)} | ${message}`;
+              const cleanLine = line.length > maxCols ? line.slice(0, maxCols - 3) + '...' : line;
+              process.stdout.write(`\r\x1b[K${cleanLine}`);
+            };
+
+            let lastNonTtyPercent = -1;
+            const onCliProgress = (progress: any) => {
+              const pct = progress.percent ?? 0;
+              if (process.stdout.isTTY) {
+                renderCliProgressBar(pct, progress.message || '');
+              } else {
+                if (pct !== lastNonTtyPercent && (pct % 10 === 0 || pct === 100)) {
+                  lastNonTtyPercent = pct;
+                  console.log(`  [${pct.toString().padStart(3)}%] ${progress.message}`);
+                }
+              }
+            };
+
             const summary = await DatabaseMigrationService.migrateAllApps(
               app.db.getRootDriver(),
               targetDriver,
-              slugs
+              slugs,
+              onCliProgress
             );
+            if (process.stdout.isTTY) {
+              process.stdout.write('\r\x1b[K');
+            }
             console.log(chalk.green(`✓ Migration completed in ${summary.elapsedMs}ms:`));
             console.log(`  • Apps: ${summary.appsCount}`);
             console.log(`  • Collections: ${summary.collectionsCount}`);

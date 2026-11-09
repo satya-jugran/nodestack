@@ -2004,4 +2004,88 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       }).not.toThrow();
     });
   });
+
+  // ============================================================
+  // 8. Database Migration Progress Reporting Tests
+  // ============================================================
+  describe('Database Migration Progress Reporting Tests', () => {
+    it('should fire onProgress callback during DatabaseMigrationService with accurate percentages and table info', async () => {
+      const sourceDb = new NodeSqliteDriver(':memory:');
+      await SystemMigrations.run(sourceDb);
+
+      await sourceDb.prepare(`
+        INSERT INTO _collections (id, name, type, system, schema, indexes, created, updated)
+        VALUES ('col1', 'articles', 'base', 0, '[]', '[]', datetime('now'), datetime('now'))
+      `).run();
+      await sourceDb.exec(`
+        CREATE TABLE articles (id TEXT PRIMARY KEY, title TEXT, created TEXT, updated TEXT);
+        INSERT INTO articles (id, title, created, updated) VALUES ('a1', 'First', datetime('now'), datetime('now'));
+        INSERT INTO articles (id, title, created, updated) VALUES ('a2', 'Second', datetime('now'), datetime('now'));
+      `);
+
+      const targetDb = new NodeSqliteDriver(':memory:');
+      const progressUpdates: any[] = [];
+
+      await DatabaseMigrationService.migrateAppScope(
+        sourceDb,
+        targetDb,
+        (prog) => {
+          progressUpdates.push(prog);
+        }
+      );
+
+      expect(progressUpdates.length).toBeGreaterThan(0);
+      expect(progressUpdates[0].phase).toBe('system_migrations');
+
+      const tableUpdate = progressUpdates.find((p) => p.currentTable === 'articles');
+      expect(tableUpdate).toBeDefined();
+      expect(tableUpdate?.totalTables).toBeGreaterThan(0);
+      expect(tableUpdate?.rowsCopiedInTable).toBeDefined();
+
+      await sourceDb.close();
+      await targetDb.close();
+    });
+
+    it('should expose GET /api/system/database/migration-progress via HTTP injection', async () => {
+      const app = new NodeStack({ dataDir: testDir });
+
+      await app.auth.createAdmin('admin_prog@nodestack.dev', 'password123');
+      const { token: adminToken } = await app.auth.authenticateAdmin('admin_prog@nodestack.dev', 'password123');
+
+      const res = await app.server.inject({
+        method: 'GET',
+        url: '/api/system/database/migration-progress',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.payload);
+      expect(json.active).toBe(false);
+      expect(json.percent).toBe(0);
+      expect(json.message).toBe('Idle');
+
+      app.close();
+    });
+
+    it('should bundle Admin UI with migration progress bar elements', () => {
+      const uiDir = path.resolve(__dirname, '../src/admin/ui');
+      const html = AdminUIBundler.bundle(uiDir);
+
+      expect(html).toContain('renderMigrationProgressBar');
+      expect(html).toContain('updateMigrationProgressDOM');
+      expect(html).toContain('db-migration-progress-card');
+      expect(html).toContain('db-migration-fill');
+      expect(html).toContain('db-migration-pct');
+    });
+
+    it('should default selected database engine tab to the active provider dynamically', () => {
+      const uiDir = path.resolve(__dirname, '../src/admin/ui');
+      const html = AdminUIBundler.bundle(uiDir);
+
+      expect(html).toContain('selectedProvider: null');
+      expect(html).toContain('const selected = (databaseState.selectedProvider || activeProvider).toLowerCase()');
+    });
+  });
 });
