@@ -106,7 +106,9 @@ export class ConfigService {
 
       const isWildcard =
         corsOpts.origin === '*' ||
-        (Array.isArray(corsOpts.origin) && corsOpts.origin.includes('*'));
+        (typeof corsOpts.origin === 'string' && corsOpts.origin.trim() === '*') ||
+        (Array.isArray(corsOpts.origin) &&
+          corsOpts.origin.some((p) => typeof p === 'string' && p.trim() === '*'));
 
       if (isWildcard) {
         corsOpts.origin = '*';

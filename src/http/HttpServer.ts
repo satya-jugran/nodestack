@@ -183,7 +183,9 @@ export class HttpServer {
 
     const isWildcardOrigin =
       configCors.origin === '*' ||
-      (Array.isArray(configCors.origin) && configCors.origin.includes('*'));
+      (typeof configCors.origin === 'string' && configCors.origin.trim() === '*') ||
+      (Array.isArray(configCors.origin) &&
+        configCors.origin.some((p) => typeof p === 'string' && p.trim() === '*'));
 
     const isMatch = (origin: string, pattern: string | RegExp | Array<string | RegExp>): boolean => {
       if (Array.isArray(pattern)) {
@@ -193,8 +195,9 @@ export class HttpServer {
         return pattern.test(origin);
       }
       if (typeof pattern === 'string') {
-        if (pattern === '*') return false;
-        return origin.replace(/\/+$/, '') === pattern.replace(/\/+$/, '');
+        const trimmed = pattern.trim();
+        if (trimmed === '*') return false;
+        return origin.replace(/\/+$/, '') === trimmed.replace(/\/+$/, '');
       }
       return false;
     };
