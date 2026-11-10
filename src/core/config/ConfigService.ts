@@ -104,7 +104,12 @@ export class ConfigService {
           envCorsCredentials.trim().toLowerCase() === 'true' || envCorsCredentials.trim() === '1';
       }
 
-      if (corsOpts.origin === '*') {
+      const isWildcard =
+        corsOpts.origin === '*' ||
+        (Array.isArray(corsOpts.origin) && corsOpts.origin.includes('*'));
+
+      if (isWildcard) {
+        corsOpts.origin = '*';
         corsOpts.credentials = false;
       }
 

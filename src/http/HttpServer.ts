@@ -181,6 +181,10 @@ export class HttpServer {
 
     const localhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
 
+    const isWildcardOrigin =
+      configCors.origin === '*' ||
+      (Array.isArray(configCors.origin) && configCors.origin.includes('*'));
+
     const isMatch = (origin: string, pattern: string | RegExp | Array<string | RegExp>): boolean => {
       if (Array.isArray(pattern)) {
         return pattern.some((p) => isMatch(origin, p));
@@ -189,13 +193,17 @@ export class HttpServer {
         return pattern.test(origin);
       }
       if (typeof pattern === 'string') {
-        if (pattern === '*') return true;
+        if (pattern === '*') return false;
         return origin.replace(/\/+$/, '') === pattern.replace(/\/+$/, '');
       }
       return false;
     };
 
     const isTrustedOrigin = (origin: string): boolean => {
+      if (isWildcardOrigin) {
+        return false;
+      }
+
       // 1. User configured allowlist
       if (configCors.origin !== undefined && configCors.origin !== true && configCors.origin !== false) {
         if (typeof configCors.origin !== 'function') {
@@ -271,7 +279,7 @@ export class HttpServer {
         }
 
         // Wildcard origin: explicitly disallow credentials per W3C CORS specification
-        if (configCors.origin === '*') {
+        if (isWildcardOrigin) {
           callback(null, {
             origin: '*',
             credentials: false,

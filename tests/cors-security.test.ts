@@ -322,6 +322,89 @@ describe('CORS Security & Credentials Hardening', () => {
       expect(res.headers['access-control-allow-origin']).toBe('*');
       expect(res.headers['access-control-allow-credentials']).toBeUndefined();
     });
+
+    it('should normalize origin: [\'*\'] array to wildcard and force credentials off', async () => {
+      const app = new NodeStack({
+        dataDir: testDataDir,
+        cors: {
+          origin: ['*'],
+          credentials: true,
+        },
+      });
+      await app.server.app.ready();
+
+      // Check ConfigService normalized state
+      expect(app.config.cors).toBeDefined();
+      if (typeof app.config.cors === 'object') {
+        expect(app.config.cors.origin).toBe('*');
+        expect(app.config.cors.credentials).toBe(false);
+      }
+
+      const res = await app.server.inject({
+        method: 'GET',
+        url: '/api/health',
+        headers: {
+          origin: 'https://untrusted-site.com',
+        },
+      });
+
+      expect(res.headers['access-control-allow-origin']).toBe('*');
+      expect(res.headers['access-control-allow-credentials']).toBeUndefined();
+    });
+
+    it('should normalize origin array containing wildcard [\'https://trusted.com\', \'*\'] and force credentials off', async () => {
+      const app = new NodeStack({
+        dataDir: testDataDir,
+        cors: {
+          origin: ['https://trusted.com', '*'],
+          credentials: true,
+        },
+      });
+      await app.server.app.ready();
+
+      // Should normalize to scalar wildcard and disable credentials
+      if (typeof app.config.cors === 'object') {
+        expect(app.config.cors.origin).toBe('*');
+        expect(app.config.cors.credentials).toBe(false);
+      }
+
+      const res = await app.server.inject({
+        method: 'GET',
+        url: '/api/health',
+        headers: {
+          origin: 'https://random-site.com',
+        },
+      });
+
+      expect(res.headers['access-control-allow-origin']).toBe('*');
+      expect(res.headers['access-control-allow-credentials']).toBeUndefined();
+    });
+
+    it('should normalize comma-separated NODESTACK_CORS_ORIGIN containing \'*\' and force credentials off', async () => {
+      process.env.NODESTACK_CORS_ORIGIN = 'https://app.com, *, https://other.com';
+      process.env.NODESTACK_CORS_CREDENTIALS = 'true';
+
+      const app = new NodeStack({
+        dataDir: testDataDir,
+      });
+      await app.server.app.ready();
+
+      if (typeof app.config.cors === 'object') {
+        expect(app.config.cors.origin).toBe('*');
+        expect(app.config.cors.credentials).toBe(false);
+      }
+
+      const res = await app.server.inject({
+        method: 'GET',
+        url: '/api/health',
+        headers: {
+          origin: 'https://any-domain.org',
+        },
+      });
+
+      expect(res.headers['access-control-allow-origin']).toBe('*');
+      expect(res.headers['access-control-allow-credentials']).toBeUndefined();
+    });
   });
 
   describe('6. Dynamic Reflection with Untrusted Credential Protection', () => {
