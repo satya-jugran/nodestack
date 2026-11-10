@@ -3,10 +3,31 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
 
-describe('CORS Security & Credentials Hardening', () => {
+describe('CORS Security & Credentials Hardening', { timeout: 15000 }, () => {
   const testDataDir = path.resolve(__dirname, '../.test_cors_data');
+  const activeApps: NodeStack[] = [];
 
-  beforeEach(() => {
+  const trackApp = (options: ConstructorParameters<typeof NodeStack>[0] = {}): NodeStack => {
+    const app = new NodeStack(options);
+    activeApps.push(app);
+    return app;
+  };
+
+  const disposeApps = async () => {
+    while (activeApps.length > 0) {
+      const app = activeApps.pop();
+      if (app) {
+        try {
+          await app.stop();
+        } catch {
+          app.close();
+        }
+      }
+    }
+  };
+
+  beforeEach(async () => {
+    await disposeApps();
     if (fs.existsSync(testDataDir)) {
       try {
         fs.rmSync(testDataDir, { recursive: true, force: true });
@@ -14,11 +35,12 @@ describe('CORS Security & Credentials Hardening', () => {
     }
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env.NODESTACK_CORS_ORIGIN;
     delete process.env.NODEBASE_CORS_ORIGIN;
     delete process.env.NODESTACK_CORS_CREDENTIALS;
     delete process.env.NODEBASE_CORS_CREDENTIALS;
+    await disposeApps();
     if (fs.existsSync(testDataDir)) {
       try {
         fs.rmSync(testDataDir, { recursive: true, force: true });
@@ -28,7 +50,7 @@ describe('CORS Security & Credentials Hardening', () => {
 
   describe('1. Default Development Behavior', () => {
     it('should allow localhost origins with credentials in development mode', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         dev: true,
       });
@@ -48,7 +70,7 @@ describe('CORS Security & Credentials Hardening', () => {
     });
 
     it('should allow 127.0.0.1 and IPv6 [::1] on arbitrary ports in dev', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         dev: true,
       });
@@ -76,7 +98,7 @@ describe('CORS Security & Credentials Hardening', () => {
     });
 
     it('should NOT allow untrusted external origins by default in dev and omit credentials', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         dev: true,
       });
@@ -96,7 +118,7 @@ describe('CORS Security & Credentials Hardening', () => {
     });
 
     it('should reject preflight OPTIONS from untrusted origin by default in dev', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         dev: true,
       });
@@ -119,7 +141,7 @@ describe('CORS Security & Credentials Hardening', () => {
 
   describe('2. Production Mode Security (dev: false)', () => {
     it('should disallow all cross-origin requests by default when no CORS allowlist is configured', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         dev: false,
       });
@@ -149,7 +171,7 @@ describe('CORS Security & Credentials Hardening', () => {
 
   describe('3. Configurable Allowlist', () => {
     it('should allow only explicitly specified trusted origins and credentials', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         dev: false,
         cors: {
@@ -194,7 +216,7 @@ describe('CORS Security & Credentials Hardening', () => {
     });
 
     it('should support RegExp allowlist matching', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         dev: false,
         cors: {
@@ -227,7 +249,7 @@ describe('CORS Security & Credentials Hardening', () => {
 
     it('should remain stateless when allowlist RegExp uses global (/g) or sticky (/y) flags across multiple consecutive requests', async () => {
       const globalRegex = /^https:\/\/api-client\.service\.local$/g;
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         dev: false,
         cors: {
@@ -255,7 +277,7 @@ describe('CORS Security & Credentials Hardening', () => {
     });
 
     it('should support shorthand corsOrigin property in NodeStackOptions', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         corsOrigin: 'https://shorthand.app.com',
       });
@@ -277,7 +299,7 @@ describe('CORS Security & Credentials Hardening', () => {
     it('should parse NODESTACK_CORS_ORIGIN comma-separated allowlist', async () => {
       process.env.NODESTACK_CORS_ORIGIN = 'https://portal.domain.com, https://cms.domain.com';
 
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         dev: false,
       });
@@ -309,7 +331,7 @@ describe('CORS Security & Credentials Hardening', () => {
 
   describe('5. Wildcard Origin with Credentials Protection', () => {
     it('should strictly disallow credentials when wildcard origin is configured', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         cors: {
           origin: '*',
@@ -335,7 +357,7 @@ describe('CORS Security & Credentials Hardening', () => {
       process.env.NODESTACK_CORS_ORIGIN = '*';
       process.env.NODESTACK_CORS_CREDENTIALS = 'true';
 
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
       });
       await app.server.app.ready();
@@ -353,7 +375,7 @@ describe('CORS Security & Credentials Hardening', () => {
     });
 
     it('should normalize origin: [\'*\'] array to wildcard and force credentials off', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         cors: {
           origin: ['*'],
@@ -382,7 +404,7 @@ describe('CORS Security & Credentials Hardening', () => {
     });
 
     it('should normalize origin array containing wildcard [\'https://trusted.com\', \'*\'] and force credentials off', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         cors: {
           origin: ['https://trusted.com', '*'],
@@ -413,7 +435,7 @@ describe('CORS Security & Credentials Hardening', () => {
       process.env.NODESTACK_CORS_ORIGIN = 'https://app.com, *, https://other.com';
       process.env.NODESTACK_CORS_CREDENTIALS = 'true';
 
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
       });
       await app.server.app.ready();
@@ -438,7 +460,7 @@ describe('CORS Security & Credentials Hardening', () => {
 
   describe('6. Dynamic Reflection with Untrusted Credential Protection', () => {
     it('should disallow credentials for untrusted origins even if origin: true and credentials: true are passed', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         dev: true,
         cors: {
@@ -472,7 +494,7 @@ describe('CORS Security & Credentials Hardening', () => {
     });
 
     it('should support allowDevReflection flag in development while strictly omitting credentials', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         dev: true,
         cors: {
@@ -496,7 +518,7 @@ describe('CORS Security & Credentials Hardening', () => {
 
   describe('7. Disabling CORS (cors: false)', () => {
     it('should omit all CORS headers when cors is explicitly set to false', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         cors: false,
       });
@@ -515,7 +537,7 @@ describe('CORS Security & Credentials Hardening', () => {
     });
 
     it('should omit all CORS headers when cors.origin is explicitly set to false even in dev mode', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         dev: true,
         cors: {
@@ -553,7 +575,7 @@ describe('CORS Security & Credentials Hardening', () => {
 
   describe('8. Custom Origin Validator Function', () => {
     it('should support custom function for dynamic origin validation', async () => {
-      const app = new NodeStack({
+      const app = trackApp({
         dataDir: testDataDir,
         cors: {
           origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
