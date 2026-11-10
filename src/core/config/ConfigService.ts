@@ -3,6 +3,23 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { loadEnvFile } from './EnvLoader';
 
+export type CorsOrigin =
+  | boolean
+  | string
+  | RegExp
+  | Array<string | RegExp>
+  | ((origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => void | Promise<boolean>);
+
+export interface CorsConfigOptions {
+  origin?: CorsOrigin;
+  credentials?: boolean;
+  methods?: string[];
+  allowedHeaders?: string[];
+  exposedHeaders?: string[];
+  maxAge?: number;
+  allowDevReflection?: boolean;
+}
+
 export interface NodeStackConfigOptions {
   dataDir?: string;
   port?: number;
@@ -18,6 +35,8 @@ export interface NodeStackConfigOptions {
   mockJitter?: number;
   mockErrorMessage?: string;
   queueJobRetentionDays?: number;
+  cors?: boolean | CorsConfigOptions;
+  corsOrigin?: string | string[];
 }
 
 // Deprecated alias for backwards compatibility
@@ -42,6 +61,7 @@ export class ConfigService {
   public readonly mockJitter?: number;
   public readonly mockErrorMessage?: string;
   public readonly queueJobRetentionDays: number;
+  public readonly cors?: boolean | CorsConfigOptions;
 
   constructor(options: NodeStackConfigOptions = {}) {
     loadEnvFile();
@@ -50,6 +70,46 @@ export class ConfigService {
     this.host = options.host || process.env.NODESTACK_HOST || process.env.NODEBASE_HOST || '0.0.0.0';
     this.appName = options.appName || 'NodeStack';
     this.dev = options.dev ?? process.env.NODE_ENV !== 'production';
+
+    // CORS configuration
+    const envCorsOrigin = process.env.NODESTACK_CORS_ORIGIN || process.env.NODEBASE_CORS_ORIGIN;
+    const envCorsCredentials = process.env.NODESTACK_CORS_CREDENTIALS || process.env.NODEBASE_CORS_CREDENTIALS;
+
+    if (options.cors === false) {
+      this.cors = false;
+    } else {
+      const corsOpts: CorsConfigOptions =
+        typeof options.cors === 'object' && options.cors !== null ? { ...options.cors } : {};
+
+      if (corsOpts.origin === undefined) {
+        if (options.corsOrigin !== undefined) {
+          corsOpts.origin = options.corsOrigin;
+        } else if (envCorsOrigin !== undefined) {
+          const trimmed = envCorsOrigin.trim();
+          if (trimmed === '*') {
+            corsOpts.origin = '*';
+          } else if (trimmed.includes(',')) {
+            corsOpts.origin = trimmed
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean);
+          } else {
+            corsOpts.origin = trimmed;
+          }
+        }
+      }
+
+      if (corsOpts.credentials === undefined && envCorsCredentials !== undefined) {
+        corsOpts.credentials =
+          envCorsCredentials.trim().toLowerCase() === 'true' || envCorsCredentials.trim() === '1';
+      }
+
+      if (corsOpts.origin === '*') {
+        corsOpts.credentials = false;
+      }
+
+      this.cors = corsOpts;
+    }
 
     const envRetention = process.env.QUEUE_JOB_RETENTION_DAYS || process.env.NODESTACK_QUEUE_RETENTION_DAYS;
     this.queueJobRetentionDays =

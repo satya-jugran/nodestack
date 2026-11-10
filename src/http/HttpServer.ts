@@ -2,7 +2,7 @@ import fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { Readable } from 'stream';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
-import { ConfigService } from '../core/config/ConfigService';
+import { ConfigService, CorsConfigOptions } from '../core/config/ConfigService';
 import { LogService } from '../logger/LogService';
 import { AuthMiddleware } from './middleware/AuthMiddleware';
 import { ChaosMiddleware } from './middleware/ChaosMiddleware';
@@ -139,17 +139,7 @@ export class HttpServer {
   private analyticsController?: AnalyticsController;
 
   private setupPlugins(): void {
-    this.app.register(cors, {
-      origin: true,
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      exposedHeaders: [
-        'x-simulated-delay',
-        'x-simulated-chaos',
-        'x-simulated-error',
-        'x-simulated-fail-rate',
-      ],
-    });
+    this.setupCors();
 
     this.app.register(multipart, {
       limits: {
@@ -164,6 +154,185 @@ export class HttpServer {
         done(null, body);
       }
     );
+  }
+
+  private setupCors(): void {
+    if (this.config.cors === false) {
+      return;
+    }
+
+    const configCors: CorsConfigOptions =
+      typeof this.config.cors === 'object' && this.config.cors !== null
+        ? this.config.cors
+        : {};
+
+    const defaultMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
+    const defaultExposedHeaders = [
+      'x-simulated-delay',
+      'x-simulated-chaos',
+      'x-simulated-error',
+      'x-simulated-fail-rate',
+    ];
+
+    const methods = configCors.methods || defaultMethods;
+    const exposedHeaders = configCors.exposedHeaders || defaultExposedHeaders;
+    const allowedHeaders = configCors.allowedHeaders ?? null;
+    const maxAge = configCors.maxAge ?? null;
+
+    const localhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+
+    const isMatch = (origin: string, pattern: string | RegExp | Array<string | RegExp>): boolean => {
+      if (Array.isArray(pattern)) {
+        return pattern.some((p) => isMatch(origin, p));
+      }
+      if (pattern instanceof RegExp) {
+        return pattern.test(origin);
+      }
+      if (typeof pattern === 'string') {
+        if (pattern === '*') return true;
+        return origin.replace(/\/+$/, '') === pattern.replace(/\/+$/, '');
+      }
+      return false;
+    };
+
+    const isTrustedOrigin = (origin: string): boolean => {
+      // 1. User configured allowlist
+      if (configCors.origin !== undefined && configCors.origin !== true && configCors.origin !== false) {
+        if (typeof configCors.origin !== 'function') {
+          return isMatch(origin, configCors.origin);
+        }
+      }
+
+      // 2. In development mode, trust localhost and self host/port by default
+      if (this.config.dev) {
+        if (localhostRegex.test(origin)) {
+          return true;
+        }
+        if (this.config.host && this.config.host !== '0.0.0.0') {
+          const selfHttp = `http://${this.config.host}:${this.config.port}`;
+          const selfHttps = `https://${this.config.host}:${this.config.port}`;
+          if (isMatch(origin, [selfHttp, selfHttps])) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    };
+
+    this.app.register(cors, {
+      delegator: (req: FastifyRequest, callback: (err: Error | null, corsOptions?: any) => void) => {
+        const origin = req.headers.origin;
+
+        // If request does not have an Origin header, omit CORS headers
+        if (!origin) {
+          callback(null, {
+            origin: false,
+          });
+          return;
+        }
+
+        // Handle custom origin callback or promise function
+        if (typeof configCors.origin === 'function') {
+          const fn = configCors.origin;
+          const handleResult = (allow: boolean) => {
+            if (!allow) {
+              callback(null, { origin: false, credentials: false });
+            } else {
+              callback(null, {
+                origin,
+                credentials: configCors.credentials !== false,
+                methods,
+                allowedHeaders,
+                exposedHeaders,
+                maxAge,
+              });
+            }
+          };
+
+          try {
+            if (fn.length >= 2) {
+              fn(origin, (err, allow) => {
+                if (err) return callback(err);
+                handleResult(Boolean(allow));
+              });
+            } else {
+              const res = (fn as any)(origin);
+              if (res && typeof res.then === 'function') {
+                res.then((allow: boolean) => handleResult(Boolean(allow))).catch(callback);
+              } else {
+                handleResult(Boolean(res));
+              }
+            }
+          } catch (err: any) {
+            callback(err);
+          }
+          return;
+        }
+
+        // Wildcard origin: explicitly disallow credentials per W3C CORS specification
+        if (configCors.origin === '*') {
+          callback(null, {
+            origin: '*',
+            credentials: false,
+            methods,
+            allowedHeaders,
+            exposedHeaders,
+            maxAge,
+          });
+          return;
+        }
+
+        // If explicit reflection is configured (origin: true):
+        // Allow reflection, but strictly disallow credentials for untrusted origins
+        if (configCors.origin === true) {
+          const trusted = isTrustedOrigin(origin);
+          callback(null, {
+            origin: true,
+            credentials: trusted ? (configCors.credentials !== false) : false,
+            methods,
+            allowedHeaders,
+            exposedHeaders,
+            maxAge,
+          });
+          return;
+        }
+
+        // For allowlisted or default trusted origins
+        const trusted = isTrustedOrigin(origin);
+        if (trusted) {
+          callback(null, {
+            origin: true,
+            credentials: configCors.credentials !== false,
+            methods,
+            allowedHeaders,
+            exposedHeaders,
+            maxAge,
+          });
+          return;
+        }
+
+        // Untrusted origin:
+        // If development reflection is specifically enabled, reflect origin with credentials: false
+        if (configCors.allowDevReflection && this.config.dev) {
+          callback(null, {
+            origin: true,
+            credentials: false,
+            methods,
+            allowedHeaders,
+            exposedHeaders,
+            maxAge,
+          });
+          return;
+        }
+
+        // Otherwise disallow untrusted origins completely
+        callback(null, {
+          origin: false,
+          credentials: false,
+        });
+      },
+    });
   }
 
   private setupHooks(): void {
