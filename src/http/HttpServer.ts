@@ -192,6 +192,10 @@ export class HttpServer {
         return pattern.some((p) => isMatch(origin, p));
       }
       if (pattern instanceof RegExp) {
+        if (pattern.global || pattern.sticky) {
+          pattern.lastIndex = 0;
+          return new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, '')).test(origin);
+        }
         return pattern.test(origin);
       }
       if (typeof pattern === 'string') {

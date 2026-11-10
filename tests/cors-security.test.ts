@@ -225,6 +225,35 @@ describe('CORS Security & Credentials Hardening', () => {
       expect(resInvalid.headers['access-control-allow-credentials']).toBeUndefined();
     });
 
+    it('should remain stateless when allowlist RegExp uses global (/g) or sticky (/y) flags across multiple consecutive requests', async () => {
+      const globalRegex = /^https:\/\/api-client\.service\.local$/g;
+      const app = new NodeStack({
+        dataDir: testDataDir,
+        dev: false,
+        cors: {
+          origin: [globalRegex],
+          credentials: true,
+        },
+      });
+      await app.server.app.ready();
+
+      // Make 3 consecutive identical requests with the same origin
+      for (let i = 0; i < 3; i++) {
+        const res = await app.server.inject({
+          method: 'GET',
+          url: '/api/health',
+          headers: {
+            origin: 'https://api-client.service.local',
+          },
+        });
+        expect(res.headers['access-control-allow-origin']).toBe('https://api-client.service.local');
+        expect(res.headers['access-control-allow-credentials']).toBe('true');
+      }
+
+      // Ensure lastIndex was reset and not left corrupted
+      expect(globalRegex.lastIndex).toBe(0);
+    });
+
     it('should support shorthand corsOrigin property in NodeStackOptions', async () => {
       const app = new NodeStack({
         dataDir: testDataDir,
