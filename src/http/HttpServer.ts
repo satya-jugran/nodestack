@@ -207,12 +207,12 @@ export class HttpServer {
     };
 
     const isTrustedOrigin = (origin: string): boolean => {
-      if (isWildcardOrigin) {
+      if (isWildcardOrigin || configCors.origin === false) {
         return false;
       }
 
       // 1. User configured allowlist
-      if (configCors.origin !== undefined && configCors.origin !== true && configCors.origin !== false) {
+      if (configCors.origin !== undefined && configCors.origin !== true) {
         if (typeof configCors.origin !== 'function') {
           return isMatch(origin, configCors.origin);
         }
@@ -243,6 +243,15 @@ export class HttpServer {
         if (!origin) {
           callback(null, {
             origin: false,
+          });
+          return;
+        }
+
+        // Explicitly disabled origin (origin: false)
+        if (configCors.origin === false) {
+          callback(null, {
+            origin: false,
+            credentials: false,
           });
           return;
         }

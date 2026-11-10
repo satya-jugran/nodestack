@@ -513,6 +513,42 @@ describe('CORS Security & Credentials Hardening', () => {
       expect(res.headers['access-control-allow-origin']).toBeUndefined();
       expect(res.headers['access-control-allow-credentials']).toBeUndefined();
     });
+
+    it('should omit all CORS headers when cors.origin is explicitly set to false even in dev mode', async () => {
+      const app = new NodeStack({
+        dataDir: testDataDir,
+        dev: true,
+        cors: {
+          origin: false,
+          credentials: true,
+        },
+      });
+      await app.server.app.ready();
+
+      const res = await app.server.inject({
+        method: 'GET',
+        url: '/api/health',
+        headers: {
+          origin: 'http://localhost:3000',
+        },
+      });
+
+      expect(res.headers['access-control-allow-origin']).toBeUndefined();
+      expect(res.headers['access-control-allow-credentials']).toBeUndefined();
+
+      const resOptions = await app.server.inject({
+        method: 'OPTIONS',
+        url: '/api/health',
+        headers: {
+          origin: 'http://localhost:3000',
+          'access-control-request-method': 'GET',
+        },
+      });
+
+      expect(resOptions.statusCode).toBe(404);
+      expect(resOptions.headers['access-control-allow-origin']).toBeUndefined();
+      expect(resOptions.headers['access-control-allow-credentials']).toBeUndefined();
+    });
   });
 
   describe('8. Custom Origin Validator Function', () => {
