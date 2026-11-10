@@ -19,9 +19,21 @@ export class DatabaseController extends BaseController {
     super();
   }
 
+  private resolveAppSlug(req: any): string {
+    const fromBody = req.body?.appSlug;
+    const fromHeader = req.headers?.['x-nodestack-app'];
+    const fromQuery = req.query?.app || req.query?.appSlug;
+    const fromScope = req.appScope?.app?.slug;
+    const resolved = (fromBody || fromHeader || fromQuery || fromScope || 'default').trim();
+    return resolved || 'default';
+  }
+
   public async getStatus(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     try {
-      const status = await this.dbConfigService.getStatus(this.rootDb.getRootDriver());
+      const appSlug = this.resolveAppSlug(req);
+      const scope = await this.appManager.getAsync(appSlug);
+      const driver = scope.db.getRootDriver();
+      const status = await this.dbConfigService.getStatus(driver, appSlug);
       this.ok(reply, status);
     } catch (err: any) {
       this.error(reply, err.message || 'Failed to retrieve database status', 500);
@@ -49,19 +61,33 @@ export class DatabaseController extends BaseController {
   }
 
   public async switchDatabase(
-    req: FastifyRequest<{ Body: { config: DatabaseConfig; migrateData?: boolean } }>,
+    req: FastifyRequest<{ Body: { config: DatabaseConfig; migrateData?: boolean; confirmText?: string; appSlug?: string } }>,
     reply: FastifyReply
   ): Promise<void> {
-    const { config, migrateData = false } = req.body || {};
+    const { config, migrateData = false, confirmText, appSlug: bodySlug } = req.body || {};
     if (!config || !config.provider) {
       this.error(reply, "Missing target database configuration or 'provider'", 400);
       return;
     }
 
+    const appSlug = (bodySlug || this.resolveAppSlug(req)).trim();
+
+    // Mandatory user consent check when migrating data
+    if (migrateData) {
+      if (!confirmText || confirmText.trim().toLowerCase() !== 'migrate') {
+        this.error(
+          reply,
+          "Confirmation required: Please type 'migrate' to confirm database migration and proceed.",
+          400
+        );
+        return;
+      }
+    }
+
     if (config.provider === 'sqlite') {
       const activeDataDir = this.appManager?.config?.dataDir || DriverRegistry.getDefaultSqlitePaths().dataDir;
       const activeAppsDir = this.appManager?.config?.appsDir || DriverRegistry.getDefaultSqlitePaths().appsDir;
-      const activeDbPath = this.appManager?.config?.getAppDbPath('default') || DriverRegistry.getDefaultSqlitePaths().dbPath;
+      const activeDbPath = this.appManager?.config?.getAppDbPath(appSlug) || DriverRegistry.getDefaultSqlitePaths().dbPath;
 
       config.dataDir = config.dataDir || activeDataDir;
       config.appsDir = config.appsDir || activeAppsDir;
@@ -71,8 +97,19 @@ export class DatabaseController extends BaseController {
     this.activeMigrationProgress = {
       phase: 'starting',
       percent: 1,
-      message: `Initializing cutover to ${config.provider.toUpperCase()}...`,
+      message: `Initializing cutover to ${config.provider.toUpperCase()} for application '${appSlug}'...`,
     };
+
+    let scope: any;
+    try {
+      if (typeof this.appManager.getAsync === 'function') {
+        scope = await this.appManager.getAsync(appSlug);
+      } else if (typeof this.appManager.get === 'function') {
+        scope = this.appManager.get(appSlug);
+      }
+    } catch {
+      // App scope may not exist in mock environments
+    }
 
     const executeSwitch = async () => {
       // 1. Verify connection to target database
@@ -86,33 +123,44 @@ export class DatabaseController extends BaseController {
         throw new Error(`Target database connection test failed: ${testRes.error}`);
       }
 
-      const oldDriver = this.rootDb.getRootDriver();
+      const oldDriver = scope?.db ? scope.db.getRootDriver() : this.rootDb.getRootDriver();
       const newDriver = await DriverRegistry.createDriver(config);
 
       let migrationSummary = null;
       try {
-        // 2. Perform symmetric migration if requested
+        // 2. Perform symmetric migration for this single app scope if requested
         if (migrateData) {
-          const apps = await this.appManager.registry.getAllApps();
-          const appSlugs = apps.map((a: any) => a.slug);
-          migrationSummary = await DatabaseMigrationService.migrateAllApps(
-            oldDriver,
-            newDriver,
-            appSlugs,
-            (progress) => {
-              this.activeMigrationProgress = { ...progress };
+          const targetAppDriver = await newDriver.withSchema(appSlug);
+          try {
+            migrationSummary = await DatabaseMigrationService.migrateAppScope(
+              oldDriver,
+              targetAppDriver,
+              (progress) => {
+                this.activeMigrationProgress = { ...progress };
+              },
+              { appIndex: 0, totalApps: 1, appSlug }
+            );
+          } finally {
+            if (targetAppDriver && targetAppDriver !== newDriver) {
+              try {
+                await targetAppDriver.close();
+              } catch {}
             }
-          );
+          }
         }
 
         this.activeMigrationProgress = {
           phase: 'verifying',
           percent: 96,
-          message: 'Hot-swapping active drivers across runtime scopes...',
+          message: `Hot-swapping active driver for application '${appSlug}'...`,
         };
 
-        // 3. Hot-swap active drivers in runtime across all scopes
-        await this.appManager.switchDriver(newDriver);
+        // 3. Hot-swap active driver for this application scope
+        if (typeof this.appManager.switchAppDriver === 'function') {
+          await this.appManager.switchAppDriver(appSlug, newDriver);
+        } else if (typeof this.appManager.switchDriver === 'function') {
+          await this.appManager.switchDriver(newDriver, appSlug);
+        }
 
         this.activeMigrationProgress = {
           phase: 'verifying',
@@ -120,13 +168,13 @@ export class DatabaseController extends BaseController {
           message: 'Saving updated database engine configuration...',
         };
 
-        // 4. Persist new encrypted config in control plane SQLite (_db_configs) only after hot-swap succeeds
-        await this.dbConfigService.saveConfig(config, true);
+        // 4. Persist new encrypted config for appSlug in control plane SQLite (_db_configs) only after hot-swap succeeds
+        await this.dbConfigService.saveConfig(config, true, appSlug);
 
         this.activeMigrationProgress = {
           phase: 'completed',
           percent: 100,
-          message: `Database switched successfully to ${config.provider.toUpperCase()}`,
+          message: `Application '${appSlug}' database switched successfully to ${config.provider.toUpperCase()}`,
         };
 
         return migrationSummary;
@@ -153,10 +201,26 @@ export class DatabaseController extends BaseController {
         migrationSummary = await executeSwitch();
       }
 
+      // 5. Post-migration snapshot reset & baseline creation for this application (after exclusive gate released)
+      if (scope?.snapshots) {
+        try {
+          await scope.snapshots.clearAllSnapshots();
+          if (config.provider === 'sqlite') {
+            await scope.snapshots.createSnapshot({
+              name: 'Post-Migration Baseline',
+              description: `Automatic baseline snapshot created after migrating '${appSlug}' to SQLite.`,
+            });
+          }
+        } catch (snapErr: any) {
+          console.warn(`[DatabaseController] Post-migration snapshot note for '${appSlug}': ${snapErr.message}`);
+        }
+      }
+
       this.ok(reply, {
         success: true,
-        message: `Database switched successfully to ${config.provider}`,
+        message: `Database switched successfully to ${config.provider} for application '${appSlug}'`,
         provider: config.provider,
+        appSlug,
         migration: migrationSummary,
       });
     } catch (err: any) {

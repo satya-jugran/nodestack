@@ -161,6 +161,9 @@ async function selectApp(slugOrId) {
     if (typeof fetchDemoStatus === 'function') {
       await fetchDemoStatus();
     }
+    if (typeof fetchDatabaseStatus === 'function') {
+      await fetchDatabaseStatus(true);
+    }
     if (typeof loadWebhookStats === 'function') {
       await loadWebhookStats();
     }
@@ -202,6 +205,8 @@ async function selectApp(slugOrId) {
       renderHomeView();
     } else if (state.activeNav === 'snapshots' && typeof renderSnapshotsView === 'function') {
       renderSnapshotsView();
+    } else if (state.activeNav === 'database' && typeof renderDatabaseView === 'function') {
+      renderDatabaseView();
     } else if (state.activeNav === 'webhooks' && typeof renderWebhooksView === 'function') {
       renderWebhooksView();
     } else if (state.activeNav === 'functions' && typeof renderFunctionsView === 'function') {

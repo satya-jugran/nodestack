@@ -443,14 +443,19 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
     .command('snapshots [action] [target]')
     .description('Manage application snapshots, multiple checkpoints, and restore')
     .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('-a, --app <slug>', 'Application slug (default: "default")', 'default')
     .option('-n, --name <name>', 'Custom label/name for the snapshot')
     .option('--evict-oldest', 'Automatically evict oldest snapshot if 10-limit is reached')
     .action(async (actionArg, targetArg, options) => {
       const action = actionArg || 'list';
       const app = new NodeStack({ dataDir: options.dir });
+      const targetAppSlug = options.app || 'default';
       try {
+        await app.loadActiveDatabaseDriver();
+        const scope = await app.apps.getAsync(targetAppSlug);
+        const snapshotService = scope.snapshots;
         if (action === 'create' || action === 'take' || action === 'new') {
-          const snap = await app.snapshots.createSnapshot({
+          const snap = await snapshotService.createSnapshot({
             name: options.name,
             evictOldest: Boolean(options.evictOldest),
           });
@@ -459,7 +464,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
           console.log(chalk.cyan(`  • Collections: ${snap.totalCollections}`));
           console.log(chalk.cyan(`  • Uploaded Files: ${snap.totalFiles} (${snap.storageSizeBytes} bytes)\n`));
         } else if (action === 'restore' || action === 'reset') {
-          const res = await app.snapshots.restoreSnapshot(targetArg);
+          const res = await snapshotService.restoreSnapshot(targetArg);
           console.log(chalk.green(`\n✓ Successfully restored snapshot '${res.snapshot.name}' in ${res.durationMs}ms!\n`));
           console.log(chalk.cyan(`  • Restored: ${res.snapshot.totalCollections} collections, ${res.snapshot.totalRecords} records\n`));
         } else if (action === 'delete' || action === 'rm') {
@@ -467,13 +472,13 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             console.error(chalk.red('\n✗ Please provide the snapshot ID to delete: npx nodestack snapshots delete <id>\n'));
             process.exit(1);
           }
-          await app.snapshots.deleteSnapshot(targetArg);
+          await snapshotService.deleteSnapshot(targetArg);
           console.log(chalk.yellow(`\n✓ Snapshot '${targetArg}' deleted.\n`));
         } else if (action === 'clear') {
-          await app.snapshots.clearAllSnapshots();
+          await snapshotService.clearAllSnapshots();
           console.log(chalk.yellow(`\n✓ All snapshots cleared.\n`));
         } else {
-          const status = await app.snapshots.getStatus();
+          const status = await snapshotService.getStatus();
           if (status.snapshots.length === 0) {
             console.log(chalk.yellow(`\nℹ No snapshots found.`));
             console.log(chalk.dim(`  Create snapshot with: npx nodestack snapshots create\n`));
@@ -503,6 +508,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
     .command('db [action] [targetProvider] [targetUri]')
     .description('Manage database provider configuration, connection tests, and live migration')
     .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('-a, --app <slug>', 'Target application slug (default: "default")', 'default')
     .option('-p, --provider <provider>', 'Target database provider (sqlite, postgres, mssql)')
     .option('-c, --connection-string <uri>', 'Connection URI string')
     .option('--host <host>', 'Database server host')
@@ -511,19 +517,25 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
     .option('--password <password>', 'Database password')
     .option('--database <database>', 'Database name')
     .option('-m, --migrate', 'Migrate existing schema and data to target database', false)
+    .option('--confirm <text>', 'Confirmation string ("migrate") to bypass interactive prompt')
     .action(async (actionArg, targetProviderArg, targetUriArg, options) => {
       const action = actionArg || 'status';
+      const targetAppSlug = (options.app || 'default').trim();
       const provider = options.provider || targetProviderArg;
       const connectionString = options.connectionString || (targetUriArg && !targetUriArg.startsWith('-') ? targetUriArg : undefined);
       const app = new NodeStack({ dataDir: options.dir });
       try {
         await app.loadActiveDatabaseDriver();
+        const targetScope = await app.apps.getAsync(targetAppSlug);
+
         if (action === 'status') {
-          const status = await app.databaseConfig.getStatus(app.db.getRootDriver());
-          console.log(chalk.bold.cyan('\n  NodeStack Database Status:\n'));
+          const status = await app.databaseConfig.getStatus(targetScope.db.getRootDriver(), targetAppSlug);
+          console.log(chalk.bold.cyan(`\n  NodeStack Database Status for Application '${targetAppSlug}':\n`));
+          console.log(`  • Application:          ${chalk.bold.white(targetAppSlug)}`);
           console.log(`  • Active Provider:      ${chalk.bold.white(status.provider.toUpperCase())}`);
           console.log(`  • Connected:            ${status.connected ? chalk.green('✓ Yes') : chalk.red('✗ No')}`);
           console.log(`  • Latency:              ${chalk.yellow(`${status.latencyMs}ms`)}`);
+          console.log(`  • Snapshots Supported:  ${status.snapshotsSupported ? chalk.green('✓ Yes (SQLite)') : chalk.dim('No (remote database)')}`);
           console.log(`  • Available Providers:  ${chalk.dim(status.availableProviders.join(', '))}`);
           console.log(`  • Configuration:        ${chalk.gray(JSON.stringify(status.config, null, 2))}\n`);
         } else if (action === 'test') {
@@ -621,10 +633,44 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
           }
 
           if (options.migrate) {
-            console.log(chalk.yellow(`\nMigrating schema and data from current database...`));
+            console.log(chalk.bold.yellow(`\n⚠️  MIGRATION CONSEQUENCE NOTICE (Application: '${targetAppSlug}')`));
+            console.log(chalk.yellow(`  • All existing snapshots for '${targetAppSlug}' will be deleted post-migration.`));
+            if (targetConfig.provider === 'sqlite') {
+              console.log(chalk.yellow(`  • A fresh 'Post-Migration Baseline' snapshot will be taken immediately after cutover.\n`));
+            } else {
+              console.log(chalk.yellow(`  • In-app snapshots are disabled on ${targetConfig.provider.toUpperCase()} (cloud backups recommended for production).\n`));
+            }
+
+            let confirmed = false;
+            if (options.confirm && options.confirm.trim().toLowerCase() === 'migrate') {
+              confirmed = true;
+            } else if (process.stdin.isTTY) {
+              const readline = await import('readline');
+              const rl = readline.createInterface({
+                input: process.stdin,
+                output: process.stdout,
+              });
+              const answer = await new Promise<string>((resolve) => {
+                rl.question(chalk.bold.red(`  Type "migrate" to confirm cutover: `), (ans) => {
+                  rl.close();
+                  resolve(ans);
+                });
+              });
+              if (answer.trim().toLowerCase() === 'migrate') {
+                confirmed = true;
+              }
+            } else {
+              confirmed = false;
+            }
+
+            if (!confirmed) {
+              console.error(chalk.red(`\n✗ Migration aborted: Confirmation "migrate" was not entered.\n`));
+              process.exit(1);
+            }
+
+            console.log(chalk.yellow(`\nMigrating schema and data for application '${targetAppSlug}'...\n`));
             const targetDriver = await DriverRegistry.createDriver(targetConfig);
-            const allApps = await app.apps.registry.getAllApps();
-            const slugs = allApps.map((a: any) => a.slug);
+            const targetAppDriver = await targetDriver.withSchema(targetAppSlug);
 
             const renderCliProgressBar = (percent: number, message: string) => {
               const barWidth = 26;
@@ -652,24 +698,46 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
               }
             };
 
-            const summary = await DatabaseMigrationService.migrateAllApps(
-              app.db.getRootDriver(),
-              targetDriver,
-              slugs,
-              onCliProgress
+            const startMs = Date.now();
+            const summary = await DatabaseMigrationService.migrateAppScope(
+              targetScope.db.getRootDriver(),
+              targetAppDriver,
+              onCliProgress,
+              { appIndex: 0, totalApps: 1, appSlug: targetAppSlug }
             );
+            const elapsedMs = Date.now() - startMs;
             if (process.stdout.isTTY) {
               process.stdout.write('\r\x1b[K');
             }
-            console.log(chalk.green(`✓ Migration completed in ${summary.elapsedMs}ms:`));
-            console.log(`  • Apps: ${summary.appsCount}`);
+            console.log(chalk.green(`✓ Migration completed in ${elapsedMs}ms:`));
+            console.log(`  • Application: ${targetAppSlug}`);
             console.log(`  • Collections: ${summary.collectionsCount}`);
             console.log(`  • Records: ${summary.recordsCount}`);
+            if (targetAppDriver !== targetDriver) {
+              try { await targetAppDriver.close(); } catch {}
+            }
             await targetDriver.close();
           }
 
-          await app.databaseConfig.saveConfig(targetConfig, true);
-          console.log(chalk.green(`\n✓ Active database switched successfully to ${targetConfig.provider.toUpperCase()}!\n`));
+          await app.databaseConfig.saveConfig(targetConfig, true, targetAppSlug);
+          const newDriver = await DriverRegistry.createDriver(targetConfig);
+          await app.apps.switchAppDriver(targetAppSlug, newDriver);
+
+          // Clear snapshots and take baseline if sqlite
+          try {
+            await targetScope.snapshots.clearAllSnapshots();
+            if (targetConfig.provider === 'sqlite') {
+              await targetScope.snapshots.createSnapshot({
+                name: 'Post-Migration Baseline',
+                description: `Automatic baseline snapshot taken after migrating '${targetAppSlug}' to SQLite`,
+              });
+              console.log(chalk.cyan(`  • Created fresh 'Post-Migration Baseline' snapshot for '${targetAppSlug}'`));
+            }
+          } catch (snapErr: any) {
+            console.warn(chalk.dim(`  • Post-migration snapshot note: ${snapErr.message}`));
+          }
+
+          console.log(chalk.green(`\n✓ Application '${targetAppSlug}' database switched successfully to ${targetConfig.provider.toUpperCase()}!\n`));
         } else {
           console.error(chalk.red(`\n✗ Unknown db action: '${action}'. Expected: status, test, switch, configure\n`));
           process.exit(1);

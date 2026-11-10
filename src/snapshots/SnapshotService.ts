@@ -7,7 +7,7 @@ import { SchemaService } from '../schema/SchemaService';
 import { FileStorageService } from '../files/FileStorageService';
 import { EventBus } from '../core/events/EventBus';
 import { RealtimeService } from '../realtime/RealtimeService';
-import { NotFoundError, ConflictError } from '../core/errors/AppError';
+import { AppError, NotFoundError, ConflictError } from '../core/errors/AppError';
 import { MaintenanceGate } from '../core/maintenance/MaintenanceGate';
 import {
   SnapshotCollectionSummary,
@@ -31,6 +31,10 @@ interface SnapshotsManifest {
 export class SnapshotService {
   private maintenanceGate: MaintenanceGate;
   public readonly maxSnapshots: number = MAX_SNAPSHOTS;
+
+  public isSupported(): boolean {
+    return this.db.dialect.name === 'sqlite';
+  }
 
   constructor(
     private config: ConfigService,
@@ -272,6 +276,12 @@ export class SnapshotService {
   }
 
   public async createSnapshot(options: SnapshotCreateOptions = {}): Promise<SnapshotMetadata> {
+    if (!this.isSupported()) {
+      throw new AppError(
+        `Snapshots are only supported for applications running on SQLite. This application is currently running on ${this.db.dialect.name.toUpperCase()}.`,
+        400
+      );
+    }
     return await this.maintenanceGate.executeExclusive(async () => {
       const currentSnapshots = this.listSnapshots();
 
@@ -381,6 +391,12 @@ export class SnapshotService {
   }
 
   public async restoreSnapshot(id?: string): Promise<SnapshotRestoreResult> {
+    if (!this.isSupported()) {
+      throw new AppError(
+        `Snapshots are only supported for applications running on SQLite. This application is currently running on ${this.db.dialect.name.toUpperCase()}.`,
+        400
+      );
+    }
     const snapshots = this.listSnapshots();
     if (snapshots.length === 0) {
       throw new NotFoundError(
@@ -522,6 +538,22 @@ export class SnapshotService {
   }
 
   public async getStatus(targetSnapshotId?: string): Promise<SnapshotStatus> {
+    const isSupported = this.isSupported();
+    const provider = this.db.dialect.name;
+
+    if (!isSupported) {
+      return {
+        hasSnapshot: false,
+        total: 0,
+        maxLimit: this.maxSnapshots,
+        snapshots: [],
+        activeSnapshot: null,
+        snapshot: null,
+        supported: false,
+        provider,
+      };
+    }
+
     const snapshots = this.listSnapshots();
     if (snapshots.length === 0) {
       return {
@@ -531,6 +563,8 @@ export class SnapshotService {
         snapshots: [],
         activeSnapshot: null,
         snapshot: null,
+        supported: true,
+        provider,
       };
     }
 
@@ -559,6 +593,8 @@ export class SnapshotService {
         snapshots,
         activeSnapshot: target,
         snapshot: target,
+        supported: true,
+        provider,
         liveStats: {
           totalCollections: live.totalCollections,
           totalRecords: live.totalRecords,
@@ -581,6 +617,8 @@ export class SnapshotService {
         snapshots,
         activeSnapshot: target,
         snapshot: target,
+        supported: true,
+        provider,
       };
     }
   }

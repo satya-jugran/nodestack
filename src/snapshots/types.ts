@@ -36,6 +36,8 @@ export interface SnapshotStatus {
   snapshots: SnapshotMetadata[];
   activeSnapshot: SnapshotMetadata | null;
   snapshot: SnapshotMetadata | null; // Backwards-compatible alias for activeSnapshot
+  supported?: boolean;
+  provider?: string;
   liveStats?: {
     totalCollections: number;
     totalRecords: number;
@@ -63,8 +65,8 @@ export interface SnapshotServicePaths {
   dbPath?: string;
   storageDir?: string;
   snapshotsDir?: string;
-  legacySnapshotDir?: string;
   snapshotDir?: string;
+  legacySnapshotDir?: string;
 }
 
 export const MAX_SNAPSHOTS = 10;

@@ -10,17 +10,23 @@ let databaseState = {
   isSwitching: false,
   showConfirmSwitch: false,
   migrateData: true,
+  confirmText: '',
   migrationProgress: null,
   migrationInterval: null,
 };
 
-async function fetchDatabaseStatus() {
+async function fetchDatabaseStatus(forceResetProvider = false) {
   try {
-    const res = await api('/api/system/database/status');
+    const slug = (typeof state !== 'undefined' && state?.activeApp?.slug) ? state.activeApp.slug : 'default';
+    const res = await api(`/api/system/database/status?app=${encodeURIComponent(slug)}`);
     if (res && res.provider) {
+      const isDifferentApp = databaseState.status?.appSlug && databaseState.status.appSlug !== res.appSlug;
       databaseState.status = res;
-      if (!databaseState.selectedProvider) {
+      if (forceResetProvider || isDifferentApp || !databaseState.selectedProvider) {
         databaseState.selectedProvider = (res.provider || 'sqlite').toLowerCase();
+        databaseState.showConfirmSwitch = false;
+        databaseState.confirmText = '';
+        databaseState.testResult = null;
       }
       updateDatabaseStatusUI(res);
     }
@@ -139,11 +145,29 @@ function renderDatabaseView() {
   const container = document.getElementById('page-view-database') || document.getElementById('main-body');
   if (!container) return;
 
+  const currentAppSlug = (typeof state !== 'undefined' && state?.activeApp?.slug) ? state.activeApp.slug : 'default';
+
+  // If status is not yet loaded or belongs to a different application, trigger a refresh
+  if (!databaseState.status || (databaseState.status.appSlug && databaseState.status.appSlug !== currentAppSlug)) {
+    if (!databaseState.isLoadingStatus) {
+      databaseState.isLoadingStatus = true;
+      fetchDatabaseStatus(true).then(() => {
+        databaseState.isLoadingStatus = false;
+        if (state.activeNav === 'database') {
+          renderDatabaseView();
+        }
+      }).catch(() => {
+        databaseState.isLoadingStatus = false;
+      });
+    }
+  }
+
   const status = databaseState.status || {
     provider: 'sqlite',
     connected: true,
     latencyMs: 1,
     availableProviders: ['sqlite', 'postgres', 'mssql'],
+    appSlug: currentAppSlug,
   };
 
   const activeProvider = (status.provider || 'sqlite').toLowerCase();
@@ -172,10 +196,10 @@ function renderDatabaseView() {
             </div>
             <div>
               <h2 style="font-size: 18px; font-weight: 800; color: var(--text-heading); margin: 0; letter-spacing: -0.01em;">
-                Database Engine & Infrastructure
+                Database Engine
               </h2>
               <p style="font-size: 12px; color: var(--text-muted); margin: 3px 0 0 0; line-height: 1.4;">
-                Configure storage engines, scale read replicas across multi-cluster nodes, and execute zero-downtime data migrations.
+                Application: <strong style="color: var(--accent-primary); font-family: var(--font-mono); font-size: 12px;">${state.activeApp?.name || 'Default App'} (${state.activeApp?.slug || 'default'})</strong> • Configure storage engines and zero-downtime migrations.
               </p>
             </div>
           </div>
@@ -224,7 +248,7 @@ function renderDatabaseView() {
             <div>
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                  <span style="font-size: 24px;">⚡</span>
+                  <span style="font-size: 24px;">🪶</span>
                   <span style="font-size: 16px; font-weight: 800; color: var(--text-heading);">SQLite</span>
                 </div>
                 ${activeProvider === 'sqlite' ? '<span class="badge badge-success" style="font-size: 10px; padding: 2px 7px;">ACTIVE</span>' : ''}
@@ -414,7 +438,7 @@ function renderConfigFormStep(activeProvider, selected, isSelectedActive) {
         <button type="button" 
           onclick="setDatabaseProviderTab('sqlite')"
           style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px 8px; border-radius: 8px; border: 2px solid ${selected === 'sqlite' ? 'var(--accent-primary)' : 'var(--border-subtle)'}; background: ${selected === 'sqlite' ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg-input)'}; cursor: pointer; transition: all 0.15s ease;">
-          <span style="font-size: 18px; margin-bottom: 2px;">⚡</span>
+          <span style="font-size: 18px; margin-bottom: 2px;">🪶</span>
           <span style="font-weight: 700; font-size: 12.5px; color: var(--text-heading);">SQLite</span>
           <span style="font-size: 10.5px; color: var(--text-muted);">Embedded / File</span>
         </button>
@@ -824,6 +848,11 @@ function renderConfirmSwitchStep(activeProvider, targetProvider) {
   };
   const fromLabel = labelMap[activeProvider] || activeProvider;
   const toLabel = labelMap[targetProvider] || targetProvider;
+  const activeAppSlug = state.activeApp?.slug || 'default';
+  const activeAppName = state.activeApp?.name || 'Default App';
+  const isTargetSqlite = targetProvider === 'sqlite';
+  const isMigrate = Boolean(databaseState.migrateData);
+  const isConsentValid = !isMigrate || (databaseState.confirmText || '').trim().toLowerCase() === 'migrate';
 
   return `
     <div style="display: flex; flex-direction: column; gap: 1rem;">
@@ -832,9 +861,23 @@ function renderConfirmSwitchStep(activeProvider, targetProvider) {
       <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid #f59e0b; border-radius: 8px; padding: 12px 16px; color: #f59e0b; display: flex; align-items: flex-start; gap: 10px;">
         <span style="font-size: 20px; line-height: 1;">⚠️</span>
         <div style="font-size: 12.5px; line-height: 1.5;">
-          <strong style="font-size: 13.5px; display: block; margin-bottom: 2px;">Database Cutover Confirmation</strong>
-          You are about to switch the live active database from <strong>${fromLabel}</strong> to <strong>${toLabel}</strong>.
-          Incoming writes will be temporarily queued during the schema and data cutover.
+          <strong style="font-size: 13.5px; display: block; margin-bottom: 2px;">Application Database Cutover: ${escapeDbHtml(activeAppName)} (${escapeDbHtml(activeAppSlug)})</strong>
+          You are about to switch the live database for application <strong>${escapeDbHtml(activeAppName)}</strong> from <strong>${fromLabel}</strong> to <strong>${toLabel}</strong>. Other applications will remain unaffected.
+        </div>
+      </div>
+
+      <!-- Consequence Alert Banner -->
+      <div style="background: rgba(239, 68, 68, 0.08); border: 1.5px solid #ef4444; border-radius: 8px; padding: 12px 16px; color: #ef4444; font-size: 12.5px; line-height: 1.5;">
+        <div style="display: flex; align-items: flex-start; gap: 8px;">
+          <span style="font-size: 16px;">⚠️</span>
+          <div>
+            <strong style="font-size: 13px; display: block; margin-bottom: 2px;">Snapshot Lifecycle Consequence</strong>
+            All existing snapshots for <strong>${escapeDbHtml(activeAppName)}</strong> will be deleted post-migration.
+            ${isTargetSqlite 
+              ? 'A fresh baseline snapshot will be automatically created immediately after cutover.'
+              : 'In-app snapshots are disabled on PostgreSQL / SQL Server (cloud backups recommended for production).'
+            }
+          </div>
         </div>
       </div>
 
@@ -849,7 +892,7 @@ function renderConfirmSwitchStep(activeProvider, targetProvider) {
         />
         <div>
           <div style="font-weight: 700; font-size: 13px; color: var(--text-heading);">
-            Safely migrate all existing collections and records (Recommended)
+            Safely migrate all collections and records for '${escapeDbHtml(activeAppSlug)}' (Recommended)
           </div>
           <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 3px; line-height: 1.45;">
             NodeStack will automatically transfer all collections, schemas, and row data from ${fromLabel} to ${toLabel} with verification checksums.
@@ -859,7 +902,26 @@ function renderConfirmSwitchStep(activeProvider, targetProvider) {
 
       ${!databaseState.migrateData ? `
         <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid #ef4444; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #ef4444;">
-          <strong>Warning:</strong> Without migration, the new database will start with empty schemas. Your existing data will remain intact in ${fromLabel}, but will not be active.
+          <strong>Warning:</strong> Without migration, the new database will start with empty schemas. Existing data will remain intact in ${fromLabel}, but will not be active.
+        </div>
+      ` : ''}
+
+      <!-- Consent Input Box -->
+      ${isMigrate ? `
+        <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;">
+          <label style="font-size: 12px; font-weight: 700; color: var(--text-heading);">
+            Type <code style="color: #ef4444; font-size: 12.5px; background: rgba(239, 68, 68, 0.1); padding: 1px 6px; border-radius: 4px;">migrate</code> to confirm and unlock activation:
+          </label>
+          <input 
+            type="text" 
+            id="db-confirm-text-input" 
+            class="form-control" 
+            placeholder="Type migrate to confirm" 
+            value="${escapeDbHtml(databaseState.confirmText || '')}"
+            oninput="databaseState.confirmText = this.value; const btn = document.getElementById('db-confirm-switch-btn'); if (btn) { btn.disabled = this.value.trim().toLowerCase() !== 'migrate' || databaseState.isSwitching; }"
+            style="font-family: var(--font-mono); font-weight: 700; font-size: 13px; max-width: 320px; padding: 6px 12px;"
+            autocomplete="off"
+          />
         </div>
       ` : ''}
 
@@ -867,11 +929,17 @@ function renderConfirmSwitchStep(activeProvider, targetProvider) {
       ${databaseState.isSwitching ? renderMigrationProgressBar() : ''}
 
       <!-- Actions -->
-      <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 0.5rem; pt: 0.5rem; border-top: 1px solid var(--border-subtle); padding-top: 0.85rem;">
+      <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 0.5rem; border-top: 1px solid var(--border-subtle); padding-top: 0.85rem;">
         <button type="button" class="btn btn-secondary btn-sm" onclick="cancelSwitchConfirm()" ${databaseState.isSwitching ? 'disabled' : ''}>
           Back to Config
         </button>
-        <button type="button" class="btn btn-primary btn-sm" onclick="executeDatabaseSwitch()" ${databaseState.isSwitching ? 'disabled' : ''} style="font-weight: 700; background: #10b981; border-color: #10b981;">
+        <button 
+          type="button" 
+          id="db-confirm-switch-btn" 
+          class="btn btn-primary btn-sm" 
+          onclick="executeDatabaseSwitch()" 
+          ${(!isConsentValid || databaseState.isSwitching) ? 'disabled' : ''} 
+          style="font-weight: 700; background: #10b981; border-color: #10b981;">
           ${databaseState.isSwitching ? 'Switching...' : `Confirm & Activate ${toLabel}`}
         </button>
       </div>
@@ -995,6 +1063,8 @@ async function executeDatabaseSwitch() {
       body: JSON.stringify({
         config,
         migrateData,
+        confirmText: databaseState.confirmText || '',
+        appSlug: state.activeApp?.slug || 'default',
       }),
     });
 
@@ -1018,7 +1088,11 @@ async function executeDatabaseSwitch() {
       }
 
       databaseState.showConfirmSwitch = false;
+      databaseState.confirmText = '';
       databaseState.selectedProvider = (config.provider || 'sqlite').toLowerCase();
+      if (typeof fetchDemoStatus === 'function') {
+        fetchDemoStatus().catch(() => {});
+      }
       closeDatabaseModal();
       renderDatabaseUI();
     } else {

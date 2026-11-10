@@ -444,12 +444,8 @@ async function selectNav(nav, pushState = true) {
     document.getElementById('view-badge').style.display = 'none';
     document.getElementById('sidebar-database-link')?.classList.add('active');
     document.getElementById('nav-database')?.classList.add('active');
-    document.getElementById('view-title').textContent = 'Database Engine & Infrastructure';
-    document.getElementById('view-actions').innerHTML = `
-      <button class="btn btn-secondary btn-sm" onclick="fetchDatabaseStatus().then(() => renderDatabaseView())" title="Refresh Status">
-        ↻ Refresh Status
-      </button>
-    `;
+    document.getElementById('view-title').textContent = 'Database Engine';
+    document.getElementById('view-actions').innerHTML = '';
     if (typeof databaseState !== 'undefined' && !databaseState.showConfirmSwitch && !databaseState.isSwitching) {
       databaseState.selectedProvider = databaseState.status?.provider ? databaseState.status.provider.toLowerCase() : null;
     }

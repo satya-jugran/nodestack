@@ -468,10 +468,17 @@ export class NodeStack {
 
   public async loadActiveDatabaseDriver(): Promise<void> {
     try {
-      const activeDbConfig = await this.databaseConfig.getActiveConfig();
-      if (activeDbConfig && activeDbConfig.provider !== 'sqlite') {
-        const activeDriver = await DriverRegistry.createDriver(activeDbConfig);
-        await this.apps.switchDriver(activeDriver);
+      const allApps = await this.registry.getAllApps();
+      for (const app of allApps) {
+        try {
+          const activeDbConfig = await this.databaseConfig.getActiveConfig(app.slug);
+          if (activeDbConfig && activeDbConfig.provider !== 'sqlite') {
+            const activeDriver = await DriverRegistry.createDriver(activeDbConfig);
+            await this.apps.switchAppDriver(app.slug, activeDriver);
+          }
+        } catch (appErr: any) {
+          console.warn(`[NodeStack] Could not restore configured database for app '${app.slug}' (${appErr.message}). Defaulting to SQLite.`);
+        }
       }
     } catch (err: any) {
       console.warn(`[NodeStack] Could not restore configured database (${err.message}). Defaulting to SQLite.`);

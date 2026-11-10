@@ -20,12 +20,14 @@ export interface ConnectionTestResult {
 }
 
 export interface DatabaseStatus {
+  appSlug?: string;
   provider: string;
   connected: boolean;
   latencyMs: number;
   availableProviders: string[];
   config: Partial<DatabaseConfig>;
   activeSince?: string;
+  snapshotsSupported?: boolean;
 }
 
 export class DatabaseConfigService {
@@ -54,6 +56,7 @@ export class DatabaseConfigService {
     await this.systemDriver.exec(`
       CREATE TABLE IF NOT EXISTS _db_configs (
         id TEXT PRIMARY KEY,
+        app_slug TEXT NOT NULL DEFAULT 'default',
         provider TEXT NOT NULL,
         encrypted_config TEXT NOT NULL,
         iv TEXT NOT NULL,
@@ -62,6 +65,17 @@ export class DatabaseConfigService {
         updated_at TEXT NOT NULL
       );
     `);
+
+    // Backwards-compatibility migration for older _db_configs schema
+    try {
+      const tableInfo = await this.systemDriver.prepare('PRAGMA table_info(_db_configs)').all<{ name: string }>();
+      const rows = Array.isArray(tableInfo) ? tableInfo : [];
+      if (!rows.some((c) => c.name === 'app_slug')) {
+        await this.systemDriver.exec(`ALTER TABLE _db_configs ADD COLUMN app_slug TEXT NOT NULL DEFAULT 'default'`);
+      }
+    } catch {
+      // ignore
+    }
   }
 
   public encryptConfig(plainConfig: DatabaseConfig): { encryptedConfig: string; iv: string; authTag: string } {
@@ -115,27 +129,30 @@ export class DatabaseConfigService {
     return copy;
   }
 
-  public async getActiveConfig(): Promise<DatabaseConfig> {
+  public async getActiveConfig(appSlug = 'default'): Promise<DatabaseConfig> {
     await this.init();
+    const cleanSlug = (appSlug || 'default').trim();
     const row = await this.systemDriver
-      .prepare('SELECT * FROM _db_configs WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1')
+      .prepare('SELECT * FROM _db_configs WHERE app_slug = ? AND is_active = 1 ORDER BY updated_at DESC LIMIT 1')
       .get<{
         id: string;
+        app_slug?: string;
         provider: string;
         encrypted_config: string;
         iv: string;
         auth_tag: string;
         updated_at: string;
-      }>();
+      }>(cleanSlug);
 
     if (!row) {
-      // Default to sqlite
+      // Default to sqlite for this app
+      const appDbPath = this.config.getAppDbPath(cleanSlug);
       const defaultConfig: DatabaseConfig = {
         provider: 'sqlite',
-        dbPath: this.config.dbPath,
+        dbPath: appDbPath,
         dataDir: this.config.dataDir,
       };
-      await this.saveConfig(defaultConfig, true);
+      await this.saveConfig(defaultConfig, true, cleanSlug);
       return defaultConfig;
     }
 
@@ -146,16 +163,17 @@ export class DatabaseConfigService {
       // If decryption fails (e.g. secret rotated), fallback to sqlite
       return {
         provider: 'sqlite',
-        dbPath: this.config.dbPath,
+        dbPath: this.config.getAppDbPath(cleanSlug),
         dataDir: this.config.dataDir,
       };
     }
   }
 
-  public async getLatestConfigForProvider(provider: string): Promise<DatabaseConfig | null> {
+  public async getLatestConfigForProvider(provider: string, appSlug = 'default'): Promise<DatabaseConfig | null> {
     await this.init();
-    const row = await this.systemDriver
-      .prepare('SELECT * FROM _db_configs WHERE provider = ? ORDER BY updated_at DESC LIMIT 1')
+    const cleanSlug = (appSlug || 'default').trim();
+    let row = await this.systemDriver
+      .prepare('SELECT * FROM _db_configs WHERE provider = ? AND app_slug = ? ORDER BY updated_at DESC LIMIT 1')
       .get<{
         id: string;
         provider: string;
@@ -163,7 +181,20 @@ export class DatabaseConfigService {
         iv: string;
         auth_tag: string;
         updated_at: string;
-      }>(provider);
+      }>(provider, cleanSlug);
+
+    if (!row) {
+      row = await this.systemDriver
+        .prepare('SELECT * FROM _db_configs WHERE provider = ? ORDER BY updated_at DESC LIMIT 1')
+        .get<{
+          id: string;
+          provider: string;
+          encrypted_config: string;
+          iv: string;
+          auth_tag: string;
+          updated_at: string;
+        }>(provider);
+    }
 
     if (!row) return null;
     try {
@@ -174,20 +205,21 @@ export class DatabaseConfigService {
     }
   }
 
-  public async saveConfig(config: DatabaseConfig, setActive = true): Promise<string> {
+  public async saveConfig(config: DatabaseConfig, setActive = true, appSlug = 'default'): Promise<string> {
     await this.init();
+    const cleanSlug = (appSlug || 'default').trim();
     const id = config.id || `dbcfg_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const now = new Date().toISOString();
     const { encryptedConfig, iv, authTag } = this.encryptConfig(config);
 
     if (setActive) {
-      await this.systemDriver.exec('UPDATE _db_configs SET is_active = 0');
+      await this.systemDriver.prepare('UPDATE _db_configs SET is_active = 0 WHERE app_slug = ?').run(cleanSlug);
     }
 
     await this.systemDriver.prepare(`
-      INSERT INTO _db_configs (id, provider, encrypted_config, iv, auth_tag, is_active, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(id, config.provider, encryptedConfig, iv, authTag, setActive ? 1 : 0, now);
+      INSERT INTO _db_configs (id, app_slug, provider, encrypted_config, iv, auth_tag, is_active, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, cleanSlug, config.provider, encryptedConfig, iv, authTag, setActive ? 1 : 0, now);
 
     return id;
   }
@@ -295,8 +327,9 @@ export class DatabaseConfigService {
     }
   }
 
-  public async getStatus(currentDriver: IDatabaseDriver): Promise<DatabaseStatus> {
-    const activeConfig = await this.getActiveConfig();
+  public async getStatus(currentDriver: IDatabaseDriver, appSlug = 'default'): Promise<DatabaseStatus> {
+    const cleanSlug = (appSlug || 'default').trim();
+    const activeConfig = await this.getActiveConfig(cleanSlug);
     const start = Date.now();
     let connected = false;
     let latencyMs = 0;
@@ -309,11 +342,13 @@ export class DatabaseConfigService {
     }
 
     return {
+      appSlug: cleanSlug,
       provider: activeConfig.provider,
       connected,
       latencyMs,
       availableProviders: DriverRegistry.listAvailableProviders(),
       config: this.redactConfig(activeConfig),
+      snapshotsSupported: activeConfig.provider === 'sqlite',
     };
   }
 }

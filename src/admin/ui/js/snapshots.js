@@ -22,6 +22,11 @@ function updateDemoSidebarDot() {
   const dot = document.getElementById('sidebar-snapshot-dot');
   if (!dot) return;
 
+  if (state.demo && state.demo.supported === false) {
+    dot.style.display = 'none';
+    return;
+  }
+
   if (state.demo && state.demo.hasSnapshot) {
     const isModified = Boolean(state.demo.liveStats?.drift?.isModified);
     dot.style.display = 'inline-block';
@@ -50,6 +55,34 @@ function renderSnapshotsView() {
   const activeSnap = demoState.activeSnapshot || demoState.snapshot || (snapshots.length > 0 ? snapshots[snapshots.length - 1] : null);
   const drift = demoState.liveStats?.drift;
   const isModified = Boolean(drift?.isModified);
+
+  if (demoState && demoState.supported === false) {
+    const providerName = (demoState.provider || 'remote').toUpperCase();
+    const appName = state.activeApp?.name || 'Default App';
+    main.innerHTML = `
+      <div style="width: 100%; max-width: 800px; margin: 2rem auto; display: flex; flex-direction: column; gap: 1.5rem;">
+        <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 2.5rem 2rem; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 1rem; box-shadow: 0 4px 14px rgba(0,0,0,0.06);">
+          <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); display: flex; align-items: center; justify-content: center; font-size: 26px;">
+            📸
+          </div>
+          <div>
+            <h3 style="font-size: 18px; font-weight: 800; color: var(--text-heading); margin: 0 0 8px 0;">
+              In-App Snapshots are Exclusive to SQLite Applications
+            </h3>
+            <p style="font-size: 13px; color: var(--text-muted); line-height: 1.55; margin: 0; max-width: 560px;">
+              <strong>${appName}</strong> is currently running on <strong>${providerName}</strong>. In-app snapshots are designed for zero-overhead dev, test, and demo checkpoints on embedded SQLite. For production databases, use native cloud backups and automated disaster recovery tools.
+            </p>
+          </div>
+          <div style="display: flex; gap: 10px; margin-top: 0.5rem;">
+            <button class="btn btn-secondary btn-sm" onclick="selectNav('database')" style="font-weight: 600; padding: 6px 14px;">
+              Configure Database Engine
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+    return;
+  }
 
   // 1. Top Header Bar
   const headerHtml = `

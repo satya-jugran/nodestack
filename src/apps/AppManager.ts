@@ -37,7 +37,37 @@ export class AppManager {
     return Array.from(new Set(this.appCache.values()));
   }
 
-  public async switchDriver(newDriver?: IDatabaseDriver): Promise<void> {
+  public async switchAppDriver(appSlug: string, newDriver?: IDatabaseDriver): Promise<void> {
+    const targetSlug = (appSlug || 'default').trim();
+    const scope = await this.getAsync(targetSlug);
+    let appDriver: IDatabaseDriver;
+
+    if (newDriver) {
+      if (newDriver.dialect.name === 'sqlite' && (newDriver as any).getPath?.() !== ':memory:') {
+        const appDbPath = this.config.getAppDbPath(targetSlug);
+        if (targetSlug === 'default' && (newDriver as any).getPath?.() === appDbPath) {
+          appDriver = newDriver;
+        } else {
+          appDriver = await newDriver.withSchema(targetSlug);
+        }
+      } else {
+        appDriver = await newDriver.withSchema(targetSlug);
+      }
+    } else {
+      const appDbPath = this.config.getAppDbPath(targetSlug);
+      appDriver = new NodeSqliteDriver(appDbPath, {
+        baseDir: this.config.appsDir,
+      });
+    }
+
+    await scope.db.switchDriver(appDriver);
+    await scope.init(true);
+  }
+
+  public async switchDriver(newDriver?: IDatabaseDriver, appSlug?: string): Promise<void> {
+    if (appSlug) {
+      return this.switchAppDriver(appSlug, newDriver);
+    }
     const oldRootDriver = this.customDriver;
     try {
       this.customDriver = newDriver;
@@ -365,11 +395,13 @@ export class AppManager {
       return this.appCache.get(appModel.id)!;
     }
 
+    // Non-default applications start on SQLite by default unless driverFactory explicitly overrides
+    const driverToUse = (appModel.slug === 'default' || appModel.isDefault) ? this.customDriver : undefined;
     const scope = AppScope.create(
       appModel,
       this.config,
       this.registry,
-      this.customDriver,
+      driverToUse,
       this.driverFactory
     );
     this.appCache.set(appModel.slug, scope);

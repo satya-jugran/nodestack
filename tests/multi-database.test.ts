@@ -113,7 +113,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
 
       const activeConfig = await service.getActiveConfig();
       expect(activeConfig.provider).toBe('sqlite');
-      expect(activeConfig.dbPath).toBe(config.dbPath);
+      expect(activeConfig.dbPath).toBe(config.getAppDbPath('default'));
 
       // Verify that saving another configuration sets it as active
       const pgConfig: DatabaseConfig = {
@@ -387,8 +387,6 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       const uiDir = path.resolve(__dirname, "../src/admin/ui");
       const html = AdminUIBundler.bundle(uiDir);
 
-      expect(html).toContain("btn-database-switcher");
-      expect(html).toContain("topbar-database-label");
       expect(html).toContain("sidebar-database-link");
       expect(html).toContain("sidebar-database-badge");
       expect(html).toContain("Database Engine Configuration");
@@ -1157,8 +1155,17 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
         'utf-8'
       );
 
-      // Restore snapshot
-      await defaultScope.snapshots.restoreSnapshot('snap-test');
+      // Snapshots should NOT be supported on PostgresDriver
+      expect(defaultScope.snapshots.isSupported()).toBe(false);
+      const snapStatus = await defaultScope.snapshots.getStatus();
+      expect(snapStatus.supported).toBe(false);
+
+      // Attempting to create or restore a snapshot on PostgresDriver must throw AppError
+      await expect(defaultScope.snapshots.createSnapshot({ name: 'Blocked Snapshot' }))
+        .rejects.toThrow('Snapshots are only supported for applications running on SQLite');
+
+      await expect(defaultScope.snapshots.restoreSnapshot('snap-test'))
+        .rejects.toThrow('Snapshots are only supported for applications running on SQLite');
 
       // Verify db driver on defaultScope is STILL PostgresDriver, NOT NodeSqliteDriver!
       expect(defaultScope.db.getRootDriver() instanceof PostgresDriver).toBe(true);
@@ -2089,7 +2096,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(html).toContain('const selected = (databaseState.selectedProvider || activeProvider).toLowerCase()');
     });
 
-    it('should capture both data.db and snapshot.json on SQLite for universal cross-database portability', async () => {
+    it('should capture pure native data.db on SQLite snapshots without JSON overhead', async () => {
       const snapTestDir = path.join(testDir, 'universal_snap_test');
       fs.mkdirSync(snapTestDir, { recursive: true });
 
@@ -2109,12 +2116,12 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       const snapDir = path.join(app.snapshots.snapshotsDir, snapshot.id);
 
       expect(fs.existsSync(path.join(snapDir, 'data.db'))).toBe(true);
-      expect(fs.existsSync(path.join(snapDir, 'snapshot.json'))).toBe(true);
+      expect(fs.existsSync(path.join(snapDir, 'metadata.json'))).toBe(true);
+      expect(fs.existsSync(path.join(snapDir, 'snapshot.json'))).toBe(false);
 
-      const jsonDump = JSON.parse(fs.readFileSync(path.join(snapDir, 'snapshot.json'), 'utf-8'));
-      expect(jsonDump.posts).toBeDefined();
-      expect(jsonDump.posts.length).toBe(1);
-      expect(jsonDump.posts[0].title).toBe('Cross DB Test');
+      const metadata = JSON.parse(fs.readFileSync(path.join(snapDir, 'metadata.json'), 'utf-8'));
+      expect(metadata.name).toBe('Dual Engine Snapshot');
+      expect(metadata.collections.some((c: any) => c.name === 'posts')).toBe(true);
 
       app.close();
     });
@@ -2213,4 +2220,141 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       await targetDriver.close();
     });
   });
+
+  // ============================================================
+  // Per-Application Database Isolation, Migration Consent & Snapshot Reset Tests
+  // ============================================================
+  describe('Per-Application Database Isolation & Consent Lifecycle', () => {
+    it('should require confirmText="migrate" when migrateData=true, otherwise return 400 Bad Request', async () => {
+      const testAppDir = path.join(testDir, 'consent_gate_test');
+      fs.mkdirSync(testAppDir, { recursive: true });
+
+      const app = new NodeStack({ dataDir: testAppDir });
+      await app.auth.createAdmin('consent_admin@nodestack.dev', 'password123');
+      const { token: adminToken } = await app.auth.authenticateAdmin('consent_admin@nodestack.dev', 'password123');
+
+      // Attempt 1: migrateData=true with no confirmText -> 400
+      const res1 = await app.server.inject({
+        method: 'POST',
+        url: '/api/system/database/switch',
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: {
+          config: { provider: 'sqlite', dbPath: ':memory:' },
+          migrateData: true,
+        },
+      });
+      expect(res1.statusCode).toBe(400);
+      expect(res1.json().message).toContain("Please type 'migrate'");
+
+      // Attempt 2: migrateData=true with invalid confirmText -> 400
+      const res2 = await app.server.inject({
+        method: 'POST',
+        url: '/api/system/database/switch',
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: {
+          config: { provider: 'sqlite', dbPath: ':memory:' },
+          migrateData: true,
+          confirmText: 'yes',
+        },
+      });
+      expect(res2.statusCode).toBe(400);
+      expect(res2.json().message).toContain("Please type 'migrate'");
+
+      // Attempt 3: migrateData=false does NOT require confirmText -> 200
+      const res3 = await app.server.inject({
+        method: 'POST',
+        url: '/api/system/database/switch',
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: {
+          config: { provider: 'sqlite', dbPath: ':memory:' },
+          migrateData: false,
+        },
+      });
+      expect(res3.statusCode).toBe(200);
+      expect(res3.json().success).toBe(true);
+
+      app.close();
+    });
+
+    it('should switch only the requested application while other applications remain on SQLite', async () => {
+      const testIsoDir = path.join(testDir, 'app_isolation_test');
+      fs.mkdirSync(testIsoDir, { recursive: true });
+
+      const app = new NodeStack({ dataDir: testIsoDir });
+      await app.auth.createAdmin('iso_admin@nodestack.dev', 'password123');
+      const { token: adminToken } = await app.auth.authenticateAdmin('iso_admin@nodestack.dev', 'password123');
+
+      // Create a second app
+      const storeAppScope = await app.apps.create({
+        name: 'Store App',
+        slug: 'store-app',
+      });
+      expect(storeAppScope.db.dialect.name).toBe('sqlite');
+
+      // Default app scope is also on SQLite initially
+      const defaultScope = app.apps.get('default');
+      expect(defaultScope.db.dialect.name).toBe('sqlite');
+
+      // Switch 'store-app' to a separate in-memory database
+      const switchRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/system/database/switch',
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: {
+          appSlug: 'store-app',
+          config: { provider: 'sqlite', dbPath: ':memory:' },
+          migrateData: true,
+          confirmText: 'migrate',
+        },
+      });
+      expect(switchRes.statusCode).toBe(200);
+      expect(switchRes.json().success).toBe(true);
+      expect(switchRes.json().appSlug).toBe('store-app');
+
+      // Verify store-app config is active for store-app in _db_configs
+      const storeConfig = await app.databaseConfig.getActiveConfig('store-app');
+      expect(storeConfig.dbPath).toBe(':memory:');
+
+      // Verify default app is STILL on its original SQLite file
+      const defaultConfig = await app.databaseConfig.getActiveConfig('default');
+      expect(defaultConfig.dbPath).toBe(app.config.getAppDbPath('default'));
+
+      app.close();
+    });
+
+    it('should reset snapshots post-migration and automatically capture a baseline when target is SQLite', async () => {
+      const snapResetDir = path.join(testDir, 'snap_reset_test');
+      fs.mkdirSync(snapResetDir, { recursive: true });
+
+      const app = new NodeStack({ dataDir: snapResetDir });
+      await app.auth.createAdmin('snap_reset_admin@nodestack.dev', 'password123');
+      const { token: adminToken } = await app.auth.authenticateAdmin('snap_reset_admin@nodestack.dev', 'password123');
+
+      // Take a pre-migration snapshot
+      const preSnap = await app.snapshots.createSnapshot({ name: 'Pre-Migration Snapshot' });
+      const preStatus = await app.snapshots.getStatus();
+      expect(preStatus.snapshots.some(s => s.id === preSnap.id)).toBe(true);
+
+      // Perform migration to SQLite in-memory with consent
+      const res = await app.server.inject({
+        method: 'POST',
+        url: '/api/system/database/switch',
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: {
+          config: { provider: 'sqlite', dbPath: ':memory:' },
+          migrateData: true,
+          confirmText: 'migrate',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+
+      // Post-migration: verify pre-migration snapshot is wiped and fresh 'Post-Migration Baseline' is created
+      const postStatus = await app.snapshots.getStatus();
+      expect(postStatus.snapshots.some(s => s.id === preSnap.id)).toBe(false);
+      expect(postStatus.snapshots.some(s => s.name === 'Post-Migration Baseline')).toBe(true);
+
+      app.close();
+    });
+  });
+
 });
