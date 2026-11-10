@@ -4,7 +4,13 @@ export { NodeStack, NodeStackOptions, NodeBase, NodeBaseOptions } from './NodeSt
 // IoC & Core
 export { Container } from './core/container/Container';
 export { TOKENS, ServiceIdentifier } from './core/container/Tokens';
-export { ConfigService, NodeStackConfigOptions, NodeBaseConfigOptions } from './core/config/ConfigService';
+export {
+  ConfigService,
+  NodeStackConfigOptions,
+  NodeBaseConfigOptions,
+  CorsConfigOptions,
+  CorsOrigin,
+} from './core/config/ConfigService';
 export { loadEnvFile } from './core/config/EnvLoader';
 export { EventBus } from './core/events/EventBus';
 export * from './core/events/types';
