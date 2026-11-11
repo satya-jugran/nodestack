@@ -260,4 +260,117 @@ describe('File Storage and Upload Integration Test', () => {
     const diskPath = app.files.getFilePath(col.id, 'custom_multipart_123', body.file);
     expect(fs.existsSync(diskPath)).toBe(true);
   });
+
+  it('should attach security headers and enforce Content-Disposition: attachment on untrusted active content', async () => {
+    const col = app.schema.getCollectionOrThrow('documents');
+
+    // 1. Upload .html file with script
+    const htmlMeta = await app.files.saveFile(
+      col.id,
+      'rec_sec_1',
+      'malicious.html',
+      Buffer.from('<script>alert("xss")</script>'),
+      'text/html'
+    );
+    await app.records.create('documents', {
+      id: 'rec_sec_1',
+      title: 'HTML Doc',
+      file: htmlMeta.filename,
+    });
+
+    const resHtml = await app.server.app.inject({
+      method: 'GET',
+      url: `/api/files/documents/rec_sec_1/${htmlMeta.filename}`,
+    });
+
+    expect(resHtml.statusCode).toBe(200);
+    expect(resHtml.headers['content-type']).toBe('text/html');
+    expect(resHtml.headers['content-security-policy']).toBe("default-src 'none'");
+    expect(resHtml.headers['x-content-type-options']).toBe('nosniff');
+    expect(resHtml.headers['content-disposition']).toBe(`attachment; filename="${htmlMeta.filename}"`);
+
+    // 2. Upload .svg file
+    const svgMeta = await app.files.saveFile(
+      col.id,
+      'rec_sec_2',
+      'vector.svg',
+      Buffer.from('<svg onload="alert(1)"></svg>'),
+      'image/svg+xml'
+    );
+    await app.records.create('documents', {
+      id: 'rec_sec_2',
+      title: 'SVG Doc',
+      file: svgMeta.filename,
+    });
+
+    const resSvg = await app.server.app.inject({
+      method: 'GET',
+      url: `/api/files/documents/rec_sec_2/${svgMeta.filename}`,
+    });
+
+    expect(resSvg.statusCode).toBe(200);
+    expect(resSvg.headers['content-type']).toBe('image/svg+xml');
+    expect(resSvg.headers['content-security-policy']).toBe("default-src 'none'");
+    expect(resSvg.headers['x-content-type-options']).toBe('nosniff');
+    expect(resSvg.headers['content-disposition']).toBe(`attachment; filename="${svgMeta.filename}"`);
+
+    // 3. Upload .xml and .htm files
+    const xmlMeta = await app.files.saveFile(
+      col.id,
+      'rec_sec_3',
+      'data.xml',
+      Buffer.from('<xml></xml>'),
+      'application/xml'
+    );
+    await app.records.create('documents', {
+      id: 'rec_sec_3',
+      title: 'XML Doc',
+      file: xmlMeta.filename,
+    });
+
+    const resXml = await app.server.app.inject({
+      method: 'GET',
+      url: `/api/files/documents/rec_sec_3/${xmlMeta.filename}`,
+    });
+
+    expect(resXml.statusCode).toBe(200);
+    expect(resXml.headers['content-type']).toBe('application/xml');
+    expect(resXml.headers['content-security-policy']).toBe("default-src 'none'");
+    expect(resXml.headers['x-content-type-options']).toBe('nosniff');
+    expect(resXml.headers['content-disposition']).toBe(`attachment; filename="${xmlMeta.filename}"`);
+
+    // 4. Safe file (.txt) without ?download=1 should not enforce attachment
+    const txtMeta = await app.files.saveFile(
+      col.id,
+      'rec_sec_4',
+      'safe.txt',
+      Buffer.from('plain text'),
+      'text/plain'
+    );
+    await app.records.create('documents', {
+      id: 'rec_sec_4',
+      title: 'Plain Text Doc',
+      file: txtMeta.filename,
+    });
+
+    const resTxt = await app.server.app.inject({
+      method: 'GET',
+      url: `/api/files/documents/rec_sec_4/${txtMeta.filename}`,
+    });
+
+    expect(resTxt.statusCode).toBe(200);
+    expect(resTxt.headers['content-type']).toBe('text/plain');
+    expect(resTxt.headers['content-security-policy']).toBe("default-src 'none'");
+    expect(resTxt.headers['x-content-type-options']).toBe('nosniff');
+    expect(resTxt.headers['content-disposition']).toBeUndefined();
+
+    // 5. Safe file (.txt) with ?download=1 should have attachment
+    const resTxtDownload = await app.server.app.inject({
+      method: 'GET',
+      url: `/api/files/documents/rec_sec_4/${txtMeta.filename}?download=1`,
+    });
+
+    expect(resTxtDownload.statusCode).toBe(200);
+    expect(resTxtDownload.headers['content-disposition']).toBe(`attachment; filename="${txtMeta.filename}"`);
+  });
 });

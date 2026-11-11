@@ -130,9 +130,8 @@ export class FileController extends BaseController {
       }
     }
 
-    if (req.query.download === '1') {
-      reply.header('Content-Disposition', `attachment; filename="${filename}"`);
-    }
+    reply.header('Content-Security-Policy', "default-src 'none'");
+    reply.header('X-Content-Type-Options', 'nosniff');
 
     const ext = filename.lastIndexOf('.') !== -1 ? filename.slice(filename.lastIndexOf('.')).toLowerCase() : '';
     const mimeMap: Record<string, string> = {
@@ -146,11 +145,19 @@ export class FileController extends BaseController {
       '.json': 'application/json',
       '.txt': 'text/plain',
       '.html': 'text/html',
+      '.htm': 'text/html',
+      '.xml': 'application/xml',
       '.mp4': 'video/mp4',
       '.mp3': 'audio/mpeg',
     };
     if (mimeMap[ext]) {
       reply.type(mimeMap[ext]);
+    }
+
+    const untrustedActiveExtensions = new Set(['.html', '.htm', '.svg', '.xml']);
+    if (req.query.download === '1' || untrustedActiveExtensions.has(ext)) {
+      const sanitizedFilename = safeFilename.replace(/["\r\n\\]/g, '_');
+      reply.header('Content-Disposition', `attachment; filename="${sanitizedFilename}"`);
     }
 
     const stream = fs.createReadStream(filePath);
