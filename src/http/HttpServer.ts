@@ -704,18 +704,18 @@ export class HttpServer {
     );
 
     if (this.snapshotController) {
-      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
       const requireAdmin = this.authMiddleware.requireAdmin();
-      app.get('/api/apps/:appId/snapshots', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      const requireSuperAdmin = this.authMiddleware.requireSuperAdmin();
+      app.get('/api/apps/:appId/snapshots', { preHandler: requireAdmin }, (req: any, reply) =>
         this.snapshotController!.listSnapshots(req, reply)
       );
-      app.post('/api/apps/:appId/snapshots', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/apps/:appId/snapshots', { preHandler: requireAdmin }, (req: any, reply) =>
         this.snapshotController!.createSnapshot(req, reply)
       );
-      app.get('/api/apps/:appId/snapshots/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/apps/:appId/snapshots/:id', { preHandler: requireAdmin }, (req: any, reply) =>
         this.snapshotController!.getSnapshot(req, reply)
       );
-      app.post('/api/apps/:appId/snapshots/:id/restore', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/apps/:appId/snapshots/:id/restore', { preHandler: requireSuperAdmin }, (req: any, reply) =>
         this.snapshotController!.restoreSnapshot(req, reply)
       );
       app.delete('/api/apps/:appId/snapshots/:id', { preHandler: requireAdmin }, (req: any, reply) =>
@@ -842,62 +842,63 @@ export class HttpServer {
     }
 
     if (this.queueController) {
-      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
-      app.get('/api/apps/:appId/queues', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      const requireAdmin = this.authMiddleware.requireAdmin();
+      const requireSuperAdmin = this.authMiddleware.requireSuperAdmin();
+      app.get('/api/apps/:appId/queues', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getQueues(req, reply)
       );
-      app.post('/api/apps/:appId/queues', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues', { preHandler: requireSuperAdmin }, (req: any, reply) =>
         this.queueController!.upsertQueue(req, reply)
       );
-      app.get('/api/apps/:appId/queues/stats', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/apps/:appId/queues/stats', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getStats(req, reply)
       );
-      app.get('/api/apps/:appId/queues/messages', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/apps/:appId/queues/messages', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getAllMessages(req, reply)
       );
-      app.get('/api/apps/:appId/queues/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/apps/:appId/queues/messages/:id', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getMessageById(req, reply)
       );
-      app.post('/api/apps/:appId/queues/cleanup', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues/cleanup', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.cleanupQueues(req, reply)
       );
-      app.get('/api/apps/:appId/queues/:name', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/apps/:appId/queues/:name', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getQueue(req, reply)
       );
-      app.delete('/api/apps/:appId/queues/:name', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.delete('/api/apps/:appId/queues/:name', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.deleteQueue(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/messages', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues/:name/messages', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.sendMessage(req, reply)
       );
-      app.get('/api/apps/:appId/queues/:name/messages', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/apps/:appId/queues/:name/messages', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getMessages(req, reply)
       );
-      app.get('/api/apps/:appId/queues/:name/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/apps/:appId/queues/:name/messages/:id', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getMessage(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/messages/:id/ack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues/:name/messages/:id/ack', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.ackMessage(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/messages/:id/nack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues/:name/messages/:id/nack', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.nackMessage(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/messages/:id/touch', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues/:name/messages/:id/touch', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.touchMessage(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/messages/:id/skip', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues/:name/messages/:id/skip', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.forceSkipMessage(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/messages/:id/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues/:name/messages/:id/retry', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.retryMessage(req, reply)
       );
-      app.delete('/api/apps/:appId/queues/:name/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.delete('/api/apps/:appId/queues/:name/messages/:id', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.deleteMessage(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/dlq/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues/:name/dlq/retry', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.retryDlq(req, reply)
       );
-      app.delete('/api/apps/:appId/queues/:name/purge', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.delete('/api/apps/:appId/queues/:name/purge', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.purgeQueue(req, reply)
       );
     }
@@ -922,8 +923,14 @@ export class HttpServer {
     app.get('/api/settings', (req, reply) => this.healthController.getSettings(req, reply));
 
     // 2. Auth Endpoints
+    const requireAdminOrInitialAuth = this.authMiddleware.requireAdminOrInitialSetup();
     app.get('/api/admins/has-admins', (req, reply) => this.authController.hasAdmins(req, reply));
-    app.post('/api/admins/create-initial', (req, reply) => this.authController.createInitialAdmin(req, reply));
+    app.post('/api/admins', { preHandler: requireAdminOrInitialAuth }, (req, reply) =>
+      this.authController.createAdmin(req, reply)
+    );
+    app.post('/api/admins/create-initial', { preHandler: requireAdminOrInitialAuth }, (req, reply) =>
+      this.authController.createInitialAdmin(req, reply)
+    );
     app.post('/api/admins/auth-with-password', (req, reply) => this.authController.adminLogin(req, reply));
     app.get('/api/admins/me', (req, reply) => this.authController.getAdminMe(req, reply));
     app.post('/api/collections/:collection/auth-with-password', (req: any, reply) =>
@@ -1000,18 +1007,18 @@ export class HttpServer {
 
     // 3.8 Application Snapshots Management
     if (this.snapshotController) {
-      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
       const requireAdmin = this.authMiddleware.requireAdmin();
-      app.get('/api/snapshots', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      const requireSuperAdmin = this.authMiddleware.requireSuperAdmin();
+      app.get('/api/snapshots', { preHandler: requireAdmin }, (req: any, reply) =>
         this.snapshotController!.listSnapshots(req, reply)
       );
-      app.post('/api/snapshots', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/snapshots', { preHandler: requireAdmin }, (req: any, reply) =>
         this.snapshotController!.createSnapshot(req, reply)
       );
-      app.get('/api/snapshots/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/snapshots/:id', { preHandler: requireAdmin }, (req: any, reply) =>
         this.snapshotController!.getSnapshot(req, reply)
       );
-      app.post('/api/snapshots/:id/restore', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/snapshots/:id/restore', { preHandler: requireSuperAdmin }, (req: any, reply) =>
         this.snapshotController!.restoreSnapshot(req, reply)
       );
       app.delete('/api/snapshots/:id', { preHandler: requireAdmin }, (req: any, reply) =>
@@ -1248,62 +1255,63 @@ export class HttpServer {
 
     // 7.8 Generic Queue Processor ("NodeStack Queues")
     if (this.queueController) {
-      const requireAdminOrInitial = this.authMiddleware.requireAdminOrInitialSetup();
-      app.get('/api/queues', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      const requireAdmin = this.authMiddleware.requireAdmin();
+      const requireSuperAdmin = this.authMiddleware.requireSuperAdmin();
+      app.get('/api/queues', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getQueues(req, reply)
       );
-      app.post('/api/queues', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/queues', { preHandler: requireSuperAdmin }, (req: any, reply) =>
         this.queueController!.upsertQueue(req, reply)
       );
-      app.get('/api/queues/stats', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/queues/stats', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getStats(req, reply)
       );
-      app.get('/api/queues/messages', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/queues/messages', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getAllMessages(req, reply)
       );
-      app.get('/api/queues/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/queues/messages/:id', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getMessageById(req, reply)
       );
-      app.post('/api/queues/cleanup', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/queues/cleanup', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.cleanupQueues(req, reply)
       );
-      app.get('/api/queues/:name', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/queues/:name', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getQueue(req, reply)
       );
-      app.delete('/api/queues/:name', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.delete('/api/queues/:name', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.deleteQueue(req, reply)
       );
-      app.post('/api/queues/:name/messages', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/queues/:name/messages', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.sendMessage(req, reply)
       );
-      app.get('/api/queues/:name/messages', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/queues/:name/messages', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getMessages(req, reply)
       );
-      app.get('/api/queues/:name/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.get('/api/queues/:name/messages/:id', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getMessage(req, reply)
       );
-      app.post('/api/queues/:name/messages/:id/ack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/queues/:name/messages/:id/ack', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.ackMessage(req, reply)
       );
-      app.post('/api/queues/:name/messages/:id/nack', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/queues/:name/messages/:id/nack', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.nackMessage(req, reply)
       );
-      app.post('/api/queues/:name/messages/:id/touch', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/queues/:name/messages/:id/touch', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.touchMessage(req, reply)
       );
-      app.post('/api/queues/:name/messages/:id/skip', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/queues/:name/messages/:id/skip', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.forceSkipMessage(req, reply)
       );
-      app.post('/api/queues/:name/messages/:id/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/queues/:name/messages/:id/retry', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.retryMessage(req, reply)
       );
-      app.delete('/api/queues/:name/messages/:id', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.delete('/api/queues/:name/messages/:id', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.deleteMessage(req, reply)
       );
-      app.post('/api/queues/:name/dlq/retry', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.post('/api/queues/:name/dlq/retry', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.retryDlq(req, reply)
       );
-      app.delete('/api/queues/:name/purge', { preHandler: requireAdminOrInitial }, (req: any, reply) =>
+      app.delete('/api/queues/:name/purge', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.purgeQueue(req, reply)
       );
     }

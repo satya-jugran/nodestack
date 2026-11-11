@@ -168,9 +168,34 @@ export class AuthMiddleware {
     return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
       await this.handle(req, reply);
       const authService = this.getAuthService(req);
-      const hasAdmins = (await authService.hasAdmins()) || (await this.authService.hasAdmins());
+      const hasAdmins = await authService.hasAdmins();
       if (!hasAdmins) {
-        return;
+        const method = (req.method || '').toUpperCase();
+        const rawUrl = req.raw?.url || req.url || '';
+        const pathname = (rawUrl.split('?')[0] || '').replace(/\/+/g, '/').replace(/\/+$/, '') || '/';
+        const routerPath = (req as any).routerPath || '';
+
+        const isInitialAdminCreation =
+          method === 'POST' &&
+          (pathname === '/api/admins' ||
+            pathname === '/api/admins/create-initial' ||
+            routerPath === '/api/admins' ||
+            routerPath === '/api/admins/create-initial' ||
+            /^\/api\/apps\/[^/]+\/admins(\/create-initial)?$/.test(pathname));
+
+        const isInitialSetupRoute =
+          method === 'POST' &&
+          (pathname === '/api/templates/apply' ||
+            /^\/api\/templates\/[^/]+\/apply$/.test(pathname) ||
+            /^\/api\/apps\/[^/]+\/templates(\/[^/]+)?\/apply$/.test(pathname) ||
+            routerPath === '/api/templates/apply' ||
+            routerPath === '/api/templates/:template/apply' ||
+            routerPath === '/api/apps/:appId/templates/apply' ||
+            routerPath === '/api/apps/:appId/templates/:template/apply');
+
+        if (isInitialAdminCreation || isInitialSetupRoute) {
+          return;
+        }
       }
       const isAuthorized =
         Boolean(req.auth?.isAdmin) ||

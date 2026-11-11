@@ -316,6 +316,64 @@ export class AuthService {
     return (row?.count || 0) > 0;
   }
 
+  public async createInitialAdmin(email: string, password: string, avatar?: string): Promise<Record<string, any>> {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      throw new AppError('Valid email is required', 400);
+    }
+    if (!password || password.length < 8) {
+      throw new AppError('Password must be at least 8 characters long', 400);
+    }
+
+    if (await this.hasAdmins()) {
+      throw new AppError('Initial admin setup is already complete', 400);
+    }
+
+    const id = `adm_${crypto.randomBytes(6).toString('hex')}`;
+    const passwordHash = await this.hashPassword(password);
+    const tokenKey = crypto.randomBytes(16).toString('hex');
+    const now = new Date().toISOString();
+
+    const insertSql = `
+      INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
+      SELECT ?, ?, ?, ?, ?, ?, ?
+      WHERE NOT EXISTS (SELECT 1 FROM _admins)
+    `;
+
+    const result = await this.db.run(
+      insertSql,
+      id, cleanEmail, passwordHash, tokenKey, avatar || null, now, now
+    );
+
+    if (result && Number(result.changes || 0) === 0) {
+      throw new AppError('Initial admin setup is already complete', 400);
+    }
+
+    if (this.registry && this.isControlPlane) {
+      try {
+        const regStmt = this.registry.getDriver().prepare(`
+          INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
+          SELECT ?, ?, ?, ?, ?, ?, ?
+          WHERE NOT EXISTS (SELECT 1 FROM _admins)
+        `);
+        const regRes = regStmt.run(id, cleanEmail, passwordHash, tokenKey, avatar || null, now, now);
+        if (regRes && typeof (regRes as any).then === 'function') {
+          await regRes;
+        }
+      } catch {
+        // ignore duplicate in system DB
+      }
+    }
+
+    return {
+      id,
+      email: cleanEmail,
+      avatar: avatar || null,
+      created: now,
+      updated: now,
+    };
+  }
+
   public async createAdmin(email: string, password: string, avatar?: string): Promise<Record<string, any>> {
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes('@')) {

@@ -202,6 +202,11 @@ describe('OpenAPI 3.0 Specification & Interactive Viewer Tests', () => {
 
       expect(paths['/api/health']?.get).toBeDefined();
       expect(paths['/api/settings']?.get).toBeDefined();
+      expect(paths['/api/admins']?.post).toBeDefined();
+      expect(paths['/api/admins']?.post?.responses['201']?.content['application/json']?.schema?.oneOf).toEqual([
+        { $ref: '#/components/schemas/AdminAuthResponse' },
+        { $ref: '#/components/schemas/AdminModel' },
+      ]);
       expect(paths['/api/admins/has-admins']?.get).toBeDefined();
       expect(paths['/api/admins/create-initial']?.post).toBeDefined();
       expect(paths['/api/admins/auth-with-password']?.post).toBeDefined();
