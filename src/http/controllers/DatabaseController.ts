@@ -89,9 +89,19 @@ export class DatabaseController extends BaseController {
       const activeAppsDir = this.appManager?.config?.appsDir || DriverRegistry.getDefaultSqlitePaths().appsDir;
       const activeDbPath = this.appManager?.config?.getAppDbPath(appSlug) || DriverRegistry.getDefaultSqlitePaths().dbPath;
 
-      config.dataDir = config.dataDir || activeDataDir;
-      config.appsDir = config.appsDir || activeAppsDir;
+      config.dataDir = activeDataDir || config.dataDir;
+      config.appsDir = activeAppsDir || config.appsDir;
       config.dbPath = config.dbPath || activeDbPath;
+
+      const rawPath = config.connectionString || config.dbPath;
+      if (rawPath && rawPath !== ':memory:' && activeDataDir) {
+        try {
+          DriverRegistry.validateSqlitePath(rawPath, activeDataDir, activeAppsDir);
+        } catch (err: any) {
+          this.error(reply, err.message, 400);
+          return;
+        }
+      }
     }
 
     this.activeMigrationProgress = {

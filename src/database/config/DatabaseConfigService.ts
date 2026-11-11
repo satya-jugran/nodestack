@@ -208,6 +208,16 @@ export class DatabaseConfigService {
   public async saveConfig(config: DatabaseConfig, setActive = true, appSlug = 'default'): Promise<string> {
     await this.init();
     const cleanSlug = (appSlug || 'default').trim();
+
+    if (config.provider === 'sqlite') {
+      const rawPath = config.connectionString || config.dbPath;
+      if (rawPath && rawPath !== ':memory:') {
+        DriverRegistry.validateSqlitePath(rawPath, this.config.dataDir, this.config.appsDir);
+      }
+      config.dataDir = this.config.dataDir;
+      config.appsDir = this.config.appsDir;
+    }
+
     const id = config.id || `dbcfg_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const now = new Date().toISOString();
     const { encryptedConfig, iv, authTag } = this.encryptConfig(config);
@@ -238,10 +248,18 @@ export class DatabaseConfigService {
       // 1. Create primary driver without replicas to avoid redundant pool init
       const primaryOnlyConfig: DatabaseConfig = {
         ...targetConfig,
-        dataDir: targetConfig.dataDir || (targetConfig.provider === 'sqlite' ? this.config.dataDir : undefined),
-        appsDir: targetConfig.appsDir || (targetConfig.provider === 'sqlite' ? this.config.appsDir : undefined),
+        dataDir: targetConfig.provider === 'sqlite' ? this.config.dataDir : (targetConfig.dataDir || this.config.dataDir),
+        appsDir: targetConfig.provider === 'sqlite' ? this.config.appsDir : (targetConfig.appsDir || this.config.appsDir),
         readReplicas: undefined,
       };
+
+      if (targetConfig.provider === 'sqlite') {
+        const rawPath = targetConfig.connectionString || targetConfig.dbPath;
+        if (rawPath && rawPath !== ':memory:') {
+          DriverRegistry.validateSqlitePath(rawPath, this.config.dataDir, this.config.appsDir);
+        }
+      }
+
       tempDriver = await DriverRegistry.createDriver(primaryOnlyConfig);
       const pingOk = await tempDriver.ping();
       if (!pingOk) {
@@ -263,10 +281,15 @@ export class DatabaseConfigService {
             const maskedUrl = this.redactConnectionString(replicaUri);
             let rDriver: IDatabaseDriver | null = null;
             try {
+              if (targetConfig.provider === 'sqlite' && replicaUri !== ':memory:') {
+                DriverRegistry.validateSqlitePath(replicaUri, this.config.dataDir, this.config.appsDir);
+              }
               const rConfig: DatabaseConfig = {
                 provider: targetConfig.provider,
                 connectionString: replicaUri,
                 dbPath: targetConfig.provider === 'sqlite' ? replicaUri : undefined,
+                dataDir: targetConfig.provider === 'sqlite' ? this.config.dataDir : undefined,
+                appsDir: targetConfig.provider === 'sqlite' ? this.config.appsDir : undefined,
                 ssl: targetConfig.ssl,
                 options: targetConfig.options,
               };

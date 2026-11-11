@@ -55,6 +55,72 @@ export class DriverRegistry {
     DriverRegistry.defaultDbPath = undefined;
   }
 
+  public static isPathContained(targetPath: string, allowedDir: string): boolean {
+    const resolvedTarget = path.resolve(targetPath);
+    const resolvedAllowed = path.resolve(allowedDir);
+
+    const isWindows = process.platform === 'win32';
+    const targetNorm = isWindows ? resolvedTarget.toLowerCase() : resolvedTarget;
+    const allowedNorm = isWindows ? resolvedAllowed.toLowerCase() : resolvedAllowed;
+
+    if (targetNorm === allowedNorm) {
+      return true;
+    }
+
+    const prefix = allowedNorm.endsWith(path.sep) ? allowedNorm : allowedNorm + path.sep;
+    if (!targetNorm.startsWith(prefix)) {
+      return false;
+    }
+
+    const rel = path.relative(resolvedAllowed, resolvedTarget);
+    return !rel.startsWith('..') && !path.isAbsolute(rel);
+  }
+
+  public static validateSqlitePath(filePath: string, dataDir?: string, appsDir?: string): string {
+    if (!filePath || filePath === ':memory:') {
+      return filePath || ':memory:';
+    }
+
+    const canonicalDataDir = path.resolve(
+      dataDir || DriverRegistry.defaultDataDir || process.env.NODESTACK_DATA_DIR || process.env.NODEBASE_DATA_DIR || './nodestack_data'
+    );
+    const canonicalAppsDir = path.resolve(
+      appsDir || DriverRegistry.defaultAppsDir || path.join(canonicalDataDir, 'apps')
+    );
+
+    const resolvedFilePath = path.isAbsolute(filePath)
+      ? path.resolve(filePath)
+      : path.resolve(canonicalDataDir, filePath);
+
+    const targetDir = path.dirname(resolvedFilePath);
+
+    const isWindows = process.platform === 'win32';
+    const targetDirNorm = isWindows ? targetDir.toLowerCase() : targetDir;
+    const dataDirNorm = isWindows ? canonicalDataDir.toLowerCase() : canonicalDataDir;
+    const appsDirNorm = isWindows ? canonicalAppsDir.toLowerCase() : canonicalAppsDir;
+
+    const dataPrefix = dataDirNorm.endsWith(path.sep) ? dataDirNorm : dataDirNorm + path.sep;
+    const appsPrefix = appsDirNorm.endsWith(path.sep) ? appsDirNorm : appsDirNorm + path.sep;
+
+    const startsWithData = targetDirNorm === dataDirNorm || targetDirNorm.startsWith(dataPrefix);
+    const startsWithApps = targetDirNorm === appsDirNorm || targetDirNorm.startsWith(appsPrefix);
+
+    const relData = path.relative(canonicalDataDir, targetDir);
+    const relApps = path.relative(canonicalAppsDir, targetDir);
+    const noTraversalData = !relData.startsWith('..') && !path.isAbsolute(relData);
+    const noTraversalApps = !relApps.startsWith('..') && !path.isAbsolute(relApps);
+
+    const isContained = (startsWithData && noTraversalData) || (startsWithApps && noTraversalApps);
+
+    if (!isContained) {
+      throw new Error(
+        `SQLite database file path must be confined to the data directory or apps directory. Path '${filePath}' is outside allowed directories.`
+      );
+    }
+
+    return resolvedFilePath;
+  }
+
   static {
     DriverRegistry.register('sqlite', (config) => {
       const isExplicitMemory = config.dbPath === ':memory:' || config.connectionString === ':memory:';
@@ -63,8 +129,14 @@ export class DriverRegistry {
       let dataDir = config.dataDir;
 
       if (!isExplicitMemory) {
-        if (dataDir) {
-          appsDir = appsDir || path.join(dataDir, 'apps');
+        if (config.dataDir) {
+          if (DriverRegistry.defaultDataDir && !DriverRegistry.isPathContained(config.dataDir, DriverRegistry.defaultDataDir)) {
+            throw new Error(
+              `SQLite database dataDir must be confined to the configured data directory. Path '${config.dataDir}' is outside allowed directory.`
+            );
+          }
+          dataDir = config.dataDir;
+          appsDir = config.appsDir || path.join(dataDir, 'apps');
         } else if (DriverRegistry.defaultDataDir) {
           dataDir = DriverRegistry.defaultDataDir;
           appsDir = appsDir || DriverRegistry.defaultAppsDir || path.join(dataDir, 'apps');
@@ -73,17 +145,24 @@ export class DriverRegistry {
           appsDir = appsDir || path.join(dataDir, 'apps');
         }
 
+        const canonicalDataDir = path.resolve(dataDir);
+        const canonicalAppsDir = path.resolve(appsDir);
+
         if (!filePath) {
           if (config.dbPath) {
             filePath = config.dbPath;
-          } else if (appsDir) {
-            filePath = path.join(appsDir, 'default', 'data.db');
-          } else if (DriverRegistry.defaultDbPath) {
+          } else if (config.appsDir) {
+            filePath = path.join(canonicalAppsDir, 'default', 'data.db');
+          } else if (!config.dataDir && DriverRegistry.defaultDbPath) {
             filePath = DriverRegistry.defaultDbPath;
           } else {
-            filePath = path.join(dataDir, 'apps', 'default', 'data.db');
+            filePath = path.join(canonicalAppsDir, 'default', 'data.db');
           }
         }
+
+        filePath = DriverRegistry.validateSqlitePath(filePath, canonicalDataDir, canonicalAppsDir);
+        dataDir = canonicalDataDir;
+        appsDir = canonicalAppsDir;
       } else {
         filePath = filePath || config.dbPath || ':memory:';
       }
@@ -167,6 +246,11 @@ export class DriverRegistry {
       const isExplicitMemory = config.dbPath === ':memory:' || config.connectionString === ':memory:';
       if (!isExplicitMemory) {
         if (config.dataDir) {
+          if (DriverRegistry.defaultDataDir && !DriverRegistry.isPathContained(config.dataDir, DriverRegistry.defaultDataDir)) {
+            throw new Error(
+              `SQLite database dataDir must be confined to the configured data directory. Path '${config.dataDir}' is outside allowed directory.`
+            );
+          }
           config.appsDir = config.appsDir || path.join(config.dataDir, 'apps');
           config.dbPath = config.dbPath || path.join(config.appsDir, 'default', 'data.db');
         } else {
@@ -175,6 +259,19 @@ export class DriverRegistry {
           config.appsDir = config.appsDir || DriverRegistry.defaultAppsDir || (config.dataDir ? path.join(config.dataDir, 'apps') : undefined);
           config.dbPath = config.dbPath || (config.appsDir ? path.join(config.appsDir, 'default', 'data.db') : undefined) || DriverRegistry.defaultDbPath;
         }
+
+        const canonicalDataDir = path.resolve(config.dataDir);
+        const canonicalAppsDir = path.resolve(config.appsDir || path.join(canonicalDataDir, 'apps'));
+
+        config.dataDir = canonicalDataDir;
+        config.appsDir = canonicalAppsDir;
+
+        const rawPath = config.connectionString || config.dbPath || path.join(canonicalAppsDir, 'default', 'data.db');
+        const validatedPath = DriverRegistry.validateSqlitePath(rawPath, canonicalDataDir, canonicalAppsDir);
+        if (config.connectionString) {
+          config.connectionString = validatedPath;
+        }
+        config.dbPath = validatedPath;
       }
     }
 
