@@ -2,6 +2,8 @@ import { FastifyReply } from 'fastify';
 import * as crypto from 'crypto';
 import { RuleEngine } from '../rules/RuleEngine';
 import { SchemaService } from '../schema/SchemaService';
+import { CollectionModel } from '../schema/models/Collection';
+import { RecordSanitizer } from '../records/RecordSanitizer';
 
 export interface RealtimeClient {
   id: string;
@@ -78,6 +80,14 @@ export class RealtimeService {
     }
   }
 
+  public sanitizeRecord(
+    record: Record<string, any>,
+    collection: CollectionModel,
+    auth?: any
+  ): Record<string, any> {
+    return RecordSanitizer.sanitize(record, collection, auth, false);
+  }
+
   public async broadcast(action: RealtimeAction, collectionName: string, record: Record<string, any>): Promise<void> {
     const collection = await this.schemaService.getCollection(collectionName);
     if (!collection) return;
@@ -100,9 +110,13 @@ export class RealtimeService {
 
       if (!canView) continue;
 
+      // Re-sanitize the record before dispatching SSE payloads to each client,
+      // checking client.auth.id === record.id or client.auth.isAdmin before including protected fields.
+      const clientRecord = this.sanitizeRecord(record, collection, client.auth);
+
       const payload = JSON.stringify({
         action,
-        record,
+        record: clientRecord,
       });
 
       try {

@@ -14,6 +14,7 @@ import { CollectionModel } from '../schema/models/Collection';
 import { SchemaField } from '../schema/models/Field';
 import { hasScope } from '../auth/ApiKeyService';
 import { RecordValidator } from './RecordValidator';
+import { RecordSanitizer } from './RecordSanitizer';
 
 export interface ListResult<T = any> {
   page: number;
@@ -946,36 +947,7 @@ export class RecordService {
     auth?: any,
     isOwner = false
   ): Record<string, any> {
-    const clean = { ...raw };
-
-    // Format booleans
-    for (const field of col.schema) {
-      if (field.type === 'bool' && clean[field.name] !== undefined) {
-        clean[field.name] = Boolean(clean[field.name]);
-      }
-      if (field.type === 'json' && typeof clean[field.name] === 'string') {
-        try {
-          clean[field.name] = JSON.parse(clean[field.name]);
-        } catch {
-          // keep as string
-        }
-      }
-    }
-
-    // Hide auth internal fields
-    if (col.type === 'auth') {
-      delete clean.passwordHash;
-      delete clean.tokenKey;
-      clean.verified = Boolean(clean.verified);
-      clean.emailVisibility = Boolean(clean.emailVisibility);
-
-      // If emailVisibility is false and not owner or admin, mask email
-      if (!clean.emailVisibility && !isOwner && auth?.id !== clean.id && !auth?.isAdmin) {
-        delete clean.email;
-      }
-    }
-
-    return clean;
+    return RecordSanitizer.sanitize(raw, col, auth, isOwner);
   }
 
   private async expandRecord(
