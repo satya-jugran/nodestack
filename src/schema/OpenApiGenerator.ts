@@ -906,6 +906,43 @@ export class OpenApiGenerator {
       },
     };
 
+    paths['/api/admins'] = {
+      post: {
+        tags: ['Auth'],
+        summary: 'Create admin account or initial superuser',
+        description: 'Creates the initial superuser account if no admins exist, or creates a new admin if authenticated as admin.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CreateInitialAdminRequest' },
+            },
+          },
+        },
+        responses: {
+          '201': {
+            description: 'Admin created',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/AdminAuthResponse' },
+              },
+            },
+          },
+          '400': {
+            description: 'Validation error',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '403': {
+            description: 'Forbidden if admins exist and caller is not admin',
+          },
+        },
+      },
+    };
+
     paths['/api/admins/create-initial'] = {
       post: {
         tags: ['Auth'],

@@ -41,6 +41,29 @@ export class AuthController extends BaseController {
     }, 201);
   }
 
+  public async createAdmin(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const auth = this.getAuth(req);
+    const hasAdmins = (await auth.hasAdmins()) || (await this.authService.hasAdmins());
+    if (hasAdmins && !req.auth?.isAdmin) {
+      throw new AppError('Only admins are authorized to create admins', 403);
+    }
+
+    const { email, password, avatar } = (req.body as any) || {};
+    if (!email || !password) {
+      throw new AppError('Email and password are required', 400);
+    }
+
+    const admin = await this.authService.createAdmin(email, password, avatar);
+    if (!hasAdmins) {
+      const authResult = await this.authService.authenticateAdmin(email, password);
+      return this.ok(reply, {
+        token: authResult.token,
+        admin,
+      }, 201);
+    }
+    this.ok(reply, admin, 201);
+  }
+
   public async adminLogin(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const { identity, password, email } = (req.body as any) || {};
     const targetEmail = identity || email;
