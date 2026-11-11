@@ -211,4 +211,78 @@ describe('Initial Setup Security & Unauthenticated Bypass Prevention Tests', () 
       expect(restoreRes.status).toBe(200);
     });
   });
+
+  describe('4. Atomic Serialized First-Run Admin Race Condition Prevention', () => {
+    const raceTestDir = path.resolve(__dirname, '../.test_initial_setup_race_data');
+    const racePort = 8251;
+    const raceBaseUrl = `http://127.0.0.1:${racePort}`;
+    let raceApp: NodeStack;
+
+    beforeAll(async () => {
+      if (fs.existsSync(raceTestDir)) {
+        try {
+          fs.rmSync(raceTestDir, { recursive: true, force: true });
+        } catch {}
+      }
+
+      raceApp = new NodeStack({
+        dataDir: raceTestDir,
+        port: racePort,
+        appName: 'Race Security App',
+      });
+
+      await raceApp.start(racePort);
+    });
+
+    afterAll(async () => {
+      if (raceApp) {
+        await raceApp.stop();
+      }
+      if (fs.existsSync(raceTestDir)) {
+        try {
+          fs.rmSync(raceTestDir, { recursive: true, force: true });
+        } catch {}
+      }
+    });
+
+    it('should serialize concurrent initial admin requests and allow exactly ONE creation', async () => {
+      // Fire 6 concurrent unauthenticated requests with different email addresses
+      const emails = [
+        'legitimate_admin@nodestack.io',
+        'racing_attacker_1@evil.com',
+        'racing_attacker_2@evil.com',
+        'racing_attacker_3@evil.com',
+        'racing_attacker_4@evil.com',
+        'racing_attacker_5@evil.com',
+      ];
+
+      const responses = await Promise.all(
+        emails.map((email, idx) => {
+          // Mix POST /api/admins and POST /api/admins/create-initial
+          const endpoint = idx % 2 === 0 ? '/api/admins' : '/api/admins/create-initial';
+          return fetch(`${raceBaseUrl}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email,
+              password: `Password12345_${idx}!`,
+            }),
+          });
+        })
+      );
+
+      const statuses = responses.map((r) => r.status);
+      const successes = statuses.filter((s) => s === 201);
+      const failures = statuses.filter((s) => s === 400 || s === 403);
+
+      // Exactly ONE must succeed with 201
+      expect(successes.length).toBe(1);
+      // All other 5 must fail with 400 or 403
+      expect(failures.length).toBe(5);
+
+      // Verify that in the database, exactly 1 admin exists
+      const dbAdmins = (raceApp as any).db.prepare('SELECT id, email FROM _admins').all();
+      expect(dbAdmins.length).toBe(1);
+    });
+  });
 });

@@ -19,6 +19,23 @@ export class AuthController extends BaseController {
     return req?.appScope?.files || this.fileStorageService;
   }
 
+  private static initialSetupMutex: Promise<void> = Promise.resolve();
+
+  private static async withInitialSetupLock<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = AuthController.initialSetupMutex;
+    let release: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    AuthController.initialSetupMutex = current;
+    await previous.catch(() => {});
+    try {
+      return await fn();
+    } finally {
+      release!();
+    }
+  }
+
   public async hasAdmins(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const auth = this.getAuth(req);
     const hasAdmins = (await auth.hasAdmins()) || (await this.authService.hasAdmins());
@@ -26,42 +43,48 @@ export class AuthController extends BaseController {
   }
 
   public async createInitialAdmin(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const auth = this.getAuth(req);
-    if ((await auth.hasAdmins()) || (await this.authService.hasAdmins())) {
-      throw new AppError('Initial admin setup is already complete', 400);
-    }
+    return AuthController.withInitialSetupLock(async () => {
+      const auth = this.getAuth(req);
+      if ((await auth.hasAdmins()) || (await this.authService.hasAdmins())) {
+        throw new AppError('Initial admin setup is already complete', 400);
+      }
 
-    const { email, password } = req.body as any;
-    const admin = await this.authService.createAdmin(email, password);
-    const authResult = await this.authService.authenticateAdmin(email, password);
+      const { email, password, avatar } = (req.body as any) || {};
+      const admin = await auth.createInitialAdmin(email, password, avatar);
+      const authResult = await auth.authenticateAdmin(email, password);
 
-    this.ok(reply, {
-      token: authResult.token,
-      admin,
-    }, 201);
-  }
-
-  public async createAdmin(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const auth = this.getAuth(req);
-    const hasAdmins = (await auth.hasAdmins()) || (await this.authService.hasAdmins());
-    if (hasAdmins && !req.auth?.isAdmin) {
-      throw new AppError('Only admins are authorized to create admins', 403);
-    }
-
-    const { email, password, avatar } = (req.body as any) || {};
-    if (!email || !password) {
-      throw new AppError('Email and password are required', 400);
-    }
-
-    const admin = await this.authService.createAdmin(email, password, avatar);
-    if (!hasAdmins) {
-      const authResult = await this.authService.authenticateAdmin(email, password);
-      return this.ok(reply, {
+      this.ok(reply, {
         token: authResult.token,
         admin,
       }, 201);
-    }
-    this.ok(reply, admin, 201);
+    });
+  }
+
+  public async createAdmin(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    return AuthController.withInitialSetupLock(async () => {
+      const auth = this.getAuth(req);
+      const hasAdmins = (await auth.hasAdmins()) || (await this.authService.hasAdmins());
+      if (hasAdmins && !req.auth?.isAdmin) {
+        throw new AppError('Only admins are authorized to create admins', 403);
+      }
+
+      const { email, password, avatar } = (req.body as any) || {};
+      if (!email || !password) {
+        throw new AppError('Email and password are required', 400);
+      }
+
+      if (!hasAdmins) {
+        const admin = await auth.createInitialAdmin(email, password, avatar);
+        const authResult = await auth.authenticateAdmin(email, password);
+        return this.ok(reply, {
+          token: authResult.token,
+          admin,
+        }, 201);
+      }
+
+      const admin = await auth.createAdmin(email, password, avatar);
+      this.ok(reply, admin, 201);
+    });
   }
 
   public async adminLogin(req: FastifyRequest, reply: FastifyReply): Promise<void> {
