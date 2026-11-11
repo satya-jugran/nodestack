@@ -1378,6 +1378,110 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
         },
       });
       expect(superDbStatusRes.status).toBe(200);
+
+      // 7. Verify Tenant Admin JWT Privilege Escalation Prevention
+      // 7.1 Create and authenticate tenant admin in tenantScope
+      await tenantScope.auth.createAdmin('tenant-admin@corp.com', 'password12345');
+      const tenantAdminAuth = await tenantScope.auth.authenticateAdmin('tenant-admin@corp.com', 'password12345');
+      const tenantJwt = tenantAdminAuth.token;
+      expect(tenantJwt).toBeDefined();
+
+      // Verify claims decoded by tenant auth service
+      const verifiedClaims = await tenantScope.auth.verifyToken(tenantJwt);
+      expect(verifiedClaims.isAdmin).toBe(true);
+      expect(verifiedClaims.isSuperAdmin).toBe(false);
+      expect(verifiedClaims.isTenantScoped).toBe(true);
+
+      // 7.2 Verify tenant admin is NOT persisted into global AppRegistry
+      const globalRegAdmin = server.apps.registry.getAdminByEmail('tenant-admin@corp.com');
+      expect(globalRegAdmin).toBeUndefined();
+
+      // 7.3 Verify tenant admin JWT CAN manage resources inside tenant-corp
+      const tenantColRes = await fetch(`http://127.0.0.1:${port}/api/apps/tenant-corp/collections`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantJwt}`,
+        },
+        body: JSON.stringify({
+          name: 'tenant_docs',
+          type: 'base',
+          schema: [{ name: 'subject', type: 'text' }],
+        }),
+      });
+      expect(tenantColRes.status).toBe(201);
+
+      // 7.4 Verify tenant admin JWT is strictly DENIED access to all host-level endpoints
+      // GET /api/apps
+      const jwtListApps = await fetch(`http://127.0.0.1:${port}/api/apps`, {
+        headers: {
+          Authorization: `Bearer ${tenantJwt}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+      });
+      expect(jwtListApps.status).toBe(403);
+
+      // POST /api/apps
+      const jwtCreateApp = await fetch(`http://127.0.0.1:${port}/api/apps`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantJwt}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+        body: JSON.stringify({
+          name: 'JWT Rogue App',
+          slug: 'jwt-rogue-app',
+        }),
+      });
+      expect(jwtCreateApp.status).toBe(403);
+
+      // DELETE /api/apps/tenant-corp
+      const jwtDeleteApp = await fetch(`http://127.0.0.1:${port}/api/apps/tenant-corp`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${tenantJwt}`,
+        },
+      });
+      expect(jwtDeleteApp.status).toBe(403);
+
+      // GET /api/system/database/status
+      const jwtDbStatus = await fetch(`http://127.0.0.1:${port}/api/system/database/status`, {
+        headers: {
+          Authorization: `Bearer ${tenantJwt}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+      });
+      expect(jwtDbStatus.status).toBe(403);
+
+      // POST /api/system/database/switch
+      const jwtDbSwitch = await fetch(`http://127.0.0.1:${port}/api/system/database/switch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantJwt}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+        body: JSON.stringify({
+          config: { provider: 'sqlite', database: 'jwt_hacked.db' },
+        }),
+      });
+      expect(jwtDbSwitch.status).toBe(403);
+
+      // POST /api/system/database/test
+      const jwtDbTest = await fetch(`http://127.0.0.1:${port}/api/system/database/test`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantJwt}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+        body: JSON.stringify({
+          provider: 'sqlite',
+          database: 'test.db',
+        }),
+      });
+      expect(jwtDbTest.status).toBe(403);
     });
   });
 });

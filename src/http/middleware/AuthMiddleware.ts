@@ -112,21 +112,13 @@ export class AuthMiddleware {
       const authService = this.getAuthService(req);
       try {
         req.auth = await authService.verifyToken(token);
-        if (req.auth) {
-          if (req.auth.collection === '_admins' || (authService === this.authService && req.auth.isAdmin)) {
-            req.auth.isSuperAdmin = true;
-          }
-        }
       } catch {
         // Fallback to global authService if scoped verification fails for super-admin tokens
         if (authService !== this.authService) {
           try {
             const adminClaims = await this.authService.verifyToken(token);
-            if (adminClaims && adminClaims.isAdmin) {
-              req.auth = {
-                ...adminClaims,
-                isSuperAdmin: true,
-              };
+            if (adminClaims && adminClaims.isSuperAdmin) {
+              req.auth = adminClaims;
             }
           } catch {
             // Leave req.auth as null

@@ -410,7 +410,7 @@ export class HttpServer {
       // Extract authentication claims first so req.auth is populated for gate checks
       await this.authMiddleware.handle(req, null as any);
 
-      // Deny tenant-scoped API keys access to host-level endpoints (/api/apps and /api/system/*)
+      // Deny tenant-scoped credentials (both API keys and JWTs) access to host-level endpoints (/api/apps and /api/system/*)
       const urlPath = (req.url || '').split('?')[0];
       const isHostLevelEndpoint =
         urlPath.startsWith('/api/system') ||
@@ -418,7 +418,7 @@ export class HttpServer {
         urlPath === '/api/apps/' ||
         /^\/api\/apps\/[^\/]+(\/)?$/.test(urlPath);
 
-      if (isHostLevelEndpoint && req.auth?.isApiKey && (!req.auth?.isSuperAdmin || req.auth?.isTenantScoped)) {
+      if (isHostLevelEndpoint && req.auth && (!req.auth.isSuperAdmin || req.auth.isTenantScoped)) {
         const gate = (req as any)._maintenanceGate || (req as any).appScope?.maintenanceGate || this.maintenanceGate;
         if (gate) {
           gate.trackRequestEnd(reqId);
@@ -426,7 +426,9 @@ export class HttpServer {
         return reply.status(403).send({
           statusCode: 403,
           error: 'Forbidden',
-          message: 'Tenant-scoped API keys are not authorized to access host-level endpoints',
+          message: req.auth.isApiKey
+            ? 'Tenant-scoped API keys are not authorized to access host-level endpoints'
+            : 'Tenant-scoped credentials are not authorized to access host-level endpoints',
         });
       }
 

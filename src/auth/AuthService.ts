@@ -28,6 +28,13 @@ export interface AuthClaims {
   scopes?: string[];
   allowedIps?: string[];
   appId?: string;
+  appSlug?: string;
+}
+
+export interface AuthServiceOptions {
+  appId?: string;
+  appSlug?: string;
+  isControlPlane?: boolean;
 }
 
 export interface AuthResult {
@@ -52,6 +59,7 @@ export class AuthService {
   private tokenKeyCache = new Map<string, { tokenKey: string; expiresAt: number }>();
   private readonly tokenKeyCacheTtlMs = 30000; // 30 seconds TTL
   private readonly maxTokenKeyCacheSize = 5000;
+  public readonly isControlPlane: boolean;
 
   constructor(
     private db: DatabaseService,
@@ -61,8 +69,12 @@ export class AuthService {
     oauthRegistry?: OAuthProviderRegistry,
     ruleEngine?: RuleEngine,
     eventBus?: EventBus,
-    realtimeService?: RealtimeService
+    realtimeService?: RealtimeService,
+    private options?: AuthServiceOptions
   ) {
+    this.isControlPlane = options?.isControlPlane !== undefined
+      ? Boolean(options.isControlPlane)
+      : Boolean(this.registry && (!options?.appSlug || options.appSlug === 'default'));
     this.oauthRegistry = oauthRegistry || new OAuthProviderRegistry();
     this.ruleEngine = ruleEngine || new RuleEngine();
     this.eventBus = eventBus;
@@ -176,17 +188,24 @@ export class AuthService {
 
     // Verify tokenKey against stored tokenKey to ensure revoked / rotated sessions are rejected
     if (decoded.isAdmin || decoded.collection === '_admins') {
-      decoded.isSuperAdmin = true;
+      const isTenantBound = Boolean(
+        decoded.isTenantScoped ||
+        (decoded.appSlug && decoded.appSlug !== 'default') ||
+        (decoded.appId && decoded.appId !== 'default' && decoded.appId !== 'app_default')
+      );
+
       const cacheKey = `_admins:${decoded.id}`;
       const cached = this.getCachedTokenKey(cacheKey);
       if (cached !== null) {
         if (cached !== decoded.tokenKey) {
           throw new UnauthorizedError('Authentication token has been revoked or expired');
         }
+        decoded.isSuperAdmin = !isTenantBound && Boolean(this.isControlPlane);
+        decoded.isTenantScoped = isTenantBound || !this.isControlPlane;
         return decoded;
       }
 
-      const adminRaw = this.registry
+      const adminRaw = (this.registry && this.isControlPlane)
         ? this.registry.getAdminById(decoded.id)
         : undefined;
 
@@ -195,11 +214,14 @@ export class AuthService {
           throw new UnauthorizedError('Authentication token has been revoked or expired');
         }
         this.setCachedTokenKey(cacheKey, admin.tokenKey);
+        const verifiedInRegistry = Boolean(this.registry && this.isControlPlane && this.registry.getAdminById(admin.id));
+        decoded.isSuperAdmin = !isTenantBound && Boolean(this.isControlPlane && verifiedInRegistry);
+        decoded.isTenantScoped = isTenantBound || !this.isControlPlane;
         return decoded;
       };
 
       const checkAndSaveAdmin = (admin: any) => {
-        if (admin && this.registry) {
+        if (admin && this.registry && this.isControlPlane) {
           try {
             const runRes = this.registry.getDriver().prepare(`
               INSERT OR REPLACE INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
@@ -278,7 +300,7 @@ export class AuthService {
   // --- Admin Auth ---
 
   public hasAdmins(): any {
-    const registryHas = this.registry ? this.registry.hasAdmins() : false;
+    const registryHas = (this.registry && this.isControlPlane) ? this.registry.hasAdmins() : false;
     if (registryHas && typeof (registryHas as any).then === 'function') {
       return (registryHas as any).then(async (has: boolean) => {
         if (has) return true;
@@ -303,7 +325,7 @@ export class AuthService {
       throw new AppError('Password must be at least 8 characters long', 400);
     }
 
-    if (this.registry) {
+    if (this.registry && this.isControlPlane) {
       const regExisting = await this.registry.getAdminByEmail(cleanEmail);
       if (regExisting) {
         throw new ConflictError(`Admin with email '${cleanEmail}' already exists`);
@@ -325,7 +347,7 @@ export class AuthService {
       id, cleanEmail, passwordHash, tokenKey, avatar || null, now, now
     );
 
-    if (this.registry) {
+    if (this.registry && this.isControlPlane) {
       try {
         await this.registry.getDriver().prepare(`
           INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
@@ -347,12 +369,12 @@ export class AuthService {
 
   public async authenticateAdmin(email: string, password: string): Promise<AuthResult> {
     const cleanEmail = email.trim().toLowerCase();
-    let admin = this.registry
+    let admin = (this.registry && this.isControlPlane)
       ? await this.registry.getAdminByEmail(cleanEmail)
       : undefined;
     if (!admin) {
       admin = await this.db.get<any>('SELECT * FROM _admins WHERE email = ?', cleanEmail);
-      if (admin && this.registry) {
+      if (admin && this.registry && this.isControlPlane) {
         try {
           await this.registry.getDriver().prepare(`
             INSERT OR REPLACE INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
@@ -370,13 +392,17 @@ export class AuthService {
       throw new UnauthorizedError('Invalid admin credentials');
     }
 
+    const isSuper = Boolean(this.isControlPlane && (!this.options?.appSlug || this.options.appSlug === 'default'));
     const claims: AuthClaims = {
       id: admin.id,
       email: admin.email,
       collection: '_admins',
       tokenKey: admin.tokenKey,
       isAdmin: true,
-      isSuperAdmin: true,
+      isSuperAdmin: isSuper,
+      isTenantScoped: !isSuper,
+      appId: this.options?.appId || (isSuper ? 'default' : undefined),
+      appSlug: this.options?.appSlug || (isSuper ? 'default' : undefined),
     };
 
     const token = this.generateToken(claims, '14d');
@@ -389,7 +415,7 @@ export class AuthService {
   }
 
   public async getAdminById(id: string): Promise<Record<string, any> | undefined> {
-    let admin = this.registry
+    let admin = (this.registry && this.isControlPlane)
       ? await this.registry.getAdminById(id)
       : undefined;
     if (!admin) {
@@ -402,7 +428,7 @@ export class AuthService {
 
   public async updateAdminPassword(email: string, newPassword: string): Promise<void> {
     const cleanEmail = email.trim().toLowerCase();
-    const admin = this.registry
+    const admin = (this.registry && this.isControlPlane)
       ? await this.registry.getAdminByEmail(cleanEmail)
       : await this.db.get<any>('SELECT id FROM _admins WHERE email = ?', cleanEmail);
     if (!admin) {
@@ -415,7 +441,7 @@ export class AuthService {
     const tokenKey = crypto.randomBytes(16).toString('hex');
     const now = new Date().toISOString();
 
-    if (this.registry) {
+    if (this.registry && this.isControlPlane) {
       await this.registry.updateAdminPassword(cleanEmail, passwordHash, tokenKey);
     }
 
@@ -438,7 +464,7 @@ export class AuthService {
 
     let registryFound = false;
     let targetId: string | undefined = undefined;
-    if (this.registry) {
+    if (this.registry && this.isControlPlane) {
       const regAdmin = (this.registry.getAdminById(idOrEmail) || this.registry.getAdminByEmail(clean));
       if (regAdmin) {
         this.registry.revokeAdminSessions(idOrEmail, tokenKey);
