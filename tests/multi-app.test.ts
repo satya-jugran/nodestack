@@ -1245,4 +1245,139 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       expect(blogScope.realtime.getConnectedClientsCount()).toBe(prevBlogClients);
     });
   });
+
+  describe('11. Tenant API Key Privilege Escalation Prevention & Super-Admin Isolation', () => {
+    it('should separate isSuperAdmin from app-scoped isAdmin and deny tenant API keys access to host-level endpoints', async () => {
+      // 1. Create a tenant app 'tenant-corp'
+      await client.apps.create({
+        name: 'Tenant Corporation',
+        slug: 'tenant-corp',
+      });
+
+      const tenantScope = server.apps.get('tenant-corp');
+      expect(tenantScope).toBeDefined();
+
+      // 2. Issue an API key inside tenant-corp with role 'admin' and scope '*'
+      const tenantKey = await tenantScope.apiKeys.createKey({
+        name: 'Tenant Admin Key',
+        role: 'admin',
+        scopes: ['*'],
+      });
+      expect(tenantKey.secretKey).toBeDefined();
+
+      // 3. Issue a host/super-admin API key in default app
+      const superAdminKey = await server.defaultApp.apiKeys.createKey({
+        name: 'Instance Superadmin Key',
+        role: 'admin',
+        scopes: ['*'],
+      });
+      expect(superAdminKey.secretKey).toBeDefined();
+
+      // 4. Verify tenant key CAN manage collections within its own tenant app
+      const createColRes = await fetch(`http://127.0.0.1:${port}/api/apps/tenant-corp/collections`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+        },
+        body: JSON.stringify({
+          name: 'internal_reports',
+          type: 'base',
+          schema: [{ name: 'title', type: 'text' }],
+        }),
+      });
+      expect(createColRes.status).toBe(201);
+
+      // 5. Verify tenant key is DENIED access to host-level endpoints (/api/apps and /api/system/*)
+      // 5.1 GET /api/apps (listing all instance apps)
+      const listAppsRes = await fetch(`http://127.0.0.1:${port}/api/apps`, {
+        headers: {
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+      });
+      expect(listAppsRes.status).toBe(403);
+      const listAppsJson = await listAppsRes.json();
+      expect(listAppsJson.statusCode).toBe(403);
+
+      // 5.2 POST /api/apps (creating a new app across instance)
+      const createAppRes = await fetch(`http://127.0.0.1:${port}/api/apps`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+        body: JSON.stringify({
+          name: 'Attacker Rogue App',
+          slug: 'attacker-app',
+        }),
+      });
+      expect(createAppRes.status).toBe(403);
+
+      // 5.3 DELETE /api/apps/:appId (deleting another app or itself)
+      const deleteAppRes = await fetch(`http://127.0.0.1:${port}/api/apps/tenant-corp`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+        },
+      });
+      expect(deleteAppRes.status).toBe(403);
+
+      // 5.4 GET /api/system/database/status
+      const dbStatusRes = await fetch(`http://127.0.0.1:${port}/api/system/database/status`, {
+        headers: {
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+      });
+      expect(dbStatusRes.status).toBe(403);
+
+      // 5.5 POST /api/system/database/switch (manipulating global instance database)
+      const dbSwitchRes = await fetch(`http://127.0.0.1:${port}/api/system/database/switch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+        body: JSON.stringify({
+          config: { provider: 'sqlite', database: 'hacked.db' },
+        }),
+      });
+      expect(dbSwitchRes.status).toBe(403);
+
+      // 5.6 POST /api/system/database/test
+      const dbTestRes = await fetch(`http://127.0.0.1:${port}/api/system/database/test`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+        body: JSON.stringify({
+          provider: 'sqlite',
+          database: 'test.db',
+        }),
+      });
+      expect(dbTestRes.status).toBe(403);
+
+      // 6. Verify that host superadmin API key CAN access host-level endpoints
+      const superListAppsRes = await fetch(`http://127.0.0.1:${port}/api/apps`, {
+        headers: {
+          Authorization: `Bearer ${superAdminKey.secretKey}`,
+        },
+      });
+      expect(superListAppsRes.status).toBe(200);
+      const superListJson = await superListAppsRes.json();
+      expect(superListJson.items.some((a: any) => a.slug === 'tenant-corp')).toBe(true);
+
+      const superDbStatusRes = await fetch(`http://127.0.0.1:${port}/api/system/database/status`, {
+        headers: {
+          Authorization: `Bearer ${superAdminKey.secretKey}`,
+        },
+      });
+      expect(superDbStatusRes.status).toBe(200);
+    });
+  });
 });

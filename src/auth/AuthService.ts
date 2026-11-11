@@ -20,11 +20,14 @@ export interface AuthClaims {
   collection: string;
   tokenKey: string;
   isAdmin: boolean;
+  isSuperAdmin?: boolean;
+  isTenantScoped?: boolean;
   isApiKey?: boolean;
   apiKeyId?: string;
   apiKeyName?: string;
   scopes?: string[];
   allowedIps?: string[];
+  appId?: string;
 }
 
 export interface AuthResult {
@@ -173,6 +176,7 @@ export class AuthService {
 
     // Verify tokenKey against stored tokenKey to ensure revoked / rotated sessions are rejected
     if (decoded.isAdmin || decoded.collection === '_admins') {
+      decoded.isSuperAdmin = true;
       const cacheKey = `_admins:${decoded.id}`;
       const cached = this.getCachedTokenKey(cacheKey);
       if (cached !== null) {
@@ -372,6 +376,7 @@ export class AuthService {
       collection: '_admins',
       tokenKey: admin.tokenKey,
       isAdmin: true,
+      isSuperAdmin: true,
     };
 
     const token = this.generateToken(claims, '14d');

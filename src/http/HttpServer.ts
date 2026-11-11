@@ -410,6 +410,26 @@ export class HttpServer {
       // Extract authentication claims first so req.auth is populated for gate checks
       await this.authMiddleware.handle(req, null as any);
 
+      // Deny tenant-scoped API keys access to host-level endpoints (/api/apps and /api/system/*)
+      const urlPath = (req.url || '').split('?')[0];
+      const isHostLevelEndpoint =
+        urlPath.startsWith('/api/system') ||
+        urlPath === '/api/apps' ||
+        urlPath === '/api/apps/' ||
+        /^\/api\/apps\/[^\/]+(\/)?$/.test(urlPath);
+
+      if (isHostLevelEndpoint && req.auth?.isApiKey && (!req.auth?.isSuperAdmin || req.auth?.isTenantScoped)) {
+        const gate = (req as any)._maintenanceGate || (req as any).appScope?.maintenanceGate || this.maintenanceGate;
+        if (gate) {
+          gate.trackRequestEnd(reqId);
+        }
+        return reply.status(403).send({
+          statusCode: 403,
+          error: 'Forbidden',
+          message: 'Tenant-scoped API keys are not authorized to access host-level endpoints',
+        });
+      }
+
       // Latency & Chaos Simulation (For Testing Frontend States)
       // Gated by explicit development/feature flag or admin authorization
       if (this.chaosMiddleware) {
@@ -556,38 +576,39 @@ export class HttpServer {
   private setupRoutes(): void {
     const app = this.app;
     const requireAdmin = this.authMiddleware.requireAdmin();
+    const requireSuperAdmin = this.authMiddleware.requireSuperAdmin();
 
     // 0. Application / MVP Management Endpoints (Super-admin only)
     if (this.appController) {
-      app.get('/api/apps', { preHandler: requireAdmin }, (req, reply) =>
+      app.get('/api/apps', { preHandler: requireSuperAdmin }, (req, reply) =>
         this.appController!.list(req, reply)
       );
-      app.post('/api/apps', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.post('/api/apps', { preHandler: requireSuperAdmin }, (req: any, reply) =>
         this.appController!.create(req, reply)
       );
-      app.get('/api/apps/:appId', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.get('/api/apps/:appId', { preHandler: requireSuperAdmin }, (req: any, reply) =>
         this.appController!.getOne(req, reply)
       );
-      app.patch('/api/apps/:appId', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.patch('/api/apps/:appId', { preHandler: requireSuperAdmin }, (req: any, reply) =>
         this.appController!.update(req, reply)
       );
-      app.delete('/api/apps/:appId', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.delete('/api/apps/:appId', { preHandler: requireSuperAdmin }, (req: any, reply) =>
         this.appController!.delete(req, reply)
       );
     }
 
     // 0.2 System Database Management Endpoints (Super-admin only)
     if (this.databaseController) {
-      app.get('/api/system/database/status', { preHandler: requireAdmin }, (req, reply) =>
+      app.get('/api/system/database/status', { preHandler: requireSuperAdmin }, (req, reply) =>
         this.databaseController!.getStatus(req, reply)
       );
-      app.get('/api/system/database/migration-progress', { preHandler: requireAdmin }, (req, reply) =>
+      app.get('/api/system/database/migration-progress', { preHandler: requireSuperAdmin }, (req, reply) =>
         this.databaseController!.getMigrationProgress(req, reply)
       );
-      app.post('/api/system/database/test', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.post('/api/system/database/test', { preHandler: requireSuperAdmin }, (req: any, reply) =>
         this.databaseController!.testConnection(req, reply)
       );
-      app.post('/api/system/database/switch', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.post('/api/system/database/switch', { preHandler: requireSuperAdmin }, (req: any, reply) =>
         this.databaseController!.switchDatabase(req, reply)
       );
     }
