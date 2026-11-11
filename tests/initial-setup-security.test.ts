@@ -5,8 +5,7 @@ import { NodeStack } from '../src/NodeStack';
 
 describe('Initial Setup Security & Unauthenticated Bypass Prevention Tests', () => {
   const testDir = path.resolve(__dirname, '../.test_initial_setup_sec_data');
-  const port = 8249;
-  const baseUrl = `http://127.0.0.1:${port}`;
+  let baseUrl: string;
   let app: NodeStack;
 
   beforeAll(async () => {
@@ -18,11 +17,12 @@ describe('Initial Setup Security & Unauthenticated Bypass Prevention Tests', () 
 
     app = new NodeStack({
       dataDir: testDir,
-      port,
+      port: 0,
+      host: '127.0.0.1',
       appName: 'Security Test App',
     });
 
-    await app.start(port);
+    baseUrl = await app.start(0, '127.0.0.1');
   });
 
   afterAll(async () => {
@@ -214,8 +214,7 @@ describe('Initial Setup Security & Unauthenticated Bypass Prevention Tests', () 
 
   describe('4. Atomic Serialized First-Run Admin Race Condition Prevention', () => {
     const raceTestDir = path.resolve(__dirname, '../.test_initial_setup_race_data');
-    const racePort = 8251;
-    const raceBaseUrl = `http://127.0.0.1:${racePort}`;
+    let raceBaseUrl: string;
     let raceApp: NodeStack;
 
     beforeAll(async () => {
@@ -227,11 +226,12 @@ describe('Initial Setup Security & Unauthenticated Bypass Prevention Tests', () 
 
       raceApp = new NodeStack({
         dataDir: raceTestDir,
-        port: racePort,
+        port: 0,
+        host: '127.0.0.1',
         appName: 'Race Security App',
       });
 
-      await raceApp.start(racePort);
+      raceBaseUrl = await raceApp.start(0, '127.0.0.1');
     });
 
     afterAll(async () => {
