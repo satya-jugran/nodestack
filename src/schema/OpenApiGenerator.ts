@@ -924,7 +924,12 @@ export class OpenApiGenerator {
             description: 'Admin created',
             content: {
               'application/json': {
-                schema: { $ref: '#/components/schemas/AdminAuthResponse' },
+                schema: {
+                  oneOf: [
+                    { $ref: '#/components/schemas/AdminAuthResponse' },
+                    { $ref: '#/components/schemas/AdminModel' },
+                  ],
+                },
               },
             },
           },
