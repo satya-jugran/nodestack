@@ -47,24 +47,47 @@ export class AuthMiddleware {
     }
 
     if (apiKeyToken && apiKeyToken.startsWith('nsk_')) {
+      const appScope = (req as any)?.appScope;
+      const isTenantApp = Boolean(appScope && !appScope.app?.isDefault && appScope.app?.slug !== 'default');
       const apiKeyService = this.getApiKeyService(req);
       if (apiKeyService) {
         const clientIp = req.ip || (req.socket ? req.socket.remoteAddress : undefined);
-        const result = await apiKeyService.verifyKey(apiKeyToken, clientIp);
+        let result = await apiKeyService.verifyKey(apiKeyToken, clientIp);
+        let verifiedInTenant = isTenantApp && result.valid && !!result.apiKey;
+
+        // If key verification failed in tenant scope, check if it's a global super-admin key on root service
+        if (!result.valid && isTenantApp && this.apiKeyService && this.apiKeyService !== apiKeyService) {
+          const globalResult = await this.apiKeyService.verifyKey(apiKeyToken, clientIp);
+          if (globalResult.valid && globalResult.apiKey) {
+            const globalKey = globalResult.apiKey;
+            const hasAdminPrivilege =
+              globalKey.role === 'admin' ||
+              (Array.isArray(globalKey.scopes) && (globalKey.scopes.includes('*') || globalKey.scopes.includes('admin:*')));
+            if (hasAdminPrivilege) {
+              result = globalResult;
+              verifiedInTenant = false;
+            }
+          }
+        }
+
         if (result.valid && result.apiKey) {
           const key = result.apiKey;
-          const isSuperAdmin = key.role === 'admin' || key.scopes.includes('*') || key.scopes.includes('admin:*');
+          const hasAdminPrivilege = key.role === 'admin' || key.scopes.includes('*') || key.scopes.includes('admin:*');
+          const isSuperAdmin = !verifiedInTenant && hasAdminPrivilege;
           req.auth = {
             id: key.id,
             email: `${key.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}@service.nodestack.local`,
             collection: '_api_keys',
             tokenKey: key.id,
-            isAdmin: isSuperAdmin,
+            isAdmin: hasAdminPrivilege,
+            isSuperAdmin,
+            isTenantScoped: verifiedInTenant,
             isApiKey: true,
             apiKeyId: key.id,
             apiKeyName: key.name,
             scopes: key.scopes,
             allowedIps: key.allowedIps,
+            appId: verifiedInTenant ? appScope?.app?.id : undefined,
           };
           return;
         }
@@ -100,7 +123,7 @@ export class AuthMiddleware {
         if (authService !== this.authService) {
           try {
             const adminClaims = await this.authService.verifyToken(token);
-            if (adminClaims && adminClaims.isAdmin) {
+            if (adminClaims && adminClaims.isSuperAdmin) {
               req.auth = adminClaims;
             }
           } catch {
@@ -109,6 +132,20 @@ export class AuthMiddleware {
         }
       }
     }
+  }
+
+  public requireSuperAdmin() {
+    return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+      await this.handle(req, reply);
+      const isAuthorized = Boolean(req.auth?.isSuperAdmin);
+
+      if (!isAuthorized) {
+        reply.status(403).send({
+          statusCode: 403,
+          message: 'Only super-admins are authorized to access this resource',
+        });
+      }
+    };
   }
 
   public requireAdmin() {

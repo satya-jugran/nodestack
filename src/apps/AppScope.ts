@@ -87,14 +87,21 @@ export class AppScope {
     });
 
     this.ruleEngine = new RuleEngine();
+    const isControlPlane = Boolean(app.isDefault || app.slug === 'default');
     this.auth = new AuthService(
       this.db,
       this.config,
       this.schema,
-      registry,
+      isControlPlane ? registry : undefined,
       undefined,
       this.ruleEngine,
-      this.eventBus
+      this.eventBus,
+      undefined,
+      {
+        appId: app.id,
+        appSlug: app.slug,
+        isControlPlane,
+      }
     );
     this.apiKeys = new ApiKeyService(this.db, this.config);
 

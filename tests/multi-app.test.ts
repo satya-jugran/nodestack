@@ -1245,4 +1245,313 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       expect(blogScope.realtime.getConnectedClientsCount()).toBe(prevBlogClients);
     });
   });
+
+  describe('11. Tenant API Key Privilege Escalation Prevention & Super-Admin Isolation', () => {
+    it('should separate isSuperAdmin from app-scoped isAdmin and deny tenant API keys access to host-level endpoints', async () => {
+      // 1. Create a tenant app 'tenant-corp'
+      await client.apps.create({
+        name: 'Tenant Corporation',
+        slug: 'tenant-corp',
+      });
+
+      const tenantScope = server.apps.get('tenant-corp');
+      expect(tenantScope).toBeDefined();
+
+      // 2. Issue an API key inside tenant-corp with role 'admin' and scope '*'
+      const tenantKey = await tenantScope.apiKeys.createKey({
+        name: 'Tenant Admin Key',
+        role: 'admin',
+        scopes: ['*'],
+      });
+      expect(tenantKey.secretKey).toBeDefined();
+
+      // 3. Issue a host/super-admin API key in default app
+      const superAdminKey = await server.defaultApp.apiKeys.createKey({
+        name: 'Instance Superadmin Key',
+        role: 'admin',
+        scopes: ['*'],
+      });
+      expect(superAdminKey.secretKey).toBeDefined();
+
+      // 4. Verify tenant key CAN manage collections within its own tenant app
+      const createColRes = await fetch(`http://127.0.0.1:${port}/api/apps/tenant-corp/collections`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+        },
+        body: JSON.stringify({
+          name: 'internal_reports',
+          type: 'base',
+          schema: [{ name: 'title', type: 'text' }],
+        }),
+      });
+      expect(createColRes.status).toBe(201);
+
+      // 5. Verify tenant key is DENIED access to host-level endpoints (/api/apps and /api/system/*)
+      // 5.1 GET /api/apps (listing all instance apps)
+      const listAppsRes = await fetch(`http://127.0.0.1:${port}/api/apps`, {
+        headers: {
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+      });
+      expect(listAppsRes.status).toBe(403);
+      const listAppsJson = await listAppsRes.json();
+      expect(listAppsJson.statusCode).toBe(403);
+
+      // 5.2 POST /api/apps (creating a new app across instance)
+      const createAppRes = await fetch(`http://127.0.0.1:${port}/api/apps`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+        body: JSON.stringify({
+          name: 'Attacker Rogue App',
+          slug: 'attacker-app',
+        }),
+      });
+      expect(createAppRes.status).toBe(403);
+
+      // 5.3 DELETE /api/apps/:appId (deleting another app or itself)
+      const deleteAppRes = await fetch(`http://127.0.0.1:${port}/api/apps/tenant-corp`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+        },
+      });
+      expect(deleteAppRes.status).toBe(403);
+
+      // 5.4 GET /api/system/database/status
+      const dbStatusRes = await fetch(`http://127.0.0.1:${port}/api/system/database/status`, {
+        headers: {
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+      });
+      expect(dbStatusRes.status).toBe(403);
+
+      // 5.5 POST /api/system/database/switch (manipulating global instance database)
+      const dbSwitchRes = await fetch(`http://127.0.0.1:${port}/api/system/database/switch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+        body: JSON.stringify({
+          config: { provider: 'sqlite', database: 'hacked.db' },
+        }),
+      });
+      expect(dbSwitchRes.status).toBe(403);
+
+      // 5.6 POST /api/system/database/test
+      const dbTestRes = await fetch(`http://127.0.0.1:${port}/api/system/database/test`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantKey.secretKey}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+        body: JSON.stringify({
+          provider: 'sqlite',
+          database: 'test.db',
+        }),
+      });
+      expect(dbTestRes.status).toBe(403);
+
+      // 6. Verify that host superadmin API key CAN access host-level endpoints
+      const superListAppsRes = await fetch(`http://127.0.0.1:${port}/api/apps`, {
+        headers: {
+          Authorization: `Bearer ${superAdminKey.secretKey}`,
+        },
+      });
+      expect(superListAppsRes.status).toBe(200);
+      const superListJson = await superListAppsRes.json();
+      expect(superListJson.items.some((a: any) => a.slug === 'tenant-corp')).toBe(true);
+
+      const superDbStatusRes = await fetch(`http://127.0.0.1:${port}/api/system/database/status`, {
+        headers: {
+          Authorization: `Bearer ${superAdminKey.secretKey}`,
+        },
+      });
+      expect(superDbStatusRes.status).toBe(200);
+
+      // 7. Verify Tenant Admin JWT Privilege Escalation Prevention
+      // 7.1 Create and authenticate tenant admin in tenantScope
+      await tenantScope.auth.createAdmin('tenant-admin@corp.com', 'password12345');
+      const tenantAdminAuth = await tenantScope.auth.authenticateAdmin('tenant-admin@corp.com', 'password12345');
+      const tenantJwt = tenantAdminAuth.token;
+      expect(tenantJwt).toBeDefined();
+
+      // Verify claims decoded by tenant auth service
+      const verifiedClaims = await tenantScope.auth.verifyToken(tenantJwt);
+      expect(verifiedClaims.isAdmin).toBe(true);
+      expect(verifiedClaims.isSuperAdmin).toBe(false);
+      expect(verifiedClaims.isTenantScoped).toBe(true);
+
+      // 7.2 Verify tenant admin is NOT persisted into global AppRegistry
+      const globalRegAdmin = server.apps.registry.getAdminByEmail('tenant-admin@corp.com');
+      expect(globalRegAdmin).toBeUndefined();
+
+      // 7.3 Verify tenant admin JWT CAN manage resources inside tenant-corp
+      const tenantColRes = await fetch(`http://127.0.0.1:${port}/api/apps/tenant-corp/collections`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantJwt}`,
+        },
+        body: JSON.stringify({
+          name: 'tenant_docs',
+          type: 'base',
+          schema: [{ name: 'subject', type: 'text' }],
+        }),
+      });
+      expect(tenantColRes.status).toBe(201);
+
+      // 7.4 Verify tenant admin JWT is strictly DENIED access to all host-level endpoints
+      // GET /api/apps
+      const jwtListApps = await fetch(`http://127.0.0.1:${port}/api/apps`, {
+        headers: {
+          Authorization: `Bearer ${tenantJwt}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+      });
+      expect(jwtListApps.status).toBe(403);
+
+      // POST /api/apps
+      const jwtCreateApp = await fetch(`http://127.0.0.1:${port}/api/apps`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantJwt}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+        body: JSON.stringify({
+          name: 'JWT Rogue App',
+          slug: 'jwt-rogue-app',
+        }),
+      });
+      expect(jwtCreateApp.status).toBe(403);
+
+      // DELETE /api/apps/tenant-corp
+      const jwtDeleteApp = await fetch(`http://127.0.0.1:${port}/api/apps/tenant-corp`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${tenantJwt}`,
+        },
+      });
+      expect(jwtDeleteApp.status).toBe(403);
+
+      // GET /api/system/database/status
+      const jwtDbStatus = await fetch(`http://127.0.0.1:${port}/api/system/database/status`, {
+        headers: {
+          Authorization: `Bearer ${tenantJwt}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+      });
+      expect(jwtDbStatus.status).toBe(403);
+
+      // POST /api/system/database/switch
+      const jwtDbSwitch = await fetch(`http://127.0.0.1:${port}/api/system/database/switch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantJwt}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+        body: JSON.stringify({
+          config: { provider: 'sqlite', database: 'jwt_hacked.db' },
+        }),
+      });
+      expect(jwtDbSwitch.status).toBe(403);
+
+      // POST /api/system/database/test
+      const jwtDbTest = await fetch(`http://127.0.0.1:${port}/api/system/database/test`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tenantJwt}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+        body: JSON.stringify({
+          provider: 'sqlite',
+          database: 'test.db',
+        }),
+      });
+      expect(jwtDbTest.status).toBe(403);
+
+      // 8. Verify Default-App Scoped (Non-Admin) API Key Cannot Access Tenant Collections (Cross-Tenant Isolation)
+      // 8.1 Create a scoped API key in default app with narrow scopes
+      const defaultNarrowKey = await server.defaultApp.apiKeys.createKey({
+        name: 'Default Scoped Key',
+        role: 'user',
+        scopes: ['tenant_projects:read', 'tenant_projects:write'],
+      });
+      expect(defaultNarrowKey.secretKey).toBeDefined();
+
+      // 8.2 Create collection in default app matching the scope
+      await server.defaultApp.schema.createCollection({
+        name: 'tenant_projects',
+        type: 'base',
+        schema: [{ name: 'title', type: 'text' }],
+        listRule: '@request.auth.id != ""',
+        viewRule: '@request.auth.id != ""',
+      });
+      const now = new Date().toISOString();
+      await server.defaultApp.db.run(
+        'INSERT INTO tenant_projects (id, title, created, updated) VALUES (?, ?, ?, ?)',
+        'proj_def_001',
+        'Default App Project',
+        now,
+        now
+      );
+
+      // 8.3 Create same collection in tenant-corp with confidential tenant data
+      await tenantScope.schema.createCollection({
+        name: 'tenant_projects',
+        type: 'base',
+        schema: [{ name: 'title', type: 'text' }],
+        listRule: '@request.auth.id != ""',
+        viewRule: '@request.auth.id != ""',
+      });
+      await tenantScope.db.run(
+        'INSERT INTO tenant_projects (id, title, created, updated) VALUES (?, ?, ?, ?)',
+        'proj_ten_001',
+        'Secret Tenant Project',
+        now,
+        now
+      );
+
+      // 8.4 Verify default scoped key works in default app
+      const defaultAppReadRes = await fetch(`http://127.0.0.1:${port}/api/collections/tenant_projects/records`, {
+        headers: {
+          Authorization: `Bearer ${defaultNarrowKey.secretKey}`,
+        },
+      });
+      expect(defaultAppReadRes.status).toBe(200);
+      const defaultAppReadJson = await defaultAppReadRes.json();
+      expect(defaultAppReadJson.items.some((r: any) => r.id === 'proj_def_001')).toBe(true);
+
+      // 8.5 Verify default scoped key is strictly rejected in tenant requests (cross-tenant access prevented)
+      // Path-based tenant resolution (/api/apps/tenant-corp/...)
+      const crossTenantPathRes = await fetch(`http://127.0.0.1:${port}/api/apps/tenant-corp/collections/tenant_projects/records`, {
+        headers: {
+          Authorization: `Bearer ${defaultNarrowKey.secretKey}`,
+        },
+      });
+      expect(crossTenantPathRes.status).toBe(403);
+
+      // Header-based tenant resolution (x-nodestack-app: tenant-corp)
+      const crossTenantHeaderRes = await fetch(`http://127.0.0.1:${port}/api/collections/tenant_projects/records`, {
+        headers: {
+          Authorization: `Bearer ${defaultNarrowKey.secretKey}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+      });
+      expect(crossTenantHeaderRes.status).toBe(403);
+    });
+  });
 });
