@@ -168,7 +168,7 @@ export class AuthMiddleware {
     return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
       await this.handle(req, reply);
       const authService = this.getAuthService(req);
-      const hasAdmins = (await authService.hasAdmins()) || (await this.authService.hasAdmins());
+      const hasAdmins = await authService.hasAdmins();
       if (!hasAdmins) {
         const method = (req.method || '').toUpperCase();
         const rawUrl = req.raw?.url || req.url || '';

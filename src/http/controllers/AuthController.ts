@@ -38,14 +38,14 @@ export class AuthController extends BaseController {
 
   public async hasAdmins(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const auth = this.getAuth(req);
-    const hasAdmins = (await auth.hasAdmins()) || (await this.authService.hasAdmins());
+    const hasAdmins = await auth.hasAdmins();
     this.ok(reply, { hasAdmins });
   }
 
   public async createInitialAdmin(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     return AuthController.withInitialSetupLock(async () => {
       const auth = this.getAuth(req);
-      if ((await auth.hasAdmins()) || (await this.authService.hasAdmins())) {
+      if (await auth.hasAdmins()) {
         throw new AppError('Initial admin setup is already complete', 400);
       }
 
@@ -63,7 +63,7 @@ export class AuthController extends BaseController {
   public async createAdmin(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     return AuthController.withInitialSetupLock(async () => {
       const auth = this.getAuth(req);
-      const hasAdmins = (await auth.hasAdmins()) || (await this.authService.hasAdmins());
+      const hasAdmins = await auth.hasAdmins();
       if (hasAdmins && !req.auth?.isAdmin) {
         throw new AppError('Only admins are authorized to create admins', 403);
       }

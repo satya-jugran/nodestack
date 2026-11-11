@@ -285,4 +285,82 @@ describe('Initial Setup Security & Unauthenticated Bypass Prevention Tests', () 
       expect(dbAdmins.length).toBe(1);
     });
   });
+
+  describe('5. Tenant-Scoped Initial Admin Creation via x-nodestack-app Isolation', () => {
+    it('should create an admin in tenant scope without polluting global store', async () => {
+      // 1. Create a sub-app via super-admin
+      const loginRes = await fetch(`${baseUrl}/api/admins/auth-with-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identity: 'admin@nodestack.io',
+          password: 'SuperSecurePassword123!',
+        }),
+      });
+      const loginData = await loginRes.json();
+      const superToken = loginData.token;
+
+      const createAppRes = await fetch(`${baseUrl}/api/apps`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${superToken}`,
+        },
+        body: JSON.stringify({
+          name: 'Tenant Alpha App',
+          slug: 'tenant-alpha',
+        }),
+      });
+      expect(createAppRes.status).toBe(201);
+
+      // 2. Query has-admins with x-nodestack-app header
+      const tenantHasAdminsBefore = await fetch(`${baseUrl}/api/admins/has-admins`, {
+        headers: {
+          'x-nodestack-app': 'tenant-alpha',
+        },
+      });
+      expect(tenantHasAdminsBefore.status).toBe(200);
+      const beforeData = await tenantHasAdminsBefore.json();
+      expect(beforeData.hasAdmins).toBe(false);
+
+      // 3. Create initial admin for tenant-alpha via POST /api/admins with x-nodestack-app
+      const createTenantAdminRes = await fetch(`${baseUrl}/api/admins`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-nodestack-app': 'tenant-alpha',
+        },
+        body: JSON.stringify({
+          email: 'tenant_admin@alpha.com',
+          password: 'TenantAlphaPassword123!',
+        }),
+      });
+      expect(createTenantAdminRes.status).toBe(201);
+      const tenantAdminData = await createTenantAdminRes.json();
+      expect(tenantAdminData.token).toBeDefined();
+
+      // 4. Decode claims: must be tenant-scoped
+      const tenantScope = (app as any).apps.get('tenant-alpha');
+      const verified = await tenantScope.auth.verifyToken(tenantAdminData.token);
+      expect(verified.isTenantScoped).toBe(true);
+      expect(verified.isSuperAdmin).toBe(false);
+
+      // 5. Query has-admins for tenant-alpha: now true
+      const tenantHasAdminsAfter = await fetch(`${baseUrl}/api/admins/has-admins`, {
+        headers: {
+          'x-nodestack-app': 'tenant-alpha',
+        },
+      });
+      const afterData = await tenantHasAdminsAfter.json();
+      expect(afterData.hasAdmins).toBe(true);
+
+      // 6. Global admins list must NOT contain tenant_admin@alpha.com
+      const globalAdmins = (app as any).db.prepare('SELECT email FROM _admins WHERE email = ?').all('tenant_admin@alpha.com');
+      expect(globalAdmins.length).toBe(0);
+
+      // 7. Tenant DB must contain tenant_admin@alpha.com
+      const tenantAdmins = tenantScope.db.prepare('SELECT email FROM _admins WHERE email = ?').all('tenant_admin@alpha.com');
+      expect(tenantAdmins.length).toBe(1);
+    });
+  });
 });
