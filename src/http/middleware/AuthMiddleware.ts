@@ -59,8 +59,14 @@ export class AuthMiddleware {
         if (!result.valid && isTenantApp && this.apiKeyService && this.apiKeyService !== apiKeyService) {
           const globalResult = await this.apiKeyService.verifyKey(apiKeyToken, clientIp);
           if (globalResult.valid && globalResult.apiKey) {
-            result = globalResult;
-            verifiedInTenant = false;
+            const globalKey = globalResult.apiKey;
+            const hasAdminPrivilege =
+              globalKey.role === 'admin' ||
+              (Array.isArray(globalKey.scopes) && (globalKey.scopes.includes('*') || globalKey.scopes.includes('admin:*')));
+            if (hasAdminPrivilege) {
+              result = globalResult;
+              verifiedInTenant = false;
+            }
           }
         }
 

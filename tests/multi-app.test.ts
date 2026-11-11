@@ -1482,6 +1482,76 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
         }),
       });
       expect(jwtDbTest.status).toBe(403);
+
+      // 8. Verify Default-App Scoped (Non-Admin) API Key Cannot Access Tenant Collections (Cross-Tenant Isolation)
+      // 8.1 Create a scoped API key in default app with narrow scopes
+      const defaultNarrowKey = await server.defaultApp.apiKeys.createKey({
+        name: 'Default Scoped Key',
+        role: 'user',
+        scopes: ['tenant_projects:read', 'tenant_projects:write'],
+      });
+      expect(defaultNarrowKey.secretKey).toBeDefined();
+
+      // 8.2 Create collection in default app matching the scope
+      await server.defaultApp.schema.createCollection({
+        name: 'tenant_projects',
+        type: 'base',
+        schema: [{ name: 'title', type: 'text' }],
+        listRule: '@request.auth.id != ""',
+        viewRule: '@request.auth.id != ""',
+      });
+      const now = new Date().toISOString();
+      await server.defaultApp.db.run(
+        'INSERT INTO tenant_projects (id, title, created, updated) VALUES (?, ?, ?, ?)',
+        'proj_def_001',
+        'Default App Project',
+        now,
+        now
+      );
+
+      // 8.3 Create same collection in tenant-corp with confidential tenant data
+      await tenantScope.schema.createCollection({
+        name: 'tenant_projects',
+        type: 'base',
+        schema: [{ name: 'title', type: 'text' }],
+        listRule: '@request.auth.id != ""',
+        viewRule: '@request.auth.id != ""',
+      });
+      await tenantScope.db.run(
+        'INSERT INTO tenant_projects (id, title, created, updated) VALUES (?, ?, ?, ?)',
+        'proj_ten_001',
+        'Secret Tenant Project',
+        now,
+        now
+      );
+
+      // 8.4 Verify default scoped key works in default app
+      const defaultAppReadRes = await fetch(`http://127.0.0.1:${port}/api/collections/tenant_projects/records`, {
+        headers: {
+          Authorization: `Bearer ${defaultNarrowKey.secretKey}`,
+        },
+      });
+      expect(defaultAppReadRes.status).toBe(200);
+      const defaultAppReadJson = await defaultAppReadRes.json();
+      expect(defaultAppReadJson.items.some((r: any) => r.id === 'proj_def_001')).toBe(true);
+
+      // 8.5 Verify default scoped key is strictly rejected in tenant requests (cross-tenant access prevented)
+      // Path-based tenant resolution (/api/apps/tenant-corp/...)
+      const crossTenantPathRes = await fetch(`http://127.0.0.1:${port}/api/apps/tenant-corp/collections/tenant_projects/records`, {
+        headers: {
+          Authorization: `Bearer ${defaultNarrowKey.secretKey}`,
+        },
+      });
+      expect(crossTenantPathRes.status).toBe(403);
+
+      // Header-based tenant resolution (x-nodestack-app: tenant-corp)
+      const crossTenantHeaderRes = await fetch(`http://127.0.0.1:${port}/api/collections/tenant_projects/records`, {
+        headers: {
+          Authorization: `Bearer ${defaultNarrowKey.secretKey}`,
+          'x-nodestack-app': 'tenant-corp',
+        },
+      });
+      expect(crossTenantHeaderRes.status).toBe(403);
     });
   });
 });
