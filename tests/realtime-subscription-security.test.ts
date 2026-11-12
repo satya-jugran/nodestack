@@ -878,4 +878,211 @@ describe('Realtime Subscription Ownership & Session Binding Security', { timeout
       tenantAdminSSE.close();
     }
   });
+
+  it('should enforce API key read scopes on subscriptions and wildcard realtime delivery', async () => {
+    await app.schema.createCollection({
+      name: 'private_posts',
+      type: 'base',
+      schema: [{ name: 'title', type: 'text', required: true }],
+      listRule: '@request.auth.id != ""',
+      viewRule: '@request.auth.id != ""',
+      createRule: '',
+      updateRule: '',
+      deleteRule: '',
+    });
+
+    // apiKey1Secret is scoped ONLY to ['posts:read']
+    const postsKeySSE = await connectSSE({
+      headers: { 'x-api-key': apiKey1Secret },
+    });
+
+    // Dedicated keys for write-only, view-only, and global-read coverage
+    const writeOnlyKey = await app.defaultApp.apiKeys.createKey({
+      name: 'Posts Write Only Key',
+      role: 'service',
+      scopes: ['posts:write'],
+    });
+    const viewOnlyKey = await app.defaultApp.apiKeys.createKey({
+      name: 'Posts View Only Key',
+      role: 'service',
+      scopes: ['posts:view'],
+    });
+    const allReadKey = await app.defaultApp.apiKeys.createKey({
+      name: 'All Collections Read Key',
+      role: 'service',
+      scopes: ['*:read'],
+    });
+
+    const writeKeySSE = await connectSSE({ headers: { 'x-api-key': writeOnlyKey.secretKey } });
+    const viewKeySSE = await connectSSE({ headers: { 'x-api-key': viewOnlyKey.secretKey } });
+    const allReadSSE = await connectSSE({ headers: { 'x-api-key': allReadKey.secretKey } });
+
+    try {
+      // 1. Key limited to posts:read can subscribe to 'posts' (204)
+      const allowedSub = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey1Secret,
+        },
+        body: JSON.stringify({
+          clientId: postsKeySSE.clientId,
+          subscriptions: ['posts'],
+        }),
+      });
+      expect(allowedSub.status).toBe(204);
+
+      // 2. Same posts:read key CANNOT explicitly subscribe to 'private_posts', 'private_posts/*', or 'private_posts/<id>' (403)
+      for (const forbiddenTopic of ['private_posts', 'private_posts/*', 'private_posts/rec_123', 'posts,private_posts'.split(',')[1]]) {
+        const deniedSub = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey1Secret,
+          },
+          body: JSON.stringify({
+            clientId: postsKeySSE.clientId,
+            subscriptions: [forbiddenTopic],
+          }),
+        });
+        expect(deniedSub.status).toBe(403);
+      }
+
+      // Mixed batch containing an unauthorized topic is rejected atomically (403) without clearing 'posts'
+      const mixedDeniedSub = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey1Secret,
+        },
+        body: JSON.stringify({
+          clientId: postsKeySSE.clientId,
+          subscriptions: ['posts', 'private_posts'],
+        }),
+      });
+      expect(mixedDeniedSub.status).toBe(403);
+
+      // 3. Even when subscribed to global wildcard '*', posts:read key ONLY receives 'posts' and NEVER 'private_posts'
+      const wildcardSub = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey1Secret,
+        },
+        body: JSON.stringify({
+          clientId: postsKeySSE.clientId,
+          subscriptions: ['*'],
+        }),
+      });
+      expect(wildcardSub.status).toBe(204);
+
+      // 4. Write-only key cannot subscribe to 'posts' (403), and wildcard '*' delivers nothing to it
+      const writeSubPosts = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': writeOnlyKey.secretKey,
+        },
+        body: JSON.stringify({
+          clientId: writeKeySSE.clientId,
+          subscriptions: ['posts'],
+        }),
+      });
+      expect(writeSubPosts.status).toBe(403);
+
+      const writeSubWildcard = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': writeOnlyKey.secretKey,
+        },
+        body: JSON.stringify({
+          clientId: writeKeySSE.clientId,
+          subscriptions: ['*'],
+        }),
+      });
+      expect(writeSubWildcard.status).toBe(204);
+
+      // 5. View-only key cannot subscribe to collection-wide 'posts' (403), but CAN subscribe to specific record 'posts/<id>'
+      const viewSubCol = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': viewOnlyKey.secretKey,
+        },
+        body: JSON.stringify({
+          clientId: viewKeySSE.clientId,
+          subscriptions: ['posts'],
+        }),
+      });
+      expect(viewSubCol.status).toBe(403);
+
+      const watchedPost = await app.records.create('posts', { title: 'View-Scoped Target Post' }, { isAdmin: true });
+      const viewSubRecord = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': viewOnlyKey.secretKey,
+        },
+        body: JSON.stringify({
+          clientId: viewKeySSE.clientId,
+          subscriptions: [`posts/${watchedPost.id}`],
+        }),
+      });
+      expect(viewSubRecord.status).toBe(204);
+
+      // 6. *:read key subscribing to '*' receives both 'posts' and 'private_posts'
+      const allReadSub = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': allReadKey.secretKey,
+        },
+        body: JSON.stringify({
+          clientId: allReadSSE.clientId,
+          subscriptions: ['*'],
+        }),
+      });
+      expect(allReadSub.status).toBe(204);
+
+      // Trigger updates/creates across collections
+      const allowedPost = await app.records.create('posts', { title: 'Allowed Scope Post' }, { isAdmin: true });
+      const forbiddenPrivatePost = await app.records.create(
+        'private_posts',
+        { title: 'Forbidden Private Post' },
+        { isAdmin: true }
+      );
+      await app.records.update('posts', watchedPost.id, { title: 'Updated Target Post' }, { isAdmin: true });
+
+      await new Promise((r) => setTimeout(r, 150));
+
+      // posts:read client received 'posts' via '*', NOT 'private_posts'
+      expect(postsKeySSE.events.some((e) => e.event === 'posts' && e.data?.record?.id === allowedPost.id)).toBe(true);
+      expect(
+        postsKeySSE.events.some((e) => e.event === 'private_posts' && e.data?.record?.id === forbiddenPrivatePost.id)
+      ).toBe(false);
+
+      // write-only client received nothing even under '*'
+      expect(writeKeySSE.events.length).toBe(0);
+
+      // view-only client received update only for its watched record, not unrelated posts
+      expect(
+        viewKeySSE.events.some(
+          (e) => e.event === 'posts' && e.data?.record?.id === watchedPost.id && e.data?.action === 'update'
+        )
+      ).toBe(true);
+      expect(viewKeySSE.events.some((e) => e.event === 'posts' && e.data?.record?.id === allowedPost.id)).toBe(false);
+
+      // *:read client received both
+      expect(allReadSSE.events.some((e) => e.event === 'posts' && e.data?.record?.id === allowedPost.id)).toBe(true);
+      expect(
+        allReadSSE.events.some((e) => e.event === 'private_posts' && e.data?.record?.id === forbiddenPrivatePost.id)
+      ).toBe(true);
+    } finally {
+      postsKeySSE.close();
+      writeKeySSE.close();
+      viewKeySSE.close();
+      allReadSSE.close();
+    }
+  });
 });

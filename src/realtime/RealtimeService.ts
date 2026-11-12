@@ -6,6 +6,7 @@ import { CollectionModel } from '../schema/models/Collection';
 import { RecordSanitizer } from '../records/RecordSanitizer';
 import { AppError, ForbiddenError, UnauthorizedError } from '../core/errors/AppError';
 import { hashSecret, verifySecret } from '../core/crypto/secret';
+import { hasScope } from '../auth/ApiKeyService';
 
 export type RealtimeAuthRevalidator = (auth: any) => boolean | Promise<boolean>;
 
@@ -135,12 +136,32 @@ export class RealtimeService {
         }
       }
 
-      client.subscriptions.clear();
+      const normalizedSubs: string[] = [];
       for (const sub of subscriptions) {
         if (typeof sub !== 'string') {
           throw new AppError('All subscription entries must be strings', 400);
         }
-        client.subscriptions.add(sub.trim());
+        const trimmed = sub.trim();
+        if (!trimmed) continue;
+
+        if (client.auth?.isApiKey) {
+          const parsed = this.parseSubscriptionTopic(trimmed);
+          if (!parsed.isGlobalWildcard) {
+            const requiredAction = parsed.isRecordSpecific ? 'view' : 'list';
+            if (!parsed.collectionName || !hasScope(client.auth, parsed.collectionName, requiredAction)) {
+              throw new ForbiddenError(
+                `API Key missing required scope for '${parsed.collectionName || trimmed}:${requiredAction}'`
+              );
+            }
+          }
+        }
+
+        normalizedSubs.push(trimmed);
+      }
+
+      client.subscriptions.clear();
+      for (const trimmed of normalizedSubs) {
+        client.subscriptions.add(trimmed);
       }
       return true;
     };
@@ -161,6 +182,28 @@ export class RealtimeService {
     }
 
     return finishSetSubscriptions();
+  }
+
+  private parseSubscriptionTopic(topic: string): {
+    isGlobalWildcard: boolean;
+    collectionName?: string;
+    isRecordSpecific: boolean;
+  } {
+    const clean = topic.trim();
+    if (clean === '*') {
+      return { isGlobalWildcard: true, isRecordSpecific: false };
+    }
+    const slashIndex = clean.indexOf('/');
+    if (slashIndex === -1) {
+      return { isGlobalWildcard: false, collectionName: clean, isRecordSpecific: false };
+    }
+    const collectionName = clean.slice(0, slashIndex).trim();
+    const recordTarget = clean.slice(slashIndex + 1).trim();
+    return {
+      isGlobalWildcard: false,
+      collectionName,
+      isRecordSpecific: Boolean(recordTarget && recordTarget !== '*'),
+    };
   }
 
   private isSameCallerAuth(clientAuth: any, callerAuth: any): boolean {
@@ -410,13 +453,13 @@ export class RealtimeService {
 
     for (const [, client] of Array.from(this.clients.entries())) {
       // Check if client is subscribed to '*' or collection or collection/id
-      const isSubscribed =
+      const matchesWildcard =
         client.subscriptions.has('*') ||
         client.subscriptions.has(collectionName) ||
-        client.subscriptions.has(`${collectionName}/*`) ||
-        client.subscriptions.has(`${collectionName}/${record.id}`);
+        client.subscriptions.has(`${collectionName}/*`);
+      const matchesRecord = client.subscriptions.has(`${collectionName}/${record.id}`);
 
-      if (!isSubscribed) continue;
+      if (!matchesWildcard && !matchesRecord) continue;
 
       if (client.auth) {
         const validOrPromise = this.revalidateClient(client);
@@ -426,6 +469,15 @@ export class RealtimeService {
             : Boolean(validOrPromise);
         if (!isValid || !this.clients.has(client.id)) {
           continue;
+        }
+
+        if (client.auth.isApiKey) {
+          const hasReadScope =
+            (matchesWildcard && hasScope(client.auth, collectionName, 'list')) ||
+            (matchesRecord && hasScope(client.auth, collectionName, 'view'));
+          if (!hasReadScope) {
+            continue;
+          }
         }
       }
 
