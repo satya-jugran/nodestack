@@ -39,6 +39,61 @@ export class SsrfGuard {
     'instance-data',
   ];
 
+  private static readonly SENSITIVE_REDIRECT_HEADERS = new Set([
+    'authorization',
+    'cookie',
+    'proxy-authorization',
+    'x-api-key',
+  ]);
+
+  /**
+   * Returns a copy of headers with sensitive credential headers stripped
+   * for cross-origin redirects without mutating the caller's headers object.
+   */
+  private static stripSensitiveHeaders(headers: any): any {
+    if (!headers) return headers;
+
+    if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+      const sanitized = new Headers();
+      headers.forEach((val: string, key: string) => {
+        if (!SsrfGuard.SENSITIVE_REDIRECT_HEADERS.has(key.toLowerCase())) {
+          sanitized.append(key, val);
+        }
+      });
+      return sanitized;
+    }
+
+    if (Array.isArray(headers)) {
+      return headers.filter(
+        (entry) =>
+          !Array.isArray(entry) ||
+          !SsrfGuard.SENSITIVE_REDIRECT_HEADERS.has(String(entry[0]).toLowerCase())
+      );
+    }
+
+    if (typeof headers.forEach === 'function') {
+      const sanitized: Record<string, string> = {};
+      headers.forEach((val: string, key: string) => {
+        if (!SsrfGuard.SENSITIVE_REDIRECT_HEADERS.has(String(key).toLowerCase())) {
+          sanitized[key] = val;
+        }
+      });
+      return sanitized;
+    }
+
+    if (typeof headers === 'object') {
+      const sanitized: Record<string, any> = {};
+      for (const [key, val] of Object.entries(headers)) {
+        if (!SsrfGuard.SENSITIVE_REDIRECT_HEADERS.has(key.toLowerCase())) {
+          sanitized[key] = val;
+        }
+      }
+      return sanitized;
+    }
+
+    return headers;
+  }
+
   /**
    * Validates if a hostname matches the configured domain allowlist.
    * If allowlist is empty or undefined, any public domain is permitted.
@@ -302,11 +357,15 @@ export class SsrfGuard {
       let currentInit = init || {};
       let redirectsCount = 0;
       const maxRedirects = 5;
+      let originalOrigin: string | null = null;
 
       while (true) {
         const validated = await SsrfGuard.validateUrl(currentUrl, allowedDomains, {
           isCustomFetch: Boolean(customFetch),
         });
+        if (originalOrigin === null) {
+          originalOrigin = validated.origin;
+        }
         const pinnedAddress = (validated as any).pinnedAddress;
         const pinnedFamily = (validated as any).pinnedFamily;
         const cleanHostname = (validated as any).cleanHostname || validated.hostname;
@@ -374,7 +433,8 @@ export class SsrfGuard {
           }
 
           const nextLocation = res.headers['location'];
-          const nextUrl = new URL(nextLocation, validated).toString();
+          const nextParsed = new URL(nextLocation, validated);
+          const nextUrl = nextParsed.toString();
 
           // Prepare init for next redirect hop
           let nextMethod = currentInit.method || 'GET';
@@ -387,11 +447,18 @@ export class SsrfGuard {
             nextBody = undefined;
           }
 
+          // Strip credential headers when redirecting to a different origin/host
+          const isCrossOrigin = nextParsed.origin !== originalOrigin;
+          const nextHeaders = isCrossOrigin
+            ? SsrfGuard.stripSensitiveHeaders(currentInit.headers)
+            : currentInit.headers;
+
           currentUrl = nextUrl;
           currentInit = {
             ...currentInit,
             method: nextMethod,
             body: nextBody,
+            ...(currentInit.headers !== undefined ? { headers: nextHeaders } : {}),
           };
           continue;
         }
@@ -423,14 +490,14 @@ export class SsrfGuard {
 
       const headers: Record<string, string> = {};
       if (options.init.headers) {
-        if (typeof options.init.headers.forEach === 'function') {
-          options.init.headers.forEach((val: string, key: string) => {
-            headers[key] = val;
-          });
-        } else if (Array.isArray(options.init.headers)) {
+        if (Array.isArray(options.init.headers)) {
           for (const [key, val] of options.init.headers) {
             headers[key] = String(val);
           }
+        } else if (typeof options.init.headers.forEach === 'function') {
+          options.init.headers.forEach((val: string, key: string) => {
+            headers[key] = val;
+          });
         } else if (typeof options.init.headers === 'object') {
           for (const [key, val] of Object.entries(options.init.headers)) {
             headers[key] = String(val);

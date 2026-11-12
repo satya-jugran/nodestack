@@ -153,6 +153,183 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         /Direct access to private or metadata IP/
       );
     });
+
+    it('should strip sensitive headers on cross-origin redirects without mutating original init', async () => {
+      const capturedCalls: Array<{ url: string; headers: any }> = [];
+      const mockFetch = (async (url: string, init?: any) => {
+        capturedCalls.push({ url, headers: init?.headers });
+        if (url === 'https://api.partner.com/start') {
+          return {
+            ok: false,
+            status: 302,
+            statusText: 'Found',
+            headers: { location: 'https://external.example.com/landing' },
+            text: async () => '',
+            json: async () => ({}),
+          } as any;
+        }
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          text: async () => 'ok',
+          json: async () => ({ ok: true }),
+        } as any;
+      }) as any;
+
+      const originalHeaders = {
+        Authorization: 'Bearer super-secret',
+        Cookie: 'session=abc123',
+        'Proxy-Authorization': 'Basic c2VjcmV0',
+        'X-API-Key': 'key-123',
+        'X-Custom-Trace': 'trace-999',
+      };
+
+      const guardedFetch = SsrfGuard.createGuardedFetch(undefined, 5000, mockFetch);
+      const res = await guardedFetch('https://api.partner.com/start', {
+        method: 'GET',
+        headers: originalHeaders,
+      });
+
+      expect(res.status).toBe(200);
+      expect(capturedCalls).toHaveLength(2);
+      expect(capturedCalls[0].headers).toEqual(originalHeaders);
+      expect(capturedCalls[1].url).toBe('https://external.example.com/landing');
+      expect(capturedCalls[1].headers).toEqual({
+        'X-Custom-Trace': 'trace-999',
+      });
+      // Original caller object must not be mutated
+      expect(originalHeaders.Authorization).toBe('Bearer super-secret');
+      expect(originalHeaders['X-API-Key']).toBe('key-123');
+    });
+
+    it('should preserve sensitive headers on same-origin redirects and strip on scheme/port changes or multi-hop return', async () => {
+      const capturedCalls: Array<{ url: string; headers: any }> = [];
+      const mockFetch = (async (url: string, init?: any) => {
+        capturedCalls.push({ url, headers: init?.headers });
+        if (url === 'https://api.partner.com/hop1') {
+          return {
+            ok: false,
+            status: 302,
+            statusText: 'Found',
+            headers: { location: '/hop2' },
+            text: async () => '',
+            json: async () => ({}),
+          } as any;
+        }
+        if (url === 'https://api.partner.com/hop2') {
+          return {
+            ok: false,
+            status: 302,
+            statusText: 'Found',
+            headers: { location: 'https://other.example.com/hop3' },
+            text: async () => '',
+            json: async () => ({}),
+          } as any;
+        }
+        if (url === 'https://other.example.com/hop3') {
+          return {
+            ok: false,
+            status: 302,
+            statusText: 'Found',
+            headers: { location: 'https://api.partner.com/final' },
+            text: async () => '',
+            json: async () => ({}),
+          } as any;
+        }
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          text: async () => 'done',
+          json: async () => ({}),
+        } as any;
+      }) as any;
+
+      const guardedFetch = SsrfGuard.createGuardedFetch(undefined, 5000, mockFetch);
+      await guardedFetch('https://api.partner.com/hop1', {
+        headers: {
+          authorization: 'Bearer token',
+          cookie: 'sid=1',
+          accept: 'application/json',
+        },
+      });
+
+      expect(capturedCalls).toHaveLength(4);
+      // Hop 1 -> Hop 2 (same-origin relative redirect): credentials preserved
+      expect(capturedCalls[1].url).toBe('https://api.partner.com/hop2');
+      expect(capturedCalls[1].headers).toEqual({
+        authorization: 'Bearer token',
+        cookie: 'sid=1',
+        accept: 'application/json',
+      });
+      // Hop 2 -> Hop 3 (cross-origin): credentials stripped
+      expect(capturedCalls[2].url).toBe('https://other.example.com/hop3');
+      expect(capturedCalls[2].headers).toEqual({ accept: 'application/json' });
+      // Hop 3 -> Final (redirect back to original origin): credentials stay stripped
+      expect(capturedCalls[3].url).toBe('https://api.partner.com/final');
+      expect(capturedCalls[3].headers).toEqual({ accept: 'application/json' });
+    });
+
+    it('should strip sensitive headers across Headers instances, tuple arrays, and scheme downgrades', async () => {
+      const capturedTupleCalls: Array<{ url: string; headers: any }> = [];
+      const mockFetch = (async (url: string, init?: any) => {
+        capturedTupleCalls.push({ url, headers: init?.headers });
+        if (url.startsWith('https://api.partner.com')) {
+          return {
+            ok: false,
+            status: 302,
+            statusText: 'Found',
+            headers: { location: 'http://api.partner.com/downgrade' },
+            text: async () => '',
+            json: async () => ({}),
+          } as any;
+        }
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          text: async () => 'ok',
+          json: async () => ({}),
+        } as any;
+      }) as any;
+
+      const guardedFetch = SsrfGuard.createGuardedFetch(undefined, 5000, mockFetch);
+
+      // Tuple array headers + https -> http scheme downgrade
+      await guardedFetch('https://api.partner.com/start', {
+        headers: [
+          ['Authorization', 'Bearer secret'],
+          ['X-Api-Key', 'abc'],
+          ['X-Keep', 'yes'],
+        ],
+      });
+      expect(capturedTupleCalls[1].headers).toEqual([['X-Keep', 'yes']]);
+
+      // Fetch Headers instance
+      capturedTupleCalls.length = 0;
+      const headersInstance = new Headers({
+        Authorization: 'Bearer secret',
+        Cookie: 'c=1',
+        'Proxy-Authorization': 'Basic 123',
+        'X-API-Key': 'k1',
+        'X-Safe': 'ok',
+      });
+      await guardedFetch('https://api.partner.com/start', {
+        headers: headersInstance,
+      });
+      const secondHeaders = capturedTupleCalls[1].headers as Headers;
+      expect(secondHeaders).toBeInstanceOf(Headers);
+      expect(secondHeaders.get('authorization')).toBeNull();
+      expect(secondHeaders.get('cookie')).toBeNull();
+      expect(secondHeaders.get('proxy-authorization')).toBeNull();
+      expect(secondHeaders.get('x-api-key')).toBeNull();
+      expect(secondHeaders.get('x-safe')).toBe('ok');
+      expect(headersInstance.get('authorization')).toBe('Bearer secret');
+    });
   });
 
   // ==========================================
