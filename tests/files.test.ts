@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
 import { RecordValidator } from '../src/records/RecordValidator';
+import { buildContentDispositionHeader } from '../src/http/controllers/BaseController';
 
 describe('File Storage and Upload Integration Test', () => {
   const testDir = path.resolve(__dirname, '../.test_file_storage');
@@ -287,7 +288,9 @@ describe('File Storage and Upload Integration Test', () => {
     expect(resHtml.headers['content-type']).toBe('text/html');
     expect(resHtml.headers['content-security-policy']).toBe("default-src 'none'");
     expect(resHtml.headers['x-content-type-options']).toBe('nosniff');
-    expect(resHtml.headers['content-disposition']).toBe(`attachment; filename="${htmlMeta.filename}"`);
+    expect(resHtml.headers['content-disposition']).toBe(
+      `attachment; filename="${htmlMeta.filename}"; filename*=UTF-8''${htmlMeta.filename}`
+    );
 
     // 2. Upload .svg file
     const svgMeta = await app.files.saveFile(
@@ -312,7 +315,9 @@ describe('File Storage and Upload Integration Test', () => {
     expect(resSvg.headers['content-type']).toBe('image/svg+xml');
     expect(resSvg.headers['content-security-policy']).toBe("default-src 'none'");
     expect(resSvg.headers['x-content-type-options']).toBe('nosniff');
-    expect(resSvg.headers['content-disposition']).toBe(`attachment; filename="${svgMeta.filename}"`);
+    expect(resSvg.headers['content-disposition']).toBe(
+      `attachment; filename="${svgMeta.filename}"; filename*=UTF-8''${svgMeta.filename}`
+    );
 
     // 3. Upload .xml and .htm files
     const xmlMeta = await app.files.saveFile(
@@ -337,7 +342,9 @@ describe('File Storage and Upload Integration Test', () => {
     expect(resXml.headers['content-type']).toBe('application/xml');
     expect(resXml.headers['content-security-policy']).toBe("default-src 'none'");
     expect(resXml.headers['x-content-type-options']).toBe('nosniff');
-    expect(resXml.headers['content-disposition']).toBe(`attachment; filename="${xmlMeta.filename}"`);
+    expect(resXml.headers['content-disposition']).toBe(
+      `attachment; filename="${xmlMeta.filename}"; filename*=UTF-8''${xmlMeta.filename}`
+    );
 
     // 4. Safe file (.txt) without ?download=1 should not enforce attachment
     const txtMeta = await app.files.saveFile(
@@ -371,6 +378,53 @@ describe('File Storage and Upload Integration Test', () => {
     });
 
     expect(resTxtDownload.statusCode).toBe(200);
-    expect(resTxtDownload.headers['content-disposition']).toBe(`attachment; filename="${txtMeta.filename}"`);
+    expect(resTxtDownload.headers['content-disposition']).toBe(
+      `attachment; filename="${txtMeta.filename}"; filename*=UTF-8''${txtMeta.filename}`
+    );
+  });
+
+  it('should sanitize control characters and apply RFC 5987/6266 encoding in Content-Disposition headers', async () => {
+    // 1. Direct helper checks for header injection payloads (quotes, CRLF, NUL, DEL, Unicode line seps)
+    const injected = buildContentDispositionHeader('evil"\r\nX-Injected: pwned\x00\x1f\x7f\u2028\u2029.html');
+    expect(injected).not.toMatch(/[\r\n\x00-\x1f\x7f\u2028\u2029]/);
+    expect(injected).toBe(
+      `attachment; filename="evil_X-Injected: pwned.html"; filename*=UTF-8''evil%22X-Injected%3A%20pwned.html`
+    );
+
+    // 2. RFC 5987 encoding of non-ASCII UTF-8 and attr-char exclusions (' ( ) * !)
+    const unicodeHeader = buildContentDispositionHeader("résumé (2026)'*!.pdf");
+    expect(unicodeHeader).toBe(
+      `attachment; filename="r_sum_ (2026)'*!.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9%20%282026%29%27%2A%21.pdf`
+    );
+
+    // 3. Semicolons and backslashes sanitized in quoted fallback, fallback on empty/dot names
+    const semiHeader = buildContentDispositionHeader('a;b\\c.txt');
+    expect(semiHeader).toBe(`attachment; filename="a_b_c.txt"; filename*=UTF-8''a%3Bb_c.txt`);
+    expect(buildContentDispositionHeader('\r\n\x00')).toBe(
+      `attachment; filename="download"; filename*=UTF-8''download`
+    );
+    expect(buildContentDispositionHeader('..')).toBe(
+      `attachment; filename="download"; filename*=UTF-8''download`
+    );
+
+    // 4. End-to-end HTTP download with special RFC 5987 and UTF-8 characters in filename
+    const col = app.schema.getCollectionOrThrow('documents');
+    const specialName = "résumé (final)'s;copy.txt";
+    await app.files.writeRecordFile(col.id, 'rec_sec_utf8', specialName, Buffer.from('utf8 content'));
+    await app.records.create('documents', {
+      id: 'rec_sec_utf8',
+      title: 'UTF8 Doc',
+      file: specialName,
+    });
+
+    const resUtf8 = await app.server.app.inject({
+      method: 'GET',
+      url: `/api/files/documents/rec_sec_utf8/${encodeURIComponent(specialName)}?download=1`,
+    });
+
+    expect(resUtf8.statusCode).toBe(200);
+    expect(resUtf8.headers['content-disposition']).toBe(
+      `attachment; filename="r_sum_ (final)'s_copy.txt"; filename*=UTF-8''r%C3%A9sum%C3%A9%20%28final%29%27s%3Bcopy.txt`
+    );
   });
 });

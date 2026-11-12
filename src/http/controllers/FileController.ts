@@ -156,8 +156,7 @@ export class FileController extends BaseController {
 
     const untrustedActiveExtensions = new Set(['.html', '.htm', '.svg', '.xml']);
     if (req.query.download === '1' || untrustedActiveExtensions.has(ext)) {
-      const sanitizedFilename = safeFilename.replace(/["\r\n\\]/g, '_');
-      reply.header('Content-Disposition', `attachment; filename="${sanitizedFilename}"`);
+      this.setContentDisposition(reply, safeFilename);
     }
 
     const stream = fs.createReadStream(filePath);

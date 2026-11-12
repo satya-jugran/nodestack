@@ -187,7 +187,7 @@ export class RecordController extends BaseController {
     const result = await records.exportRecords(collection, format, req.query, req.auth);
 
     reply.header('Content-Type', result.mimeType);
-    reply.header('Content-Disposition', `attachment; filename="${result.filename}"`);
+    this.setContentDisposition(reply, result.filename);
     return reply.send(result.data);
   }
 
