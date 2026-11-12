@@ -125,6 +125,11 @@ export class RuleEngine {
           // Row-level check: substitute @request variables
           const substitutedLeft = this.substituteVariables(leftExpr, context);
           const substitutedRight = this.substituteVariables(rightExpr, context);
+          // Reject evaluation when a required @request.auth.* / @request.query.* value is missing,
+          // rather than falling back to '' or SQL NULL (which QueryFilterParser compiles to IS NULL).
+          if (substitutedLeft === null || substitutedRight === null) {
+            return { allowed: false };
+          }
           const normalizedOp = op === '==' ? '=' : op;
           return {
             allowed: true,
@@ -142,31 +147,67 @@ export class RuleEngine {
     return { allowed: Boolean(val) };
   }
 
-  private substituteVariables(token: string, context: RuleEvaluationContext): string {
+  /**
+   * Substitutes @request.auth.* and @request.query.* tokens for row-level filter compilation.
+   * Returns null when the referenced request attribute is missing/unauthenticated so the caller
+   * rejects the comparison instead of matching empty strings or NULLs in SQL.
+   */
+  private substituteVariables(token: string, context: RuleEvaluationContext): string | null {
     const trimmed = token.trim();
     if (trimmed.startsWith('@request.auth.')) {
-      const prop = trimmed.replace('@request.auth.', '');
+      const prop = trimmed.slice('@request.auth.'.length);
       const val = context.auth ? (context.auth as any)[prop] : undefined;
-      if (val === undefined || val === null) {
-        return "''";
+      if (this.isMissingRequestValue(trimmed, val)) {
+        return null;
       }
-      if (typeof val === 'number' || typeof val === 'boolean') {
-        return String(val);
-      }
-      return FilterCodec.encode(String(val));
+      return this.formatSubstitutedValue(val);
     }
     if (trimmed.startsWith('@request.query.')) {
-      const prop = trimmed.replace('@request.query.', '');
+      const prop = trimmed.slice('@request.query.'.length);
       const val = context.query ? (context.query as any)[prop] : undefined;
-      if (val === undefined || val === null) {
-        return "''";
+      if (this.isMissingRequestValue(trimmed, val)) {
+        return null;
       }
-      if (typeof val === 'number' || typeof val === 'boolean') {
-        return String(val);
-      }
-      return FilterCodec.encode(String(val));
+      return this.formatSubstitutedValue(val);
     }
     return trimmed;
+  }
+
+  private formatSubstitutedValue(val: unknown): string {
+    if (typeof val === 'number' || typeof val === 'boolean') {
+      return String(val);
+    }
+    return FilterCodec.encode(String(val));
+  }
+
+  private isMissingRequestValue(token: string, val: unknown): boolean {
+    if (val === undefined || val === null) {
+      return true;
+    }
+    return token === '@request.auth.id' && val === '';
+  }
+
+  private isUnresolvedRequestOperand(expr: string, val: unknown): boolean {
+    const trimmed = expr.trim();
+    if (!trimmed.startsWith('@request.auth.') && !trimmed.startsWith('@request.query.')) {
+      return false;
+    }
+    return this.isMissingRequestValue(trimmed, val);
+  }
+
+  private isLiteralToken(token: string): boolean {
+    const trimmed = token.trim();
+    if (
+      (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2)
+    ) {
+      return true;
+    }
+    if (!isNaN(Number(trimmed)) && trimmed !== '') {
+      return true;
+    }
+    const lower = trimmed.toLowerCase();
+    return lower === 'true' || lower === 'false' || lower === 'null';
   }
   /**
    * Evaluate an access rule against a given context.
@@ -234,6 +275,15 @@ export class RuleEngine {
 
         const leftVal = this.resolveValue(leftExpr, context);
         const rightVal = this.resolveValue(rightExpr, context);
+
+        // Reject comparisons between a non-literal (e.g. record/data field) and an unresolved
+        // @request.auth.* / @request.query.* value so empty/null fields never match anonymous requests.
+        if (
+          (this.isUnresolvedRequestOperand(leftExpr, leftVal) && !this.isLiteralToken(rightExpr)) ||
+          (this.isUnresolvedRequestOperand(rightExpr, rightVal) && !this.isLiteralToken(leftExpr))
+        ) {
+          return false;
+        }
 
         const isBoolLike = (v: any) => typeof v === 'boolean' || v === 1 || v === 0 || v === 'true' || v === 'false' || v === '1' || v === '0';
         const toBool = (v: any): boolean => v === true || v === 1 || v === '1' || v === 'true';

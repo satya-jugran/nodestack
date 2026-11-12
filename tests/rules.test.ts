@@ -110,6 +110,39 @@ describe('RuleEngine', () => {
       })).toBe(true);
     });
 
+    it('should reject unauthenticated or missing auth attribute comparisons against record/data fields', () => {
+      // Empty string, null, or missing record field must never match unauthenticated @request.auth.id
+      expect(engine.evaluate('user = @request.auth.id', { record: { user: '' } })).toBe(false);
+      expect(engine.evaluate('user = @request.auth.id', { record: { user: null } })).toBe(false);
+      expect(engine.evaluate('user = @request.auth.id', { record: {} })).toBe(false);
+      expect(engine.evaluate('@request.auth.id = user', { record: { user: '' } })).toBe(false);
+      expect(engine.evaluate('user != @request.auth.id', { record: { user: 'usr_1' } })).toBe(false);
+      expect(engine.evaluate('title ~ @request.auth.id', { record: { title: 'secret' } })).toBe(false);
+
+      // Empty auth.id or null auth must also be rejected
+      expect(engine.evaluate('user = @request.auth.id', { auth: null, record: { user: '' } })).toBe(false);
+      expect(engine.evaluate('user = @request.auth.id', { auth: { id: '' }, record: { user: '' } })).toBe(false);
+
+      // Create payload without auth must not match empty/missing user field
+      expect(engine.evaluate('user = @request.auth.id', { data: { user: '' } })).toBe(false);
+      expect(engine.evaluate('user = @request.auth.id', { data: { user: null } })).toBe(false);
+      expect(engine.evaluate('user = @request.auth.id', { data: {} })).toBe(false);
+
+      // Authenticated user missing optional claim (e.g. email) must not match empty/null field
+      expect(engine.evaluate('customerEmail = @request.auth.email', {
+        auth: { id: 'usr_1' },
+        record: { customerEmail: '' },
+      })).toBe(false);
+
+      // OR fallback to public condition still works when auth branch fails
+      expect(engine.evaluate('user = @request.auth.id || status = "published"', {
+        record: { user: '', status: 'draft' },
+      })).toBe(false);
+      expect(engine.evaluate('user = @request.auth.id || status = "published"', {
+        record: { user: '', status: 'published' },
+      })).toBe(true);
+    });
+
 
   describe('buildListFilter() - Row-Level Rule Scoping', () => {
     const fields = new Set(['id', 'user', 'customerEmail', 'status', 'created', 'updated']);
@@ -191,6 +224,29 @@ describe('RuleEngine', () => {
       }, fields);
       expect(resCustomer.allowed).toBe(true);
       expect(resCustomer.filter).toBe("user = 'usr_c'");
+    });
+
+    it('should reject unauthenticated row-level rules referencing @request.auth.* instead of substituting empty string', () => {
+      expect(engine.buildListFilter('user = @request.auth.id', {}, fields)).toEqual({ allowed: false });
+      expect(engine.buildListFilter('user = @request.auth.id', { auth: null }, fields)).toEqual({ allowed: false });
+      expect(engine.buildListFilter('user = @request.auth.id', { auth: { id: '' } }, fields)).toEqual({ allowed: false });
+      expect(engine.buildListFilter('@request.auth.id = user', {}, fields)).toEqual({ allowed: false });
+      expect(engine.buildListFilter('user != @request.auth.id', {}, fields)).toEqual({ allowed: false });
+      expect(engine.buildListFilter('status = "published" && user = @request.auth.id', {}, fields)).toEqual({ allowed: false });
+
+      // Authenticated user without email must not compile customerEmail = ''
+      expect(engine.buildListFilter('customerEmail = @request.auth.email', {
+        auth: { id: 'usr_1' },
+      }, fields)).toEqual({ allowed: false });
+
+      // Missing query param must not compile user = ''
+      expect(engine.buildListFilter('user = @request.query.owner', { query: {} }, fields)).toEqual({ allowed: false });
+    });
+
+    it('should drop unauthenticated auth OR branch and keep public branch in buildListFilter()', () => {
+      const resGuest = engine.buildListFilter('user = @request.auth.id || status = "published"', {}, fields);
+      expect(resGuest.allowed).toBe(true);
+      expect(resGuest.filter).toBe('status = "published"');
     });
   });
 
@@ -419,6 +475,50 @@ describe('RuleEngine', () => {
       const adminList = await app.records.getList('favorites', {}, adminAuth);
       expect(adminList.items.some((f: any) => f.id === favBeta.id)).toBe(true);
       await app.records.delete('favorites', favBeta.id, adminAuth);
+    });
+
+    it('should not leak records with empty or null owner fields to anonymous users under user = @request.auth.id', async () => {
+      await app.schema.createCollection({
+        name: 'private_notes',
+        type: 'base',
+        listRule: 'user = @request.auth.id',
+        viewRule: 'user = @request.auth.id',
+        createRule: 'user = @request.auth.id',
+        updateRule: 'user = @request.auth.id',
+        deleteRule: 'user = @request.auth.id',
+        schema: [
+          { name: 'user', type: 'text', required: false },
+          { name: 'status', type: 'text', required: false },
+          { name: 'body', type: 'text', required: false },
+        ],
+      });
+
+      const adminAuth = { id: 'admin_root', isAdmin: true };
+      const emptyUserNote = await app.records.create('private_notes', { user: '', status: 'draft', body: 'empty owner draft' }, adminAuth);
+      const nullUserNote = await app.records.create('private_notes', { user: null, status: 'draft', body: 'null owner draft' }, adminAuth);
+      const publicNote = await app.records.create('private_notes', { user: '', status: 'published', body: 'published note' }, adminAuth);
+
+      // Anonymous guest must be denied on all operations even when rows have user='' or user=null
+      await expect(app.records.getList('private_notes')).rejects.toThrow(ForbiddenError);
+      await expect(app.records.getOne('private_notes', emptyUserNote.id)).rejects.toThrow(ForbiddenError);
+      await expect(app.records.getOne('private_notes', nullUserNote.id)).rejects.toThrow(ForbiddenError);
+      await expect(app.records.create('private_notes', { user: '', body: 'anon' })).rejects.toThrow(ForbiddenError);
+      await expect(app.records.create('private_notes', { body: 'anon missing user' })).rejects.toThrow(ForbiddenError);
+      await expect(app.records.update('private_notes', emptyUserNote.id, { body: 'tampered' })).rejects.toThrow(ForbiddenError);
+      await expect(app.records.delete('private_notes', emptyUserNote.id)).rejects.toThrow(ForbiddenError);
+
+      // With an OR public fallback, anonymous users only see published rows, never empty/null-owner drafts
+      await app.schema.updateCollection('private_notes', {
+        listRule: 'user = @request.auth.id || status = "published"',
+        viewRule: 'user = @request.auth.id || status = "published"',
+      });
+
+      const guestList = await app.records.getList('private_notes');
+      expect(guestList.items.map((r: any) => r.id)).toEqual([publicNote.id]);
+      await expect(app.records.getOne('private_notes', emptyUserNote.id)).rejects.toThrow(ForbiddenError);
+      await expect(app.records.getOne('private_notes', nullUserNote.id)).rejects.toThrow(ForbiddenError);
+      const viewedPublic = await app.records.getOne('private_notes', publicNote.id);
+      expect(viewedPublic.id).toBe(publicNote.id);
     });
   });
 });
