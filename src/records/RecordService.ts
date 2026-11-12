@@ -959,16 +959,42 @@ export class RecordService {
 
     for (const fieldName of expandFields) {
       const field = col.schema.find((f) => f.name === fieldName);
-      if (field && field.type === 'relation' && field.options?.collectionId) {
-        const relatedCol = await this.schemaService.getCollection(field.options.collectionId);
-        const relatedId = record[fieldName];
-        if (relatedCol && relatedId) {
-          try {
-            const relRecord = await this.getOne(relatedCol.name, relatedId, {}, auth);
-            expandMap[fieldName] = relRecord;
-          } catch {
-            // ignore if relation is inaccessible
-          }
+      if (!field || field.type !== 'relation' || !field.options?.collectionId) {
+        continue;
+      }
+
+      const relatedCol = await this.schemaService.getCollection(field.options.collectionId);
+      if (!relatedCol) {
+        continue;
+      }
+
+      const { isArray, ids } = this.parseRelationIds(record[fieldName]);
+      if (ids.length === 0) {
+        continue;
+      }
+
+      const isMulti = isArray || Boolean(field.options.maxSelect && field.options.maxSelect > 1);
+      if (isMulti) {
+        const results = await Promise.all(
+          ids.map(async (id) => {
+            try {
+              return await this.getOne(relatedCol.name, id, {}, auth);
+            } catch {
+              // ignore if relation is inaccessible or missing
+              return null;
+            }
+          })
+        );
+        const relRecords = results.filter((r): r is Record<string, any> => r !== null);
+        if (relRecords.length > 0) {
+          expandMap[fieldName] = relRecords;
+        }
+      } else {
+        try {
+          const relRecord = await this.getOne(relatedCol.name, ids[0], {}, auth);
+          expandMap[fieldName] = relRecord;
+        } catch {
+          // ignore if relation is inaccessible
         }
       }
     }
@@ -976,5 +1002,48 @@ export class RecordService {
     if (Object.keys(expandMap).length > 0) {
       record.expand = expandMap;
     }
+  }
+
+  /**
+   * Extract single or multiple relation IDs from a raw or JSON-encoded array field value.
+   */
+  private parseRelationIds(value: any): { isArray: boolean; ids: string[] } {
+    if (value === undefined || value === null || value === '') {
+      return { isArray: false, ids: [] };
+    }
+
+    if (Array.isArray(value)) {
+      const ids = value
+        .filter((v) => typeof v === 'string' || typeof v === 'number')
+        .map((v) => String(v).trim())
+        .filter(Boolean);
+      return { isArray: true, ids };
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return { isArray: false, ids: [] };
+      }
+
+      if (trimmed.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            const ids = parsed
+              .filter((v) => typeof v === 'string' || typeof v === 'number')
+              .map((v) => String(v).trim())
+              .filter(Boolean);
+            return { isArray: true, ids };
+          }
+        } catch {
+          // Malformed JSON; fall back to treating as a single ID string
+        }
+      }
+
+      return { isArray: false, ids: [trimmed] };
+    }
+
+    return { isArray: false, ids: [] };
   }
 }

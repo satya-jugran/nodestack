@@ -105,6 +105,8 @@ export class RecordValidator {
         return typeof value === 'string' ? value : JSON.stringify(value);
       case 'email':
         return String(value).trim().toLowerCase();
+      case 'relation':
+        return Array.isArray(value) ? JSON.stringify(value) : String(value);
       default:
         return String(value);
     }
