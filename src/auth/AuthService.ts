@@ -243,6 +243,42 @@ export class AuthService {
     }
   }
 
+  /**
+   * Synchronizes an admin record into the control-plane registry using dialect-aware upsert SQL.
+   */
+  private syncAdminToRegistry(admin: any): Promise<void> | void {
+    if (!admin || !this.registry || !this.isControlPlane) {
+      return;
+    }
+
+    try {
+      const driver = this.registry.getDriver();
+      const columns = ['id', 'email', 'passwordHash', 'tokenKey', 'avatar', 'created', 'updated'];
+      const updateColumns = ['email', 'passwordHash', 'tokenKey', 'avatar', 'created', 'updated'];
+      const upsertSql = driver.dialect.upsertSql('_admins', columns, 'id', updateColumns);
+      const runRes = driver
+        .prepare(upsertSql)
+        .run(
+          admin.id,
+          admin.email,
+          admin.passwordHash,
+          admin.tokenKey,
+          admin.avatar || null,
+          admin.created,
+          admin.updated
+        );
+
+      if (runRes && typeof (runRes as any).then === 'function') {
+        return (runRes as Promise<any>).then(
+          () => undefined,
+          () => undefined
+        );
+      }
+    } catch {
+      // non-fatal registry sync
+    }
+  }
+
   private verifyDecodedClaims(decoded: AuthClaims): any {
     if (!decoded || !decoded.id || !decoded.collection) {
       throw new UnauthorizedError('Invalid authentication token payload');
@@ -283,19 +319,9 @@ export class AuthService {
       };
 
       const checkAndSaveAdmin = (admin: any) => {
-        if (admin && this.registry && this.isControlPlane) {
-          try {
-            const runRes = this.registry.getDriver().prepare(`
-              INSERT OR REPLACE INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-            `).run(admin.id, admin.email, admin.passwordHash, admin.tokenKey, admin.avatar || null, admin.created, admin.updated);
-            if (runRes && typeof (runRes as any).then === 'function') {
-              return (runRes as any).then(
-                () => finalizeAdmin(admin),
-                () => finalizeAdmin(admin)
-              );
-            }
-          } catch {}
+        const syncRes = this.syncAdminToRegistry(admin);
+        if (syncRes && typeof (syncRes as any).then === 'function') {
+          return syncRes.then(() => finalizeAdmin(admin));
         }
         return finalizeAdmin(admin);
       };
@@ -495,12 +521,7 @@ export class AuthService {
     if (!admin) {
       admin = await this.db.get<any>('SELECT * FROM _admins WHERE email = ?', cleanEmail);
       if (admin && this.registry && this.isControlPlane) {
-        try {
-          await this.registry.getDriver().prepare(`
-            INSERT OR REPLACE INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `).run(admin.id, admin.email, admin.passwordHash, admin.tokenKey, admin.avatar || null, admin.created, admin.updated);
-        } catch {}
+        await this.syncAdminToRegistry(admin);
       }
     }
     if (!admin) {

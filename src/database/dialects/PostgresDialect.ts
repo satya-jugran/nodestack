@@ -90,7 +90,7 @@ export function rewritePlaceholdersToNumbered(
     // Preserve and quote unquoted camelCase identifiers (e.g. listRule, passwordHash, emailVisibility)
     if (/[a-zA-Z_]/.test(char)) {
       const prevChar = i > 0 ? sql[i - 1] : '';
-      if (!/[a-zA-Z0-9_"]/.test(prevChar)) {
+      if (!/[a-zA-Z0-9_"\[]/.test(prevChar)) {
         let word = '';
         let j = i;
         while (j < sql.length && /[a-zA-Z0-9_]/.test(sql[j])) {

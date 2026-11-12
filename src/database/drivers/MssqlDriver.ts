@@ -190,7 +190,8 @@ export class MssqlDriver implements IDatabaseDriver {
           cleanTable.startsWith('sys') ||
           cleanTable.startsWith('INFORMATION_SCHEMA') ||
           cleanTable.toUpperCase() === 'VALUES' ||
-          cleanTable.toUpperCase() === 'SELECT'
+          cleanTable.toUpperCase() === 'SELECT' ||
+          cleanTable.toUpperCase() === 'SET'
         ) {
           return match;
         }

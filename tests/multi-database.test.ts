@@ -3036,4 +3036,252 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
     });
   });
 
+  // ============================================================
+  // AuthService Admin Registry Sync Dialect Compatibility
+  // ============================================================
+  describe('AuthService Dialect-Aware Admin Registry Synchronization', () => {
+    it('should use PostgreSQL ON CONFLICT upsert instead of INSERT OR REPLACE when syncing admins to registry', async () => {
+      const config = new ConfigService({ dataDir: testDir, jwtSecret: 'pg-admin-sync-secret-12345' });
+      const executedQueries: Array<{ sql: string; params: any[] }> = [];
+
+      const mockPgPool: any = {
+        query: async (sql: string, params?: any[]) => {
+          executedQueries.push({ sql, params: params || [] });
+          return { rows: [], rowCount: 1 };
+        },
+        connect: async () => ({
+          query: async (sql: string, params?: any[]) => {
+            if (sql.startsWith('SET search_path') || sql.startsWith('DISCARD')) {
+              return { rows: [] };
+            }
+            return mockPgPool.query(sql, params);
+          },
+          release: () => {},
+        }),
+        end: async () => {},
+      };
+
+      const pgRegistryDriver = new PostgresDriver({ pool: mockPgPool });
+      const mockRegistry: any = {
+        getDriver: () => pgRegistryDriver,
+        getAdminById: async () => undefined,
+        getAdminByEmail: async () => undefined,
+      };
+
+      const appDb = new NodeSqliteDriver(':memory:');
+      appDb.execSync(`
+        CREATE TABLE _admins (
+          id TEXT PRIMARY KEY,
+          email TEXT UNIQUE NOT NULL,
+          passwordHash TEXT NOT NULL,
+          tokenKey TEXT NOT NULL,
+          avatar TEXT,
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL
+        );
+      `);
+      const dbService = new DatabaseService(config, appDb);
+      const schemaService = new SchemaService(dbService);
+      const authService = new AuthService(
+        dbService,
+        config,
+        schemaService,
+        mockRegistry,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { isControlPlane: true }
+      );
+
+      const passwordHash = await authService.hashPassword('PgAdminPass123!');
+      const now = new Date().toISOString();
+      appDb.prepareSync(`
+        INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run('adm_pg1', 'pgadmin@nodestack.dev', passwordHash, 'tk_pg_1', null, now, now);
+
+      // 1. authenticateAdmin triggers registry sync when admin exists in appDb but not yet in registry
+      const authRes = await authService.authenticateAdmin('pgadmin@nodestack.dev', 'PgAdminPass123!');
+      expect(authRes.token).toBeDefined();
+
+      const authSyncCall = executedQueries.find((q) => q.sql.includes('"_admins"'));
+      expect(authSyncCall).toBeDefined();
+      expect(authSyncCall!.sql).not.toContain('INSERT OR REPLACE');
+      expect(authSyncCall!.sql).toContain('INSERT INTO "_admins"');
+      expect(authSyncCall!.sql).toContain('VALUES ($1, $2, $3, $4, $5, $6, $7)');
+      expect(authSyncCall!.sql).toContain('ON CONFLICT ("id") DO UPDATE SET');
+      expect(authSyncCall!.params).toEqual(['adm_pg1', 'pgadmin@nodestack.dev', passwordHash, 'tk_pg_1', null, now, now]);
+
+      // 2. verifyToken triggers registry sync on cache miss
+      executedQueries.length = 0;
+      const claims = await authService.verifyToken(authRes.token);
+      expect(claims.id).toBe('adm_pg1');
+
+      const verifySyncCall = executedQueries.find((q) => q.sql.includes('"_admins"'));
+      expect(verifySyncCall).toBeDefined();
+      expect(verifySyncCall!.sql).not.toContain('INSERT OR REPLACE');
+      expect(verifySyncCall!.sql).toContain('ON CONFLICT ("id") DO UPDATE SET');
+      expect(verifySyncCall!.params).toEqual(['adm_pg1', 'pgadmin@nodestack.dev', passwordHash, 'tk_pg_1', null, now, now]);
+
+      await pgRegistryDriver.close();
+      appDb.close();
+    });
+
+    it('should use MSSQL MERGE INTO upsert without corrupting bracketed identifiers or UPDATE SET', async () => {
+      const config = new ConfigService({ dataDir: testDir, jwtSecret: 'mssql-admin-sync-secret-12345' });
+      const executedQueries: Array<{ sql: string; inputs: Record<string, any> }> = [];
+
+      const mockMssqlPool: any = {
+        request: () => {
+          const inputs: Record<string, any> = {};
+          return {
+            input: (name: string, val: any) => {
+              inputs[name] = val;
+            },
+            query: async (sql: string) => {
+              executedQueries.push({ sql, inputs });
+              return { recordset: [], rowsAffected: [1] };
+            },
+          };
+        },
+        close: async () => {},
+      };
+
+      const mssqlRegistryDriver = new MssqlDriver({
+        connectionPool: mockMssqlPool,
+        schemaName: 'control_plane',
+      });
+      const mockRegistry: any = {
+        getDriver: () => mssqlRegistryDriver,
+        getAdminById: async () => undefined,
+        getAdminByEmail: async () => undefined,
+      };
+
+      const appDb = new NodeSqliteDriver(':memory:');
+      appDb.execSync(`
+        CREATE TABLE _admins (
+          id TEXT PRIMARY KEY,
+          email TEXT UNIQUE NOT NULL,
+          passwordHash TEXT NOT NULL,
+          tokenKey TEXT NOT NULL,
+          avatar TEXT,
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL
+        );
+      `);
+      const dbService = new DatabaseService(config, appDb);
+      const schemaService = new SchemaService(dbService);
+      const authService = new AuthService(
+        dbService,
+        config,
+        schemaService,
+        mockRegistry,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { isControlPlane: true }
+      );
+
+      const passwordHash = await authService.hashPassword('MssqlAdminPass123!');
+      const now = new Date().toISOString();
+      appDb.prepareSync(`
+        INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run('adm_ms1', 'mssqladmin@nodestack.dev', passwordHash, 'tk_ms_1', 'avatar.png', now, now);
+
+      // 1. authenticateAdmin triggers registry sync
+      const authRes = await authService.authenticateAdmin('mssqladmin@nodestack.dev', 'MssqlAdminPass123!');
+      expect(authRes.token).toBeDefined();
+
+      const authSyncCall = executedQueries.find((q) => q.sql.includes('[_admins]'));
+      expect(authSyncCall).toBeDefined();
+      expect(authSyncCall!.sql).not.toContain('INSERT OR REPLACE');
+      expect(authSyncCall!.sql).toContain('MERGE INTO [control_plane].[_admins] AS target');
+      expect(authSyncCall!.sql).toContain('USING (VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7))');
+      expect(authSyncCall!.sql).toContain('WHEN MATCHED THEN UPDATE SET');
+      expect(authSyncCall!.sql).not.toContain('[control_plane].[SET]');
+      expect(authSyncCall!.sql).toContain('[passwordHash]');
+      expect(authSyncCall!.sql).toContain('[tokenKey]');
+      expect(authSyncCall!.sql).not.toContain('["passwordHash"]');
+      expect(authSyncCall!.sql).not.toContain('["tokenKey"]');
+      expect(authSyncCall!.inputs).toEqual({
+        p1: 'adm_ms1',
+        p2: 'mssqladmin@nodestack.dev',
+        p3: passwordHash,
+        p4: 'tk_ms_1',
+        p5: 'avatar.png',
+        p6: now,
+        p7: now,
+      });
+
+      // 2. verifyToken triggers registry sync on cache miss
+      executedQueries.length = 0;
+      const claims = await authService.verifyToken(authRes.token);
+      expect(claims.id).toBe('adm_ms1');
+
+      const verifySyncCall = executedQueries.find((q) => q.sql.includes('[_admins]'));
+      expect(verifySyncCall).toBeDefined();
+      expect(verifySyncCall!.sql).toContain('MERGE INTO [control_plane].[_admins] AS target');
+      expect(verifySyncCall!.sql).toContain('WHEN MATCHED THEN UPDATE SET');
+
+      await mssqlRegistryDriver.close();
+      appDb.close();
+    });
+
+    it('should synchronize and update admin records in SQLite AppRegistry using ON CONFLICT upsert', async () => {
+      const config = new ConfigService({ dataDir: testDir, jwtSecret: 'sqlite-admin-sync-secret-12345' });
+      const registry = new AppRegistry(config, new NodeSqliteDriver(':memory:'));
+      await registry.init();
+
+      const appDb = new NodeSqliteDriver(':memory:');
+      appDb.execSync(`
+        CREATE TABLE _admins (
+          id TEXT PRIMARY KEY,
+          email TEXT UNIQUE NOT NULL,
+          passwordHash TEXT NOT NULL,
+          tokenKey TEXT NOT NULL,
+          avatar TEXT,
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL
+        );
+      `);
+      const dbService = new DatabaseService(config, appDb);
+      const schemaService = new SchemaService(dbService);
+      const authService = new AuthService(
+        dbService,
+        config,
+        schemaService,
+        registry,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { isControlPlane: true }
+      );
+
+      const passwordHash = await authService.hashPassword('SqliteAdminPass123!');
+      const now = new Date().toISOString();
+      appDb.prepareSync(`
+        INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run('adm_sq1', 'sqliteadmin@nodestack.dev', passwordHash, 'tk_sq_1', null, now, now);
+
+      const authRes = await authService.authenticateAdmin('sqliteadmin@nodestack.dev', 'SqliteAdminPass123!');
+      const synced1 = registry.getAdminById('adm_sq1');
+      expect(synced1).toBeDefined();
+      expect(synced1.email).toBe('sqliteadmin@nodestack.dev');
+      expect(synced1.tokenKey).toBe('tk_sq_1');
+
+      // Synchronous verifyToken when admin is already in registry (upserts updated record)
+      const claims = authService.verifyToken(authRes.token);
+      expect(claims.id).toBe('adm_sq1');
+      expect(claims.isSuperAdmin).toBe(true);
+
+      await registry.getDriver().close();
+      appDb.close();
+    });
+  });
+
 });
