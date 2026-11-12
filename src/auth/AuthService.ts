@@ -12,7 +12,7 @@ import { FileStorageService } from '../files/FileStorageService';
 import { RuleEngine } from '../rules/RuleEngine';
 import { RecordValidator } from '../records/RecordValidator';
 import { EventBus } from '../core/events/EventBus';
-import { RealtimeService } from '../realtime/RealtimeService';
+import { RealtimeService, RealtimeIdentityFilter } from '../realtime/RealtimeService';
 
 export interface AuthClaims {
   id: string;
@@ -29,6 +29,8 @@ export interface AuthClaims {
   allowedIps?: string[];
   appId?: string;
   appSlug?: string;
+  exp?: number;
+  iat?: number;
 }
 
 export interface AuthServiceOptions {
@@ -56,6 +58,7 @@ export class AuthService {
   private ruleEngine: RuleEngine;
   private eventBus?: EventBus;
   private realtimeService?: RealtimeService;
+  private sessionRevokedListeners: Array<(filter: RealtimeIdentityFilter) => void> = [];
   private tokenKeyCache = new Map<string, { tokenKey: string; expiresAt: number }>();
   private readonly tokenKeyCacheTtlMs = 30000; // 30 seconds TTL
   private readonly maxTokenKeyCacheSize = 5000;
@@ -96,6 +99,10 @@ export class AuthService {
       const col = colName ? await this.schemaService.getCollection(colName) : undefined;
       if (col && col.type === 'auth') {
         this.invalidateTokenCache(col.name, ctx.record.id);
+        await this.realtimeService?.revalidateClientsByIdentity({
+          collection: col.name,
+          id: ctx.record.id,
+        });
       }
     });
     this.eventBus.onRecordAfterDelete(async (ctx) => {
@@ -103,8 +110,31 @@ export class AuthService {
       const col = colName ? await this.schemaService.getCollection(colName) : undefined;
       if (col && col.type === 'auth') {
         this.invalidateTokenCache(col.name, ctx.record.id);
+        this.notifySessionRevoked({
+          collection: col.name,
+          id: ctx.record.id,
+        });
       }
     });
+  }
+
+  public onSessionRevoked(listener: (filter: RealtimeIdentityFilter) => void): void {
+    this.sessionRevokedListeners.push(listener);
+  }
+
+  private notifySessionRevoked(filter: RealtimeIdentityFilter): void {
+    try {
+      this.realtimeService?.revokeClientsByIdentity(filter);
+    } catch {
+      // non-fatal
+    }
+    for (const listener of this.sessionRevokedListeners) {
+      try {
+        listener(filter);
+      } catch {
+        // non-fatal
+      }
+    }
   }
 
   public getCachedTokenKey(cacheKey: string): string | null {
@@ -182,6 +212,37 @@ export class AuthService {
       throw new UnauthorizedError('Invalid or expired authentication token');
     }
 
+    return this.verifyDecodedClaims(decoded);
+  }
+
+  /**
+   * Re-verifies previously issued JWT claims against token expiration
+   * and stored `tokenKey` / record existence.
+   */
+  public verifyClaims(claims: AuthClaims | null | undefined): boolean | Promise<boolean> {
+    if (!claims || !claims.id || !claims.collection) {
+      return false;
+    }
+
+    if (typeof claims.exp === 'number' && Math.floor(Date.now() / 1000) >= claims.exp) {
+      return false;
+    }
+
+    try {
+      const result = this.verifyDecodedClaims({ ...claims });
+      if (result && typeof (result as any).then === 'function') {
+        return (result as Promise<AuthClaims>).then(
+          () => true,
+          () => false
+        );
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private verifyDecodedClaims(decoded: AuthClaims): any {
     if (!decoded || !decoded.id || !decoded.collection) {
       throw new UnauthorizedError('Invalid authentication token payload');
     }
@@ -513,6 +574,11 @@ export class AuthService {
     }
 
     this.invalidateTokenCache('_admins', admin.id);
+    this.notifySessionRevoked({
+      collection: '_admins',
+      id: admin.id,
+      email: cleanEmail,
+    });
   }
 
   public revokeAdminSessions(idOrEmail: string): void {
@@ -562,6 +628,11 @@ export class AuthService {
     } else {
       this.invalidateTokenCache('_admins');
     }
+    this.notifySessionRevoked({
+      collection: '_admins',
+      id: targetId,
+      email: clean,
+    });
   }
 
   public revokeRecordSessions(collectionName: string, idOrEmail: string): void | Promise<void> {
@@ -588,8 +659,18 @@ export class AuthService {
           }
           if (existing?.id) {
             this.invalidateTokenCache(col.name, existing.id);
+            this.notifySessionRevoked({
+              collection: col.name,
+              id: existing.id,
+              email: clean,
+            });
           } else {
             this.invalidateTokenCache(col.name);
+            this.notifySessionRevoked({
+              collection: col.name,
+              id: idOrEmail,
+              email: clean,
+            });
           }
         };
 

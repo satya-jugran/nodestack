@@ -1113,6 +1113,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       // 1. Connect SSE client to ecommerce scoped realtime endpoint
       let sseRes: http.IncomingMessage;
       let clientId = '';
+      let clientSecret = '';
       const receivedEvents: any[] = [];
 
       const sseConnected = new Promise<void>((resolve, reject) => {
@@ -1127,9 +1128,11 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
               buffer = lines.pop() || '';
               for (const block of lines) {
                 if (block.includes('NS_CONNECT')) {
-                  const match = block.match(/\{"clientId":"([^"]+)"\}/);
-                  if (match && !clientId) {
-                    clientId = match[1];
+                  const dataMatch = block.match(/data: (\{.*\})/);
+                  if (dataMatch && !clientId) {
+                    const parsed = JSON.parse(dataMatch[1]);
+                    clientId = parsed.clientId;
+                    clientSecret = parsed.clientSecret || '';
                     resolve();
                   }
                 } else if (block.includes('event: orders')) {
@@ -1159,9 +1162,13 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
         // 3. Subscribe client to 'orders' via POST /api/apps/ecommerce/realtime
         const subRes = await fetch(`http://127.0.0.1:${port}/api/apps/ecommerce/realtime`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authRes.token}`,
+          },
           body: JSON.stringify({
             clientId,
+            clientSecret,
             subscriptions: ['orders'],
           }),
         });
@@ -1197,6 +1204,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       const prevBlogClients = blogScope.realtime.getConnectedClientsCount();
 
       let clientId = '';
+      let clientSecret = '';
       let sseRes: http.IncomingMessage;
 
       const connected = new Promise<void>((resolve, reject) => {
@@ -1204,12 +1212,21 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
           `http://127.0.0.1:${port}/api/realtime?app=blog`,
           (res) => {
             sseRes = res;
+            let buffer = '';
             res.on('data', (chunk) => {
-              const text = chunk.toString();
-              const match = text.match(/\{"clientId":"([^"]+)"\}/);
-              if (match && !clientId) {
-                clientId = match[1];
-                resolve();
+              buffer += chunk.toString();
+              const blocks = buffer.split('\n\n');
+              buffer = blocks.pop() || '';
+              for (const block of blocks) {
+                if (block.includes('NS_CONNECT')) {
+                  const dataMatch = block.match(/data: (\{.*\})/);
+                  if (dataMatch && !clientId) {
+                    const parsed = JSON.parse(dataMatch[1]);
+                    clientId = parsed.clientId;
+                    clientSecret = parsed.clientSecret || '';
+                    resolve();
+                  }
+                }
               }
             });
           }
@@ -1231,6 +1248,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
           },
           body: JSON.stringify({
             clientId,
+            clientSecret,
             subscriptions: ['secret_posts'],
           }),
         });

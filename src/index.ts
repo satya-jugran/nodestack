@@ -15,6 +15,7 @@ export { loadEnvFile } from './core/config/EnvLoader';
 export { EventBus } from './core/events/EventBus';
 export * from './core/events/types';
 export * from './core/errors/AppError';
+export { hashSecret, verifySecret, timingSafeEqualStrings } from './core/crypto/secret';
 
 // Database
 export { DatabaseService } from './database/DatabaseService';
@@ -82,7 +83,13 @@ export * from './auth/oauth/types';
 export { FileStorageService, SavedFileMeta } from './files/FileStorageService';
 
 // Realtime & Logging
-export { RealtimeService, RealtimeAction, RealtimeClient } from './realtime/RealtimeService';
+export {
+  RealtimeService,
+  RealtimeAction,
+  RealtimeClient,
+  RealtimeAuthRevalidator,
+  RealtimeIdentityFilter,
+} from './realtime/RealtimeService';
 export { LogService, LogEntry } from './logger/LogService';
 export {
   AuditLogService,

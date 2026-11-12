@@ -1,6 +1,16 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AuthService, AuthClaims } from '../../auth/AuthService';
 import { ApiKeyService, hasScope } from '../../auth/ApiKeyService';
+import type { RealtimeAuthRevalidator } from '../../realtime/RealtimeService';
+
+const requestAuthRevalidators = new WeakMap<FastifyRequest, RealtimeAuthRevalidator>();
+
+/**
+ * Retrieves an internal per-request auth revalidator registered during request authentication.
+ */
+export function getRequestAuthRevalidator(req?: FastifyRequest): RealtimeAuthRevalidator | undefined {
+  return req ? requestAuthRevalidators.get(req) : undefined;
+}
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -28,6 +38,7 @@ export class AuthMiddleware {
 
   public async handle(req: FastifyRequest, _reply?: FastifyReply): Promise<void> {
     req.auth = null;
+    requestAuthRevalidators.delete(req);
 
     // 1. Check for API Key in x-api-key header or Authorization header (Bearer nsk_... / ApiKey nsk_...)
     const xApiKey = req.headers['x-api-key'];
@@ -54,6 +65,7 @@ export class AuthMiddleware {
         const clientIp = req.ip || (req.socket ? req.socket.remoteAddress : undefined);
         let result = await apiKeyService.verifyKey(apiKeyToken, clientIp);
         let verifiedInTenant = isTenantApp && result.valid && !!result.apiKey;
+        let verifiedApiKeyService = apiKeyService;
 
         // If key verification failed in tenant scope, check if it's a global super-admin key on root service
         if (!result.valid && isTenantApp && this.apiKeyService && this.apiKeyService !== apiKeyService) {
@@ -66,6 +78,7 @@ export class AuthMiddleware {
             if (hasAdminPrivilege) {
               result = globalResult;
               verifiedInTenant = false;
+              verifiedApiKeyService = this.apiKeyService;
             }
           }
         }
@@ -89,6 +102,13 @@ export class AuthMiddleware {
             allowedIps: key.allowedIps,
             appId: verifiedInTenant ? appScope?.app?.id : undefined,
           };
+          const expectedSecretHash = key.secretHash;
+          requestAuthRevalidators.set(req, (claims) =>
+            verifiedApiKeyService.verifyClaims(claims as AuthClaims, {
+              expectedSecretHash,
+              clientIp,
+            })
+          );
           return;
         }
       }
@@ -116,6 +136,7 @@ export class AuthMiddleware {
 
     if (token) {
       const authService = this.getAuthService(req);
+      let verifiedAuthService = authService;
       try {
         req.auth = await authService.verifyToken(token);
       } catch {
@@ -125,11 +146,15 @@ export class AuthMiddleware {
             const adminClaims = await this.authService.verifyToken(token);
             if (adminClaims && adminClaims.isSuperAdmin) {
               req.auth = adminClaims;
+              verifiedAuthService = this.authService;
             }
           } catch {
             // Leave req.auth as null
           }
         }
+      }
+      if (req.auth) {
+        requestAuthRevalidators.set(req, (claims) => verifiedAuthService.verifyClaims(claims as AuthClaims));
       }
     }
   }

@@ -95,20 +95,28 @@
         state.realtimeEventSource.close();
       }
 
-      const url = state.token ? `/api/realtime?token=${state.token}` : '/api/realtime';
+      const url = state.token ? `/api/realtime?token=${encodeURIComponent(state.token)}` : '/api/realtime';
       const es = new EventSource(url);
       state.realtimeEventSource = es;
 
       const handleConnect = async (e) => {
         const data = JSON.parse(e.data);
+        const headers = { 'Content-Type': 'application/json' };
+        if (state.token) {
+          headers['Authorization'] = `Bearer ${state.token}`;
+        }
+        const body = {
+          clientId: data.clientId,
+          subscriptions: ['*'],
+        };
+        if (data.clientSecret) {
+          body.clientSecret = data.clientSecret;
+        }
         // Subscribe to all topics
         await fetch('/api/realtime', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            clientId: data.clientId,
-            subscriptions: ['*'],
-          }),
+          headers,
+          body: JSON.stringify(body),
         }).catch(() => {});
 
         // Refresh realtime counter on Overview if displayed
