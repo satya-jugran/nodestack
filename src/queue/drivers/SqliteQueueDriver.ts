@@ -89,22 +89,23 @@ export class SqliteQueueDriver implements IQueueDriver {
       : (existing ? (existing.isSystem ? 1 : 0) : 0);
     const created = existing?.created || now;
 
-    await this.db.prepare(`
-      INSERT INTO _queues (
-        name, concurrency, visibilityTimeoutSeconds, maxAttempts, backoffDelayMs,
-        deadLetterQueue, targetFunction, isSystem, strictOrder, created, updated
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(name) DO UPDATE SET
-        concurrency = excluded.concurrency,
-        visibilityTimeoutSeconds = excluded.visibilityTimeoutSeconds,
-        maxAttempts = excluded.maxAttempts,
-        backoffDelayMs = excluded.backoffDelayMs,
-        deadLetterQueue = excluded.deadLetterQueue,
-        targetFunction = excluded.targetFunction,
-        isSystem = excluded.isSystem,
-        strictOrder = excluded.strictOrder,
-        updated = excluded.updated
-    `).run(
+    const cols = [
+      'name',
+      'concurrency',
+      'visibilityTimeoutSeconds',
+      'maxAttempts',
+      'backoffDelayMs',
+      'deadLetterQueue',
+      'targetFunction',
+      'isSystem',
+      'strictOrder',
+      'created',
+      'updated',
+    ];
+    const updateCols = cols.filter((c) => c !== 'name' && c !== 'created');
+    const upsertSql = this.db.dialect.upsertSql('_queues', cols, 'name', updateCols);
+
+    await this.db.prepare(upsertSql).run(
       dto.name,
       concurrency,
       visibilityTimeoutSeconds,
@@ -255,7 +256,7 @@ export class SqliteQueueDriver implements IQueueDriver {
           claimedBy = NULL,
           leaseExpiresAt = NULL,
           claimToken = NULL,
-          attempts = MAX(0, attempts - 1),
+          attempts = CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END,
           error = ?,
           availableAt = ?,
           updated = ?
@@ -361,12 +362,14 @@ export class SqliteQueueDriver implements IQueueDriver {
     const total = Number(countRow?.total || 0);
 
     const tieBreaker = this.getTieBreaker();
+    const pag = this.db.dialect.paginationSql('?', '?', true);
+    const pagParams = pag.paramOrder === 'limit-first' ? [perPage, offset] : [offset, perPage];
     const rows: any[] = ((await this.db.prepare(`
       SELECT * FROM _queue_messages
       ${where}
       ORDER BY priority DESC, created ASC, ${tieBreaker} ASC
-      LIMIT ? OFFSET ?
-    `).all(...params, perPage, offset)) as any) || [];
+      ${pag.clause}
+    `).all(...params, ...pagParams)) as any) || [];
 
     return {
       items: rows.map((r) => mapRowToMessage<T>(r)),

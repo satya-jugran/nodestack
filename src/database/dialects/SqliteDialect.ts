@@ -62,6 +62,9 @@ export class SqliteDialect implements ISqlDialect {
     const targets = Array.isArray(conflictTarget)
       ? conflictTarget.map((c) => this.quoteIdentifier(c)).join(', ')
       : this.quoteIdentifier(conflictTarget);
+    if (updateColumns.length === 0) {
+      return `INSERT INTO ${this.quoteIdentifier(table)} (${cols}) VALUES (${vals}) ON CONFLICT (${targets}) DO NOTHING`;
+    }
     const updates = updateColumns
       .map((c) => `${this.quoteIdentifier(c)} = excluded.${this.quoteIdentifier(c)}`)
       .join(', ');

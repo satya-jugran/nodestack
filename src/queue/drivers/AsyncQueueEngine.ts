@@ -11,6 +11,12 @@ import { mapRowToMessage } from './queueMapping';
 export class AsyncQueueEngine {
   constructor(private db: DatabaseService) {}
 
+  private buildPagination(limit: number, offset = 0): { clause: string; params: number[] } {
+    const pag = this.db.dialect.paginationSql('?', '?', true);
+    const params = pag.paramOrder === 'limit-first' ? [limit, offset] : [offset, limit];
+    return { clause: pag.clause, params };
+  }
+
   public async deleteQueue(name: string): Promise<boolean> {
     return await this.db.transaction(async (tx: any) => {
       await tx.prepare('DELETE FROM _queue_messages WHERE queue = ?').run(name);
@@ -44,23 +50,36 @@ export class AsyncQueueEngine {
     let defaultMaxAttempts = 3;
     if (!existingQueue) {
       const isSys = dto.queue.startsWith('_system:') ? 1 : 0;
-      await target.prepare(`
-        INSERT INTO _queues (
-          name, concurrency, visibilityTimeoutSeconds, maxAttempts, backoffDelayMs,
-          deadLetterQueue, targetFunction, isSystem, strictOrder, created, updated
-        ) VALUES (?, 0, 30, 3, 1000, NULL, NULL, ?, 0, ?, ?)
-        ON CONFLICT ("name") DO NOTHING
-      `).run(dto.queue, isSys, now, now);
+      const upsertSql = this.db.dialect.upsertSql(
+        '_queues',
+        [
+          'name',
+          'concurrency',
+          'visibilityTimeoutSeconds',
+          'maxAttempts',
+          'backoffDelayMs',
+          'deadLetterQueue',
+          'targetFunction',
+          'isSystem',
+          'strictOrder',
+          'created',
+          'updated',
+        ],
+        'name',
+        []
+      );
+      await target.prepare(upsertSql).run(dto.queue, 0, 30, 3, 1000, null, null, isSys, 0, now, now);
     } else {
       defaultMaxAttempts = existingQueue.maxAttempts ?? 3;
     }
 
     if (dto.deduplicationId) {
-      const dup = (await target.prepare(`
-        SELECT * FROM _queue_messages
-        WHERE queue = ? AND deduplicationId = ? AND status IN ('queued', 'processing')
-        LIMIT 1
-      `).get(dto.queue, dto.deduplicationId)) as any;
+      const dupSql = this.db.dialect.paginate(
+        `SELECT * FROM _queue_messages WHERE queue = ? AND deduplicationId = ? AND status IN ('queued', 'processing')`,
+        1,
+        0
+      );
+      const dup = (await target.prepare(dupSql).get(dto.queue, dto.deduplicationId)) as any;
       if (dup) {
         return mapRowToMessage<T>(dup);
       }
@@ -125,6 +144,7 @@ export class AsyncQueueEngine {
         return [];
       }
 
+      const claimPag = this.buildPagination(effectiveLimit);
       let candidates: Array<{ id: string }>;
       if (queueRow && Boolean(queueRow.strictOrder)) {
         candidates = ((await tx.prepare(`
@@ -149,8 +169,8 @@ export class AsyncQueueEngine {
             AND status = 'queued'
             AND availableAt <= ?
           ORDER BY created ASC, rid ASC
-          LIMIT ?
-        `).all(queueName, now, effectiveLimit)) as Array<{ id: string }>) || [];
+          ${claimPag.clause}
+        `).all(queueName, now, ...claimPag.params)) as Array<{ id: string }>) || [];
       } else {
         candidates = ((await tx.prepare(`
           SELECT id FROM _queue_messages
@@ -158,8 +178,8 @@ export class AsyncQueueEngine {
             AND status = 'queued'
             AND availableAt <= ?
           ORDER BY priority DESC, availableAt ASC, id ASC
-          LIMIT ?
-        `).all(queueName, now, effectiveLimit)) as Array<{ id: string }>) || [];
+          ${claimPag.clause}
+        `).all(queueName, now, ...claimPag.params)) as Array<{ id: string }>) || [];
       }
 
       if (!candidates || candidates.length === 0) {
@@ -405,12 +425,13 @@ export class AsyncQueueEngine {
     const safeLimit = Math.max(1, Math.floor(limit));
     return await this.db.transaction(async (tx: any) => {
       const now = new Date().toISOString();
+      const safePag = this.buildPagination(safeLimit);
       const rows = ((await tx.prepare(`
         SELECT id, forwardedToMessageId FROM _queue_messages
         WHERE queue = ? AND status IN ('dead_letter', 'failed')
         ORDER BY updated ASC, id ASC
-        LIMIT ?
-      `).all(queueName, safeLimit)) as any) as Array<{ id: string; forwardedToMessageId?: string | null }>;
+        ${safePag.clause}
+      `).all(queueName, ...safePag.params)) as any) as Array<{ id: string; forwardedToMessageId?: string | null }>;
 
       let count = 0;
 
@@ -450,13 +471,14 @@ export class AsyncQueueEngine {
 
       const remainingLimit = safeLimit - count;
       if (remainingLimit > 0) {
+        const remPag = this.buildPagination(remainingLimit);
         const dlqRows: any[] = ((await tx.prepare(`
           SELECT * FROM _queue_messages
           WHERE queue = ? AND status IN ('queued', 'dead_letter', 'failed')
             AND (originalMessageId IS NOT NULL OR payload LIKE '%"originalMessageId"%')
           ORDER BY updated ASC, id ASC
-          LIMIT ?
-        `).all(queueName, remainingLimit)) as any) || [];
+          ${remPag.clause}
+        `).all(queueName, ...remPag.params)) as any) || [];
 
         for (const dlqRow of dlqRows) {
           let parsed: any = null;

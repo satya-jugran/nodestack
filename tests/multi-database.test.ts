@@ -32,6 +32,8 @@ import { LogicalSnapshotDriver } from '../src/snapshots/drivers/LogicalSnapshotD
 import { SqliteToRemoteSnapshotDriver } from '../src/snapshots/drivers/SqliteToRemoteSnapshotDriver';
 import { AnalyticsService } from '../src/analytics/AnalyticsService';
 import { LogService } from '../src/logger/LogService';
+import { SqliteQueueDriver } from '../src/queue/drivers/SqliteQueueDriver';
+import { SqliteDialect } from '../src/database/dialects/SqliteDialect';
 
 describe('Multi-Database Architecture & Configuration Tests', () => {
   const testDir = path.resolve(__dirname, '../.test_multi_db_data');
@@ -2801,6 +2803,236 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       } finally {
         db.close();
       }
+    });
+  });
+
+  // ============================================================
+  // Queue Driver Dialect Compatibility (MSSQL & PostgreSQL)
+  // ============================================================
+  describe('SqliteQueueDriver Multi-Database Dialect Compatibility', () => {
+    function createMockQueueDb(dialect: PostgresDialect | MssqlDialect) {
+      const queries: Array<{ method: string; sql: string; params: any[] }> = [];
+      const queues = new Map<string, any>();
+      const messages = new Map<string, any>();
+
+      const makeTx = () => ({
+        dialect,
+        prepare: (sql: string) => {
+          const rewritten = dialect.rewritePlaceholders(sql);
+          return {
+            run: async (...params: any[]) => {
+              queries.push({ method: 'run', sql: rewritten, params });
+              if (sql.includes('_queues')) {
+                if (sql.includes('MERGE INTO') || sql.includes('ON CONFLICT')) {
+                  const [
+                    name,
+                    concurrency,
+                    visibilityTimeoutSeconds,
+                    maxAttempts,
+                    backoffDelayMs,
+                    deadLetterQueue,
+                    targetFunction,
+                    isSystem,
+                    strictOrder,
+                    created,
+                    updated,
+                  ] = params;
+                  const existing = queues.get(name);
+                  if (existing && (sql.includes('WHEN MATCHED THEN UPDATE') || sql.includes('DO UPDATE SET'))) {
+                    queues.set(name, {
+                      ...existing,
+                      concurrency,
+                      visibilityTimeoutSeconds,
+                      maxAttempts,
+                      backoffDelayMs,
+                      deadLetterQueue,
+                      targetFunction,
+                      isSystem,
+                      strictOrder,
+                      updated,
+                    });
+                  } else if (!existing) {
+                    queues.set(name, {
+                      name,
+                      concurrency,
+                      visibilityTimeoutSeconds,
+                      maxAttempts,
+                      backoffDelayMs,
+                      deadLetterQueue,
+                      targetFunction,
+                      isSystem,
+                      strictOrder,
+                      created,
+                      updated,
+                    });
+                  }
+                }
+              } else if (sql.includes('INSERT INTO _queue_messages')) {
+                const [id, queue, groupKey, payload, maxAttempts, priority, availableAt, deduplicationId, originalMessageId, created, updated] = params;
+                messages.set(id, {
+                  id,
+                  queue,
+                  groupKey,
+                  status: 'queued',
+                  payload,
+                  result: null,
+                  error: null,
+                  attempts: 0,
+                  maxAttempts,
+                  priority,
+                  availableAt,
+                  claimedBy: null,
+                  leaseExpiresAt: null,
+                  claimToken: null,
+                  deduplicationId,
+                  originalMessageId,
+                  forwardedToMessageId: null,
+                  created,
+                  updated,
+                  finishedAt: null,
+                });
+              }
+              return { changes: 1, lastInsertRowid: 0 };
+            },
+            get: async (...params: any[]) => {
+              queries.push({ method: 'get', sql: rewritten, params });
+              if (sql.includes('FROM _queues WHERE name =')) {
+                return queues.get(params[0]);
+              }
+              if (sql.includes('FROM _queue_messages WHERE id =')) {
+                return messages.get(params[0]);
+              }
+              if (sql.includes('deduplicationId =')) {
+                return undefined;
+              }
+              if (sql.includes('COUNT(*) as total FROM _queue_messages')) {
+                return { total: messages.size };
+              }
+              return undefined;
+            },
+            all: async (...params: any[]) => {
+              queries.push({ method: 'all', sql: rewritten, params });
+              return [];
+            },
+          };
+        },
+      });
+
+      const db: any = {
+        dialect,
+        exec: async (_sql: string) => {},
+        prepare: (sql: string) => makeTx().prepare(sql),
+        transaction: async (fn: any) => fn(makeTx()),
+      };
+
+      return { db, queries, queues };
+    }
+
+    it('should emit valid MSSQL MERGE INTO and OFFSET/FETCH syntax in SqliteQueueDriver and AsyncQueueEngine', async () => {
+      const { db, queries } = createMockQueueDb(new MssqlDialect());
+      const driver = new SqliteQueueDriver(db);
+
+      const q = await driver.upsertQueue({
+        name: 'mssql-jobs',
+        concurrency: 4,
+        visibilityTimeoutSeconds: 45,
+        maxAttempts: 5,
+        backoffDelayMs: 500,
+        strictOrder: true,
+      });
+
+      expect(q.name).toBe('mssql-jobs');
+      expect(q.concurrency).toBe(4);
+      expect(q.strictOrder).toBe(true);
+
+      const upsertCall = queries.find((c) => c.method === 'run' && c.sql.includes('_queues'));
+      expect(upsertCall).toBeDefined();
+      expect(upsertCall!.sql).toContain('MERGE INTO [_queues] AS target');
+      expect(upsertCall!.sql).toContain('USING (VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11))');
+      expect(upsertCall!.sql).toContain('WHEN MATCHED THEN UPDATE SET');
+      expect(upsertCall!.sql).toContain('WHEN NOT MATCHED THEN INSERT');
+      expect(upsertCall!.sql).not.toContain('ON CONFLICT');
+      expect(upsertCall!.sql).not.toContain('?');
+      expect(upsertCall!.params).toHaveLength(11);
+
+      queries.length = 0;
+
+      // Auto-create queue via AsyncQueueEngine.send + deduplicationId check
+      const msg = await driver.send({
+        queue: 'auto-mssql-queue',
+        payload: { hello: 'world' },
+        deduplicationId: 'dedup-1',
+      });
+      expect(msg.queue).toBe('auto-mssql-queue');
+
+      const autoQueueCall = queries.find((c) => c.method === 'run' && c.sql.includes('MERGE INTO [_queues]'));
+      expect(autoQueueCall).toBeDefined();
+      expect(autoQueueCall!.sql).not.toContain('ON CONFLICT');
+      expect(autoQueueCall!.sql).not.toContain('WHEN MATCHED THEN UPDATE');
+
+      const dedupCall = queries.find((c) => c.method === 'get' && c.sql.includes('deduplicationId'));
+      expect(dedupCall).toBeDefined();
+      expect(dedupCall!.sql).toContain('OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY');
+      expect(dedupCall!.sql).not.toContain('LIMIT');
+
+      queries.length = 0;
+
+      // claim, defer, getMessages, retryDeadLetterMessages
+      await driver.claim('mssql-jobs', 'worker-1', 30, 5);
+      const claimAll = queries.find((c) => c.method === 'all' && c.sql.includes('_queue_messages'));
+      expect(claimAll).toBeDefined();
+      expect(claimAll!.sql).toContain('OFFSET @p3 ROWS FETCH NEXT @p4 ROWS ONLY');
+      expect(claimAll!.sql).not.toContain('LIMIT');
+      expect(claimAll!.params.slice(-2)).toEqual([0, 4]);
+
+      queries.length = 0;
+      await driver.defer('msg_1', 1000, 'busy');
+      const deferRun = queries.find((c) => c.method === 'run' && c.sql.includes('UPDATE _queue_messages'));
+      expect(deferRun).toBeDefined();
+      expect(deferRun!.sql).toContain('CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END');
+      expect(deferRun!.sql).not.toContain('MAX(0,');
+
+      queries.length = 0;
+      await driver.getMessages({ queue: 'mssql-jobs', page: 2, perPage: 10 });
+      const listAll = queries.find((c) => c.method === 'all' && c.sql.includes('FROM _queue_messages'));
+      expect(listAll).toBeDefined();
+      expect(listAll!.sql).toContain('OFFSET @p2 ROWS FETCH NEXT @p3 ROWS ONLY');
+      expect(listAll!.sql).not.toContain('LIMIT');
+      expect(listAll!.params).toEqual(['mssql-jobs', 10, 10]);
+
+      queries.length = 0;
+      await driver.retryDeadLetterMessages('mssql-jobs', 25);
+      const dlqAll = queries.find((c) => c.method === 'all' && c.sql.includes("status IN ('dead_letter', 'failed')"));
+      expect(dlqAll).toBeDefined();
+      expect(dlqAll!.sql).toContain('OFFSET @p2 ROWS FETCH NEXT @p3 ROWS ONLY');
+      expect(dlqAll!.sql).not.toContain('LIMIT');
+      expect(dlqAll!.params).toEqual(['mssql-jobs', 0, 25]);
+    });
+
+    it('should emit valid PostgreSQL upsertSql and pagination syntax in SqliteQueueDriver and AsyncQueueEngine', async () => {
+      const { db, queries } = createMockQueueDb(new PostgresDialect());
+      const driver = new SqliteQueueDriver(db);
+
+      await driver.upsertQueue({
+        name: 'pg-jobs',
+        concurrency: 2,
+      });
+
+      const upsertCall = queries.find((c) => c.method === 'run' && c.sql.includes('_queues'));
+      expect(upsertCall).toBeDefined();
+      expect(upsertCall!.sql).toContain('INSERT INTO "_queues"');
+      expect(upsertCall!.sql).toContain('VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)');
+      expect(upsertCall!.sql).toContain('ON CONFLICT ("name") DO UPDATE SET');
+      expect(upsertCall!.sql).toContain('"concurrency" = EXCLUDED."concurrency"');
+
+      queries.length = 0;
+      await driver.send({ queue: 'auto-pg-queue', payload: { ok: true }, deduplicationId: 'pg-dedup' });
+      const autoQueueCall = queries.find((c) => c.method === 'run' && c.sql.includes('INSERT INTO "_queues"'));
+      expect(autoQueueCall).toBeDefined();
+      expect(autoQueueCall!.sql).toContain('ON CONFLICT ("name") DO NOTHING');
+
+      const sqliteInsertIgnore = new SqliteDialect().upsertSql('_queues', ['name', 'created'], 'name', []);
+      expect(sqliteInsertIgnore).toBe('INSERT INTO "_queues" ("name", "created") VALUES (?, ?) ON CONFLICT ("name") DO NOTHING');
     });
   });
 
