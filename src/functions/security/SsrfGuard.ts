@@ -377,6 +377,7 @@ export class SsrfGuard {
           headers: Record<string, string>;
           json: () => Promise<any>;
           text: () => Promise<string>;
+          arrayBuffer: () => Promise<ArrayBuffer>;
         };
 
         if (customFetch) {
@@ -405,6 +406,16 @@ export class SsrfGuard {
               headers,
               json: async () => rawRes.json(),
               text: async () => rawRes.text(),
+              arrayBuffer: async () => {
+                if (typeof (rawRes as any).arrayBuffer === 'function') {
+                  return (rawRes as any).arrayBuffer();
+                }
+                const text = await rawRes.text();
+                const buf = Buffer.from(text, 'utf8');
+                const copy = new ArrayBuffer(buf.byteLength);
+                new Uint8Array(copy).set(buf);
+                return copy;
+              },
             };
           } finally {
             clearTimeout(timer);
@@ -482,6 +493,7 @@ export class SsrfGuard {
     headers: Record<string, string>;
     json: () => Promise<any>;
     text: () => Promise<string>;
+    arrayBuffer: () => Promise<ArrayBuffer>;
   }> {
     return new Promise((resolve, reject) => {
       const isHttps = options.url.protocol === 'https:';
@@ -578,6 +590,11 @@ export class SsrfGuard {
             headers: resHeaders,
             json: async () => JSON.parse(bodyText),
             text: async () => bodyText,
+            arrayBuffer: async () => {
+              const copy = new ArrayBuffer(bodyBuffer.byteLength);
+              new Uint8Array(copy).set(bodyBuffer);
+              return copy;
+            },
           });
         });
       });

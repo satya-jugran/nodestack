@@ -13,6 +13,7 @@ import { RuleEngine } from '../rules/RuleEngine';
 import { RecordValidator } from '../records/RecordValidator';
 import { EventBus } from '../core/events/EventBus';
 import { RealtimeService, RealtimeIdentityFilter } from '../realtime/RealtimeService';
+import { SsrfGuard } from '../functions/security/SsrfGuard';
 
 export interface AuthClaims {
   id: string;
@@ -875,11 +876,15 @@ export class AuthService {
       if (avatarField && avatarUrl) {
         if (avatarField.type === 'file' && fileStorageService) {
           try {
-            const avatarRes = await fetch(avatarUrl);
+            const guardedFetch = SsrfGuard.createGuardedFetch();
+            const avatarRes = await guardedFetch(avatarUrl);
             if (avatarRes.ok) {
               const arrayBuf = await avatarRes.arrayBuffer();
               const buffer = Buffer.from(arrayBuf);
-              const mimeType = avatarRes.headers.get('content-type') || 'image/png';
+              const rawContentType = typeof (avatarRes.headers as any)?.get === 'function'
+                ? (avatarRes.headers as any).get('content-type')
+                : avatarRes.headers?.['content-type'];
+              const mimeType = (rawContentType ? String(rawContentType).split(';')[0].trim().toLowerCase() : '') || 'image/png';
               const ext = mimeType.includes('jpeg') ? '.jpg' : mimeType.includes('gif') ? '.gif' : mimeType.includes('webp') ? '.webp' : '.png';
               const savedMeta = await fileStorageService.saveFile(
                 col.id,

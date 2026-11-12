@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
+import * as http from 'http';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
 import { SsrfGuard, SsrfGuardError } from '../src/functions/security/SsrfGuard';
@@ -329,6 +330,56 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(secondHeaders.get('x-api-key')).toBeNull();
       expect(secondHeaders.get('x-safe')).toBe('ok');
       expect(headersInstance.get('authorization')).toBe('Bearer secret');
+    });
+
+    it('should preserve exact binary bytes via arrayBuffer() in createGuardedFetch', async () => {
+      const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00, 0xfe]);
+
+      // 1. Real executePinnedRequest binary path
+      const server = http.createServer((_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        res.end(pngBytes);
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const address = server.address() as any;
+      const prevAllowLocal = process.env.ALLOW_LOCAL_WEBHOOKS;
+      process.env.ALLOW_LOCAL_WEBHOOKS = 'true';
+
+      try {
+        const guardedFetch = SsrfGuard.createGuardedFetch();
+        const res = await guardedFetch(`http://127.0.0.1:${address.port}/avatar.png`);
+        expect(res.ok).toBe(true);
+        expect(res.headers['content-type']).toBe('image/png');
+        const received = Buffer.from(await res.arrayBuffer());
+        expect(received.equals(pngBytes)).toBe(true);
+      } finally {
+        if (prevAllowLocal === undefined) {
+          delete process.env.ALLOW_LOCAL_WEBHOOKS;
+        } else {
+          process.env.ALLOW_LOCAL_WEBHOOKS = prevAllowLocal;
+        }
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+
+      // 2. customFetch wrapper binary path
+      const mockFetch = (async () => {
+        const ab = new ArrayBuffer(pngBytes.byteLength);
+        new Uint8Array(ab).set(pngBytes);
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Headers({ 'Content-Type': 'image/png' }),
+          arrayBuffer: async () => ab,
+          text: async () => pngBytes.toString('utf8'),
+          json: async () => ({}),
+        } as any;
+      }) as any;
+
+      const customGuardedFetch = SsrfGuard.createGuardedFetch(undefined, 5000, mockFetch);
+      const customRes = await customGuardedFetch('https://cdn.example.com/avatar.png');
+      const customBuf = Buffer.from(await customRes.arrayBuffer());
+      expect(customBuf.equals(pngBytes)).toBe(true);
     });
   });
 

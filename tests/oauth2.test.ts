@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
+import * as http from 'http';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import * as jwt from 'jsonwebtoken';
@@ -10,6 +11,7 @@ import { IOAuthProvider, OAuthExchangeResult, OAuthProfile } from '../src/auth/o
 import { AppleProvider } from '../src/auth/oauth/AppleProvider';
 import { GitHubProvider } from '../src/auth/oauth/GitHubProvider';
 import { MicrosoftProvider } from '../src/auth/oauth/MicrosoftProvider';
+import { SsrfGuard } from '../src/functions/security/SsrfGuard';
 
 class MockOAuthProvider implements IOAuthProvider {
   public name: string;
@@ -1794,6 +1796,183 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       const data = await res.json();
       expect(data.token).toBeDefined();
       expect(data.record.email).toBe('pkcesuccess@google.com');
+    });
+  });
+
+  describe('10. OAuth2 Avatar Download SSRF Protection', () => {
+    it('should block internal loopback, cloud metadata, and non-HTTP avatar URLs via SsrfGuard', async () => {
+      let internalHits = 0;
+      const internalServer = http.createServer((_req, res) => {
+        internalHits++;
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        res.end(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+      });
+      await new Promise<void>((resolve) => internalServer.listen(0, '127.0.0.1', resolve));
+      const port = (internalServer.address() as any).port;
+
+      try {
+        const ssrfUrls = [
+          `http://127.0.0.1:${port}/internal-avatar.png`,
+          'http://169.254.169.254/latest/meta-data/iam/security-credentials/',
+          'file:///etc/passwd',
+        ];
+
+        for (let i = 0; i < ssrfUrls.length; i++) {
+          const mockProvider = new MockOAuthProvider('google', 'Google', {
+            id: `g_ssrf_${i}`,
+            email: `ssrf_${i}@example.com`,
+            name: `SSRF Test ${i}`,
+            avatarUrl: ssrfUrls[i],
+            isEmailVerified: true,
+            rawUser: { id: `g_ssrf_${i}` },
+          });
+          app.auth.getOAuthRegistry().register(mockProvider);
+          app.auth.getOAuthRegistry().registerSession({
+            state: `ssrf_state_${i}`,
+            provider: 'google',
+            collection: 'users',
+          });
+
+          const fetchSpy = vi.spyOn(globalThis, 'fetch');
+          const result = await app.auth.authenticateOAuth2(
+            'users',
+            'google',
+            `code_${i}`,
+            `verifier_${i}`,
+            undefined,
+            undefined,
+            app.files,
+            undefined,
+            `ssrf_state_${i}`
+          );
+
+          expect(fetchSpy).not.toHaveBeenCalled();
+          fetchSpy.mockRestore();
+
+          expect(result.token).toBeDefined();
+          expect(result.record.avatar).toBeFalsy();
+        }
+
+        expect(internalHits).toBe(0);
+      } finally {
+        await new Promise<void>((resolve) => internalServer.close(() => resolve()));
+      }
+    });
+
+    it('should block redirects from external avatar URLs to internal/metadata addresses', async () => {
+      const requestedUrls: string[] = [];
+      const mockFetch = (async (url: string) => {
+        requestedUrls.push(url);
+        return {
+          ok: false,
+          status: 302,
+          statusText: 'Found',
+          headers: new Headers({ Location: 'http://169.254.169.254/latest/meta-data/' }),
+          text: async () => '',
+          json: async () => ({}),
+        } as any;
+      }) as any;
+
+      const originalCreateGuardedFetch = SsrfGuard.createGuardedFetch.bind(SsrfGuard);
+      const spy = vi
+        .spyOn(SsrfGuard, 'createGuardedFetch')
+        .mockImplementation(() => originalCreateGuardedFetch(undefined, 5000, mockFetch));
+
+      try {
+        const mockProvider = new MockOAuthProvider('google', 'Google', {
+          id: 'g_redir_ssrf',
+          email: 'redir_ssrf@example.com',
+          avatarUrl: 'https://cdn.example.com/avatar-redirect.png',
+          isEmailVerified: true,
+          rawUser: { id: 'g_redir_ssrf' },
+        });
+        app.auth.getOAuthRegistry().register(mockProvider);
+        app.auth.getOAuthRegistry().registerSession({
+          state: 'redir_ssrf_state',
+          provider: 'google',
+          collection: 'users',
+        });
+
+        const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: 'google',
+            code: 'g_code',
+            codeVerifier: 'g_verifier',
+            state: 'redir_ssrf_state',
+          }),
+        });
+
+        expect(res.status).toBe(200);
+        const data = await res.json();
+        expect(data.record.avatar).toBeFalsy();
+        expect(requestedUrls).toEqual(['https://cdn.example.com/avatar-redirect.png']);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('should download and save valid external avatar binaries through SsrfGuard.createGuardedFetch', async () => {
+      const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00, 0xaa]);
+      const mockFetch = (async () => {
+        const ab = new ArrayBuffer(pngBytes.byteLength);
+        new Uint8Array(ab).set(pngBytes);
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Headers({ 'Content-Type': 'image/png; charset=binary' }),
+          arrayBuffer: async () => ab,
+          text: async () => '',
+          json: async () => ({}),
+        } as any;
+      }) as any;
+
+      const originalCreateGuardedFetch = SsrfGuard.createGuardedFetch.bind(SsrfGuard);
+      const spy = vi
+        .spyOn(SsrfGuard, 'createGuardedFetch')
+        .mockImplementation(() => originalCreateGuardedFetch(undefined, 5000, mockFetch));
+
+      try {
+        const mockProvider = new MockOAuthProvider('google', 'Google', {
+          id: 'g_valid_avatar',
+          email: 'avatar_user@example.com',
+          name: 'Avatar User',
+          avatarUrl: 'https://cdn.example.com/avatars/alice.png',
+          isEmailVerified: true,
+          rawUser: { id: 'g_valid_avatar' },
+        });
+        app.auth.getOAuthRegistry().register(mockProvider);
+        app.auth.getOAuthRegistry().registerSession({
+          state: 'valid_avatar_state',
+          provider: 'google',
+          collection: 'users',
+        });
+
+        const res = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: 'google',
+            code: 'g_code',
+            codeVerifier: 'g_verifier',
+            state: 'valid_avatar_state',
+          }),
+        });
+
+        expect(res.status).toBe(200);
+        const data = await res.json();
+        expect(spy).toHaveBeenCalled();
+        expect(data.record.avatar).toMatch(/^avatar_google_[a-f0-9]+\.png$/);
+
+        const usersCol = await app.schema.getCollectionOrThrow('users');
+        const savedPath = app.files.getFilePath(usersCol.id, data.record.id, data.record.avatar);
+        const savedBytes = fs.readFileSync(savedPath);
+        expect(savedBytes.equals(pngBytes)).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 });
