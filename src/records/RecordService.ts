@@ -391,8 +391,8 @@ export class RecordService {
       }
 
       recordToInsert.email = processedData.email.trim().toLowerCase();
-      recordToInsert.emailVisibility = processedData.emailVisibility ? 1 : 0;
-      recordToInsert.verified = processedData.verified ? 1 : 0;
+      recordToInsert.emailVisibility = RecordValidator.toBoolean(processedData.emailVisibility);
+      recordToInsert.verified = RecordValidator.toBoolean(processedData.verified);
       recordToInsert.passwordHash = await bcrypt.hash(processedData.password, 10);
       recordToInsert.tokenKey = crypto.randomBytes(16).toString('hex');
     }
@@ -490,10 +490,10 @@ export class RecordService {
         updates.email = cleanEmail;
       }
       if (processedData.emailVisibility !== undefined) {
-        updates.emailVisibility = processedData.emailVisibility ? 1 : 0;
+        updates.emailVisibility = RecordValidator.toBoolean(processedData.emailVisibility);
       }
       if (processedData.verified !== undefined) {
-        updates.verified = processedData.verified ? 1 : 0;
+        updates.verified = RecordValidator.toBoolean(processedData.verified);
       }
     }
 
@@ -849,10 +849,8 @@ export class RecordService {
           }
 
           recordToInsert.email = email;
-          recordToInsert.emailVisibility =
-            data.emailVisibility === true || data.emailVisibility === 'true' || data.emailVisibility === 1 ? 1 : 0;
-          recordToInsert.verified =
-            data.verified === true || data.verified === 'true' || data.verified === 1 ? 1 : 0;
+          recordToInsert.emailVisibility = RecordValidator.toBoolean(data.emailVisibility);
+          recordToInsert.verified = RecordValidator.toBoolean(data.verified);
           const password = data.password ? String(data.password) : crypto.randomBytes(8).toString('hex');
           recordToInsert.passwordHash = await bcrypt.hash(password, 10);
           recordToInsert.tokenKey = crypto.randomBytes(16).toString('hex');

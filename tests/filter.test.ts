@@ -51,6 +51,17 @@ describe('QueryFilterParser', () => {
     expect(p2).toEqual(['%100\\%\\_pure%']);
   });
 
+  it('should emit native boolean params for true and false literals', () => {
+    const boolAllowed = new Set(['active']);
+    const t = QueryFilterParser.parseFilter('active = true', boolAllowed, undefined, new PostgresDialect());
+    expect(t.clause).toBe('WHERE "active" = ?');
+    expect(t.params).toEqual([true]);
+
+    const f = QueryFilterParser.parseFilter('active = false', boolAllowed, undefined, new PostgresDialect());
+    expect(f.clause).toBe('WHERE "active" = ?');
+    expect(f.params).toEqual([false]);
+  });
+
   describe('nested JSON field filtering across dialects', () => {
     const jsonAllowed = new Set(['title', 'metadata']);
 

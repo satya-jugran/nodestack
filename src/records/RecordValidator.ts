@@ -81,17 +81,24 @@ export class RecordValidator {
     }
   }
 
+  /**
+   * Coerce boolean-like input values to a native JavaScript boolean.
+   */
+  public static toBoolean(value: any): boolean {
+    return value === true || value === 'true' || value === 1 || value === '1';
+  }
+
   public static normalizeFieldValue(field: SchemaField, value: any): any {
     if (value === undefined || value === null || (value === '' && field.type !== 'text')) {
       if (field.type === 'bool') {
-        return field.defaultValue ? 1 : 0;
+        return RecordValidator.toBoolean(field.defaultValue);
       }
       return field.defaultValue !== undefined ? field.defaultValue : null;
     }
 
     switch (field.type) {
       case 'bool':
-        return value === true || value === 'true' || value === 1 || value === '1' ? 1 : 0;
+        return RecordValidator.toBoolean(value);
       case 'number':
         return Number(value);
       case 'json':

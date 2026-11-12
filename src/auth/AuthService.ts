@@ -854,11 +854,12 @@ export class AuthService {
       const passwordHash = await this.hashPassword(randomPassword);
       const tokenKey = crypto.randomBytes(16).toString('hex');
 
+      const isPg = this.db.dialect?.name === 'postgres';
       let insertRecord: Record<string, any> = {
         id: newId,
         email: cleanEmail || `${cleanProviderName}_${providerUserId}@oauth.nodestack.local`,
-        emailVisibility: 0,
-        verified: isEmailVerified ? 1 : 0,
+        emailVisibility: isPg ? false : 0,
+        verified: isPg ? Boolean(isEmailVerified) : (isEmailVerified ? 1 : 0),
         passwordHash,
         tokenKey,
         created: now,

@@ -9,6 +9,7 @@ import { CollectionModel } from '../schema/models/Collection';
 import { SchemaField } from '../schema/models/Field';
 import { FakerEngine, FakerContext, GeneratedFilePayload } from './FakerEngine';
 import { ValidationError, NotFoundError } from '../core/errors/AppError';
+import { RecordValidator } from './RecordValidator';
 
 export interface MockGenerateOptions {
   count?: number;
@@ -135,8 +136,8 @@ export class MockDataService {
         usedEmails.add(email);
 
         insertData.email = email;
-        insertData.emailVisibility = 1;
-        insertData.verified = 1;
+        insertData.emailVisibility = true;
+        insertData.verified = true;
         insertData.passwordHash = bcrypt.hashSync('NodeStack2026!', 10);
         insertData.tokenKey = crypto.randomBytes(16).toString('hex');
       }
@@ -227,13 +228,13 @@ export class MockDataService {
 
   private normalizeFieldValue(field: SchemaField, value: any): any {
     if (value === undefined || value === null) {
-      if (field.type === 'bool') return 0;
+      if (field.type === 'bool') return RecordValidator.toBoolean(field.defaultValue);
       return field.defaultValue !== undefined ? field.defaultValue : null;
     }
 
     switch (field.type) {
       case 'bool':
-        return value === true || value === 1 || value === 'true' ? 1 : 0;
+        return RecordValidator.toBoolean(value);
       case 'number':
         return Number(value);
       case 'json':

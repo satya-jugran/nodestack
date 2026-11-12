@@ -529,8 +529,8 @@ export class SchemaInferenceService {
         row.email = cleanEmail;
 
         // 2. Email visibility & verified status
-        row.emailVisibility = raw.emailVisibility ? 1 : 0;
-        row.verified = raw.verified !== undefined ? (raw.verified ? 1 : 0) : 0;
+        row.emailVisibility = RecordValidator.toBoolean(raw.emailVisibility);
+        row.verified = raw.verified !== undefined ? RecordValidator.toBoolean(raw.verified) : false;
 
         // 3. Password hash
         if (raw.passwordHash && typeof raw.passwordHash === 'string') {
@@ -670,7 +670,7 @@ export class SchemaInferenceService {
 
     switch (field.type) {
       case 'bool':
-        return val === true || val === 1 || val === 'true' ? 1 : 0;
+        return RecordValidator.toBoolean(val);
       case 'number':
         return isNaN(Number(val)) ? null : Number(val);
       case 'json':

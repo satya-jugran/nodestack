@@ -228,8 +228,8 @@ export class QueryFilterParser {
     ) {
       return FilterCodec.decode(trimmed);
     }
-    if (trimmed.toLowerCase() === 'true') return 1;
-    if (trimmed.toLowerCase() === 'false') return 0;
+    if (trimmed.toLowerCase() === 'true') return true;
+    if (trimmed.toLowerCase() === 'false') return false;
     if (trimmed.toLowerCase() === 'null') return null;
     if (!isNaN(Number(trimmed)) && trimmed !== '') return Number(trimmed);
     return trimmed;

@@ -24,6 +24,8 @@ import { MssqlDialect } from '../src/database/dialects/MssqlDialect';
 import { MssqlFtsDriver } from '../src/records/fts/MssqlFtsDriver';
 import { PostgresFtsDriver } from '../src/records/fts/PostgresFtsDriver';
 import { RecordService } from '../src/records/RecordService';
+import { RecordValidator } from '../src/records/RecordValidator';
+import { QueryFilterParser } from '../src/records/QueryFilterParser';
 import { SchemaField } from '../src/schema/models/Field';
 import { SchemaService } from '../src/schema/SchemaService';
 import { LogicalSnapshotDriver } from '../src/snapshots/drivers/LogicalSnapshotDriver';
@@ -2575,6 +2577,227 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
         expect(row.extraNum).toBe(0);
         expect(row.extraBool).toBe(0);
         expect(row.extraJson).toBe('{}');
+      } finally {
+        db.close();
+      }
+    });
+  });
+
+  describe('PostgreSQL & Cross-Driver Boolean Normalization', () => {
+    it('RecordValidator.normalizeFieldValue should return native booleans for bool fields and defaults', () => {
+      const boolField: SchemaField = { id: 'f_active', name: 'active', type: 'bool' };
+      expect(RecordValidator.normalizeFieldValue(boolField, true)).toBe(true);
+      expect(RecordValidator.normalizeFieldValue(boolField, 'true')).toBe(true);
+      expect(RecordValidator.normalizeFieldValue(boolField, 1)).toBe(true);
+      expect(RecordValidator.normalizeFieldValue(boolField, '1')).toBe(true);
+
+      expect(RecordValidator.normalizeFieldValue(boolField, false)).toBe(false);
+      expect(RecordValidator.normalizeFieldValue(boolField, 'false')).toBe(false);
+      expect(RecordValidator.normalizeFieldValue(boolField, 0)).toBe(false);
+      expect(RecordValidator.normalizeFieldValue(boolField, '0')).toBe(false);
+      expect(RecordValidator.normalizeFieldValue(boolField, undefined)).toBe(false);
+      expect(RecordValidator.normalizeFieldValue(boolField, null)).toBe(false);
+      expect(RecordValidator.normalizeFieldValue(boolField, '')).toBe(false);
+
+      const defaultTrueField: SchemaField = { id: 'f_def_true', name: 'enabled', type: 'bool', defaultValue: true };
+      expect(RecordValidator.normalizeFieldValue(defaultTrueField, undefined)).toBe(true);
+      expect(RecordValidator.normalizeFieldValue(defaultTrueField, null)).toBe(true);
+      expect(RecordValidator.normalizeFieldValue(defaultTrueField, '')).toBe(true);
+
+      const defaultFalseStrField: SchemaField = { id: 'f_def_false', name: 'archived', type: 'bool', defaultValue: 'false' };
+      expect(RecordValidator.normalizeFieldValue(defaultFalseStrField, undefined)).toBe(false);
+    });
+
+    it('should pass native booleans (not integers 0/1) to PostgresDriver on create, update, and importRecords', async () => {
+      const queries: Array<{ sql: string; params: any[] }> = [];
+      let storedRow: Record<string, any> | undefined;
+
+      const mockConn = {
+        query: async (sql: string, params: any[] = []) => {
+          queries.push({ sql, params });
+          if (sql.startsWith('SET ') || sql.startsWith('DISCARD ') || sql === 'BEGIN;' || sql === 'COMMIT;' || sql === 'ROLLBACK;') {
+            return { rows: [], rowCount: 0 };
+          }
+          if (sql.startsWith('INSERT INTO "users"')) {
+            // Simulate PostgreSQL strict BOOLEAN type check: reject integers 0/1 for boolean columns
+            for (const p of params) {
+              if (p === 0 || p === 1) {
+                throw new Error('column "active" is of type boolean but expression is of type integer');
+              }
+            }
+            storedRow = {
+              id: params[0],
+              created: params[1],
+              updated: params[2],
+              email: params[3],
+              emailVisibility: params[4],
+              verified: params[5],
+              passwordHash: params[6],
+              tokenKey: params[7],
+              active: params[8],
+              newsletter: params[9],
+            };
+            return { rows: [], rowCount: 1 };
+          }
+          if (sql.startsWith('SELECT "id" FROM "users"') || sql.startsWith('SELECT id FROM "users"')) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (sql.startsWith('SELECT * FROM "users"')) {
+            return { rows: storedRow ? [storedRow] : [], rowCount: storedRow ? 1 : 0 };
+          }
+          if (sql.startsWith('UPDATE "users"')) {
+            for (const p of params) {
+              if (p === 0 || p === 1) {
+                throw new Error('column "active" is of type boolean but expression is of type integer');
+              }
+            }
+            if (storedRow) {
+              storedRow = {
+                ...storedRow,
+                emailVisibility: params[1],
+                verified: params[2],
+                active: params[3],
+                newsletter: params[4],
+              };
+            }
+            return { rows: [], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        },
+        release: () => {},
+      };
+
+      const mockPool = {
+        connect: async () => mockConn,
+        query: async (sql: string, params: any[] = []) => mockConn.query(sql, params),
+      };
+
+      const pgDriver = new PostgresDriver({ pool: mockPool, schemaName: 'public' });
+      const config = new ConfigService({ dataDir: testDir });
+      const db = new DatabaseService(config, pgDriver);
+
+      const schema: SchemaField[] = [
+        { id: 'f_active', name: 'active', type: 'bool', required: true },
+        { id: 'f_news', name: 'newsletter', type: 'bool', defaultValue: false },
+      ];
+      const mockSchemaService: any = {
+        getCollectionOrThrow: async () => ({
+          id: 'col_users',
+          name: 'users',
+          type: 'auth',
+          createRule: '',
+          updateRule: '',
+          listRule: '',
+          viewRule: '',
+          schema,
+          indexes: [],
+        }),
+      };
+
+      const recordService = new RecordService(db, mockSchemaService);
+
+      // 1. create() with string/numeric boolean inputs
+      const created = await recordService.create('users', {
+        email: 'pg@example.com',
+        password: 'password123',
+        emailVisibility: 'true',
+        verified: 1,
+        active: '1',
+        newsletter: undefined,
+      });
+
+      expect(created.active).toBe(true);
+      expect(created.newsletter).toBe(false);
+      expect(created.emailVisibility).toBe(true);
+      expect(created.verified).toBe(true);
+
+      const insertCall = queries.find((q) => q.sql.startsWith('INSERT INTO "users"'));
+      expect(insertCall).toBeDefined();
+      expect(insertCall!.params[4]).toBe(true);
+      expect(insertCall!.params[5]).toBe(true);
+      expect(insertCall!.params[8]).toBe(true);
+      expect(insertCall!.params[9]).toBe(false);
+
+      // 2. update() toggling boolean values
+      const updated = await recordService.update('users', created.id, {
+        emailVisibility: false,
+        verified: 'false',
+        active: 0,
+        newsletter: 'true',
+      });
+
+      expect(updated.emailVisibility).toBe(false);
+      expect(updated.verified).toBe(false);
+      expect(updated.active).toBe(false);
+      expect(updated.newsletter).toBe(true);
+
+      const updateCall = queries.find((q) => q.sql.startsWith('UPDATE "users"'));
+      expect(updateCall).toBeDefined();
+      expect(updateCall!.params[1]).toBe(false);
+      expect(updateCall!.params[2]).toBe(false);
+      expect(updateCall!.params[3]).toBe(false);
+      expect(updateCall!.params[4]).toBe(true);
+
+      // 3. importRecords() on PostgresDriver
+      queries.length = 0;
+      const importResult = await recordService.importRecords('users', [
+        {
+          email: 'imp1@example.com',
+          emailVisibility: 'false',
+          verified: 1,
+          active: 'true',
+          newsletter: 0,
+        },
+      ]);
+
+      expect(importResult.success).toBe(true);
+      expect(importResult.imported).toBe(1);
+      const importInsertCall = queries.find((q) => q.sql.startsWith('INSERT INTO "users"'));
+      expect(importInsertCall).toBeDefined();
+      expect(importInsertCall!.params[4]).toBe(false);
+      expect(importInsertCall!.params[5]).toBe(true);
+      expect(importInsertCall!.params[8]).toBe(true);
+      expect(importInsertCall!.params[9]).toBe(false);
+    });
+
+    it('should continue working with SQLite via NodeSqliteDriver when native booleans are normalized and filtered', async () => {
+      const config = new ConfigService({ dataDir: testDir });
+      const db = new DatabaseService(config, new NodeSqliteDriver(':memory:'));
+      db.init();
+
+      try {
+        const schemaService = new SchemaService(db);
+        schemaService.createCollection({
+          name: 'tasks',
+          type: 'base',
+          listRule: '',
+          viewRule: '',
+          createRule: '',
+          updateRule: '',
+          schema: [
+            { id: 'f_title', name: 'title', type: 'text', required: true },
+            { id: 'f_active', name: 'active', type: 'bool' },
+          ],
+        });
+
+        const recordService = new RecordService(db, schemaService);
+        const r1 = await recordService.create('tasks', { title: 'One', active: 'true' });
+        const r2 = await recordService.create('tasks', { title: 'Two', active: 0 });
+
+        expect(r1.active).toBe(true);
+        expect(r2.active).toBe(false);
+
+        const raw1 = db.get<any>('SELECT * FROM "tasks" WHERE "id" = ?', r1.id);
+        const raw2 = db.get<any>('SELECT * FROM "tasks" WHERE "id" = ?', r2.id);
+        expect(raw1.active).toBe(1);
+        expect(raw2.active).toBe(0);
+
+        const activeOnly = await recordService.getList('tasks', { filter: 'active = true' });
+        expect(activeOnly.items).toHaveLength(1);
+        expect(activeOnly.items[0].id).toBe(r1.id);
+
+        const parsedPgFilter = QueryFilterParser.parseFilter('active = true', new Set(['active']), undefined, new PostgresDialect());
+        expect(parsedPgFilter.params).toEqual([true]);
       } finally {
         db.close();
       }
