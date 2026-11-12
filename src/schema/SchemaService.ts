@@ -530,12 +530,25 @@ export class SchemaService {
     const sqlType = dialect.mapFieldType(field.type, { isUnique: field.unique });
     let def = `${dialect.quoteIdentifier(field.name)} ${sqlType}`;
     if (field.required) {
-      def += " NOT NULL DEFAULT ''";
+      def += ` NOT NULL DEFAULT ${this.requiredFieldDefault(field.type)}`;
     }
     if (field.unique) {
       def += ' UNIQUE';
     }
     return def;
+  }
+
+  private requiredFieldDefault(type: string): string {
+    switch (type) {
+      case 'number':
+        return '0';
+      case 'bool':
+        return this.db.dialect.booleanLiteral(false);
+      case 'json':
+        return "'{}'";
+      default:
+        return "''";
+    }
   }
 
   private mapRowToCollection(row: any): CollectionModel {

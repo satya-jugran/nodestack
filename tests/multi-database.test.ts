@@ -2357,4 +2357,228 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
     });
   });
 
+  // ============================================================
+  // SchemaService Required Non-Text Field DDL Defaults
+  // ============================================================
+  describe('SchemaService Required Field DDL Defaults', () => {
+    function createMockAsyncDbForDdl(dialect: PostgresDialect | MssqlDialect) {
+      const collectionsStore: any[] = [];
+      const ddlStatements: string[] = [];
+
+      const db: any = {
+        dialect,
+        all: async () => collectionsStore,
+        get: async (_sql: string, ...params: any[]) => {
+          const [idOrName] = params;
+          return collectionsStore.find((c) => c.id === idOrName || c.name === idOrName);
+        },
+        exec: async (sql: string) => {
+          ddlStatements.push(sql);
+        },
+        prepare: (sql: string) => ({
+          run: async (...params: any[]) => {
+            if (sql.includes('INSERT INTO _collections')) {
+              const [id, name, type, system, schema, indexes, listRule, viewRule, createRule, updateRule, deleteRule, options, created, updated] = params;
+              collectionsStore.push({
+                id,
+                name,
+                type,
+                system,
+                schema,
+                indexes,
+                listRule,
+                viewRule,
+                createRule,
+                updateRule,
+                deleteRule,
+                options,
+                created,
+                updated,
+              });
+            } else if (sql.includes('UPDATE _collections SET')) {
+              const [name, schema, indexes, listRule, viewRule, createRule, updateRule, deleteRule, options, updated, id] = params;
+              const idx = collectionsStore.findIndex((c) => c.id === id);
+              if (idx !== -1) {
+                collectionsStore[idx] = {
+                  ...collectionsStore[idx],
+                  name,
+                  schema,
+                  indexes,
+                  listRule,
+                  viewRule,
+                  createRule,
+                  updateRule,
+                  deleteRule,
+                  options,
+                  updated,
+                };
+              }
+            }
+            return { changes: 1, lastInsertRowid: 1 };
+          },
+        }),
+        transaction: async (cb: any) => cb(db),
+      };
+
+      return { db, ddlStatements };
+    }
+
+    it('should emit valid PostgreSQL type-specific defaults for required non-text fields on CREATE TABLE and ALTER TABLE', async () => {
+      const { db, ddlStatements } = createMockAsyncDbForDdl(new PostgresDialect());
+      const schemaService = new SchemaService(db);
+
+      const initialSchema: SchemaField[] = [
+        { id: 'f_title', name: 'title', type: 'text', required: true },
+        { id: 'f_price', name: 'price', type: 'number', required: true },
+        { id: 'f_active', name: 'active', type: 'bool', required: true },
+        { id: 'f_meta', name: 'meta', type: 'json', required: true },
+        { id: 'f_email', name: 'contactEmail', type: 'email', required: true },
+        { id: 'f_url', name: 'website', type: 'url', required: true },
+        { id: 'f_date', name: 'publishedAt', type: 'date', required: true },
+        { id: 'f_sel', name: 'status', type: 'select', required: true, options: { values: ['a', 'b'] } },
+        { id: 'f_file', name: 'attachment', type: 'file', required: true },
+        { id: 'f_rel', name: 'owner', type: 'relation', required: true, options: { collectionId: 'users' } },
+        { id: 'f_opt_num', name: 'optNum', type: 'number', required: false },
+        { id: 'f_opt_bool', name: 'optBool', type: 'bool', required: false },
+        { id: 'f_opt_json', name: 'optJson', type: 'json', required: false },
+      ];
+
+      await schemaService.createCollection({
+        name: 'products',
+        type: 'base',
+        schema: initialSchema,
+      });
+
+      expect(ddlStatements).toHaveLength(1);
+      const createSql = ddlStatements[0];
+      expect(createSql).toContain('"title" TEXT NOT NULL DEFAULT \'\'');
+      expect(createSql).toContain('"price" DOUBLE PRECISION NOT NULL DEFAULT 0');
+      expect(createSql).toContain('"active" BOOLEAN NOT NULL DEFAULT FALSE');
+      expect(createSql).toContain('"meta" JSONB NOT NULL DEFAULT \'{}\'');
+      expect(createSql).toContain('"contactEmail" TEXT NOT NULL DEFAULT \'\'');
+      expect(createSql).toContain('"website" TEXT NOT NULL DEFAULT \'\'');
+      expect(createSql).toContain('"publishedAt" TEXT NOT NULL DEFAULT \'\'');
+      expect(createSql).toContain('"status" TEXT NOT NULL DEFAULT \'\'');
+      expect(createSql).toContain('"attachment" TEXT NOT NULL DEFAULT \'\'');
+      expect(createSql).toContain('"owner" TEXT NOT NULL DEFAULT \'\'');
+      expect(createSql).toContain('"optNum" DOUBLE PRECISION,');
+      expect(createSql).toContain('"optBool" BOOLEAN,');
+      expect(createSql).toContain('"optJson" JSONB,');
+      expect(createSql).not.toContain("DOUBLE PRECISION NOT NULL DEFAULT ''");
+      expect(createSql).not.toContain("BOOLEAN NOT NULL DEFAULT ''");
+      expect(createSql).not.toContain("JSONB NOT NULL DEFAULT ''");
+
+      ddlStatements.length = 0;
+
+      await schemaService.updateCollection('products', {
+        schema: [
+          ...initialSchema,
+          { id: 'f_stock', name: 'stock', type: 'number', required: true },
+          { id: 'f_featured', name: 'featured', type: 'bool', required: true },
+          { id: 'f_attrs', name: 'attrs', type: 'json', required: true },
+          { id: 'f_sku', name: 'sku', type: 'text', required: true },
+        ],
+      });
+
+      expect(ddlStatements).toHaveLength(4);
+      expect(ddlStatements).toContain('ALTER TABLE "products" ADD COLUMN "stock" DOUBLE PRECISION NOT NULL DEFAULT 0');
+      expect(ddlStatements).toContain('ALTER TABLE "products" ADD COLUMN "featured" BOOLEAN NOT NULL DEFAULT FALSE');
+      expect(ddlStatements).toContain('ALTER TABLE "products" ADD COLUMN "attrs" JSONB NOT NULL DEFAULT \'{}\'');
+      expect(ddlStatements).toContain('ALTER TABLE "products" ADD COLUMN "sku" TEXT NOT NULL DEFAULT \'\'');
+    });
+
+    it('should emit valid MSSQL type-specific defaults for required non-text fields on CREATE TABLE and ALTER TABLE', async () => {
+      const { db, ddlStatements } = createMockAsyncDbForDdl(new MssqlDialect());
+      const schemaService = new SchemaService(db);
+
+      const initialSchema: SchemaField[] = [
+        { id: 'f_title', name: 'title', type: 'text', required: true },
+        { id: 'f_slug', name: 'slug', type: 'text', required: true, unique: true },
+        { id: 'f_price', name: 'price', type: 'number', required: true },
+        { id: 'f_active', name: 'active', type: 'bool', required: true },
+        { id: 'f_meta', name: 'meta', type: 'json', required: true },
+      ];
+
+      await schemaService.createCollection({
+        name: 'items',
+        type: 'base',
+        schema: initialSchema,
+      });
+
+      expect(ddlStatements).toHaveLength(1);
+      const createSql = ddlStatements[0];
+      expect(createSql).toContain('[title] NVARCHAR(MAX) NOT NULL DEFAULT \'\'');
+      expect(createSql).toContain('[slug] NVARCHAR(255) NOT NULL DEFAULT \'\' UNIQUE');
+      expect(createSql).toContain('[price] FLOAT NOT NULL DEFAULT 0');
+      expect(createSql).toContain('[active] BIT NOT NULL DEFAULT 0');
+      expect(createSql).toContain('[meta] NVARCHAR(MAX) NOT NULL DEFAULT \'{}\'');
+      expect(createSql).not.toContain('DEFAULT FALSE');
+      expect(createSql).not.toContain("FLOAT NOT NULL DEFAULT ''");
+      expect(createSql).not.toContain("BIT NOT NULL DEFAULT ''");
+
+      ddlStatements.length = 0;
+
+      await schemaService.updateCollection('items', {
+        schema: [
+          ...initialSchema,
+          { id: 'f_qty', name: 'qty', type: 'number', required: true },
+          { id: 'f_enabled', name: 'enabled', type: 'bool', required: true },
+          { id: 'f_cfg', name: 'cfg', type: 'json', required: true },
+        ],
+      });
+
+      expect(ddlStatements).toHaveLength(3);
+      expect(ddlStatements).toContain('ALTER TABLE [items] ADD [qty] FLOAT NOT NULL DEFAULT 0');
+      expect(ddlStatements).toContain('ALTER TABLE [items] ADD [enabled] BIT NOT NULL DEFAULT 0');
+      expect(ddlStatements).toContain('ALTER TABLE [items] ADD [cfg] NVARCHAR(MAX) NOT NULL DEFAULT \'{}\'');
+    });
+
+    it('should execute SQLite CREATE TABLE and ALTER TABLE with valid type-specific defaults for required fields', () => {
+      const config = new ConfigService({ dataDir: testDir });
+      const db = new DatabaseService(config, new NodeSqliteDriver(':memory:'));
+      db.init();
+
+      try {
+        const schemaService = new SchemaService(db);
+        schemaService.createCollection({
+          name: 'widgets',
+          type: 'base',
+          schema: [
+            { id: 'f_name', name: 'name', type: 'text', required: true },
+            { id: 'f_count', name: 'count', type: 'number', required: true },
+            { id: 'f_flag', name: 'flag', type: 'bool', required: true },
+            { id: 'f_data', name: 'data', type: 'json', required: true },
+          ],
+        });
+
+        schemaService.updateCollection('widgets', {
+          schema: [
+            { id: 'f_name', name: 'name', type: 'text', required: true },
+            { id: 'f_count', name: 'count', type: 'number', required: true },
+            { id: 'f_flag', name: 'flag', type: 'bool', required: true },
+            { id: 'f_data', name: 'data', type: 'json', required: true },
+            { id: 'f_extra_num', name: 'extraNum', type: 'number', required: true },
+            { id: 'f_extra_bool', name: 'extraBool', type: 'bool', required: true },
+            { id: 'f_extra_json', name: 'extraJson', type: 'json', required: true },
+          ],
+        });
+
+        const now = new Date().toISOString();
+        db.prepare('INSERT INTO "widgets" ("id", "created", "updated") VALUES (?, ?, ?)').run('w_1', now, now);
+
+        const row = db.get<any>('SELECT * FROM "widgets" WHERE "id" = ?', 'w_1');
+        expect(row).toBeDefined();
+        expect(row.name).toBe('');
+        expect(row.count).toBe(0);
+        expect(row.flag).toBe(0);
+        expect(row.data).toBe('{}');
+        expect(row.extraNum).toBe(0);
+        expect(row.extraBool).toBe(0);
+        expect(row.extraJson).toBe('{}');
+      } finally {
+        db.close();
+      }
+    });
+  });
+
 });
