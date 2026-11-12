@@ -2,7 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { RealtimeService } from '../../realtime/RealtimeService';
 import { AppManager } from '../../apps/AppManager';
-import { AppError } from '../../core/errors/AppError';
+import { AppError, UnauthorizedError } from '../../core/errors/AppError';
 
 export class RealtimeController extends BaseController {
   constructor(
@@ -30,26 +30,40 @@ export class RealtimeController extends BaseController {
   }
 
   public async setSubscriptions(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const { clientId, subscriptions } = (req.body as any) || {};
+    const { clientId, subscriptions, clientSecret: bodySecret } = (req.body as any) || {};
 
-    if (!clientId || !Array.isArray(subscriptions)) {
-      throw new AppError('clientId and subscriptions array are required', 400);
+    if (
+      typeof clientId !== 'string' ||
+      !clientId.trim() ||
+      !Array.isArray(subscriptions) ||
+      !subscriptions.every((s) => typeof s === 'string')
+    ) {
+      throw new AppError('clientId and subscriptions string array are required', 400);
+    }
+
+    if (bodySecret !== undefined && typeof bodySecret !== 'string') {
+      throw new AppError('clientSecret must be a string', 400);
+    }
+
+    const headerSecret =
+      typeof req.headers['x-realtime-secret'] === 'string'
+        ? req.headers['x-realtime-secret']
+        : typeof req.headers['x-client-secret'] === 'string'
+        ? req.headers['x-client-secret']
+        : undefined;
+
+    const rawSecret = bodySecret !== undefined ? bodySecret : headerSecret;
+    const providedSecret = typeof rawSecret === 'string' && rawSecret.trim() ? rawSecret.trim() : undefined;
+
+    if (!req.auth && !providedSecret) {
+      throw new UnauthorizedError('Authentication or realtime client secret is required');
     }
 
     const realtime = this.getRealtime(req);
-    let ok = realtime.setSubscriptions(clientId, subscriptions);
-
-    // If client wasn't found in this scope, check other cached scopes or default service
-    if (!ok && this.appManager) {
-      for (const app of this.appManager.getCachedScopes()) {
-        if (app.realtime !== realtime && app.realtime.setSubscriptions(clientId, subscriptions)) {
-          ok = true;
-          break;
-        }
-      }
-    } else if (!ok && realtime !== this.realtimeService) {
-      ok = this.realtimeService.setSubscriptions(clientId, subscriptions);
-    }
+    const ok = realtime.setSubscriptions(clientId.trim(), subscriptions, {
+      callerAuth: req.auth,
+      clientSecret: bodySecret !== undefined ? bodySecret : providedSecret,
+    });
 
     if (!ok) {
       throw new AppError('Realtime client not found or disconnected', 404);

@@ -2,6 +2,7 @@ import * as crypto from 'crypto';
 import { DatabaseService } from '../database/DatabaseService';
 import { ConfigService } from '../core/config/ConfigService';
 import { AppError, NotFoundError, UnauthorizedError, ForbiddenError } from '../core/errors/AppError';
+import { hashSecret, verifySecret } from '../core/crypto/secret';
 import { AuthClaims } from './AuthService';
 
 export interface ApiKeyModel {
@@ -125,7 +126,7 @@ export class ApiKeyService {
     const keyPrefix = `nsk_${env}_${keyId}`;
     const redactedKey = `${keyPrefix}...${secretEntropy.slice(-4)}`;
 
-    const secretHash = crypto.createHash('sha256').update(secretKey).digest('hex');
+    const secretHash = hashSecret(secretKey);
     const id = `key_${keyId}_${crypto.randomBytes(3).toString('hex')}`;
     const now = new Date().toISOString();
 
@@ -243,14 +244,7 @@ export class ApiKeyService {
       }
 
       // 2. Cryptographic comparison of SHA-256 hash
-      const inputHash = crypto.createHash('sha256').update(trimmed).digest('hex');
-      const expectedHashBuffer = Buffer.from(model.secretHash, 'hex');
-      const inputHashBuffer = Buffer.from(inputHash, 'hex');
-
-      if (
-        expectedHashBuffer.length !== inputHashBuffer.length ||
-        !crypto.timingSafeEqual(expectedHashBuffer, inputHashBuffer)
-      ) {
+      if (!verifySecret(model.secretHash, trimmed)) {
         return { valid: false, error: 'Invalid API key secret' };
       }
 
@@ -495,7 +489,7 @@ export class ApiKeyService {
       const secretEntropy = crypto.randomBytes(24).toString('hex');
       const secretKey = `${keyPrefix}_${secretEntropy}`;
       const redactedKey = `${keyPrefix}...${secretEntropy.slice(-4)}`;
-      const secretHash = crypto.createHash('sha256').update(secretKey).digest('hex');
+      const secretHash = hashSecret(secretKey);
       const now = new Date().toISOString();
 
       const runRes = this.db.run(

@@ -1313,7 +1313,8 @@ export class OpenApiGenerator {
       post: {
         tags: ['Realtime'],
         summary: 'Set client subscriptions',
-        description: 'Configures collection subscriptions for an active realtime connection.',
+        description: 'Configures collection subscriptions for an active realtime connection. Requires matching caller authentication or the per-connection clientSecret received from NS_CONNECT.',
+        security: [{ BearerAuth: [] }, {}],
         requestBody: {
           required: true,
           content: {
@@ -1322,6 +1323,7 @@ export class OpenApiGenerator {
                 type: 'object',
                 properties: {
                   clientId: { type: 'string', example: 'client_xyz' },
+                  clientSecret: { type: 'string', description: 'Per-connection secret issued during NS_CONNECT' },
                   subscriptions: {
                     type: 'array',
                     items: { type: 'string' },
@@ -1335,6 +1337,8 @@ export class OpenApiGenerator {
         },
         responses: {
           '204': { description: 'Subscriptions configured' },
+          '401': { description: 'Missing authentication or realtime client secret' },
+          '403': { description: 'Caller does not own this realtime client or invalid clientSecret' },
           '404': { description: 'Client disconnected or not found' },
         },
       },

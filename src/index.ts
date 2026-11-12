@@ -15,6 +15,7 @@ export { loadEnvFile } from './core/config/EnvLoader';
 export { EventBus } from './core/events/EventBus';
 export * from './core/events/types';
 export * from './core/errors/AppError';
+export { hashSecret, verifySecret, timingSafeEqualStrings } from './core/crypto/secret';
 
 // Database
 export { DatabaseService } from './database/DatabaseService';

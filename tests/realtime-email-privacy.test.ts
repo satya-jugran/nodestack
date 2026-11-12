@@ -158,12 +158,14 @@ describe('Realtime SSE Record Sanitization & Email Privacy (BOLA Prevention)', (
 
     function connectSSE(token?: string): Promise<{
       clientId: string;
+      clientSecret: string;
       events: any[];
       close: () => void;
     }> {
       return new Promise((resolve, reject) => {
         const events: any[] = [];
         let clientId = '';
+        let clientSecret = '';
         const url = token
           ? `http://127.0.0.1:${port}/api/realtime?token=${token}`
           : `http://127.0.0.1:${port}/api/realtime`;
@@ -176,11 +178,14 @@ describe('Realtime SSE Record Sanitization & Email Privacy (BOLA Prevention)', (
             buffer = blocks.pop() || '';
             for (const block of blocks) {
               if (block.includes('NS_CONNECT')) {
-                const match = block.match(/\{"clientId":"([^"]+)"\}/);
-                if (match && !clientId) {
-                  clientId = match[1];
+                const dataMatch = block.match(/data: (\{.*\})/);
+                if (dataMatch && !clientId) {
+                  const parsed = JSON.parse(dataMatch[1]);
+                  clientId = parsed.clientId;
+                  clientSecret = parsed.clientSecret || '';
                   resolve({
                     clientId,
+                    clientSecret,
                     events,
                     close: () => {
                       try {
@@ -213,23 +218,30 @@ describe('Realtime SSE Record Sanitization & Email Privacy (BOLA Prevention)', (
 
       try {
         // Subscribe both to 'users'
-        await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        const guestSubRes = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             clientId: guestSSE.clientId,
+            clientSecret: guestSSE.clientSecret,
             subscriptions: ['users'],
           }),
         });
+        expect(guestSubRes.status).toBe(204);
 
-        await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        const adminSubRes = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`,
+          },
           body: JSON.stringify({
             clientId: adminSSE.clientId,
+            clientSecret: adminSSE.clientSecret,
             subscriptions: ['users'],
           }),
         });
+        expect(adminSubRes.status).toBe(204);
 
         // 3. Register a new user with emailVisibility: false
         const registerRes = await fetch(`http://127.0.0.1:${port}/api/collections/users/records`, {
@@ -272,14 +284,16 @@ describe('Realtime SSE Record Sanitization & Email Privacy (BOLA Prevention)', (
     it('should include email when emailVisibility=true for third-party SSE subscribers', async () => {
       const guestSSE = await connectSSE();
       try {
-        await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        const subRes = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             clientId: guestSSE.clientId,
+            clientSecret: guestSSE.clientSecret,
             subscriptions: ['users'],
           }),
         });
+        expect(subRes.status).toBe(204);
 
         const registerRes = await fetch(`http://127.0.0.1:${port}/api/collections/users/records`, {
           method: 'POST',
@@ -324,22 +338,29 @@ describe('Realtime SSE Record Sanitization & Email Privacy (BOLA Prevention)', (
       const adminSSE = await connectSSE(adminToken);
 
       try {
-        await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        const subRes = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             clientId: guestSSE.clientId,
+            clientSecret: guestSSE.clientSecret,
             subscriptions: ['users'],
           }),
         });
-        await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        expect(subRes.status).toBe(204);
+        const adminSubRes = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`,
+          },
           body: JSON.stringify({
             clientId: adminSSE.clientId,
+            clientSecret: adminSSE.clientSecret,
             subscriptions: ['users'],
           }),
         });
+        expect(adminSubRes.status).toBe(204);
 
         // 1. Update user
         const updateRes = await fetch(`http://127.0.0.1:${port}/api/collections/users/records/${user.id}`, {

@@ -268,6 +268,57 @@ describe('nodestack-client Unit Tests', () => {
       realtime.disconnect();
       expect(realtime.isConnected).toBe(false);
     });
+
+    it('should include clientSecret from NS_CONNECT handshake when syncing subscriptions', async () => {
+      class MockSecretEventSource {
+        public listeners: Record<string, Function[]> = {};
+        public onerror: any = null;
+
+        constructor(_url: string) {
+          setTimeout(() => {
+            this.emit('NS_CONNECT', {
+              data: JSON.stringify({ clientId: 'cl_sec_1', clientSecret: 'sec_token_abc' }),
+            });
+          }, 10);
+        }
+
+        public addEventListener(type: string, listener: Function) {
+          if (!this.listeners[type]) this.listeners[type] = [];
+          this.listeners[type].push(listener);
+        }
+
+        public emit(type: string, event: any) {
+          if (this.listeners[type]) {
+            for (const l of this.listeners[type]) l(event);
+          }
+        }
+
+        public close() {}
+      }
+
+      let lastPostBody: any = null;
+      const mockClient: any = {
+        baseUrl: 'http://127.0.0.1:8090',
+        authStore: { token: '' },
+        send: vi.fn().mockImplementation(async (path: string, options: any) => {
+          if (path === '/api/realtime' && options.method === 'POST') {
+            lastPostBody = options.body;
+            return null;
+          }
+          return null;
+        }),
+      };
+
+      const realtime = new RealtimeService(mockClient, MockSecretEventSource);
+      await realtime.subscribe('posts', () => {});
+      expect(lastPostBody).toEqual({
+        clientId: 'cl_sec_1',
+        clientSecret: 'sec_token_abc',
+        subscriptions: ['posts'],
+      });
+
+      realtime.disconnect();
+    });
   });
 describe('Multi-Application & MVP SDK Support', () => {
     it('should create scoped client with client.app(slug) and inject x-nodestack-app header', async () => {

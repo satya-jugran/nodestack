@@ -8,6 +8,7 @@ import type { RealtimeEvent, RealtimeCallback, UnsubscribeFunc } from '../types'
 export class RealtimeService extends BaseService {
   private eventSource: any = null;
   private clientId: string = '';
+  private clientSecret: string = '';
   private isConnecting: boolean = false;
   private connectPromise: Promise<string> | null = null;
   private reconnectTimeout: any = null;
@@ -89,6 +90,7 @@ export class RealtimeService extends BaseService {
           try {
             const data = JSON.parse(event.data);
             this.clientId = data.clientId;
+            this.clientSecret = typeof data.clientSecret === 'string' ? data.clientSecret : '';
             this.reconnectAttempts = 0;
 
             // Re-apply any existing subscriptions on the server
@@ -203,6 +205,7 @@ export class RealtimeService extends BaseService {
     }
 
     this.clientId = '';
+    this.clientSecret = '';
     this.registeredEventNames.clear();
   }
 
@@ -213,14 +216,18 @@ export class RealtimeService extends BaseService {
     if (!this.clientId) return;
 
     const topics = Array.from(this.subscriptions.keys());
+    const body: Record<string, any> = {
+      clientId: this.clientId,
+      subscriptions: topics.length > 0 ? topics : ['__noop__'],
+    };
+    if (this.clientSecret) {
+      body.clientSecret = this.clientSecret;
+    }
 
     try {
       await this.client.send('/api/realtime', {
         method: 'POST',
-        body: {
-          clientId: this.clientId,
-          subscriptions: topics.length > 0 ? topics : ['__noop__'],
-        },
+        body,
       });
     } catch (err) {
       console.warn('[RealtimeService] Failed to sync subscriptions with server:', err);

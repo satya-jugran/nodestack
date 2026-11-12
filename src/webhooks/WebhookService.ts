@@ -3,6 +3,7 @@ import { DatabaseService } from '../database/DatabaseService';
 import { EventBus } from '../core/events/EventBus';
 import { RecordAfterEventContext } from '../core/events/types';
 import { AppError } from '../core/errors/AppError';
+import { timingSafeEqualStrings } from '../core/crypto/secret';
 import { SsrfGuard, SsrfGuardError } from '../functions/security/SsrfGuard';
 
 export const ALLOWED_WEBHOOK_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE', 'GET', 'HEAD'] as const;
@@ -970,14 +971,7 @@ export class WebhookService {
       cleanHeader = cleanHeader.substring(7);
     }
 
-    try {
-      const a = Buffer.from(cleanHeader, 'utf8');
-      const b = Buffer.from(expected, 'utf8');
-      if (a.length !== b.length) return false;
-      return crypto.timingSafeEqual(a, b);
-    } catch {
-      return false;
-    }
+    return timingSafeEqualStrings(cleanHeader, expected, 'utf8');
   }
 
   // ==========================================
