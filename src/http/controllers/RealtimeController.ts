@@ -3,6 +3,7 @@ import { BaseController } from './BaseController';
 import { RealtimeService } from '../../realtime/RealtimeService';
 import { AppManager } from '../../apps/AppManager';
 import { AppError, UnauthorizedError } from '../../core/errors/AppError';
+import { getRequestAuthRevalidator } from '../middleware/AuthMiddleware';
 
 export class RealtimeController extends BaseController {
   constructor(
@@ -26,7 +27,7 @@ export class RealtimeController extends BaseController {
     });
 
     const realtime = this.getRealtime(req);
-    realtime.registerClient(reply, req.auth);
+    realtime.registerClient(reply, req.auth, getRequestAuthRevalidator(req));
   }
 
   public async setSubscriptions(req: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -60,7 +61,7 @@ export class RealtimeController extends BaseController {
     }
 
     const realtime = this.getRealtime(req);
-    const ok = realtime.setSubscriptions(clientId.trim(), subscriptions, {
+    const ok = await realtime.setSubscriptions(clientId.trim(), subscriptions, {
       callerAuth: req.auth,
       clientSecret: bodySecret !== undefined ? bodySecret : providedSecret,
     });

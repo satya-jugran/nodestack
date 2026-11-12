@@ -93,12 +93,14 @@ describe('Realtime Subscription Ownership & Session Binding Security', { timeout
     clientId: string;
     clientSecret: string;
     events: Array<{ event: string; data: any }>;
+    isClosed: () => boolean;
     close: () => void;
   }> {
     return new Promise((resolve, reject) => {
       const events: Array<{ event: string; data: any }> = [];
       let clientId = '';
       let clientSecret = '';
+      let streamClosed = false;
       const basePath = options.urlPath || '/api/realtime';
       const url = options.token
         ? `http://127.0.0.1:${port}${basePath}?token=${encodeURIComponent(options.token)}`
@@ -108,6 +110,12 @@ describe('Realtime Subscription Ownership & Session Binding Security', { timeout
         url,
         { headers: options.headers || {} },
         (res) => {
+          res.on('close', () => {
+            streamClosed = true;
+          });
+          res.on('end', () => {
+            streamClosed = true;
+          });
           let buffer = '';
           res.on('data', (chunk) => {
             buffer += chunk.toString();
@@ -131,6 +139,7 @@ describe('Realtime Subscription Ownership & Session Binding Security', { timeout
                   clientId,
                   clientSecret,
                   events,
+                  isClosed: () => streamClosed,
                   close: () => {
                     try {
                       req.destroy();
@@ -548,6 +557,325 @@ describe('Realtime Subscription Ownership & Session Binding Security', { timeout
     } finally {
       aliceClient.realtime.disconnect();
       guestClient.realtime.disconnect();
+    }
+  });
+
+  it('should stop protected SSE broadcasts and close open connections when user session is revoked, password changes, or user is deleted', async () => {
+    await app.schema.createCollection({
+      name: 'private_notes',
+      type: 'base',
+      schema: [{ name: 'body', type: 'text', required: true }],
+      listRule: '@request.auth.id != ""',
+      viewRule: '@request.auth.id != ""',
+      createRule: '',
+      updateRule: '',
+      deleteRule: '',
+    });
+
+    // 1. User session revocation stops further protected events
+    await app.records.create('users', {
+      email: 'sse-revoke@nodestack.test',
+      password: 'OldPassword123!',
+    });
+    const auth1 = await app.auth.authenticateRecord('users', 'sse-revoke@nodestack.test', 'OldPassword123!');
+    const sse1 = await connectSSE({ token: auth1.token });
+
+    try {
+      const sub1 = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth1.token}`,
+        },
+        body: JSON.stringify({
+          clientId: sse1.clientId,
+          clientSecret: sse1.clientSecret,
+          subscriptions: ['private_notes'],
+        }),
+      });
+      expect(sub1.status).toBe(204);
+
+      const beforeNote = await app.records.create('private_notes', { body: 'Before Revoke' }, { isAdmin: true });
+      await new Promise((r) => setTimeout(r, 120));
+      expect(sse1.events.some((e) => e.data?.record?.id === beforeNote.id)).toBe(true);
+
+      await app.auth.revokeRecordSessions('users', auth1.record.id);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(sse1.isClosed()).toBe(true);
+
+      const afterNote = await app.records.create('private_notes', { body: 'After Revoke' }, { isAdmin: true });
+      await new Promise((r) => setTimeout(r, 150));
+      expect(sse1.events.some((e) => e.data?.record?.id === afterNote.id)).toBe(false);
+    } finally {
+      sse1.close();
+    }
+
+    // 2. Password update on auth user invalidates existing SSE stream
+    const user2 = await app.records.create('users', {
+      email: 'sse-pw@nodestack.test',
+      password: 'StartPassword123!',
+    });
+    const auth2 = await app.auth.authenticateRecord('users', 'sse-pw@nodestack.test', 'StartPassword123!');
+    const claims2 = app.auth.verifyToken(auth2.token);
+    const sse2 = await connectSSE({ token: auth2.token });
+
+    try {
+      await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth2.token}`,
+        },
+        body: JSON.stringify({
+          clientId: sse2.clientId,
+          subscriptions: ['private_notes'],
+        }),
+      });
+
+      const prePwNote = await app.records.create('private_notes', { body: 'Pre Password Change' }, { isAdmin: true });
+      await new Promise((r) => setTimeout(r, 120));
+      expect(sse2.events.some((e) => e.data?.record?.id === prePwNote.id)).toBe(true);
+
+      await app.records.update('users', user2.id, { password: 'BrandNewPassword123!' }, claims2);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(sse2.isClosed()).toBe(true);
+
+      const postPwNote = await app.records.create('private_notes', { body: 'Post Password Change' }, { isAdmin: true });
+      await new Promise((r) => setTimeout(r, 150));
+      expect(sse2.events.some((e) => e.data?.record?.id === postPwNote.id)).toBe(false);
+    } finally {
+      sse2.close();
+    }
+
+    // 3. Deleting the authenticated user record stops further protected events
+    const user3 = await app.records.create('users', {
+      email: 'sse-del@nodestack.test',
+      password: 'DeletePassword123!',
+    });
+    const auth3 = await app.auth.authenticateRecord('users', 'sse-del@nodestack.test', 'DeletePassword123!');
+    const sse3 = await connectSSE({ token: auth3.token });
+
+    try {
+      await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth3.token}`,
+        },
+        body: JSON.stringify({
+          clientId: sse3.clientId,
+          subscriptions: ['private_notes'],
+        }),
+      });
+
+      await app.records.delete('users', user3.id, { isAdmin: true });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(sse3.isClosed()).toBe(true);
+
+      const postDeleteNote = await app.records.create('private_notes', { body: 'After Delete' }, { isAdmin: true });
+      await new Promise((r) => setTimeout(r, 150));
+      expect(sse3.events.some((e) => e.data?.record?.id === postDeleteNote.id)).toBe(false);
+    } finally {
+      sse3.close();
+    }
+  });
+
+  it('should revalidate and close expired JWTs, revoked/rotated API keys, and revoked super-admin sessions across scopes', async () => {
+    // Ensure admin_notes exists on default and tenant-a
+    await app.schema.createCollection({
+      name: 'admin_notes',
+      type: 'base',
+      schema: [{ name: 'secret', type: 'text', required: true }],
+      listRule: '@request.auth.isAdmin == true',
+      viewRule: '@request.auth.isAdmin == true',
+      createRule: '@request.auth.isAdmin == true',
+      updateRule: '@request.auth.isAdmin == true',
+      deleteRule: '@request.auth.isAdmin == true',
+    });
+
+    const tenantScope = await app.apps.getAsync('tenant-a');
+    await tenantScope.schema.createCollection({
+      name: 'tenant_admin_notes',
+      type: 'base',
+      schema: [{ name: 'secret', type: 'text', required: true }],
+      listRule: '@request.auth.isAdmin == true',
+      viewRule: '@request.auth.isAdmin == true',
+      createRule: '@request.auth.isAdmin == true',
+      updateRule: '@request.auth.isAdmin == true',
+      deleteRule: '@request.auth.isAdmin == true',
+    });
+
+    // 1. Short-lived JWT expiring while SSE stream remains open
+    await app.records.create('users', {
+      email: 'sse-exp@nodestack.test',
+      password: 'ExpPassword123!',
+    });
+    const expAuth = await app.auth.authenticateRecord('users', 'sse-exp@nodestack.test', 'ExpPassword123!');
+    const claims = app.auth.verifyToken(expAuth.token);
+    const shortToken = app.auth.generateToken(
+      {
+        id: claims.id,
+        email: claims.email,
+        collection: claims.collection,
+        tokenKey: claims.tokenKey,
+        isAdmin: false,
+      },
+      '1s'
+    );
+    const expSSE = await connectSSE({ token: shortToken });
+
+    try {
+      const subRes = await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${shortToken}`,
+        },
+        body: JSON.stringify({
+          clientId: expSSE.clientId,
+          subscriptions: ['private_notes'],
+        }),
+      });
+      expect(subRes.status).toBe(204);
+
+      const n1 = await app.records.create('private_notes', { body: 'Before JWT Exp' }, { isAdmin: true });
+      await new Promise((r) => setTimeout(r, 120));
+      expect(expSSE.events.some((e) => e.data?.record?.id === n1.id)).toBe(true);
+
+      await new Promise((r) => setTimeout(r, 1100));
+      const n2 = await app.records.create('private_notes', { body: 'After JWT Exp' }, { isAdmin: true });
+      await new Promise((r) => setTimeout(r, 150));
+      expect(expSSE.events.some((e) => e.data?.record?.id === n2.id)).toBe(false);
+      expect(expSSE.isClosed()).toBe(true);
+    } finally {
+      expSSE.close();
+    }
+
+    // 2. Out-of-band DB tokenKey rotation + cache invalidation caught on broadcast() revalidation
+    const oobAuth = await app.auth.authenticateRecord('users', 'sse-exp@nodestack.test', 'ExpPassword123!');
+    const oobSSE = await connectSSE({ token: oobAuth.token });
+
+    try {
+      await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${oobAuth.token}`,
+        },
+        body: JSON.stringify({
+          clientId: oobSSE.clientId,
+          subscriptions: ['private_notes'],
+        }),
+      });
+
+      app.db.run('UPDATE users SET tokenKey = ? WHERE id = ?', 'rotated_out_of_band_key', oobAuth.record.id);
+      app.auth.invalidateTokenCache('users', oobAuth.record.id);
+
+      const n3 = await app.records.create('private_notes', { body: 'Blocked By Broadcast Revalidate' }, { isAdmin: true });
+      await new Promise((r) => setTimeout(r, 150));
+      expect(oobSSE.events.some((e) => e.data?.record?.id === n3.id)).toBe(false);
+      expect(oobSSE.isClosed()).toBe(true);
+    } finally {
+      oobSSE.close();
+    }
+
+    // 3. API Key revocation and rotation stop SSE event delivery
+    const createdKey = await app.defaultApp.apiKeys.createKey({
+      name: 'Revocable Realtime Key',
+      role: 'admin',
+      scopes: ['*'],
+    });
+    const apiKeySSE = await connectSSE({
+      headers: { 'x-api-key': createdKey.secretKey },
+    });
+
+    try {
+      await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': createdKey.secretKey,
+        },
+        body: JSON.stringify({
+          clientId: apiKeySSE.clientId,
+          subscriptions: ['admin_notes'],
+        }),
+      });
+
+      const a1 = await app.records.create('admin_notes', { secret: 'Key Valid Secret' }, { isAdmin: true });
+      await new Promise((r) => setTimeout(r, 120));
+      expect(apiKeySSE.events.some((e) => e.data?.record?.id === a1.id)).toBe(true);
+
+      await app.defaultApp.apiKeys.rotateKey(createdKey.apiKey.id);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(apiKeySSE.isClosed()).toBe(true);
+
+      const a2 = await app.records.create('admin_notes', { secret: 'Key Rotated Secret' }, { isAdmin: true });
+      await new Promise((r) => setTimeout(r, 150));
+      expect(apiKeySSE.events.some((e) => e.data?.record?.id === a2.id)).toBe(false);
+    } finally {
+      apiKeySSE.close();
+    }
+
+    // 4. Super-admin revocation propagates to both control-plane and tenant SSE streams
+    await app.auth.createAdmin('sec-admin-sse@nodestack.io', 'AdminPassword123!');
+    const tempAdminToken = (await app.auth.authenticateAdmin('sec-admin-sse@nodestack.io', 'AdminPassword123!')).token;
+    const rootAdminSSE = await connectSSE({ token: tempAdminToken });
+    const tenantAdminSSE = await connectSSE({
+      token: tempAdminToken,
+      urlPath: '/api/apps/tenant-a/realtime',
+    });
+
+    try {
+      await fetch(`http://127.0.0.1:${port}/api/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tempAdminToken}`,
+        },
+        body: JSON.stringify({
+          clientId: rootAdminSSE.clientId,
+          subscriptions: ['admin_notes'],
+        }),
+      });
+      await fetch(`http://127.0.0.1:${port}/api/apps/tenant-a/realtime`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tempAdminToken}`,
+        },
+        body: JSON.stringify({
+          clientId: tenantAdminSSE.clientId,
+          subscriptions: ['tenant_admin_notes'],
+        }),
+      });
+
+      const t1 = await tenantScope.records.create(
+        'tenant_admin_notes',
+        { secret: 'Before Admin Revoke' },
+        { isAdmin: true }
+      );
+      await new Promise((r) => setTimeout(r, 120));
+      expect(tenantAdminSSE.events.some((e) => e.data?.record?.id === t1.id)).toBe(true);
+
+      app.auth.revokeAdminSessions('sec-admin-sse@nodestack.io');
+      await new Promise((r) => setTimeout(r, 50));
+      expect(rootAdminSSE.isClosed()).toBe(true);
+      expect(tenantAdminSSE.isClosed()).toBe(true);
+
+      const rAfter = await app.records.create('admin_notes', { secret: 'After Admin Revoke Root' }, { isAdmin: true });
+      const tAfter = await tenantScope.records.create(
+        'tenant_admin_notes',
+        { secret: 'After Admin Revoke Tenant' },
+        { isAdmin: true }
+      );
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(rootAdminSSE.events.some((e) => e.data?.record?.id === rAfter.id)).toBe(false);
+      expect(tenantAdminSSE.events.some((e) => e.data?.record?.id === tAfter.id)).toBe(false);
+    } finally {
+      rootAdminSSE.close();
+      tenantAdminSSE.close();
     }
   });
 });

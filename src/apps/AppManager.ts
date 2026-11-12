@@ -412,6 +412,21 @@ export class AppManager {
       console.warn(`[AppManager] Failed to start queue for app '${appModel.slug}': ${err.message}`);
     });
 
+    if (appModel.slug === 'default' || appModel.isDefault) {
+      const propagateToTenants = (filter: any) => {
+        for (const otherScope of this.getCachedScopes()) {
+          if (otherScope !== scope) {
+            otherScope.realtime.revokeClientsByIdentity({
+              ...filter,
+              onlySuperAdmin: true,
+            });
+          }
+        }
+      };
+      scope.auth.onSessionRevoked(propagateToTenants);
+      scope.apiKeys.onKeyRevoked(propagateToTenants);
+    }
+
     for (const handler of this.onScopeInitHandlers) {
       try {
         handler(scope);

@@ -2,8 +2,9 @@ import * as crypto from 'crypto';
 import { DatabaseService } from '../database/DatabaseService';
 import { ConfigService } from '../core/config/ConfigService';
 import { AppError, NotFoundError, UnauthorizedError, ForbiddenError } from '../core/errors/AppError';
-import { hashSecret, verifySecret } from '../core/crypto/secret';
+import { hashSecret, timingSafeEqualStrings, verifySecret } from '../core/crypto/secret';
 import { AuthClaims } from './AuthService';
+import type { RealtimeService, RealtimeIdentityFilter } from '../realtime/RealtimeService';
 
 export interface ApiKeyModel {
   id: string;
@@ -89,6 +90,8 @@ export class ApiKeyService {
   private keyCache: Map<string, { key: ApiKeyModel; expiresAt: number }> = new Map();
   private pendingUsageUpdates: Map<string, { lastUsedAt: string; lastUsedIp: string; count: number }> = new Map();
   private usageFlushTimer?: NodeJS.Timeout;
+  private realtimeService?: RealtimeService;
+  private keyRevokedListeners: Array<(filter: RealtimeIdentityFilter) => void> = [];
 
   constructor(
     private db: DatabaseService,
@@ -100,6 +103,34 @@ export class ApiKeyService {
     }, 5000);
     if (this.usageFlushTimer.unref) {
       this.usageFlushTimer.unref();
+    }
+  }
+
+  public setRealtimeService(realtimeService: RealtimeService): void {
+    this.realtimeService = realtimeService;
+  }
+
+  public onKeyRevoked(listener: (filter: RealtimeIdentityFilter) => void): void {
+    this.keyRevokedListeners.push(listener);
+  }
+
+  private notifyKeyRevoked(id: string): void {
+    const filter: RealtimeIdentityFilter = {
+      collection: '_api_keys',
+      isApiKey: true,
+      id,
+    };
+    try {
+      this.realtimeService?.revokeClientsByIdentity(filter);
+    } catch {
+      // non-fatal
+    }
+    for (const listener of this.keyRevokedListeners) {
+      try {
+        listener(filter);
+      } catch {
+        // non-fatal
+      }
     }
   }
 
@@ -249,33 +280,32 @@ export class ApiKeyService {
       }
 
       // 3. Expiration check
-      if (model.expiresAt) {
-        const exp = new Date(model.expiresAt).getTime();
-        if (Date.now() > exp) {
-          const updateRes = this.db.run("UPDATE _api_keys SET status = 'expired' WHERE id = ?", model.id);
-          model.status = 'expired';
-          this.keyCache.delete(keyPrefix);
-          if (updateRes && typeof (updateRes as any).then === 'function') {
-            return (updateRes as any).then(() => ({ valid: false, error: 'API key has expired' }));
-          }
+      const expired = this.handleIfExpired(model);
+      const finalizeValid = (isExpired: boolean): any => {
+        if (isExpired) {
           return { valid: false, error: 'API key has expired' };
         }
-      }
 
-      // 4. IP allowlist check
-      if (model.allowedIps && model.allowedIps.length > 0 && clientIp) {
-        if (!this.isIpAllowed(clientIp, model.allowedIps)) {
-          return { valid: false, error: `IP ${clientIp} not in allowed range` };
+        // 4. IP allowlist check
+        if (model.allowedIps && model.allowedIps.length > 0 && clientIp) {
+          if (!this.isIpAllowed(clientIp, model.allowedIps)) {
+            return { valid: false, error: `IP ${clientIp} not in allowed range` };
+          }
         }
-      }
 
-      // 5. Asynchronously record usage statistics
-      this.recordUsage(model.id, clientIp);
+        // 5. Asynchronously record usage statistics
+        this.recordUsage(model.id, clientIp);
 
-      return {
-        valid: true,
-        apiKey: model,
+        return {
+          valid: true,
+          apiKey: model,
+        };
       };
+
+      if (expired && typeof (expired as any).then === 'function') {
+        return (expired as Promise<boolean>).then(finalizeValid);
+      }
+      return finalizeValid(Boolean(expired));
     };
 
     if (keyModel) {
@@ -298,6 +328,114 @@ export class ApiKeyService {
       this.keyCache.set(keyPrefix, { key: keyModel, expiresAt: Date.now() + 10000 });
     }
     return validateModel(keyModel);
+  }
+
+  private sameStringSet(a?: string[], b?: string[]): boolean {
+    const setA = new Set((a || []).map((v) => v.trim()));
+    const setB = new Set((b || []).map((v) => v.trim()));
+    if (setA.size !== setB.size) return false;
+    for (const item of setA) {
+      if (!setB.has(item)) return false;
+    }
+    return true;
+  }
+
+  private handleIfExpired(model: ApiKeyModel): boolean | Promise<boolean> {
+    if (!model.expiresAt) return false;
+    const exp = new Date(model.expiresAt).getTime();
+    if (Date.now() <= exp) return false;
+    const updateRes = this.db.run("UPDATE _api_keys SET status = 'expired' WHERE id = ?", model.id);
+    model.status = 'expired';
+    this.keyCache.delete(model.keyPrefix);
+    this.notifyKeyRevoked(model.id);
+    if (updateRes && typeof (updateRes as any).then === 'function') {
+      return (updateRes as any).then(() => true);
+    }
+    return true;
+  }
+
+  /**
+   * Re-verifies previously issued API key claims against current key status,
+   * expiration, optional secret hash, IP allowlist, and granted scopes.
+   */
+  public verifyClaims(
+    claims: AuthClaims | null | undefined,
+    options?: { expectedSecretHash?: string; clientIp?: string }
+  ): boolean | Promise<boolean> {
+    if (!claims || !claims.isApiKey) {
+      return false;
+    }
+
+    const keyId = claims.apiKeyId || claims.id;
+    if (!keyId) {
+      return false;
+    }
+
+    let cachedModel: ApiKeyModel | undefined;
+    for (const entry of this.keyCache.values()) {
+      if (entry.key.id === keyId && entry.expiresAt > Date.now()) {
+        cachedModel = entry.key;
+        break;
+      }
+    }
+
+    const validateModel = (model: ApiKeyModel | undefined): boolean | Promise<boolean> => {
+      if (!model || model.status !== 'active') {
+        return false;
+      }
+
+      if (options?.expectedSecretHash && !timingSafeEqualStrings(model.secretHash, options.expectedSecretHash, 'hex')) {
+        return false;
+      }
+
+      const expired = this.handleIfExpired(model);
+      const finalizeCheck = (isExpired: boolean): boolean => {
+        if (isExpired) return false;
+
+        if (options?.clientIp && model.allowedIps && model.allowedIps.length > 0) {
+          if (!this.isIpAllowed(options.clientIp, model.allowedIps)) {
+            return false;
+          }
+        }
+
+        const hasAdminPrivilege =
+          model.role === 'admin' || model.scopes.includes('*') || model.scopes.includes('admin:*');
+        if (Boolean(claims.isAdmin) !== hasAdminPrivilege) {
+          return false;
+        }
+        if (Array.isArray(claims.scopes) && !this.sameStringSet(claims.scopes, model.scopes)) {
+          return false;
+        }
+        if (Array.isArray(claims.allowedIps) && !this.sameStringSet(claims.allowedIps, model.allowedIps)) {
+          return false;
+        }
+        return true;
+      };
+
+      if (expired && typeof (expired as any).then === 'function') {
+        return (expired as Promise<boolean>).then(finalizeCheck);
+      }
+      return finalizeCheck(Boolean(expired));
+    };
+
+    if (cachedModel) {
+      return validateModel(cachedModel);
+    }
+
+    const row = this.db.get<any>('SELECT * FROM _api_keys WHERE id = ?', keyId);
+    if (row && typeof (row as any).then === 'function') {
+      return (row as any).then((r: any) => {
+        if (!r) return false;
+        const model = this.mapRow(r);
+        this.keyCache.set(model.keyPrefix, { key: model, expiresAt: Date.now() + 10000 });
+        return validateModel(model);
+      });
+    }
+
+    if (!row) return false;
+    const model = this.mapRow(row);
+    this.keyCache.set(model.keyPrefix, { key: model, expiresAt: Date.now() + 10000 });
+    return validateModel(model);
   }
 
   private isIpAllowed(ip: string, allowedList: string[]): boolean {
@@ -436,6 +574,15 @@ export class ApiKeyService {
       params.push(id);
       const runRes = this.db.run(`UPDATE _api_keys SET ${updates.join(', ')} WHERE id = ?`, ...params);
       this.keyCache.delete(current.keyPrefix);
+      const shouldRevoke =
+        (dto.status !== undefined && dto.status !== 'active') ||
+        dto.role !== undefined ||
+        dto.scopes !== undefined ||
+        dto.allowedIps !== undefined ||
+        dto.expiresAt !== undefined;
+      if (shouldRevoke) {
+        this.notifyKeyRevoked(id);
+      }
       if (runRes && typeof (runRes as any).then === 'function') {
         return (runRes as any).then(() => this.getKey(id));
       }
@@ -454,6 +601,7 @@ export class ApiKeyService {
       const now = new Date().toISOString();
       const runRes = this.db.run("UPDATE _api_keys SET status = 'revoked', updated = ? WHERE id = ?", now, id);
       this.keyCache.delete(current.keyPrefix);
+      this.notifyKeyRevoked(id);
       if (runRes && typeof (runRes as any).then === 'function') {
         return (runRes as any).then(() => {});
       }
@@ -469,6 +617,7 @@ export class ApiKeyService {
     const doDelete = (current: any) => {
       const runRes = this.db.run('DELETE FROM _api_keys WHERE id = ?', id);
       this.keyCache.delete(current.keyPrefix);
+      this.notifyKeyRevoked(id);
       if (runRes && typeof (runRes as any).then === 'function') {
         return (runRes as any).then(() => {});
       }
@@ -500,6 +649,7 @@ export class ApiKeyService {
       );
 
       this.keyCache.delete(keyPrefix);
+      this.notifyKeyRevoked(id);
       const finalize = () => {
         const updated = this.getKey(id);
         if (updated && typeof (updated as any).then === 'function') {

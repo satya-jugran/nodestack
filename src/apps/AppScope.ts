@@ -113,6 +113,14 @@ export class AppScope {
 
     this.realtime = new RealtimeService(this.ruleEngine, this.schema);
     this.auth.setRealtimeService(this.realtime);
+    this.apiKeys.setRealtimeService(this.realtime);
+    this.realtime.setAuthValidator((auth) => {
+      if (!auth) return true;
+      if (auth.isApiKey) {
+        return this.apiKeys.verifyClaims(auth);
+      }
+      return this.auth.verifyClaims(auth);
+    });
     this.logs = new LogService(this.db);
 
     this.records = new RecordService(

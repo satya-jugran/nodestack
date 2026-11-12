@@ -83,7 +83,13 @@ export * from './auth/oauth/types';
 export { FileStorageService, SavedFileMeta } from './files/FileStorageService';
 
 // Realtime & Logging
-export { RealtimeService, RealtimeAction, RealtimeClient } from './realtime/RealtimeService';
+export {
+  RealtimeService,
+  RealtimeAction,
+  RealtimeClient,
+  RealtimeAuthRevalidator,
+  RealtimeIdentityFilter,
+} from './realtime/RealtimeService';
 export { LogService, LogEntry } from './logger/LogService';
 export {
   AuditLogService,
