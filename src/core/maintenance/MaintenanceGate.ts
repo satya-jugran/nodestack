@@ -1,7 +1,7 @@
 import { ConflictError, ServiceUnavailableError } from '../errors/AppError';
 
 export interface MaintenanceGateOptions {
-  /** Maximum time (ms) to wait for in-flight requests to drain before starting exclusive work. Default: 5000ms */
+  /** Maximum time (ms) to wait for in-flight requests to drain before aborting exclusive work with 503. Default: 5000ms */
   drainTimeoutMs?: number;
   /** Maximum time (ms) a request can wait in queue before timing out with 503. Default: 10000ms */
   requestQueueTimeoutMs?: number;
@@ -145,7 +145,7 @@ export class MaintenanceGate {
 
     const drainTimeoutMs = this.options.drainTimeoutMs ?? 5000;
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       let timer: NodeJS.Timeout | null = null;
 
       const onDrain = () => {
@@ -158,7 +158,11 @@ export class MaintenanceGate {
         if (idx !== -1) {
           this.drainResolvers.splice(idx, 1);
         }
-        resolve(); // Continue even if drain timed out to avoid permanent lock
+        reject(
+          new ServiceUnavailableError(
+            `Timed out after ${drainTimeoutMs}ms waiting for ${this.activeRequests.size} in-flight request(s) to drain. Exclusive maintenance operation aborted.`
+          )
+        );
       }, drainTimeoutMs);
 
       this.drainResolvers.push(onDrain);
