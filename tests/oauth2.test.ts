@@ -2289,7 +2289,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(resMethods.status).toBe(200);
       const setCookieHeader = resMethods.headers.get('set-cookie');
       expect(setCookieHeader).toBeDefined();
-      expect(setCookieHeader).toContain('oauth_state=');
+      expect(setCookieHeader).toContain('oauth_state_google=');
       expect(setCookieHeader).toContain('HttpOnly');
 
       const methodsData = await resMethods.json();
@@ -2301,7 +2301,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Cookie: 'oauth_state=legitimate_user_cookie_state_999',
+          Cookie: 'oauth_state_google=legitimate_user_cookie_state_999',
         },
         body: JSON.stringify({
           provider: 'google',
@@ -2320,7 +2320,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Cookie: `oauth_state=${googleMethod.state}`,
+          Cookie: `oauth_state_google=${googleMethod.state}`,
         },
         body: JSON.stringify({
           provider: 'google',
@@ -2334,6 +2334,91 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       const validData = await resValid.json();
       expect(validData.token).toBeDefined();
       expect(validData.record.email).toBe('cookie@google.com');
+    });
+
+    it('should isolate OAuth state transactions between different app scopes', () => {
+      const mockProviderA = new ConcreteTestOAuthProvider({ name: 'google' });
+      const mockProviderB = new ConcreteTestOAuthProvider({ name: 'google' });
+
+      const registryA = new (app.auth.getOAuthRegistry().constructor as any)(undefined, 'app_alpha');
+      registryA.register(mockProviderA);
+
+      const registryB = new (app.auth.getOAuthRegistry().constructor as any)(undefined, 'app_beta');
+      registryB.register(mockProviderB);
+
+      // App A lists auth methods and creates a state bound to app_alpha
+      const methodsA = registryA.listAuthMethods('http://localhost:3000/callback', 'users');
+      expect(methodsA.length).toBe(1);
+      const stateA = methodsA[0].state;
+      const verifierA = methodsA[0].codeVerifier;
+
+      // Attacker tries to consume stateA in App B
+      expect(() => {
+        registryB.validateAndConsumeState(stateA, 'google', 'users', verifierA);
+      }).toThrow(/Invalid or expired OAuth state parameter/i);
+
+      // State remains valid and consumable only within App A
+      const sessionA = registryA.validateAndConsumeState(stateA, 'google', 'users', verifierA);
+      expect(sessionA.appId).toBe('app_alpha');
+      expect(sessionA.state).toBe(stateA);
+    });
+
+    it('should reject validateAndConsumeState when session appId does not match request appId', () => {
+      const registry = new (app.auth.getOAuthRegistry().constructor as any)(undefined, 'app_shop');
+      registry.registerSession({
+        state: 'app_mismatch_state_123',
+        provider: 'google',
+        collection: 'users',
+        appId: 'app_admin', // Bound to a different app
+      });
+
+      expect(() => {
+        registry.validateAndConsumeState('app_mismatch_state_123', 'google', 'users', undefined, undefined, 'app_shop');
+      }).toThrow(/OAuth state app mismatch: expected 'app_admin', got 'app_shop'/i);
+    });
+
+    it('should reject global session fallback when global session has mismatched or missing appId', () => {
+      const registry = new (app.auth.getOAuthRegistry().constructor as any)(undefined, 'app_finance');
+
+      // Global session without appId
+      BaseOAuthProvider.saveGlobalStateSession({
+        state: 'global_state_no_app',
+        provider: 'google',
+        collection: 'users',
+        codeChallenge: '',
+        expiresAt: Date.now() + 60000,
+        createdAt: Date.now(),
+      });
+
+      expect(() => {
+        registry.validateAndConsumeState('global_state_no_app', 'google', 'users');
+      }).toThrow(/Invalid or expired OAuth state parameter/i);
+
+      // Global session with mismatched appId
+      BaseOAuthProvider.saveGlobalStateSession({
+        state: 'global_state_wrong_app',
+        provider: 'google',
+        collection: 'users',
+        appId: 'app_marketing',
+        codeChallenge: '',
+        expiresAt: Date.now() + 60000,
+        createdAt: Date.now(),
+      });
+
+      expect(() => {
+        registry.validateAndConsumeState('global_state_wrong_app', 'google', 'users');
+      }).toThrow(/Invalid or expired OAuth state parameter/i);
+    });
+
+    it('should format and isolate app-scoped cookie names', () => {
+      const cookieShop = BaseOAuthProvider.createStateCookie('state_shop_123', undefined, 'google', 'shop');
+      expect(cookieShop.name).toBe('oauth_state_shop_google');
+
+      const cookieBlog = BaseOAuthProvider.createStateCookie('state_blog_456', undefined, 'google', 'blog');
+      expect(cookieBlog.name).toBe('oauth_state_blog_google');
+
+      const cookieDefault = BaseOAuthProvider.createStateCookie('state_def_789', undefined, 'google', 'default');
+      expect(cookieDefault.name).toBe('oauth_state_google');
     });
   });
 });

@@ -11,9 +11,15 @@ import { AppleProvider } from './AppleProvider';
 export class OAuthProviderRegistry {
   private providers: Map<string, IOAuthProvider> = new Map();
   private sessions: Map<string, PkceSession> = new Map();
+  public readonly appId?: string;
 
-  constructor(customConfigs?: OAuthProviderConfig[]) {
+  constructor(customConfigs?: OAuthProviderConfig[], appId?: string) {
+    this.appId = appId;
     this.initDefaultProviders(customConfigs);
+  }
+
+  public setAppId(appId?: string): void {
+    (this as any).appId = appId;
   }
 
   private initDefaultProviders(customConfigs?: OAuthProviderConfig[]): void {
@@ -131,21 +137,18 @@ export class OAuthProviderRegistry {
 
       const authUrl = provider.buildAuthUrl(state, codeChallenge, redirectUri);
 
-      // Bind state to short-lived transaction (10 minutes TTL)
-      const sessionData = {
+      // Bind state to short-lived transaction (10 minutes TTL) scoped strictly to this registry / app
+      const sessionData: PkceSession = {
         state,
         provider: provider.name.toLowerCase(),
         collection: collectionName.toLowerCase(),
+        appId: this.appId,
         codeChallenge,
         codeVerifier,
         redirectUri,
         expiresAt: Date.now() + 10 * 60 * 1000,
       };
       this.sessions.set(state, sessionData);
-      BaseOAuthProvider.saveGlobalStateSession({
-        ...sessionData,
-        createdAt: Date.now(),
-      });
 
       methods.push({
         name: provider.name,
@@ -164,21 +167,18 @@ export class OAuthProviderRegistry {
   /**
    * Registers a PKCE transaction session (useful for custom flows or test suites).
    */
-  public registerSession(session: Partial<PkceSession> & { state: string; provider: string; collection: string }): void {
-    const fullSession = {
+  public registerSession(session: Partial<PkceSession> & { state: string; provider: string; collection: string; appId?: string }): void {
+    const fullSession: PkceSession = {
       state: session.state,
       provider: session.provider.toLowerCase(),
       collection: session.collection.toLowerCase(),
+      appId: session.appId || this.appId,
       codeChallenge: session.codeChallenge || '',
       codeVerifier: session.codeVerifier,
       redirectUri: session.redirectUri,
       expiresAt: session.expiresAt || Date.now() + 10 * 60 * 1000,
     };
     this.sessions.set(session.state, fullSession);
-    BaseOAuthProvider.saveGlobalStateSession({
-      ...fullSession,
-      createdAt: Date.now(),
-    });
   }
 
   /**
@@ -189,7 +189,8 @@ export class OAuthProviderRegistry {
     providerName: string,
     collectionName: string,
     codeVerifier?: string,
-    redirectUri?: string
+    redirectUri?: string,
+    appId?: string
   ): PkceSession {
     this.cleanExpiredSessions();
 
@@ -197,14 +198,18 @@ export class OAuthProviderRegistry {
       throw new AppError('OAuth state parameter is required', 400);
     }
 
+    const effectiveAppId = appId || this.appId;
+
     let session = this.sessions.get(state);
     if (!session) {
+      // Only accept a global session if an explicit matching app identifier is bound
       const globalSession = BaseOAuthProvider.getGlobalStateSession(state);
-      if (globalSession) {
+      if (globalSession && globalSession.appId && effectiveAppId && globalSession.appId === effectiveAppId) {
         session = {
           state: globalSession.state,
           provider: globalSession.provider,
           collection: globalSession.collection || collectionName.toLowerCase(),
+          appId: globalSession.appId,
           codeChallenge: globalSession.codeChallenge || '',
           codeVerifier: globalSession.codeVerifier,
           redirectUri: globalSession.redirectUri,
@@ -223,6 +228,14 @@ export class OAuthProviderRegistry {
 
     if (Date.now() > session.expiresAt) {
       throw new AppError('OAuth authorization session has expired', 400);
+    }
+
+    // Strictly validate app identifier binding to prevent cross-app session hijacking
+    if (session.appId && effectiveAppId && session.appId !== effectiveAppId) {
+      throw new AppError(
+        `OAuth state app mismatch: expected '${session.appId}', got '${effectiveAppId}'`,
+        400
+      );
     }
 
     if (session.provider !== providerName.toLowerCase()) {

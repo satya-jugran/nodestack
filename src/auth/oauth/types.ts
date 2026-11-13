@@ -44,7 +44,8 @@ export interface IOAuthProvider {
     state?: string,
     codeVerifier?: string,
     redirectUri?: string,
-    cookieState?: string
+    cookieState?: string,
+    appId?: string
   ): Promise<OAuthExchangeResult>;
 }
 
@@ -55,6 +56,7 @@ export interface OAuthStateCookieOptions {
   secure?: boolean;
   sameSite?: 'lax' | 'strict' | 'none';
   maxAge?: number;
+  appId?: string;
 }
 
 export interface OAuthStateCookieInfo {
@@ -77,6 +79,7 @@ export interface GetAuthorizationUrlOptions {
   scopes?: string[];
   cookieOptions?: OAuthStateCookieOptions;
   collectionName?: string;
+  appId?: string;
 }
 
 export interface OAuthAuthorizationUrlResult {
@@ -98,6 +101,7 @@ export interface HandleCallbackOptions {
   cookieState?: string;
   rawCookies?: string;
   collectionName?: string;
+  appId?: string;
   req?: any;
 }
 
@@ -105,6 +109,7 @@ export interface OAuthStateSession {
   state: string;
   provider: string;
   collection?: string;
+  appId?: string;
   codeChallenge?: string;
   codeVerifier?: string;
   redirectUri?: string;
@@ -127,6 +132,7 @@ export interface PkceSession {
   state: string;
   provider: string;
   collection: string;
+  appId?: string;
   codeChallenge: string;
   codeVerifier?: string;
   redirectUri?: string;

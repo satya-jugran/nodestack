@@ -130,12 +130,13 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
       .digest('base64url');
 
     const effectiveRedirectUri = redirectUri || this.defaultRedirectUri || '';
-    const cookie = BaseOAuthProvider.createStateCookie(state, opts.cookieOptions, this.name);
+    const cookie = BaseOAuthProvider.createStateCookie(state, opts.cookieOptions, this.name, opts.appId);
 
     const session: OAuthStateSession = {
       state,
       provider: this.name.toLowerCase(),
       collection: opts.collectionName?.toLowerCase() || 'users',
+      appId: opts.appId,
       codeChallenge,
       codeVerifier,
       redirectUri: effectiveRedirectUri,
@@ -168,13 +169,15 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
     state?: string,
     codeVerifier?: string,
     redirectUri?: string,
-    cookieState?: string
+    cookieState?: string,
+    appId?: string
   ): Promise<OAuthExchangeResult> {
     let code: string | undefined;
     let callbackState: string | undefined;
     let verifier: string | undefined;
     let effectiveRedirectUri: string | undefined;
     let expectedCookieState: string | undefined = cookieState;
+    let expectedAppId: string | undefined = appId;
 
     if (typeof optionsOrCode === 'string') {
       code = optionsOrCode;
@@ -183,6 +186,7 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
       effectiveRedirectUri = redirectUri;
     } else if (optionsOrCode && typeof optionsOrCode === 'object') {
       const opts = optionsOrCode;
+      expectedAppId = opts.appId || appId;
       if (opts.query || opts.body || opts.headers) {
         // Request-like object (e.g. Fastify or Express request)
         code = opts.query?.code || opts.body?.code;
@@ -192,8 +196,11 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
         const cookieHeader = (opts.headers as any)?.cookie || opts.rawCookies;
         if (cookieHeader) {
           const parsed = BaseOAuthProvider.parseCookieHeader(cookieHeader);
+          const prov = this.name.toLowerCase();
           expectedCookieState =
-            parsed[`oauth_state_${this.name.toLowerCase()}`] ||
+            (expectedAppId ? parsed[`oauth_state_${expectedAppId}_${prov}`] : undefined) ||
+            parsed[`oauth_state_${prov}`] ||
+            (expectedAppId ? parsed[`oauth_state_${expectedAppId}`] : undefined) ||
             parsed['oauth_state'];
         }
       } else {
@@ -202,10 +209,13 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
         verifier = opts.codeVerifier;
         effectiveRedirectUri = opts.redirectUri;
         expectedCookieState = opts.cookieState;
+        const prov = this.name.toLowerCase();
         if (!expectedCookieState && opts.rawCookies) {
           const parsed = BaseOAuthProvider.parseCookieHeader(opts.rawCookies);
           expectedCookieState =
-            parsed[`oauth_state_${this.name.toLowerCase()}`] ||
+            (expectedAppId ? parsed[`oauth_state_${expectedAppId}_${prov}`] : undefined) ||
+            parsed[`oauth_state_${prov}`] ||
+            (expectedAppId ? parsed[`oauth_state_${expectedAppId}`] : undefined) ||
             parsed['oauth_state'];
         }
         if (opts.req) {
@@ -213,7 +223,9 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
           if (cookieHeader && !expectedCookieState) {
             const parsed = BaseOAuthProvider.parseCookieHeader(cookieHeader);
             expectedCookieState =
-              parsed[`oauth_state_${this.name.toLowerCase()}`] ||
+              (expectedAppId ? parsed[`oauth_state_${expectedAppId}_${prov}`] : undefined) ||
+              parsed[`oauth_state_${prov}`] ||
+              (expectedAppId ? parsed[`oauth_state_${expectedAppId}`] : undefined) ||
               parsed['oauth_state'];
           }
         }
@@ -250,7 +262,15 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
       throw new AppError('OAuth authorization session has expired', 400);
     }
 
-    // 5. Validate provider binding
+    // 5. Validate app identifier if present on session or requested
+    if (session.appId && expectedAppId && session.appId !== expectedAppId) {
+      throw new AppError(
+        `OAuth state app mismatch: expected '${session.appId}', got '${expectedAppId}'`,
+        400
+      );
+    }
+
+    // 6. Validate provider binding
     if (session.provider && session.provider.toLowerCase() !== this.name.toLowerCase()) {
       throw new AppError(
         `OAuth state provider mismatch: expected '${session.provider}', got '${this.name.toLowerCase()}'`,
@@ -258,7 +278,7 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
       );
     }
 
-    // 6. Validate redirect_uri binding if both present
+    // 7. Validate redirect_uri binding if both present
     if (session.redirectUri && effectiveRedirectUri && session.redirectUri !== effectiveRedirectUri) {
       throw new AppError(
         `OAuth state redirect_uri mismatch: expected '${session.redirectUri}', got '${effectiveRedirectUri}'`,
@@ -266,7 +286,7 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
       );
     }
 
-    // 7. Validate PKCE code_verifier challenge
+    // 8. Validate PKCE code_verifier challenge
     const finalVerifier = verifier || session.codeVerifier;
     if (session.codeChallenge) {
       if (!finalVerifier) {
@@ -278,7 +298,7 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
       }
     }
 
-    // 8. Safely exchange the authorization code for tokens and user profile
+    // 9. Safely exchange the authorization code for tokens and user profile
     return this.exchangeCode(code, finalVerifier || '', effectiveRedirectUri || session.redirectUri);
   }
 
@@ -382,9 +402,14 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
   public static createStateCookie(
     state: string,
     options?: OAuthStateCookieOptions,
-    providerName = 'default'
+    providerName = 'default',
+    appId?: string
   ): OAuthStateCookieInfo {
-    const name = options?.name || `oauth_state_${providerName.toLowerCase()}`;
+    const targetAppId = options?.appId || appId;
+    const prefix = targetAppId && targetAppId !== 'default' && targetAppId !== 'app_default'
+      ? `oauth_state_${targetAppId}_`
+      : 'oauth_state_';
+    const name = options?.name || `${prefix}${providerName.toLowerCase()}`;
     const path = options?.path || '/';
     const httpOnly = options?.httpOnly !== false;
     const secure = Boolean(options?.secure);

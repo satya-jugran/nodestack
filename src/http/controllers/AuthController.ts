@@ -151,10 +151,12 @@ export class AuthController extends BaseController {
     const { collection } = req.params;
     const redirectUri = req.query?.redirectUri;
     const auth = this.getAuth(req);
+    const appScope = (req as any)?.appScope;
+    const appId = appScope?.app?.id;
     const result = await auth.listAuthMethods(collection, redirectUri);
     if (result.authProviders && result.authProviders.length > 0) {
       const first = result.authProviders[0];
-      const cookie = BaseOAuthProvider.createStateCookie(first.state, { name: 'oauth_state' });
+      const cookie = BaseOAuthProvider.createStateCookie(first.state, undefined, first.name, appId);
       reply.header('Set-Cookie', cookie.header);
     }
     this.ok(reply, result);
@@ -171,12 +173,22 @@ export class AuthController extends BaseController {
       throw new AppError('provider, code, codeVerifier, and state are required for OAuth2 authentication', 400);
     }
 
+    const appScope = (req as any)?.appScope;
+    const appId = appScope?.app?.id;
+
     // Optional HTTP-only cookie state validation (login-CSRF protection)
     const rawCookie = (req.headers as any)?.cookie;
     if (rawCookie) {
       const parsedCookies = BaseOAuthProvider.parseCookieHeader(rawCookie);
+      const provLower = provider.toLowerCase();
       const cookieState =
-        parsedCookies[`oauth_state_${provider.toLowerCase()}`] ||
+        (appId && appId !== 'default' && appId !== 'app_default'
+          ? parsedCookies[`oauth_state_${appId}_${provLower}`]
+          : undefined) ||
+        parsedCookies[`oauth_state_${provLower}`] ||
+        (appId && appId !== 'default' && appId !== 'app_default'
+          ? parsedCookies[`oauth_state_${appId}`]
+          : undefined) ||
         parsedCookies['oauth_state'];
       if (cookieState && cookieState !== state) {
         throw new AppError('OAuth state mismatch: session cookie does not match state parameter (potential CSRF attack)', 400);
