@@ -33,6 +33,9 @@ const sidebars: SidebarsConfig = {
       collapsed: true,
       items: [
         'auth-and-security/authentication',
+        'auth-and-security/roles-and-permissions',
+        'auth-and-security/oauth2',
+        'auth-and-security/api-keys',
         'auth-and-security/session-revocation',
         'auth-and-security/audit-logging',
       ],
