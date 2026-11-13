@@ -187,7 +187,8 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
     codeVerifier?: string,
     redirectUri?: string,
     cookieState?: string,
-    appId?: string
+    appId?: string,
+    collectionName?: string
   ): Promise<OAuthExchangeResult> {
     let code: string | undefined;
     let callbackState: string | undefined;
@@ -195,6 +196,7 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
     let effectiveRedirectUri: string | undefined;
     let expectedCookieState: string | undefined = cookieState;
     let expectedAppId: string | undefined = appId;
+    let expectedCollectionName: string | undefined = collectionName;
 
     if (typeof optionsOrCode === 'string') {
       code = optionsOrCode;
@@ -204,12 +206,27 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
     } else if (optionsOrCode && typeof optionsOrCode === 'object') {
       const opts = optionsOrCode;
       expectedAppId = opts.appId || appId;
+      expectedCollectionName =
+        opts.collectionName ||
+        opts.collection ||
+        opts.params?.collection ||
+        opts.params?.collectionName ||
+        collectionName;
+
       if (opts.query || opts.body || opts.headers) {
         // Request-like object (e.g. Fastify or Express request)
         code = opts.query?.code || opts.body?.code;
         callbackState = opts.query?.state || opts.body?.state;
         verifier = opts.query?.codeVerifier || opts.body?.codeVerifier;
         effectiveRedirectUri = opts.query?.redirectUri || opts.body?.redirectUri;
+        expectedCollectionName =
+          opts.query?.collectionName ||
+          opts.query?.collection ||
+          opts.body?.collectionName ||
+          opts.body?.collection ||
+          opts.params?.collection ||
+          opts.params?.collectionName ||
+          expectedCollectionName;
         const cookieHeader = (opts.headers as any)?.cookie || opts.rawCookies;
         if (cookieHeader) {
           const parsed = BaseOAuthProvider.parseCookieHeader(cookieHeader);
@@ -236,6 +253,12 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
             parsed['oauth_state'];
         }
         if (opts.req) {
+          expectedCollectionName =
+            opts.req.params?.collection ||
+            opts.req.params?.collectionName ||
+            opts.req.query?.collectionName ||
+            opts.req.query?.collection ||
+            expectedCollectionName;
           const cookieHeader = (opts.req.headers as any)?.cookie;
           if (cookieHeader && !expectedCookieState) {
             const parsed = BaseOAuthProvider.parseCookieHeader(cookieHeader);
@@ -271,15 +294,12 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
       throw new AppError('Invalid or expired OAuth state parameter', 400);
     }
 
-    // 3. Immediately consume the state session to prevent replay attacks
-    this.consumeStateSession(callbackState);
-
-    // 4. Validate session expiration
+    // 3. Validate session expiration
     if (Date.now() > session.expiresAt) {
       throw new AppError('OAuth authorization session has expired', 400);
     }
 
-    // 5. Validate app identifier if present on session or requested
+    // 4. Validate app identifier if present on session or requested
     if (session.appId && expectedAppId && session.appId !== expectedAppId) {
       throw new AppError(
         `OAuth state app mismatch: expected '${session.appId}', got '${expectedAppId}'`,
@@ -287,10 +307,18 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
       );
     }
 
-    // 6. Validate provider binding
+    // 5. Validate provider binding
     if (session.provider && session.provider.toLowerCase() !== this.name.toLowerCase()) {
       throw new AppError(
         `OAuth state provider mismatch: expected '${session.provider}', got '${this.name.toLowerCase()}'`,
+        400
+      );
+    }
+
+    // 6. Validate collection binding if present on session or requested in callback options
+    if (session.collection && expectedCollectionName && session.collection.toLowerCase() !== expectedCollectionName.toLowerCase()) {
+      throw new AppError(
+        `OAuth state collection mismatch: expected '${session.collection}', got '${expectedCollectionName.toLowerCase()}'`,
         400
       );
     }
@@ -315,7 +343,10 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
       }
     }
 
-    // 9. Safely exchange the authorization code for tokens and user profile
+    // 9. Immediately consume the state session to prevent replay attacks
+    this.consumeStateSession(callbackState);
+
+    // 10. Safely exchange the authorization code for tokens and user profile
     return this.exchangeCode(code, finalVerifier || '', effectiveRedirectUri || session.redirectUri);
   }
 

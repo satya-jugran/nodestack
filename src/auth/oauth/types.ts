@@ -45,7 +45,8 @@ export interface IOAuthProvider {
     codeVerifier?: string,
     redirectUri?: string,
     cookieState?: string,
-    appId?: string
+    appId?: string,
+    collectionName?: string
   ): Promise<OAuthExchangeResult>;
 }
 
@@ -101,7 +102,12 @@ export interface HandleCallbackOptions {
   cookieState?: string;
   rawCookies?: string;
   collectionName?: string;
+  collection?: string;
   appId?: string;
+  params?: any;
+  query?: any;
+  body?: any;
+  headers?: any;
   req?: any;
 }
 

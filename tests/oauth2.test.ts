@@ -2555,5 +2555,43 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       const session = google.getStateSession(customAuth.state);
       expect(session?.scopes).toEqual(customScopes);
     });
+
+    it('should validate collection binding in handleCallback and reject collection mismatch before consuming session', async () => {
+      const provider = new ConcreteTestOAuthProvider({ name: 'test_col_prov' });
+
+      // Generate state bound to 'admins' collection
+      const auth = provider.getAuthorizationUrl({
+        collectionName: 'admins',
+        redirectUri: 'http://localhost:3000/callback',
+      });
+
+      // 1. Mismatched collection 'users' should be rejected with 400
+      await expect(
+        provider.handleCallback({
+          code: 'valid_code',
+          state: auth.state,
+          codeVerifier: auth.codeVerifier,
+          redirectUri: 'http://localhost:3000/callback',
+          collectionName: 'users',
+        })
+      ).rejects.toThrow(/OAuth state collection mismatch: expected 'admins', got 'users'/i);
+
+      // Verify the session was NOT consumed by the failed validation
+      expect(provider.getStateSession(auth.state)).toBeDefined();
+
+      // 2. Matching collection 'admins' succeeds and consumes the session
+      const result = await provider.handleCallback({
+        code: 'valid_code',
+        state: auth.state,
+        codeVerifier: auth.codeVerifier,
+        redirectUri: 'http://localhost:3000/callback',
+        collectionName: 'admins',
+      });
+      expect(result).toBeDefined();
+      expect(result.accessToken).toContain('valid_code');
+
+      // State is now consumed
+      expect(provider.getStateSession(auth.state)).toBeUndefined();
+    });
   });
 });
