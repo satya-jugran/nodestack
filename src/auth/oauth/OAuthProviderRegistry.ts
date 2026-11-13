@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import { IOAuthProvider, OAuthProviderConfig, AuthMethodProviderInfo, PkceSession } from './types';
 import { AppError } from '../../core/errors/AppError';
+import { BaseOAuthProvider } from './BaseOAuthProvider';
 import { GoogleProvider } from './GoogleProvider';
 import { GitHubProvider } from './GitHubProvider';
 import { DiscordProvider } from './DiscordProvider';
@@ -131,7 +132,7 @@ export class OAuthProviderRegistry {
       const authUrl = provider.buildAuthUrl(state, codeChallenge, redirectUri);
 
       // Bind state to short-lived transaction (10 minutes TTL)
-      this.sessions.set(state, {
+      const sessionData = {
         state,
         provider: provider.name.toLowerCase(),
         collection: collectionName.toLowerCase(),
@@ -139,6 +140,11 @@ export class OAuthProviderRegistry {
         codeVerifier,
         redirectUri,
         expiresAt: Date.now() + 10 * 60 * 1000,
+      };
+      this.sessions.set(state, sessionData);
+      BaseOAuthProvider.saveGlobalStateSession({
+        ...sessionData,
+        createdAt: Date.now(),
       });
 
       methods.push({
@@ -159,7 +165,7 @@ export class OAuthProviderRegistry {
    * Registers a PKCE transaction session (useful for custom flows or test suites).
    */
   public registerSession(session: Partial<PkceSession> & { state: string; provider: string; collection: string }): void {
-    this.sessions.set(session.state, {
+    const fullSession = {
       state: session.state,
       provider: session.provider.toLowerCase(),
       collection: session.collection.toLowerCase(),
@@ -167,6 +173,11 @@ export class OAuthProviderRegistry {
       codeVerifier: session.codeVerifier,
       redirectUri: session.redirectUri,
       expiresAt: session.expiresAt || Date.now() + 10 * 60 * 1000,
+    };
+    this.sessions.set(session.state, fullSession);
+    BaseOAuthProvider.saveGlobalStateSession({
+      ...fullSession,
+      createdAt: Date.now(),
     });
   }
 
@@ -186,13 +197,29 @@ export class OAuthProviderRegistry {
       throw new AppError('OAuth state parameter is required', 400);
     }
 
-    const session = this.sessions.get(state);
+    let session = this.sessions.get(state);
+    if (!session) {
+      const globalSession = BaseOAuthProvider.getGlobalStateSession(state);
+      if (globalSession) {
+        session = {
+          state: globalSession.state,
+          provider: globalSession.provider,
+          collection: globalSession.collection || collectionName.toLowerCase(),
+          codeChallenge: globalSession.codeChallenge || '',
+          codeVerifier: globalSession.codeVerifier,
+          redirectUri: globalSession.redirectUri,
+          expiresAt: globalSession.expiresAt,
+        };
+      }
+    }
+
     if (!session) {
       throw new AppError('Invalid or expired OAuth state parameter', 400);
     }
 
     // Immediately consume to prevent replay attacks
     this.sessions.delete(state);
+    BaseOAuthProvider.consumeGlobalStateSession(state);
 
     if (Date.now() > session.expiresAt) {
       throw new AppError('OAuth authorization session has expired', 400);

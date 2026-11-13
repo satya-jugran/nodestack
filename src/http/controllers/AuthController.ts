@@ -2,6 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { AuthService } from '../../auth/AuthService';
 import { AppError } from '../../core/errors/AppError';
+import { BaseOAuthProvider } from '../../auth/oauth/BaseOAuthProvider';
 
 export class AuthController extends BaseController {
   constructor(
@@ -151,6 +152,11 @@ export class AuthController extends BaseController {
     const redirectUri = req.query?.redirectUri;
     const auth = this.getAuth(req);
     const result = await auth.listAuthMethods(collection, redirectUri);
+    if (result.authProviders && result.authProviders.length > 0) {
+      const first = result.authProviders[0];
+      const cookie = BaseOAuthProvider.createStateCookie(first.state, { name: 'oauth_state' });
+      reply.header('Set-Cookie', cookie.header);
+    }
     this.ok(reply, result);
   }
 
@@ -163,6 +169,18 @@ export class AuthController extends BaseController {
 
     if (!provider || !code || !codeVerifier || !state) {
       throw new AppError('provider, code, codeVerifier, and state are required for OAuth2 authentication', 400);
+    }
+
+    // Optional HTTP-only cookie state validation (login-CSRF protection)
+    const rawCookie = (req.headers as any)?.cookie;
+    if (rawCookie) {
+      const parsedCookies = BaseOAuthProvider.parseCookieHeader(rawCookie);
+      const cookieState =
+        parsedCookies[`oauth_state_${provider.toLowerCase()}`] ||
+        parsedCookies['oauth_state'];
+      if (cookieState && cookieState !== state) {
+        throw new AppError('OAuth state mismatch: session cookie does not match state parameter (potential CSRF attack)', 400);
+      }
     }
 
     const auth = this.getAuth(req);

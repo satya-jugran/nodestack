@@ -8,6 +8,8 @@ import { NodeStack } from '../src/NodeStack';
 import { NodeStackClient } from '../packages/client/src/Client';
 import { PkceUtil } from '../packages/client/src/auth/PkceUtil';
 import { IOAuthProvider, OAuthExchangeResult, OAuthProfile } from '../src/auth/oauth/types';
+import { BaseOAuthProvider } from '../src/auth/oauth/BaseOAuthProvider';
+import { GoogleProvider } from '../src/auth/oauth/GoogleProvider';
 import { AppleProvider } from '../src/auth/oauth/AppleProvider';
 import { GitHubProvider } from '../src/auth/oauth/GitHubProvider';
 import { MicrosoftProvider } from '../src/auth/oauth/MicrosoftProvider';
@@ -1973,6 +1975,365 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       } finally {
         spy.mockRestore();
       }
+    });
+  });
+
+  describe('11. BaseOAuthProvider State Generation, Cookie Binding & handleCallback CSRF Protection', () => {
+    class ConcreteTestOAuthProvider extends BaseOAuthProvider {
+      public mockProfile: OAuthProfile;
+      constructor(config?: any, mockProfile?: OAuthProfile) {
+        super({
+          name: config?.name || 'test_oauth',
+          displayName: config?.displayName || 'Test OAuth',
+          clientId: config?.clientId || 'test_id',
+          clientSecret: config?.clientSecret || 'test_secret',
+          authUrl: config?.authUrl || 'https://auth.example.com/oauth/authorize',
+          tokenUrl: config?.tokenUrl || 'https://auth.example.com/oauth/token',
+          userinfoUrl: config?.userinfoUrl || 'https://auth.example.com/oauth/userinfo',
+          scopes: ['read', 'email'],
+          ...config,
+        });
+        this.mockProfile = mockProfile || {
+          id: 'test_user_42',
+          email: 'test42@example.com',
+          isEmailVerified: true,
+          rawUser: { id: 'test_user_42' },
+        };
+      }
+
+      public override async exchangeCode(
+        code: string,
+        codeVerifier: string,
+        redirectUri?: string
+      ): Promise<OAuthExchangeResult> {
+        if (code === 'invalid_exchange_code') {
+          throw new Error('Code exchange rejected by IdP');
+        }
+        return {
+          accessToken: `token_for_${code}_verified_with_${codeVerifier}`,
+          profile: this.mockProfile,
+        };
+      }
+
+      protected async fetchUserProfile(): Promise<OAuthProfile> {
+        return this.mockProfile;
+      }
+    }
+
+    it('should generate cryptographically random state parameter and PKCE challenge via getAuthorizationUrl', () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const auth = provider.getAuthorizationUrl('http://localhost:3000/callback');
+
+      expect(auth.state).toBeDefined();
+      expect(typeof auth.state).toBe('string');
+      expect(auth.state.length).toBe(32); // 16 bytes hex
+
+      expect(auth.codeVerifier).toBeDefined();
+      expect(auth.codeVerifier.length).toBe(64); // 32 bytes hex
+
+      expect(auth.codeChallenge).toBeDefined();
+      expect(auth.codeChallenge.length).toBe(43); // sha256 base64url
+
+      expect(auth.url).toContain('https://auth.example.com/oauth/authorize?');
+      expect(auth.url).toContain(`state=${auth.state}`);
+      expect(auth.url).toContain(`code_challenge=${auth.codeChallenge}`);
+      expect(auth.url).toContain('code_challenge_method=S256');
+      expect(auth.url).toContain('redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback');
+    });
+
+    it('should store state session server-side with 10-minute TTL in getAuthorizationUrl', () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const auth = provider.getAuthorizationUrl('http://localhost:3000/callback');
+
+      const session = provider.getStateSession(auth.state);
+      expect(session).toBeDefined();
+      expect(session?.state).toBe(auth.state);
+      expect(session?.provider).toBe('test_oauth');
+      expect(session?.codeVerifier).toBe(auth.codeVerifier);
+      expect(session?.codeChallenge).toBe(auth.codeChallenge);
+      expect(session?.redirectUri).toBe('http://localhost:3000/callback');
+      expect(session?.expiresAt).toBeGreaterThan(Date.now() + 9 * 60 * 1000);
+      expect(session?.expiresAt).toBeLessThanOrEqual(Date.now() + 10 * 60 * 1000 + 1000);
+    });
+
+    it('should format an HTTP-only SameSite=Lax cookie in getAuthorizationUrl', () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const auth = provider.getAuthorizationUrl('http://localhost:3000/callback');
+
+      expect(auth.cookieHeader).toBeDefined();
+      expect(auth.cookieHeader).toContain(`oauth_state_test_oauth=${auth.state}`);
+      expect(auth.cookieHeader).toContain('Path=/');
+      expect(auth.cookieHeader).toContain('Max-Age=600');
+      expect(auth.cookieHeader).toContain('SameSite=Lax');
+      expect(auth.cookieHeader).toContain('HttpOnly');
+
+      expect(auth.cookie.name).toBe('oauth_state_test_oauth');
+      expect(auth.cookie.value).toBe(auth.state);
+      expect(auth.cookie.options.httpOnly).toBe(true);
+      expect(auth.cookie.options.sameSite).toBe('lax');
+    });
+
+    it('should support string coercion on AuthorizationUrlResult', () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const auth = provider.getAuthorizationUrl();
+
+      expect(String(auth)).toBe(auth.url);
+      expect(`${auth}`).toBe(auth.url);
+      expect(auth + '').toBe(auth.url);
+    });
+
+    it('should reject handleCallback when authorization code is missing', async () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const auth = provider.getAuthorizationUrl();
+
+      await expect(
+        provider.handleCallback({
+          code: '',
+          state: auth.state,
+          codeVerifier: auth.codeVerifier,
+        })
+      ).rejects.toThrow(/missing authorization code/i);
+    });
+
+    it('should reject handleCallback when state parameter is missing (CSRF protection)', async () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const auth = provider.getAuthorizationUrl();
+
+      await expect(
+        provider.handleCallback({
+          code: 'valid_code',
+          state: '', // missing
+          codeVerifier: auth.codeVerifier,
+        })
+      ).rejects.toThrow(/missing state parameter/i);
+    });
+
+    it('should reject handleCallback when state is forged or invalid (CSRF attack prevented)', async () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const auth = provider.getAuthorizationUrl();
+
+      await expect(
+        provider.handleCallback({
+          code: 'valid_code',
+          state: 'attacker_forged_state_parameter_123',
+          codeVerifier: auth.codeVerifier,
+        })
+      ).rejects.toThrow(/Invalid or expired OAuth state parameter/i);
+    });
+
+    it('should reject handleCallback when state parameter has expired', async () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const state = 'expired_prov_state_123';
+      provider.saveStateSession({
+        state,
+        provider: 'test_oauth',
+        codeChallenge: '',
+        expiresAt: Date.now() - 5000, // Expired
+        createdAt: Date.now() - 600000,
+      });
+
+      await expect(
+        provider.handleCallback({
+          code: 'valid_code',
+          state,
+        })
+      ).rejects.toThrow(/expired/i);
+    });
+
+    it('should reject handleCallback when state provider does not match the provider', async () => {
+      const provider = new ConcreteTestOAuthProvider({ name: 'github' });
+      const state = 'mismatched_prov_state_123';
+      provider.saveStateSession({
+        state,
+        provider: 'google', // Mismatched
+        codeChallenge: '',
+        expiresAt: Date.now() + 60000,
+        createdAt: Date.now(),
+      });
+
+      await expect(
+        provider.handleCallback({
+          code: 'valid_code',
+          state,
+        })
+      ).rejects.toThrow(/OAuth state provider mismatch/i);
+    });
+
+    it('should reject handleCallback when redirect_uri does not match session redirect_uri', async () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const auth = provider.getAuthorizationUrl('http://localhost:3000/callback');
+
+      await expect(
+        provider.handleCallback({
+          code: 'valid_code',
+          state: auth.state,
+          codeVerifier: auth.codeVerifier,
+          redirectUri: 'http://evil.com/callback',
+        })
+      ).rejects.toThrow(/OAuth state redirect_uri mismatch/i);
+    });
+
+    it('should reject handleCallback when PKCE code_verifier does not match challenge', async () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const auth = provider.getAuthorizationUrl();
+
+      await expect(
+        provider.handleCallback({
+          code: 'valid_code',
+          state: auth.state,
+          codeVerifier: 'attacker_wrong_verifier_payload',
+        })
+      ).rejects.toThrow(/PKCE code_verifier does not match/i);
+    });
+
+    it('should reject handleCallback when session cookie does not match state (CSRF detected)', async () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const auth = provider.getAuthorizationUrl();
+
+      // Attacker tries to inject state into victim who has a different cookie
+      await expect(
+        provider.handleCallback({
+          code: 'valid_code',
+          state: auth.state,
+          codeVerifier: auth.codeVerifier,
+          cookieState: 'victim_different_cookie_state_987',
+        })
+      ).rejects.toThrow(/does not match session cookie: potential CSRF attack detected/i);
+    });
+
+    it('should prevent replay attacks by consuming state session immediately on first handleCallback', async () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const auth = provider.getAuthorizationUrl();
+
+      // 1. First exchange: successful and consumes state
+      const result = await provider.handleCallback({
+        code: 'one_time_code_1',
+        state: auth.state,
+        codeVerifier: auth.codeVerifier,
+      });
+      expect(result.accessToken).toContain('one_time_code_1');
+
+      // 2. Replay attempt with same state must fail
+      await expect(
+        provider.handleCallback({
+          code: 'one_time_code_2',
+          state: auth.state,
+          codeVerifier: auth.codeVerifier,
+        })
+      ).rejects.toThrow(/Invalid or expired OAuth state parameter/i);
+    });
+
+    it('should successfully verify state and cookie, consume state, and exchange code', async () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const auth = provider.getAuthorizationUrl('http://localhost:3000/callback');
+
+      const result = await provider.handleCallback(
+        'valid_code_123',
+        auth.state,
+        auth.codeVerifier,
+        'http://localhost:3000/callback',
+        auth.state // Matching cookie state
+      );
+
+      expect(result.accessToken).toBe(`token_for_valid_code_123_verified_with_${auth.codeVerifier}`);
+      expect(result.profile.email).toBe('test42@example.com');
+      // State consumed from store
+      expect(provider.getStateSession(auth.state)).toBeUndefined();
+    });
+
+    it('should support request-like object (req.query and req.headers.cookie) in handleCallback', async () => {
+      const provider = new ConcreteTestOAuthProvider();
+      const auth = provider.getAuthorizationUrl('http://localhost:3000/callback');
+
+      const mockReq = {
+        query: {
+          code: 'req_code_456',
+          state: auth.state,
+          codeVerifier: auth.codeVerifier,
+          redirectUri: 'http://localhost:3000/callback',
+        },
+        headers: {
+          cookie: `session_id=abc; oauth_state_test_oauth=${auth.state}; other=1`,
+        },
+      };
+
+      const result = await provider.handleCallback(mockReq);
+      expect(result.accessToken).toBe(`token_for_req_code_456_verified_with_${auth.codeVerifier}`);
+      expect(result.profile.id).toBe('test_user_42');
+    });
+
+    it('should inherit getAuthorizationUrl and handleCallback on GoogleProvider with custom params', async () => {
+      const google = new GoogleProvider({
+        clientId: 'google_client_id_test',
+        clientSecret: 'google_client_secret_test',
+      });
+
+      const auth = google.getAuthorizationUrl('http://localhost:3000/callback');
+      expect(auth.url).toContain('https://accounts.google.com/o/oauth2/v2/auth?');
+      expect(auth.url).toContain('&access_type=offline&prompt=consent');
+      expect(auth.cookieHeader).toContain('oauth_state_google=');
+      expect(google.getStateSession(auth.state)).toBeDefined();
+    });
+
+    it('should set Set-Cookie in auth-methods and reject state-cookie mismatch in auth-with-oauth2', async () => {
+      const mockProvider = new MockOAuthProvider('google', 'Google', {
+        id: 'g_cookie_test',
+        email: 'cookie@google.com',
+        isEmailVerified: true,
+        rawUser: { id: 'g_cookie_test' },
+      });
+      app.auth.getOAuthRegistry().register(mockProvider);
+
+      // 1. GET auth-methods sets Set-Cookie
+      const resMethods = await fetch(`${serverUrl}/api/collections/users/auth-methods`);
+      expect(resMethods.status).toBe(200);
+      const setCookieHeader = resMethods.headers.get('set-cookie');
+      expect(setCookieHeader).toBeDefined();
+      expect(setCookieHeader).toContain('oauth_state=');
+      expect(setCookieHeader).toContain('HttpOnly');
+
+      const methodsData = await resMethods.json();
+      const googleMethod = methodsData.authProviders.find((p: any) => p.name === 'google');
+      expect(googleMethod).toBeDefined();
+
+      // 2. Attacker CSRF attempt: forged state sent with a mismatched cookie
+      const resCsrf = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: 'oauth_state=legitimate_user_cookie_state_999',
+        },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'valid_code',
+          codeVerifier: googleMethod.codeVerifier,
+          state: googleMethod.state, // Server state doesn't match cookie state!
+        }),
+      });
+
+      expect(resCsrf.status).toBe(400);
+      const csrfData = await resCsrf.json();
+      expect(csrfData.message).toContain('session cookie does not match state parameter');
+
+      // 3. Legitimate request: cookie matches state
+      const resValid = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: `oauth_state=${googleMethod.state}`,
+        },
+        body: JSON.stringify({
+          provider: 'google',
+          code: 'valid_code',
+          codeVerifier: googleMethod.codeVerifier,
+          state: googleMethod.state,
+        }),
+      });
+
+      expect(resValid.status).toBe(200);
+      const validData = await resValid.json();
+      expect(validData.token).toBeDefined();
+      expect(validData.record.email).toBe('cookie@google.com');
     });
   });
 });

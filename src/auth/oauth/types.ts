@@ -35,6 +35,82 @@ export interface IOAuthProvider {
   readonly enabled?: boolean;
   buildAuthUrl(state: string, codeChallenge: string, redirectUri?: string): string;
   exchangeCode(code: string, codeVerifier: string, redirectUri?: string): Promise<OAuthExchangeResult>;
+  getAuthorizationUrl?(
+    optionsOrRedirectUri?: string | GetAuthorizationUrlOptions,
+    options?: GetAuthorizationUrlOptions
+  ): OAuthAuthorizationUrlResult;
+  handleCallback?(
+    optionsOrCode: string | HandleCallbackOptions | any,
+    state?: string,
+    codeVerifier?: string,
+    redirectUri?: string,
+    cookieState?: string
+  ): Promise<OAuthExchangeResult>;
+}
+
+export interface OAuthStateCookieOptions {
+  name?: string;
+  path?: string;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: 'lax' | 'strict' | 'none';
+  maxAge?: number;
+}
+
+export interface OAuthStateCookieInfo {
+  name: string;
+  value: string;
+  header: string;
+  options: {
+    path: string;
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: 'lax' | 'strict' | 'none';
+    maxAge: number;
+  };
+}
+
+export interface GetAuthorizationUrlOptions {
+  redirectUri?: string;
+  state?: string;
+  codeVerifier?: string;
+  scopes?: string[];
+  cookieOptions?: OAuthStateCookieOptions;
+  collectionName?: string;
+}
+
+export interface OAuthAuthorizationUrlResult {
+  readonly url: string;
+  readonly state: string;
+  readonly codeVerifier: string;
+  readonly codeChallenge: string;
+  readonly cookieHeader: string;
+  readonly cookie: OAuthStateCookieInfo;
+  toString(): string;
+  valueOf(): string;
+}
+
+export interface HandleCallbackOptions {
+  code?: string;
+  state?: string;
+  codeVerifier?: string;
+  redirectUri?: string;
+  cookieState?: string;
+  rawCookies?: string;
+  collectionName?: string;
+  req?: any;
+}
+
+export interface OAuthStateSession {
+  state: string;
+  provider: string;
+  collection?: string;
+  codeChallenge?: string;
+  codeVerifier?: string;
+  redirectUri?: string;
+  cookieState?: string;
+  expiresAt: number;
+  createdAt: number;
 }
 
 export interface AuthMethodProviderInfo {
