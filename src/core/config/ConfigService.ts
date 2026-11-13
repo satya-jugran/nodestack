@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { loadEnvFile } from './EnvLoader';
+import { loadOrCreateSecret } from '../crypto/secret';
 
 export type CorsOrigin =
   | boolean
@@ -174,14 +175,12 @@ export class ConfigService {
     const envSecret = process.env.NODESTACK_JWT_SECRET || process.env.NODEBASE_JWT_SECRET;
     if (options.jwtSecret || envSecret) {
       this.jwtSecret = options.jwtSecret || envSecret!;
-    } else if (fs.existsSync(secretFilePath)) {
-      this.jwtSecret = fs.readFileSync(secretFilePath, 'utf-8').trim();
     } else {
-      this.jwtSecret = crypto.randomBytes(32).toString('hex');
       try {
-        fs.writeFileSync(secretFilePath, this.jwtSecret, 'utf-8');
+        this.jwtSecret = loadOrCreateSecret(secretFilePath);
       } catch {
-        // ignore if read-only
+        // Fallback to in-memory secret if filesystem is read-only
+        this.jwtSecret = crypto.randomBytes(32).toString('hex');
       }
     }
   }

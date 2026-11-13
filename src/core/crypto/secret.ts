@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import * as crypto from 'crypto';
 
 /**
@@ -52,3 +54,55 @@ export function verifySecret(
   const providedHash = hashSecret(providedSecret);
   return timingSafeEqualStrings(expectedHash, providedHash, 'hex');
 }
+
+/**
+ * Atomically load an existing secret from disk or create and persist a new 32-byte hex secret.
+ * Uses writeFileSync with { flag: 'wx', mode: 0o600 } to prevent TOCTOU race conditions
+ * where concurrent worker processes might generate different secrets or overwrite each other.
+ * If the file already exists (EEXIST), reads and returns the existing secret instead.
+ */
+export function loadOrCreateSecret(secretFilePath: string): string {
+  const parentDir = path.dirname(secretFilePath);
+  if (parentDir && !fs.existsSync(parentDir)) {
+    try {
+      fs.mkdirSync(parentDir, { recursive: true });
+    } catch {
+      // Directory may have been created concurrently
+    }
+  }
+
+  const generatedSecret = crypto.randomBytes(32).toString('hex');
+  try {
+    fs.writeFileSync(secretFilePath, generatedSecret, { flag: 'wx', mode: 0o600, encoding: 'utf-8' });
+    return generatedSecret;
+  } catch (err: any) {
+    if (err && err.code === 'EEXIST') {
+      let content = '';
+      for (let attempt = 0; attempt < 10; attempt++) {
+        try {
+          content = fs.readFileSync(secretFilePath, 'utf-8').trim();
+          if (content) {
+            return content;
+          }
+        } catch (readErr: any) {
+          if (attempt === 9) {
+            throw readErr;
+          }
+        }
+      }
+      return content;
+    }
+
+    // If the file already exists but writing failed due to read-only permissions
+    if (fs.existsSync(secretFilePath)) {
+      try {
+        return fs.readFileSync(secretFilePath, 'utf-8').trim();
+      } catch {
+        // Fall through to re-throw original error
+      }
+    }
+
+    throw err;
+  }
+}
+
