@@ -427,4 +427,100 @@ describe('File Storage and Upload Integration Test', () => {
       `attachment; filename="r_sum_ (final)'s_copy.txt"; filename*=UTF-8''r%C3%A9sum%C3%A9%20%28final%29%27s%3Bcopy.txt`
     );
   });
+
+  it('should safely store and retrieve files via store() and retrieve()', async () => {
+    const col = app.schema.getCollectionOrThrow('documents');
+    const content = Buffer.from('Safe storage file content 123');
+
+    // 4-arg store & retrieve (appId, collection, recordId, filename)
+    const storedPath = await app.files.store('app1', col.id, 'rec_100', 'note.txt', content);
+    expect(fs.existsSync(storedPath)).toBe(true);
+
+    const retrieved = await app.files.retrieve('app1', col.id, 'rec_100', 'note.txt');
+    expect(retrieved.toString('utf-8')).toBe('Safe storage file content 123');
+
+    // 3-arg store & retrieve (collection, recordId, filename)
+    await app.files.store(col.id, 'rec_101', 'data.json', '{"status":"ok"}');
+    const retrieved3 = await app.files.retrieve(col.id, 'rec_101', 'data.json');
+    expect(retrieved3.toString('utf-8')).toBe('{"status":"ok"}');
+  });
+
+  it('should reject path traversal, null bytes, and separators in retrieve() and store()', async () => {
+    const col = app.schema.getCollectionOrThrow('documents');
+    const payload = Buffer.from('malicious payload');
+
+    // Traversal payloads
+    const traversalFilenames = [
+      '../../../etc/passwd',
+      '..\\..\\..\\windows\\system32',
+      '..',
+      '.',
+      'sub/file.txt',
+      'sub\\file.txt',
+      'exploit.txt\0.png',
+      '\0hack',
+    ];
+
+    for (const badFilename of traversalFilenames) {
+      await expect(
+        app.files.retrieve('app1', col.id, 'rec_safe', badFilename)
+      ).rejects.toThrow(/prohibited path traversal characters/i);
+
+      await expect(
+        app.files.retrieve(col.id, 'rec_safe', badFilename)
+      ).rejects.toThrow(/prohibited path traversal characters/i);
+
+      await expect(
+        app.files.store('app1', col.id, 'rec_safe', badFilename, payload)
+      ).rejects.toThrow(/prohibited path traversal characters/i);
+
+      await expect(
+        app.files.store(col.id, 'rec_safe', badFilename, payload)
+      ).rejects.toThrow(/prohibited path traversal characters/i);
+    }
+
+    // Traversal in appId, collection, and recordId
+    await expect(
+      app.files.retrieve('../../evil_app', col.id, 'rec_safe', 'file.txt')
+    ).rejects.toThrow(/prohibited path traversal characters/i);
+
+    await expect(
+      app.files.retrieve('app1', '../../evil_col', 'rec_safe', 'file.txt')
+    ).rejects.toThrow(/prohibited path traversal characters/i);
+
+    await expect(
+      app.files.retrieve('app1', col.id, '../../evil_rec', 'file.txt')
+    ).rejects.toThrow(/prohibited path traversal characters/i);
+
+    await expect(
+      app.files.store('../../evil_app', col.id, 'rec_safe', 'file.txt', payload)
+    ).rejects.toThrow(/prohibited path traversal characters/i);
+
+    await expect(
+      app.files.store('app1', col.id, '../../evil_rec', 'file.txt', payload)
+    ).rejects.toThrow(/prohibited path traversal characters/i);
+  });
+
+  it('should verify baseDir property and validate path containment with path.resolve()', async () => {
+    expect(app.files.baseDir).toBeDefined();
+    expect(typeof app.files.baseDir).toBe('string');
+    expect(app.files.baseDir).toBe(app.files.storageDir);
+
+    // validatePathComponent direct check
+    expect(() => app.files.validatePathComponent('../secret', 'filename')).toThrow(
+      /prohibited path traversal characters/i
+    );
+    expect(() => app.files.validatePathComponent('foo\0bar', 'filename')).toThrow(
+      /prohibited path traversal characters/i
+    );
+    expect(() => app.files.validatePathComponent('dir/file', 'filename')).toThrow(
+      /prohibited path traversal characters/i
+    );
+    expect(() => app.files.validatePathComponent('dir\\file', 'filename')).toThrow(
+      /prohibited path traversal characters/i
+    );
+    expect(app.files.validatePathComponent('valid-file_123.pdf', 'filename')).toBe(
+      'valid-file_123.pdf'
+    );
+  });
 });
