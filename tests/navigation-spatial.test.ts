@@ -198,7 +198,7 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(adminColItem?.textContent).toContain('_admins');
     });
 
-    it('should have primary sidebar navigation items in order: Overview, Analytics, Collections, Webhooks, Functions, Plugins, Snapshots, Audit Logs', () => {
+    it('should have primary sidebar navigation items in order: Overview, Analytics, Collections, Webhooks, Functions, Plugins, Snapshots, Database, Audit Logs', () => {
       const { doc } = createTestDOM();
 
       const topNav = doc.querySelector('.sidebar > div[style*="flex-direction: column"]') as HTMLElement;
@@ -217,6 +217,7 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
         { id: 'nav-queues', label: 'Queues' },
         { id: 'nav-plugins', label: 'Plugins' },
         { id: 'nav-snapshots', label: 'Snapshots' },
+        { id: 'sidebar-database-link', label: 'Database' },
         { id: 'nav-logs', label: 'Audit Logs' },
       ]);
     });
