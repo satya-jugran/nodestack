@@ -20,6 +20,22 @@ describe('QueryFilterParser', () => {
     expect(result).toBe('ORDER BY created DESC');
   });
 
+  it('should ignore unvalidated sort field names not in allowedFields', () => {
+    // Single unvalidated field falls back to default
+    expect(QueryFilterParser.parseSort('nonexistent_col', allowed)).toBe('ORDER BY created DESC');
+    // Mixed valid and unvalidated fields only includes allowed fields
+    expect(QueryFilterParser.parseSort('-nonexistent_col,title', allowed)).toBe('ORDER BY "title" ASC');
+    expect(QueryFilterParser.parseSort('-created,+unknown_col,-views', allowed)).toBe('ORDER BY "created" DESC, "views" DESC');
+  });
+
+  it('should apply dialect-specific identifier quoting for sort clauses', () => {
+    const pg = new PostgresDialect();
+    const mssql = new MssqlDialect();
+    expect(QueryFilterParser.parseSort('-created,title', allowed, undefined, pg)).toBe('ORDER BY "created" DESC, "title" ASC');
+    expect(QueryFilterParser.parseSort('-created,title', allowed, undefined, mssql)).toBe('ORDER BY [created] DESC, [title] ASC');
+    expect(QueryFilterParser.parseSort('-created,title', allowed, 't', mssql)).toBe('ORDER BY [t].[created] DESC, [t].[title] ASC');
+  });
+
   it('should parse simple filter expressions', () => {
     const { clause, params } = QueryFilterParser.parseFilter("status = 'active'", allowed);
     expect(clause).toBe('WHERE "status" = ?');
