@@ -1,5 +1,62 @@
-import { IOAuthProvider, OAuthExchangeResult, OAuthProfile, OAuthProviderConfig } from './types';
+import * as crypto from 'crypto';
+import {
+  IOAuthProvider,
+  OAuthExchangeResult,
+  OAuthProfile,
+  OAuthProviderConfig,
+  GetAuthorizationUrlOptions,
+  OAuthAuthorizationUrlResult,
+  HandleCallbackOptions,
+  OAuthStateSession,
+  OAuthStateCookieInfo,
+  OAuthStateCookieOptions,
+} from './types';
 import { AppError } from '../../core/errors/AppError';
+
+export class AuthorizationUrlResult implements OAuthAuthorizationUrlResult {
+  public readonly url: string;
+  public readonly state: string;
+  public readonly codeVerifier: string;
+  public readonly codeChallenge: string;
+  public readonly cookieHeader: string;
+  public readonly cookie: OAuthStateCookieInfo;
+
+  constructor(
+    url: string,
+    state: string,
+    codeVerifier: string,
+    codeChallenge: string,
+    cookieHeader: string,
+    cookie: OAuthStateCookieInfo
+  ) {
+    this.url = url;
+    this.state = state;
+    this.codeVerifier = codeVerifier;
+    this.codeChallenge = codeChallenge;
+    this.cookieHeader = cookieHeader;
+    this.cookie = cookie;
+  }
+
+  public toString(): string {
+    return this.url;
+  }
+
+  public valueOf(): string {
+    return this.url;
+  }
+
+  [Symbol.toPrimitive](hint: string) {
+    if (hint === 'number') return NaN;
+    return this.url;
+  }
+}
+
+export interface IOAuthRegistrySessionStore {
+  getSession(state: string): any;
+  deleteSession(state: string): boolean;
+  registerSession?(session: any): void;
+  appId?: string;
+}
 
 export abstract class BaseOAuthProvider implements IOAuthProvider {
   public readonly name: string;
@@ -13,6 +70,12 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
   protected userinfoUrl: string;
   protected scopes: string[];
   protected defaultRedirectUri?: string;
+
+  protected stateStore: Map<string, OAuthStateSession> = new Map();
+  protected boundRegistries: Set<IOAuthRegistrySessionStore> = new Set();
+  private static sharedStateStore: Map<string, OAuthStateSession> = new Map();
+  private static registries: Set<IOAuthRegistrySessionStore> = new Set();
+  private static consumptionListeners: Set<(state: string) => void> = new Set();
 
   constructor(config: OAuthProviderConfig) {
     this.name = config.name;
@@ -32,19 +95,259 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
     return AbortSignal.timeout(this.timeoutMs);
   }
 
-  public buildAuthUrl(state: string, codeChallenge: string, redirectUri?: string): string {
+  public buildAuthUrl(
+    state: string,
+    codeChallenge: string,
+    redirectUri?: string,
+    scopes?: string[]
+  ): string {
     const uri = redirectUri || this.defaultRedirectUri || '';
+    const effectiveScopes = scopes && scopes.length > 0 ? scopes : this.scopes;
     const params = new URLSearchParams({
       client_id: this.clientId,
       response_type: 'code',
       redirect_uri: uri,
-      scope: this.scopes.join(' '),
+      scope: effectiveScopes.join(' '),
       state,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
     });
 
     return `${this.authUrl}?${params.toString()}`;
+  }
+
+  /**
+   * Generates a cryptographically secure state parameter and PKCE challenge,
+   * stores the session server-side with a 10-minute TTL, provides an HTTP-only
+   * cookie header, and constructs the provider authorization URL.
+   */
+  public getAuthorizationUrl(
+    optionsOrRedirectUri?: string | GetAuthorizationUrlOptions,
+    options?: GetAuthorizationUrlOptions
+  ): OAuthAuthorizationUrlResult {
+    this.cleanExpiredStates();
+
+    let redirectUri: string | undefined;
+    let opts: GetAuthorizationUrlOptions = {};
+
+    if (typeof optionsOrRedirectUri === 'string') {
+      redirectUri = optionsOrRedirectUri;
+      opts = options || {};
+    } else if (optionsOrRedirectUri && typeof optionsOrRedirectUri === 'object') {
+      opts = optionsOrRedirectUri;
+      redirectUri = opts.redirectUri;
+    }
+
+    const state = opts.state || crypto.randomBytes(16).toString('hex');
+    const codeVerifier = opts.codeVerifier || crypto.randomBytes(32).toString('hex');
+    const codeChallenge = crypto
+      .createHash('sha256')
+      .update(codeVerifier)
+      .digest('base64url');
+
+    const effectiveRedirectUri = redirectUri || this.defaultRedirectUri || '';
+    const cookie = BaseOAuthProvider.createStateCookie(state, opts.cookieOptions, this.name, opts.appId);
+
+    const session: OAuthStateSession = {
+      state,
+      provider: this.name.toLowerCase(),
+      collection: opts.collectionName?.toLowerCase() || 'users',
+      appId: opts.appId,
+      codeChallenge,
+      codeVerifier,
+      redirectUri: effectiveRedirectUri,
+      cookieState: state,
+      scopes: opts.scopes,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+      createdAt: Date.now(),
+    };
+
+    this.saveStateSession(session);
+
+    const url = this.buildAuthUrl(state, codeChallenge, effectiveRedirectUri, opts.scopes);
+
+    return new AuthorizationUrlResult(
+      url,
+      state,
+      codeVerifier,
+      codeChallenge,
+      cookie.header,
+      cookie
+    );
+  }
+
+  /**
+   * Validates the callback state against the server-side session and optional HTTP-only cookie,
+   * consumes the state immediately to prevent replay and login-CSRF attacks, asserts PKCE code_verifier,
+   * and exchanges the authorization code for tokens and user profile.
+   */
+  public async handleCallback(
+    optionsOrCode: string | HandleCallbackOptions | any,
+    state?: string,
+    codeVerifier?: string,
+    redirectUri?: string,
+    cookieState?: string,
+    appId?: string,
+    collectionName?: string
+  ): Promise<OAuthExchangeResult> {
+    let code: string | undefined;
+    let callbackState: string | undefined;
+    let verifier: string | undefined;
+    let effectiveRedirectUri: string | undefined;
+    let expectedCookieState: string | undefined = cookieState;
+    let expectedAppId: string | undefined = appId;
+    let expectedCollectionName: string | undefined = collectionName;
+
+    if (typeof optionsOrCode === 'string') {
+      code = optionsOrCode;
+      callbackState = state;
+      verifier = codeVerifier;
+      effectiveRedirectUri = redirectUri;
+    } else if (optionsOrCode && typeof optionsOrCode === 'object') {
+      const opts = optionsOrCode;
+      expectedAppId = opts.appId || appId;
+      expectedCollectionName =
+        opts.collectionName ||
+        opts.collection ||
+        opts.params?.collection ||
+        opts.params?.collectionName ||
+        collectionName;
+
+      if (opts.query || opts.body || opts.headers) {
+        // Request-like object (e.g. Fastify or Express request)
+        code = opts.query?.code || opts.body?.code;
+        callbackState = opts.query?.state || opts.body?.state;
+        verifier = opts.query?.codeVerifier || opts.body?.codeVerifier;
+        effectiveRedirectUri = opts.query?.redirectUri || opts.body?.redirectUri;
+        expectedCollectionName =
+          opts.query?.collectionName ||
+          opts.query?.collection ||
+          opts.body?.collectionName ||
+          opts.body?.collection ||
+          opts.params?.collection ||
+          opts.params?.collectionName ||
+          expectedCollectionName;
+        const cookieHeader = (opts.headers as any)?.cookie || opts.rawCookies;
+        if (cookieHeader) {
+          const parsed = BaseOAuthProvider.parseCookieHeader(cookieHeader);
+          const prov = this.name.toLowerCase();
+          expectedCookieState =
+            (expectedAppId ? parsed[`oauth_state_${expectedAppId}_${prov}`] : undefined) ||
+            parsed[`oauth_state_${prov}`] ||
+            (expectedAppId ? parsed[`oauth_state_${expectedAppId}`] : undefined) ||
+            parsed['oauth_state'];
+        }
+      } else {
+        code = opts.code;
+        callbackState = opts.state;
+        verifier = opts.codeVerifier;
+        effectiveRedirectUri = opts.redirectUri;
+        expectedCookieState = opts.cookieState;
+        const prov = this.name.toLowerCase();
+        if (!expectedCookieState && opts.rawCookies) {
+          const parsed = BaseOAuthProvider.parseCookieHeader(opts.rawCookies);
+          expectedCookieState =
+            (expectedAppId ? parsed[`oauth_state_${expectedAppId}_${prov}`] : undefined) ||
+            parsed[`oauth_state_${prov}`] ||
+            (expectedAppId ? parsed[`oauth_state_${expectedAppId}`] : undefined) ||
+            parsed['oauth_state'];
+        }
+        if (opts.req) {
+          expectedCollectionName =
+            opts.req.params?.collection ||
+            opts.req.params?.collectionName ||
+            opts.req.query?.collectionName ||
+            opts.req.query?.collection ||
+            expectedCollectionName;
+          const cookieHeader = (opts.req.headers as any)?.cookie;
+          if (cookieHeader && !expectedCookieState) {
+            const parsed = BaseOAuthProvider.parseCookieHeader(cookieHeader);
+            expectedCookieState =
+              (expectedAppId ? parsed[`oauth_state_${expectedAppId}_${prov}`] : undefined) ||
+              parsed[`oauth_state_${prov}`] ||
+              (expectedAppId ? parsed[`oauth_state_${expectedAppId}`] : undefined) ||
+              parsed['oauth_state'];
+          }
+        }
+      }
+    }
+
+    if (!code || typeof code !== 'string') {
+      throw new AppError('OAuth callback is missing authorization code', 400);
+    }
+
+    if (!callbackState || typeof callbackState !== 'string') {
+      throw new AppError('OAuth callback is missing state parameter (CSRF protection required)', 400);
+    }
+
+    // 1. If an HTTP-only cookie state was provided or detected in the request, assert it matches incoming state
+    if (expectedCookieState && expectedCookieState !== callbackState) {
+      throw new AppError(
+        'OAuth state parameter does not match session cookie: potential CSRF attack detected',
+        400
+      );
+    }
+
+    // 2. Look up the server-side stored session
+    const session = this.getStateSession(callbackState);
+    if (!session) {
+      throw new AppError('Invalid or expired OAuth state parameter', 400);
+    }
+
+    // 3. Validate session expiration
+    if (Date.now() > session.expiresAt) {
+      throw new AppError('OAuth authorization session has expired', 400);
+    }
+
+    // 4. Validate app identifier if present on session or requested
+    if (session.appId && expectedAppId && session.appId !== expectedAppId) {
+      throw new AppError(
+        `OAuth state app mismatch: expected '${session.appId}', got '${expectedAppId}'`,
+        400
+      );
+    }
+
+    // 5. Validate provider binding
+    if (session.provider && session.provider.toLowerCase() !== this.name.toLowerCase()) {
+      throw new AppError(
+        `OAuth state provider mismatch: expected '${session.provider}', got '${this.name.toLowerCase()}'`,
+        400
+      );
+    }
+
+    // 6. Validate collection binding if present on session or requested in callback options
+    if (session.collection && expectedCollectionName && session.collection.toLowerCase() !== expectedCollectionName.toLowerCase()) {
+      throw new AppError(
+        `OAuth state collection mismatch: expected '${session.collection}', got '${expectedCollectionName.toLowerCase()}'`,
+        400
+      );
+    }
+
+    // 7. Validate redirect_uri binding if both present
+    if (session.redirectUri && effectiveRedirectUri && session.redirectUri !== effectiveRedirectUri) {
+      throw new AppError(
+        `OAuth state redirect_uri mismatch: expected '${session.redirectUri}', got '${effectiveRedirectUri}'`,
+        400
+      );
+    }
+
+    // 8. Validate PKCE code_verifier challenge
+    const finalVerifier = verifier || session.codeVerifier;
+    if (session.codeChallenge) {
+      if (!finalVerifier) {
+        throw new AppError('PKCE code_verifier is required', 400);
+      }
+      const challenge = crypto.createHash('sha256').update(finalVerifier).digest('base64url');
+      if (challenge !== session.codeChallenge) {
+        throw new AppError('PKCE code_verifier does not match the session code_challenge', 400);
+      }
+    }
+
+    // 9. Immediately consume the state session to prevent replay attacks
+    this.consumeStateSession(callbackState);
+
+    // 10. Safely exchange the authorization code for tokens and user profile
+    return this.exchangeCode(code, finalVerifier || '', effectiveRedirectUri || session.redirectUri);
   }
 
   public async exchangeCode(
@@ -92,6 +395,197 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
       expiresIn: tokenData.expires_in,
       profile,
     };
+  }
+
+  public bindRegistry(registry: IOAuthRegistrySessionStore): void {
+    this.boundRegistries.add(registry);
+  }
+
+  public unbindRegistry(registry: IOAuthRegistrySessionStore): void {
+    this.boundRegistries.delete(registry);
+  }
+
+  public consumeLocalState(state: string): boolean {
+    return this.stateStore.delete(state);
+  }
+
+  public saveStateSession(session: OAuthStateSession): void {
+    this.cleanExpiredStates();
+    this.stateStore.set(session.state, session);
+    BaseOAuthProvider.sharedStateStore.set(session.state, session);
+    for (const registry of this.boundRegistries) {
+      if (typeof registry.registerSession === 'function') {
+        try {
+          registry.registerSession(session);
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
+  public getStateSession(state: string): OAuthStateSession | undefined {
+    this.cleanExpiredStates();
+    let session = this.stateStore.get(state) || BaseOAuthProvider.sharedStateStore.get(state);
+    if (!session) {
+      for (const registry of this.boundRegistries) {
+        const regSession = registry.getSession(state);
+        if (regSession) {
+          session = {
+            state: regSession.state,
+            provider: regSession.provider,
+            collection: regSession.collection,
+            appId: regSession.appId,
+            codeChallenge: regSession.codeChallenge,
+            codeVerifier: regSession.codeVerifier,
+            redirectUri: regSession.redirectUri,
+            expiresAt: regSession.expiresAt,
+            createdAt: regSession.createdAt || Date.now(),
+          };
+          break;
+        }
+      }
+    }
+    return session;
+  }
+
+  public consumeStateSession(state: string): boolean {
+    const local = this.stateStore.delete(state);
+    const shared = BaseOAuthProvider.sharedStateStore.delete(state);
+    let boundDeleted = false;
+    for (const registry of this.boundRegistries) {
+      try {
+        if (registry.deleteSession(state)) {
+          boundDeleted = true;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    BaseOAuthProvider.notifyStateConsumed(state);
+    return local || shared || boundDeleted;
+  }
+
+  public cleanExpiredStates(): void {
+    const now = Date.now();
+    for (const [key, session] of this.stateStore.entries()) {
+      if (now > session.expiresAt) {
+        this.stateStore.delete(key);
+      }
+    }
+    BaseOAuthProvider.cleanGlobalExpiredStates();
+  }
+
+  public static registerRegistry(registry: IOAuthRegistrySessionStore): void {
+    BaseOAuthProvider.registries.add(registry);
+  }
+
+  public static unregisterRegistry(registry: IOAuthRegistrySessionStore): void {
+    BaseOAuthProvider.registries.delete(registry);
+  }
+
+  public static onStateConsumed(listener: (state: string) => void): () => void {
+    BaseOAuthProvider.consumptionListeners.add(listener);
+    return () => {
+      BaseOAuthProvider.consumptionListeners.delete(listener);
+    };
+  }
+
+  public static notifyStateConsumed(state: string): void {
+    BaseOAuthProvider.sharedStateStore.delete(state);
+    for (const reg of BaseOAuthProvider.registries) {
+      try {
+        reg.deleteSession(state);
+      } catch {
+        // ignore
+      }
+    }
+    for (const listener of BaseOAuthProvider.consumptionListeners) {
+      try {
+        listener(state);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  public static saveGlobalStateSession(session: OAuthStateSession): void {
+    BaseOAuthProvider.cleanGlobalExpiredStates();
+    BaseOAuthProvider.sharedStateStore.set(session.state, session);
+  }
+
+  public static getGlobalStateSession(state: string): OAuthStateSession | undefined {
+    BaseOAuthProvider.cleanGlobalExpiredStates();
+    return BaseOAuthProvider.sharedStateStore.get(state);
+  }
+
+  public static consumeGlobalStateSession(state: string): boolean {
+    const deleted = BaseOAuthProvider.sharedStateStore.delete(state);
+    BaseOAuthProvider.notifyStateConsumed(state);
+    return deleted;
+  }
+
+  public static cleanGlobalExpiredStates(): void {
+    const now = Date.now();
+    for (const [key, session] of BaseOAuthProvider.sharedStateStore.entries()) {
+      if (now > session.expiresAt) {
+        BaseOAuthProvider.sharedStateStore.delete(key);
+      }
+    }
+  }
+
+  public static createStateCookie(
+    state: string,
+    options?: OAuthStateCookieOptions,
+    providerName = 'default',
+    appId?: string
+  ): OAuthStateCookieInfo {
+    const targetAppId = options?.appId || appId;
+    const prefix = targetAppId && targetAppId !== 'default' && targetAppId !== 'app_default'
+      ? `oauth_state_${targetAppId}_`
+      : 'oauth_state_';
+    const name = options?.name || `${prefix}${providerName.toLowerCase()}`;
+    const path = options?.path || '/';
+    const httpOnly = options?.httpOnly !== false;
+    const secure = Boolean(options?.secure);
+    const sameSite = options?.sameSite || 'lax';
+    const maxAge = options?.maxAge ?? 600;
+
+    let header = `${name}=${encodeURIComponent(state)}; Path=${path}; Max-Age=${maxAge}; SameSite=${sameSite.charAt(0).toUpperCase() + sameSite.slice(1)}`;
+    if (httpOnly) header += '; HttpOnly';
+    if (secure) header += '; Secure';
+
+    return {
+      name,
+      value: state,
+      header,
+      options: {
+        path,
+        httpOnly,
+        secure,
+        sameSite,
+        maxAge,
+      },
+    };
+  }
+
+  public static parseCookieHeader(cookieHeader: string | undefined): Record<string, string> {
+    if (!cookieHeader || typeof cookieHeader !== 'string') return {};
+    const cookies: Record<string, string> = {};
+    const pairs = cookieHeader.split(';');
+    for (const pair of pairs) {
+      const idx = pair.indexOf('=');
+      if (idx > 0) {
+        const key = pair.slice(0, idx).trim();
+        const val = pair.slice(idx + 1).trim();
+        try {
+          cookies[key] = decodeURIComponent(val);
+        } catch {
+          cookies[key] = val;
+        }
+      }
+    }
+    return cookies;
   }
 
   protected abstract fetchUserProfile(accessToken: string, tokenData?: any): Promise<OAuthProfile>;

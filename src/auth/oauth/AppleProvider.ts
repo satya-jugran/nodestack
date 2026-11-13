@@ -34,8 +34,13 @@ export class AppleProvider extends BaseOAuthProvider {
     this.customKeys = config.customKeys;
   }
 
-  public override buildAuthUrl(state: string, codeChallenge: string, redirectUri?: string): string {
-    const url = super.buildAuthUrl(state, codeChallenge, redirectUri);
+  public override buildAuthUrl(
+    state: string,
+    codeChallenge: string,
+    redirectUri?: string,
+    scopes?: string[]
+  ): string {
+    const url = super.buildAuthUrl(state, codeChallenge, redirectUri, scopes);
     return `${url}&response_mode=query`;
   }
 

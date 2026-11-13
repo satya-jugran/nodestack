@@ -79,6 +79,7 @@ export {
   hasScope,
 } from './auth/ApiKeyService';
 export { OAuthProviderRegistry } from './auth/oauth/OAuthProviderRegistry';
+export { BaseOAuthProvider, AuthorizationUrlResult } from './auth/oauth/BaseOAuthProvider';
 export * from './auth/oauth/types';
 export { FileStorageService, SavedFileMeta } from './files/FileStorageService';
 

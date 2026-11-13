@@ -79,7 +79,10 @@ export class AuthService {
     this.isControlPlane = options?.isControlPlane !== undefined
       ? Boolean(options.isControlPlane)
       : Boolean(this.registry && (!options?.appSlug || options.appSlug === 'default'));
-    this.oauthRegistry = oauthRegistry || new OAuthProviderRegistry();
+    this.oauthRegistry = oauthRegistry || new OAuthProviderRegistry(undefined, this.options?.appId);
+    if (this.options?.appId && !this.oauthRegistry.appId) {
+      this.oauthRegistry.setAppId(this.options.appId);
+    }
     this.ruleEngine = ruleEngine || new RuleEngine();
     this.eventBus = eventBus;
     this.realtimeService = realtimeService;
@@ -809,7 +812,8 @@ export class AuthService {
       cleanProviderName,
       col.name,
       codeVerifier,
-      redirectUri
+      redirectUri,
+      this.options?.appId
     );
 
     const effectiveRedirectUri = redirectUri || session.redirectUri;
