@@ -984,6 +984,53 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(result.output.recovery).toBe('RecoveredFromFailure');
       expect(result.output.caughtError).toBeDefined();
     });
+
+    it('should execute hundreds of sequential state transitions iteratively without call stack overflow', async () => {
+      // Build a chain of 400 distinct sequential states
+      const stateCount = 400;
+      const states: Record<string, any> = {};
+      for (let i = 0; i < stateCount; i++) {
+        const isLast = i === stateCount - 1;
+        states[`Step_${i}`] = {
+          type: 'Pass',
+          result: i,
+          resultPath: `$.steps.step_${i}`,
+          ...(isLast ? { end: true } : { next: `Step_${i + 1}` }),
+        };
+      }
+
+      const deepFlowDef: FlowDefinition = {
+        startAt: 'Step_0',
+        states,
+      };
+
+      const result = await engine.execute('DeepIterativeFlow', deepFlowDef, { steps: {} });
+      expect(result.status).toBe('succeeded');
+      expect(result.stepLogs.length).toBe(stateCount);
+      expect(result.output.steps[`step_${stateCount - 1}`]).toBe(stateCount - 1);
+    });
+
+    it('should enforce maxStepTransitions guard and reject flows exceeding the transition limit', async () => {
+      // Build a chain of 501 distinct sequential states
+      const stateCount = 501;
+      const states: Record<string, any> = {};
+      for (let i = 0; i < stateCount; i++) {
+        const isLast = i === stateCount - 1;
+        states[`Step_${i}`] = {
+          type: 'Pass',
+          ...(isLast ? { end: true } : { next: `Step_${i + 1}` }),
+        };
+      }
+
+      const excessiveFlowDef: FlowDefinition = {
+        startAt: 'Step_0',
+        states,
+      };
+
+      const result = await engine.execute('ExcessiveStepFlow', excessiveFlowDef, {});
+      expect(result.status).toBe('failed');
+      expect(result.error).toMatch(/exceeded maximum step transitions \(500\)/);
+    });
   });
 
   // ==========================================
