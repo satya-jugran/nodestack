@@ -2593,5 +2593,113 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       // State is now consumed
       expect(provider.getStateSession(auth.state)).toBeUndefined();
     });
+
+    it('should set provider-specific cookies for every returned provider in listAuthMethods and validate each without collision', async () => {
+      const registry = app.auth.getOAuthRegistry();
+
+      const mockGoogle = new MockOAuthProvider('google', 'Google', {
+        id: 'g_multi_1',
+        email: 'multi_g@example.com',
+        isEmailVerified: true,
+        rawUser: { id: 'g_multi_1' },
+      });
+      const mockGitHub = new MockOAuthProvider('github', 'GitHub', {
+        id: 'gh_multi_2',
+        email: 'multi_gh@example.com',
+        isEmailVerified: true,
+        rawUser: { id: 'gh_multi_2' },
+      });
+      const mockDiscord = new MockOAuthProvider('discord', 'Discord', {
+        id: 'd_multi_3',
+        email: 'multi_d@example.com',
+        isEmailVerified: true,
+        rawUser: { id: 'd_multi_3' },
+      });
+
+      registry.register(mockGoogle);
+      registry.register(mockGitHub);
+      registry.register(mockDiscord);
+
+      // 1. GET auth-methods returns all 3 providers
+      const res = await fetch(`${serverUrl}/api/collections/users/auth-methods`);
+      expect(res.status).toBe(200);
+
+      const setCookieHeader = res.headers.get('set-cookie');
+      expect(setCookieHeader).toBeDefined();
+
+      // Check that all 3 provider-specific cookies are present in the response
+      expect(setCookieHeader).toContain('oauth_state_google=');
+      expect(setCookieHeader).toContain('oauth_state_github=');
+      expect(setCookieHeader).toContain('oauth_state_discord=');
+
+      const data = await res.json();
+      const googleInfo = data.authProviders.find((p: any) => p.name === 'google');
+      const gitHubInfo = data.authProviders.find((p: any) => p.name === 'github');
+      const discordInfo = data.authProviders.find((p: any) => p.name === 'discord');
+
+      expect(googleInfo).toBeDefined();
+      expect(gitHubInfo).toBeDefined();
+      expect(discordInfo).toBeDefined();
+
+      // Build simulated browser cookie header with all 3 cookies set
+      const combinedCookieHeader = `oauth_state_google=${googleInfo.state}; oauth_state_github=${gitHubInfo.state}; oauth_state_discord=${discordInfo.state}`;
+
+      // 2. Select the second provider (GitHub): must match its own cookie and NOT mismatch against Google's
+      const resGitHub = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: combinedCookieHeader,
+        },
+        body: JSON.stringify({
+          provider: 'github',
+          code: 'code_gh_test',
+          codeVerifier: gitHubInfo.codeVerifier,
+          state: gitHubInfo.state,
+        }),
+      });
+
+      expect(resGitHub.status).toBe(200);
+      const gitHubData = await resGitHub.json();
+      expect(gitHubData.record.email).toBe('multi_gh@example.com');
+
+      // 3. Select the third provider (Discord): must match its own cookie and succeed
+      const resDiscord = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: combinedCookieHeader,
+        },
+        body: JSON.stringify({
+          provider: 'discord',
+          code: 'code_discord_test',
+          codeVerifier: discordInfo.codeVerifier,
+          state: discordInfo.state,
+        }),
+      });
+
+      expect(resDiscord.status).toBe(200);
+      const discordData = await resDiscord.json();
+      expect(discordData.record.email).toBe('multi_d@example.com');
+
+      // 4. Mismatch check: sending Discord's state under GitHub provider must fail CSRF check
+      const resMismatch = await fetch(`${serverUrl}/api/collections/users/auth-with-oauth2`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: combinedCookieHeader,
+        },
+        body: JSON.stringify({
+          provider: 'github',
+          code: 'code_gh_tampered',
+          codeVerifier: gitHubInfo.codeVerifier,
+          state: discordInfo.state, // wrong state for github cookie!
+        }),
+      });
+
+      expect(resMismatch.status).toBe(400);
+      const mismatchBody = await resMismatch.json();
+      expect(mismatchBody.message).toMatch(/OAuth state mismatch|session cookie does not match/i);
+    });
   });
 });

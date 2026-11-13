@@ -155,9 +155,11 @@ export class AuthController extends BaseController {
     const appId = appScope?.app?.id;
     const result = await auth.listAuthMethods(collection, redirectUri);
     if (result.authProviders && result.authProviders.length > 0) {
-      const first = result.authProviders[0];
-      const cookie = BaseOAuthProvider.createStateCookie(first.state, undefined, first.name, appId);
-      reply.header('Set-Cookie', cookie.header);
+      const cookieHeaders = result.authProviders.map((p) => {
+        const cookie = BaseOAuthProvider.createStateCookie(p.state, undefined, p.name, appId);
+        return cookie.header;
+      });
+      reply.header('Set-Cookie', cookieHeaders.length === 1 ? cookieHeaders[0] : cookieHeaders);
     }
     this.ok(reply, result);
   }
