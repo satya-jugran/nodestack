@@ -15,8 +15,13 @@ export class GoogleProvider extends BaseOAuthProvider {
     });
   }
 
-  public override buildAuthUrl(state: string, codeChallenge: string, redirectUri?: string): string {
-    const url = super.buildAuthUrl(state, codeChallenge, redirectUri);
+  public override buildAuthUrl(
+    state: string,
+    codeChallenge: string,
+    redirectUri?: string,
+    scopes?: string[]
+  ): string {
+    const url = super.buildAuthUrl(state, codeChallenge, redirectUri, scopes);
     return `${url}&access_type=offline&prompt=consent`;
   }
 

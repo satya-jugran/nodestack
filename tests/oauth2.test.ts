@@ -28,8 +28,9 @@ class MockOAuthProvider implements IOAuthProvider {
     this.enabled = enabled;
   }
 
-  public buildAuthUrl(state: string, codeChallenge: string, redirectUri?: string): string {
-    return `https://${this.name}.mock.auth/oauth/authorize?state=${state}&code_challenge=${codeChallenge}&redirect_uri=${redirectUri || ''}`;
+  public buildAuthUrl(state: string, codeChallenge: string, redirectUri?: string, scopes?: string[]): string {
+    const scopeParam = scopes && scopes.length > 0 ? `&scope=${encodeURIComponent(scopes.join(' '))}` : '';
+    return `https://${this.name}.mock.auth/oauth/authorize?state=${state}&code_challenge=${codeChallenge}&redirect_uri=${redirectUri || ''}${scopeParam}`;
   }
 
   public async exchangeCode(code: string, codeVerifier: string, redirectUri?: string): Promise<OAuthExchangeResult> {
@@ -2528,6 +2529,31 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(() => {
         registry.validateAndConsumeState(state, 'test_bound_prov', 'users', verifier, 'http://localhost:3000/callback');
       }).toThrow(/Invalid or expired OAuth state parameter/i);
+    });
+
+    it('should apply GetAuthorizationUrlOptions.scopes override to constructed authorization URL and session', () => {
+      const google = new GoogleProvider({
+        clientId: 'google_scopes_client',
+        clientSecret: 'google_scopes_secret',
+      });
+
+      // 1. Default scopes when no override is provided
+      const defaultAuth = google.getAuthorizationUrl();
+      const defaultParsed = new URL(defaultAuth.url);
+      expect(defaultParsed.searchParams.get('scope')).toBe('openid email profile');
+
+      // 2. Custom scopes override applied per request
+      const customScopes = ['openid', 'email', 'https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/drive.metadata.readonly'];
+      const customAuth = google.getAuthorizationUrl({
+        scopes: customScopes,
+        redirectUri: 'http://localhost:3000/callback',
+      });
+      const customParsed = new URL(customAuth.url);
+      expect(customParsed.searchParams.get('scope')).toBe(customScopes.join(' '));
+
+      // Session records the requested custom scopes
+      const session = google.getStateSession(customAuth.state);
+      expect(session?.scopes).toEqual(customScopes);
     });
   });
 });

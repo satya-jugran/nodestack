@@ -33,7 +33,7 @@ export interface IOAuthProvider {
   readonly name: string;
   readonly displayName: string;
   readonly enabled?: boolean;
-  buildAuthUrl(state: string, codeChallenge: string, redirectUri?: string): string;
+  buildAuthUrl(state: string, codeChallenge: string, redirectUri?: string, scopes?: string[]): string;
   exchangeCode(code: string, codeVerifier: string, redirectUri?: string): Promise<OAuthExchangeResult>;
   getAuthorizationUrl?(
     optionsOrRedirectUri?: string | GetAuthorizationUrlOptions,
@@ -114,6 +114,7 @@ export interface OAuthStateSession {
   codeVerifier?: string;
   redirectUri?: string;
   cookieState?: string;
+  scopes?: string[];
   expiresAt: number;
   createdAt: number;
 }

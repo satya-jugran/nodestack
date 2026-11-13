@@ -95,13 +95,19 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
     return AbortSignal.timeout(this.timeoutMs);
   }
 
-  public buildAuthUrl(state: string, codeChallenge: string, redirectUri?: string): string {
+  public buildAuthUrl(
+    state: string,
+    codeChallenge: string,
+    redirectUri?: string,
+    scopes?: string[]
+  ): string {
     const uri = redirectUri || this.defaultRedirectUri || '';
+    const effectiveScopes = scopes && scopes.length > 0 ? scopes : this.scopes;
     const params = new URLSearchParams({
       client_id: this.clientId,
       response_type: 'code',
       redirect_uri: uri,
-      scope: this.scopes.join(' '),
+      scope: effectiveScopes.join(' '),
       state,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
@@ -151,13 +157,14 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
       codeVerifier,
       redirectUri: effectiveRedirectUri,
       cookieState: state,
+      scopes: opts.scopes,
       expiresAt: Date.now() + 10 * 60 * 1000,
       createdAt: Date.now(),
     };
 
     this.saveStateSession(session);
 
-    const url = this.buildAuthUrl(state, codeChallenge, effectiveRedirectUri);
+    const url = this.buildAuthUrl(state, codeChallenge, effectiveRedirectUri, opts.scopes);
 
     return new AuthorizationUrlResult(
       url,
