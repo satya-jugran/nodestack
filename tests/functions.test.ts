@@ -155,6 +155,43 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       );
     });
 
+    it('should defeat DNS rebinding attacks by pinning resolved IP and issuing HTTP request directly to that IP with manual Host header', async () => {
+      let receivedHostHeader = '';
+      let receivedRemoteAddress = '';
+      const server = http.createServer((req, res) => {
+        receivedHostHeader = req.headers['host'] || '';
+        receivedRemoteAddress = req.socket.remoteAddress || '';
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ rebindingDefeated: true }));
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const address = server.address() as any;
+
+      const targetUrl = new URL(`http://attacker-rebinding-domain.com:${address.port}/api/endpoint`);
+      (targetUrl as any).pinnedAddress = '127.0.0.1';
+      (targetUrl as any).pinnedFamily = 4;
+      (targetUrl as any).cleanHostname = 'attacker-rebinding-domain.com';
+
+      const validateSpy = vi.spyOn(SsrfGuard, 'validateUrl').mockResolvedValueOnce(targetUrl);
+
+      try {
+        const guardedFetch = SsrfGuard.createGuardedFetch();
+        const res = await guardedFetch(`http://attacker-rebinding-domain.com:${address.port}/api/endpoint`);
+        expect(res.ok).toBe(true);
+        const data = await res.json();
+        expect(data.rebindingDefeated).toBe(true);
+
+        // Verify that the HTTP request was sent directly to the pinned IP (127.0.0.1)
+        expect(receivedRemoteAddress).toMatch(/127\.0\.0\.1/);
+
+        // Verify that the Host header was set manually to the target host and received by server
+        expect(receivedHostHeader).toBe(`attacker-rebinding-domain.com:${address.port}`);
+      } finally {
+        validateSpy.mockRestore();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    });
+
     it('should strip sensitive headers on cross-origin redirects without mutating original init', async () => {
       const capturedCalls: Array<{ url: string; headers: any }> = [];
       const mockFetch = (async (url: string, init?: any) => {

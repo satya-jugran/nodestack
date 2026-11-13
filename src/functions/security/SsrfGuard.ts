@@ -1,6 +1,7 @@
 import * as dns from 'dns';
 import * as http from 'http';
 import * as https from 'https';
+import * as net from 'net';
 import { promisify } from 'util';
 
 const dnsLookup = promisify(dns.lookup);
@@ -522,9 +523,15 @@ export class SsrfGuard {
         headers['Host'] = options.url.host;
       }
 
+      const rawPinned = options.pinnedAddress || options.cleanHostname;
+      const cleanPinnedAddress =
+        rawPinned.startsWith('[') && rawPinned.endsWith(']')
+          ? rawPinned.slice(1, -1)
+          : rawPinned;
+
       const reqOptions: any = {
         protocol: options.url.protocol,
-        hostname: options.cleanHostname,
+        hostname: cleanPinnedAddress,
         port,
         path: options.url.pathname + options.url.search,
         method: options.init.method || 'GET',
@@ -535,14 +542,14 @@ export class SsrfGuard {
             opts = {};
           }
           if (opts && opts.all) {
-            callback(null, [{ address: options.pinnedAddress, family: options.pinnedFamily }]);
+            callback(null, [{ address: cleanPinnedAddress, family: options.pinnedFamily }]);
           } else {
-            callback(null, options.pinnedAddress, options.pinnedFamily);
+            callback(null, cleanPinnedAddress, options.pinnedFamily);
           }
         },
       };
 
-      if (isHttps) {
+      if (isHttps && !net.isIP(options.cleanHostname)) {
         reqOptions.servername = options.cleanHostname;
       }
 
