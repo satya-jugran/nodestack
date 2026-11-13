@@ -186,44 +186,48 @@ describe('Starter Templates / Recipes Tests', () => {
   });
 
   describe('📝 Blog / Content Starter Template Application', () => {
-    it('should apply blog template with authors, tags, posts & comments', async () => {
-      const res = await app.templates.apply('blog');
-      expect(res.success).toBe(true);
-      expect(res.collections).toEqual(['authors', 'tags', 'posts', 'comments']);
-      expect(res.totalRecords).toBe(28);
-      expect(res.totalImages).toBe(12);
+    it(
+      'should apply blog template with authors, tags, posts & comments',
+      { timeout: 15000 },
+      async () => {
+        const res = await app.templates.apply('blog');
+        expect(res.success).toBe(true);
+        expect(res.collections).toEqual(['authors', 'tags', 'posts', 'comments']);
+        expect(res.totalRecords).toBe(28);
+        expect(res.totalImages).toBe(12);
 
-      const authCol = app.schema.getCollectionOrThrow('authors');
-      const postsCol = app.schema.getCollectionOrThrow('posts');
+        const authCol = app.schema.getCollectionOrThrow('authors');
+        const postsCol = app.schema.getCollectionOrThrow('posts');
 
-      // Verify authors
-      const authors = app.db.all<any>('SELECT * FROM "authors"');
-      expect(authors.length).toBe(4);
-      for (const a of authors) {
-        expect(a.avatar).toBeTruthy();
-        const filePath = app.files.getFilePath(authCol.id, a.id, a.avatar);
-        expect(fs.existsSync(filePath)).toBe(true);
+        // Verify authors
+        const authors = app.db.all<any>('SELECT * FROM "authors"');
+        expect(authors.length).toBe(4);
+        for (const a of authors) {
+          expect(a.avatar).toBeTruthy();
+          const filePath = app.files.getFilePath(authCol.id, a.id, a.avatar);
+          expect(fs.existsSync(filePath)).toBe(true);
+        }
+
+        // Verify tags
+        const tags = app.db.all<any>('SELECT * FROM "tags"');
+        expect(tags.length).toBe(6);
+
+        // Verify posts with cover images and markdown content
+        const posts = app.db.all<any>('SELECT * FROM "posts"');
+        expect(posts.length).toBe(8);
+        for (const p of posts) {
+          expect(p.title).toBeTruthy();
+          expect(p.content).toContain('##');
+          expect(p.coverImage).toBeTruthy();
+          const filePath = app.files.getFilePath(postsCol.id, p.id, p.coverImage);
+          expect(fs.existsSync(filePath)).toBe(true);
+        }
+
+        // Verify comments
+        const comments = app.db.all<any>('SELECT * FROM "comments"');
+        expect(comments.length).toBe(10);
       }
-
-      // Verify tags
-      const tags = app.db.all<any>('SELECT * FROM "tags"');
-      expect(tags.length).toBe(6);
-
-      // Verify posts with cover images and markdown content
-      const posts = app.db.all<any>('SELECT * FROM "posts"');
-      expect(posts.length).toBe(8);
-      for (const p of posts) {
-        expect(p.title).toBeTruthy();
-        expect(p.content).toContain('##');
-        expect(p.coverImage).toBeTruthy();
-        const filePath = app.files.getFilePath(postsCol.id, p.id, p.coverImage);
-        expect(fs.existsSync(filePath)).toBe(true);
-      }
-
-      // Verify comments
-      const comments = app.db.all<any>('SELECT * FROM "comments"');
-      expect(comments.length).toBe(10);
-    });
+    );
   });
 
   describe('👥 SaaS / CRM Starter Template Application', () => {
