@@ -82,7 +82,7 @@ export interface WebhookServiceOptions {
 }
 
 export class WebhookService {
-  private fetchFn: typeof fetch;
+  private fetchFn?: typeof fetch;
   private requestTimeoutMs: number;
 
   constructor(
@@ -90,12 +90,12 @@ export class WebhookService {
     private eventBus?: EventBus,
     options: WebhookServiceOptions = {}
   ) {
-    this.fetchFn = options.fetch || globalThis.fetch;
+    this.fetchFn = options.fetch;
     this.requestTimeoutMs = options.requestTimeoutMs || 10000;
     this.initTables();
   }
 
-  public setFetch(customFetch: typeof fetch): void {
+  public setFetch(customFetch?: typeof fetch): void {
     this.fetchFn = customFetch;
   }
 
@@ -653,6 +653,12 @@ export class WebhookService {
     let errorMessage: string | null = null;
 
     try {
+      if (this.fetchFn) {
+        await SsrfGuard.validateUrl(webhook.url, undefined, { isCustomFetch: true });
+      } else {
+        await SsrfGuard.validateUrl(webhook.url);
+      }
+
       const guardedFetch = SsrfGuard.createGuardedFetch(
         undefined,
         this.requestTimeoutMs,

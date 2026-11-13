@@ -7,6 +7,7 @@ import { NodeStack } from '../src/NodeStack';
 import { WebhookService } from '../src/webhooks/WebhookService';
 import { AdminUIBundler } from '../src/admin/AdminUIBundler';
 import { webhookPlugin } from '../src/plugins/webhooks';
+import { SsrfGuard, SsrfGuardError } from '../src/functions/security/SsrfGuard';
 
 describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
   const testDir = path.resolve(__dirname, '../.test_webhooks_nodestack_data');
@@ -448,6 +449,62 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
         // Restore default mock fetch
         app.webhooks.setFetch(mockFetch as any);
       }
+    });
+
+    it('should run SsrfGuard.validateUrl before every delivery and block cloud metadata, loopback, or private endpoints', async () => {
+      const validateSpy = vi.spyOn(SsrfGuard, 'validateUrl');
+      const ssrfTargets = [
+        'http://169.254.169.254/latest/meta-data',
+        'http://localhost:8080/internal',
+        'http://127.0.0.1:9000/api',
+        'http://10.0.0.1/private',
+        'http://metadata.google.internal/computeMetadata/v1',
+      ];
+
+      for (const target of ssrfTargets) {
+        validateSpy.mockClear();
+        const wh: any = {
+          id: `whk_ssrf_${Date.now()}`,
+          name: 'SSRF Delivery Test',
+          url: target,
+          method: 'POST',
+          headers: {},
+          secret: null,
+        };
+
+        const delivery = await app.webhooks.dispatch(wh, { event: 'test.event' });
+
+        expect(validateSpy).toHaveBeenCalled();
+        expect(delivery.status).toBe('failed');
+        expect(delivery.error).toMatch(/\[SsrfGuard\]/i);
+        expect(delivery.responseStatus).toBe(0);
+      }
+
+      validateSpy.mockRestore();
+    });
+
+    it('should block delivery if domain DNS changes to private or metadata IP at delivery time', async () => {
+      const wh: any = {
+        id: 'whk_dns_rebind',
+        name: 'DNS Rebind Test',
+        url: 'https://attacker-controlled-rebinding.com/webhook',
+        method: 'POST',
+        headers: {},
+        secret: null,
+      };
+
+      const spy = vi.spyOn(SsrfGuard, 'validateUrl').mockRejectedValueOnce(
+        new SsrfGuardError("Host 'attacker-controlled-rebinding.com' resolves to cloud metadata IP '169.254.169.254'")
+      );
+
+      const delivery = await app.webhooks.dispatch(wh, { event: 'test.rebind' });
+
+      expect(spy).toHaveBeenCalled();
+      expect(delivery.status).toBe('failed');
+      expect(delivery.error).toContain('[SsrfGuard]');
+      expect(delivery.error).toContain('169.254.169.254');
+
+      spy.mockRestore();
     });
 
     it('should reject webhook creation and update with invalid HTTP method', async () => {
