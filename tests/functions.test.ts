@@ -1243,6 +1243,9 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         runScripts: 'dangerously',
         url: 'http://localhost:8090/_/',
         beforeParse(window: any) {
+          // Mock DOM timer intervals to prevent recurring timers from exceeding vitest timeouts
+          window.setInterval = vi.fn().mockReturnValue(1);
+          window.clearInterval = vi.fn();
           window.fetch = vi.fn().mockImplementation(async () => ({
             ok: true,
             json: async () => ({ hasAdmins: true }),
@@ -1252,33 +1255,37 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const win = dom.window as any;
       const doc = win.document;
 
-      const badge = doc.getElementById('sidebar-functions-count');
-      expect(badge).not.toBeNull();
-      expect(badge.style.display).toBe('none');
+      try {
+        const badge = doc.getElementById('sidebar-functions-count');
+        expect(badge).not.toBeNull();
+        expect(badge.style.display).toBe('none');
 
-      // Mock api to return 2 functions for stats
-      win.api = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes('/functions/stats')) {
-          return {
-            totalFunctions: 2,
-            activeFunctions: 2,
-            totalExecutions: 5,
-            successExecutions: 5,
-            failedExecutions: 0,
-            successRate: '100%',
-          };
-        }
-        if (url.includes('/functions')) {
-          return [{ id: 'fn_1', name: 'fn1' }, { id: 'fn_2', name: 'fn2' }];
-        }
-        return {};
-      });
+        // Mock api to return 2 functions for stats
+        win.api = vi.fn().mockImplementation(async (url: string) => {
+          if (url.includes('/functions/stats')) {
+            return {
+              totalFunctions: 2,
+              activeFunctions: 2,
+              totalExecutions: 5,
+              successExecutions: 5,
+              failedExecutions: 0,
+              successRate: '100%',
+            };
+          }
+          if (url.includes('/functions')) {
+            return [{ id: 'fn_1', name: 'fn1' }, { id: 'fn_2', name: 'fn2' }];
+          }
+          return {};
+        });
 
-      // Call loadFunctionStats
-      await win.loadFunctionStats();
-      expect(badge.textContent).toBe('2');
-      expect(badge.style.display).toBe('inline-block');
-    }, 15000);
+        // Call loadFunctionStats
+        await win.loadFunctionStats();
+        expect(badge.textContent).toBe('2');
+        expect(badge.style.display).toBe('inline-block');
+      } finally {
+        dom.window.close();
+      }
+    });
 
     it('should render dedicated Function Create Page with full-width CodeMirror and Context Reference', async () => {
       const fs = await import('fs');
@@ -1291,65 +1298,77 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const dom = new JSDOM(html, {
         runScripts: 'dangerously',
         url: 'http://localhost:8090/_/functions',
+        beforeParse(window: any) {
+          window.setInterval = vi.fn().mockReturnValue(1);
+          window.clearInterval = vi.fn();
+          window.fetch = vi.fn().mockImplementation(async () => ({
+            ok: true,
+            json: async () => ({ hasAdmins: true }),
+          }));
+        },
       });
       const win = dom.window as any;
       const doc = win.document;
 
-      // Open create function page (dedicated workbench view)
-      await win.openCreateFunctionModal();
+      try {
+        // Open create function page (dedicated workbench view)
+        await win.openCreateFunctionModal();
 
-      expect(win.functionsState.currentView).toBe('editor');
-      expect(win.functionsState.activeFunctionForEdit.isNew).toBe(true);
+        expect(win.functionsState.currentView).toBe('editor');
+        expect(win.functionsState.activeFunctionForEdit.isNew).toBe(true);
 
-      const pageContainer = doc.getElementById('page-view-functions');
-      expect(pageContainer?.innerHTML).toContain('✨ New Function');
-      expect(pageContainer?.innerHTML).toContain('Create Function');
+        const pageContainer = doc.getElementById('page-view-functions');
+        expect(pageContainer?.innerHTML).toContain('✨ New Function');
+        expect(pageContainer?.innerHTML).toContain('Create Function');
 
-      // Verify editable function name header
-      const nameInput = doc.getElementById('fn-editor-name-header') as HTMLInputElement;
-      expect(nameInput).not.toBeNull();
-      win.syncEditorFunctionName('calculate-vat');
-      expect(nameInput.value).toBe('calculate-vat');
+        // Verify editable function name header
+        const nameInput = doc.getElementById('fn-editor-name-header') as HTMLInputElement;
+        expect(nameInput).not.toBeNull();
+        win.syncEditorFunctionName('calculate-vat');
+        expect(nameInput.value).toBe('calculate-vat');
 
-      const preview = doc.getElementById('fn-editor-endpoint-preview');
-      expect(preview?.textContent).toContain('/api/functions/calculate-vat/invoke');
+        const preview = doc.getElementById('fn-editor-endpoint-preview');
+        expect(preview?.textContent).toContain('/api/functions/calculate-vat/invoke');
 
-      // Verify Context Reference panel & category filtering
-      const eventFilterBtn = doc.querySelector('.ctx-cat-btn[data-cat="event"]') as HTMLButtonElement;
-      expect(eventFilterBtn).not.toBeNull();
-      eventFilterBtn.click();
+        // Verify Context Reference panel & category filtering
+        const eventFilterBtn = doc.querySelector('.ctx-cat-btn[data-cat="event"]') as HTMLButtonElement;
+        expect(eventFilterBtn).not.toBeNull();
+        eventFilterBtn.click();
 
-      const eventItems = doc.querySelectorAll('.ctx-item[data-cat="event"]');
-      const requestItems = doc.querySelectorAll('.ctx-item[data-cat="request"]');
-      expect(eventItems[0].style.display).toBe('flex');
-      expect(requestItems[0].style.display).toBe('none');
+        const eventItems = doc.querySelectorAll('.ctx-item[data-cat="event"]');
+        const requestItems = doc.querySelectorAll('.ctx-item[data-cat="request"]');
+        expect(eventItems[0].style.display).toBe('flex');
+        expect(requestItems[0].style.display).toBe('none');
 
-      // Test snippet insertion into code editor
-      const codeEditor = doc.getElementById('fn-editor-code') as HTMLTextAreaElement;
-      expect(codeEditor).not.toBeNull();
-      win.insertFunctionSnippet('const testItem = await core.sdk.collection("orders").get("ord_123");\n');
-      expect(codeEditor.value).toContain('await core.sdk.collection("orders").get("ord_123")');
+        // Test snippet insertion into code editor
+        const codeEditor = doc.getElementById('fn-editor-code') as HTMLTextAreaElement;
+        expect(codeEditor).not.toBeNull();
+        win.insertFunctionSnippet('const testItem = await core.sdk.collection("orders").get("ord_123");\n');
+        expect(codeEditor.value).toContain('await core.sdk.collection("orders").get("ord_123")');
 
-      // Test toggle reference collapse/expand
-      expect(win.functionsState.isCtxRefExpanded).toBe(false);
-      const content = doc.getElementById('workbench-ctx-content');
-      expect(content?.style.display).toBe('none');
+        // Test toggle reference collapse/expand
+        expect(win.functionsState.isCtxRefExpanded).toBe(false);
+        const content = doc.getElementById('workbench-ctx-content');
+        expect(content?.style.display).toBe('none');
 
-      win.toggleWorkbenchCtxRef();
-      expect(win.functionsState.isCtxRefExpanded).toBe(true);
-      expect(content?.style.display).toBe('flex');
+        win.toggleWorkbenchCtxRef();
+        expect(win.functionsState.isCtxRefExpanded).toBe(true);
+        expect(content?.style.display).toBe('flex');
 
-      win.toggleWorkbenchCtxRef();
-      expect(win.functionsState.isCtxRefExpanded).toBe(false);
-      expect(content?.style.display).toBe('none');
+        win.toggleWorkbenchCtxRef();
+        expect(win.functionsState.isCtxRefExpanded).toBe(false);
+        expect(content?.style.display).toBe('none');
 
-      // Test Runner tab in draft mode shows unlock prompt
-      win.switchFunctionEditorTab('test');
-      expect(doc.getElementById('fn-editor-pane-test')?.innerHTML).toContain('Function Not Yet Created');
+        // Test Runner tab in draft mode shows unlock prompt
+        win.switchFunctionEditorTab('test');
+        expect(doc.getElementById('fn-editor-pane-test')?.innerHTML).toContain('Function Not Yet Created');
 
-      // Logs tab in draft mode shows no logs prompt
-      win.switchFunctionEditorTab('logs');
-      expect(doc.getElementById('fn-editor-pane-logs')?.innerHTML).toContain('No Logs Available');
+        // Logs tab in draft mode shows no logs prompt
+        win.switchFunctionEditorTab('logs');
+        expect(doc.getElementById('fn-editor-pane-logs')?.innerHTML).toContain('No Logs Available');
+      } finally {
+        dom.window.close();
+      }
     });
 
     it('should render dedicated Function Editor Workbench page with tabs, editor, and live sandbox runner', async () => {
@@ -1363,11 +1382,20 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const dom = new JSDOM(html, {
         runScripts: 'dangerously',
         url: 'http://localhost:8090/_/functions',
+        beforeParse(window: any) {
+          window.setInterval = vi.fn().mockReturnValue(1);
+          window.clearInterval = vi.fn();
+          window.fetch = vi.fn().mockImplementation(async () => ({
+            ok: true,
+            json: async () => ({ hasAdmins: true }),
+          }));
+        },
       });
       const win = dom.window as any;
       const doc = win.document;
 
-      // Seed a test function in state
+      try {
+        // Seed a test function in state
       const mockFn = {
         id: 'fn_workbench_test',
         name: 'calculate-shipping',
@@ -1540,7 +1568,10 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       win.closeFunctionEditor(false);
       expect(win.functionsState.currentView).toBe('list');
       expect(win.functionsState.activeFunctionForEdit).toBeNull();
-    });
+    } finally {
+      dom.window.close();
+    }
+  });
 
     it('should provide core.sdk, core.network, core.observability and enforce clean break on context', async () => {
       const fn = app.functions.createFunction({
