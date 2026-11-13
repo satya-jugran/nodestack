@@ -1,21 +1,34 @@
 import * as crypto from 'crypto';
 import { IOAuthProvider, OAuthProviderConfig, AuthMethodProviderInfo, PkceSession } from './types';
 import { AppError } from '../../core/errors/AppError';
-import { BaseOAuthProvider } from './BaseOAuthProvider';
+import { BaseOAuthProvider, IOAuthRegistrySessionStore } from './BaseOAuthProvider';
 import { GoogleProvider } from './GoogleProvider';
 import { GitHubProvider } from './GitHubProvider';
 import { DiscordProvider } from './DiscordProvider';
 import { MicrosoftProvider } from './MicrosoftProvider';
 import { AppleProvider } from './AppleProvider';
 
-export class OAuthProviderRegistry {
+export class OAuthProviderRegistry implements IOAuthRegistrySessionStore {
   private providers: Map<string, IOAuthProvider> = new Map();
   private sessions: Map<string, PkceSession> = new Map();
   public readonly appId?: string;
+  private unsubscribeStateConsumed?: () => void;
 
   constructor(customConfigs?: OAuthProviderConfig[], appId?: string) {
     this.appId = appId;
+    BaseOAuthProvider.registerRegistry(this);
+    this.unsubscribeStateConsumed = BaseOAuthProvider.onStateConsumed((state) => {
+      this.sessions.delete(state);
+    });
     this.initDefaultProviders(customConfigs);
+  }
+
+  public getSession(state: string): PkceSession | undefined {
+    return this.sessions.get(state);
+  }
+
+  public deleteSession(state: string): boolean {
+    return this.sessions.delete(state);
   }
 
   public setAppId(appId?: string): void {
@@ -67,11 +80,32 @@ export class OAuthProviderRegistry {
       this.unregister(provider.name);
       return;
     }
+    if (provider instanceof BaseOAuthProvider) {
+      provider.bindRegistry(this);
+    }
     this.providers.set(provider.name.toLowerCase(), provider);
   }
 
   public unregister(name: string): boolean {
+    const provider = this.providers.get(name.toLowerCase());
+    if (provider instanceof BaseOAuthProvider) {
+      provider.unbindRegistry(this);
+    }
     return this.providers.delete(name.toLowerCase());
+  }
+
+  public destroy(): void {
+    BaseOAuthProvider.unregisterRegistry(this);
+    if (this.unsubscribeStateConsumed) {
+      this.unsubscribeStateConsumed();
+      this.unsubscribeStateConsumed = undefined;
+    }
+    for (const p of this.providers.values()) {
+      if (p instanceof BaseOAuthProvider) {
+        p.unbindRegistry(this);
+      }
+    }
+    this.sessions.clear();
   }
 
   public registerFromConfig(config: OAuthProviderConfig): void {
@@ -150,6 +184,19 @@ export class OAuthProviderRegistry {
       };
       this.sessions.set(state, sessionData);
 
+      // Synchronize session with provider and global store so handleCallback and authenticateOAuth2 share lifecycle
+      if (provider instanceof BaseOAuthProvider) {
+        provider.saveStateSession({
+          ...sessionData,
+          createdAt: Date.now(),
+        });
+      } else {
+        BaseOAuthProvider.saveGlobalStateSession({
+          ...sessionData,
+          createdAt: Date.now(),
+        });
+      }
+
       methods.push({
         name: provider.name,
         displayName: provider.displayName,
@@ -179,6 +226,20 @@ export class OAuthProviderRegistry {
       expiresAt: session.expiresAt || Date.now() + 10 * 60 * 1000,
     };
     this.sessions.set(session.state, fullSession);
+
+    // Keep provider local store and global store synchronized
+    const provider = this.getProvider(fullSession.provider);
+    if (provider instanceof BaseOAuthProvider) {
+      provider.saveStateSession({
+        ...fullSession,
+        createdAt: Date.now(),
+      });
+    } else {
+      BaseOAuthProvider.saveGlobalStateSession({
+        ...fullSession,
+        createdAt: Date.now(),
+      });
+    }
   }
 
   /**
@@ -202,19 +263,23 @@ export class OAuthProviderRegistry {
 
     let session = this.sessions.get(state);
     if (!session) {
-      // Only accept a global session if an explicit matching app identifier is bound
+      // Check global session
       const globalSession = BaseOAuthProvider.getGlobalStateSession(state);
-      if (globalSession && globalSession.appId && effectiveAppId && globalSession.appId === effectiveAppId) {
-        session = {
-          state: globalSession.state,
-          provider: globalSession.provider,
-          collection: globalSession.collection || collectionName.toLowerCase(),
-          appId: globalSession.appId,
-          codeChallenge: globalSession.codeChallenge || '',
-          codeVerifier: globalSession.codeVerifier,
-          redirectUri: globalSession.redirectUri,
-          expiresAt: globalSession.expiresAt,
-        };
+      if (globalSession) {
+        const matchesApp = (!effectiveAppId && !globalSession.appId) ||
+          (effectiveAppId && globalSession.appId === effectiveAppId);
+        if (matchesApp) {
+          session = {
+            state: globalSession.state,
+            provider: globalSession.provider,
+            collection: globalSession.collection || collectionName.toLowerCase(),
+            appId: globalSession.appId,
+            codeChallenge: globalSession.codeChallenge || '',
+            codeVerifier: globalSession.codeVerifier,
+            redirectUri: globalSession.redirectUri,
+            expiresAt: globalSession.expiresAt,
+          };
+        }
       }
     }
 
@@ -222,9 +287,15 @@ export class OAuthProviderRegistry {
       throw new AppError('Invalid or expired OAuth state parameter', 400);
     }
 
-    // Immediately consume to prevent replay attacks
+    // Immediately consume across all stores (registry, global, and providers) to prevent replay attacks
     this.sessions.delete(state);
     BaseOAuthProvider.consumeGlobalStateSession(state);
+    BaseOAuthProvider.notifyStateConsumed(state);
+    for (const p of this.providers.values()) {
+      if (p instanceof BaseOAuthProvider) {
+        p.consumeLocalState(state);
+      }
+    }
 
     if (Date.now() > session.expiresAt) {
       throw new AppError('OAuth authorization session has expired', 400);

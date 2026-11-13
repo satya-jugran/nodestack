@@ -51,6 +51,13 @@ export class AuthorizationUrlResult implements OAuthAuthorizationUrlResult {
   }
 }
 
+export interface IOAuthRegistrySessionStore {
+  getSession(state: string): any;
+  deleteSession(state: string): boolean;
+  registerSession?(session: any): void;
+  appId?: string;
+}
+
 export abstract class BaseOAuthProvider implements IOAuthProvider {
   public readonly name: string;
   public readonly displayName: string;
@@ -65,7 +72,10 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
   protected defaultRedirectUri?: string;
 
   protected stateStore: Map<string, OAuthStateSession> = new Map();
+  protected boundRegistries: Set<IOAuthRegistrySessionStore> = new Set();
   private static sharedStateStore: Map<string, OAuthStateSession> = new Map();
+  private static registries: Set<IOAuthRegistrySessionStore> = new Set();
+  private static consumptionListeners: Set<(state: string) => void> = new Set();
 
   constructor(config: OAuthProviderConfig) {
     this.name = config.name;
@@ -349,21 +359,73 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
     };
   }
 
+  public bindRegistry(registry: IOAuthRegistrySessionStore): void {
+    this.boundRegistries.add(registry);
+  }
+
+  public unbindRegistry(registry: IOAuthRegistrySessionStore): void {
+    this.boundRegistries.delete(registry);
+  }
+
+  public consumeLocalState(state: string): boolean {
+    return this.stateStore.delete(state);
+  }
+
   public saveStateSession(session: OAuthStateSession): void {
     this.cleanExpiredStates();
     this.stateStore.set(session.state, session);
     BaseOAuthProvider.sharedStateStore.set(session.state, session);
+    for (const registry of this.boundRegistries) {
+      if (typeof registry.registerSession === 'function') {
+        try {
+          registry.registerSession(session);
+        } catch {
+          // ignore
+        }
+      }
+    }
   }
 
   public getStateSession(state: string): OAuthStateSession | undefined {
     this.cleanExpiredStates();
-    return this.stateStore.get(state) || BaseOAuthProvider.sharedStateStore.get(state);
+    let session = this.stateStore.get(state) || BaseOAuthProvider.sharedStateStore.get(state);
+    if (!session) {
+      for (const registry of this.boundRegistries) {
+        const regSession = registry.getSession(state);
+        if (regSession) {
+          session = {
+            state: regSession.state,
+            provider: regSession.provider,
+            collection: regSession.collection,
+            appId: regSession.appId,
+            codeChallenge: regSession.codeChallenge,
+            codeVerifier: regSession.codeVerifier,
+            redirectUri: regSession.redirectUri,
+            expiresAt: regSession.expiresAt,
+            createdAt: regSession.createdAt || Date.now(),
+          };
+          break;
+        }
+      }
+    }
+    return session;
   }
 
   public consumeStateSession(state: string): boolean {
     const local = this.stateStore.delete(state);
     const shared = BaseOAuthProvider.sharedStateStore.delete(state);
-    return local || shared;
+    let boundDeleted = false;
+    for (const registry of this.boundRegistries) {
+      try {
+        if (registry.deleteSession(state)) {
+          boundDeleted = true;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    BaseOAuthProvider.notifyStateConsumed(state);
+    return local || shared || boundDeleted;
   }
 
   public cleanExpiredStates(): void {
@@ -374,6 +436,39 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
       }
     }
     BaseOAuthProvider.cleanGlobalExpiredStates();
+  }
+
+  public static registerRegistry(registry: IOAuthRegistrySessionStore): void {
+    BaseOAuthProvider.registries.add(registry);
+  }
+
+  public static unregisterRegistry(registry: IOAuthRegistrySessionStore): void {
+    BaseOAuthProvider.registries.delete(registry);
+  }
+
+  public static onStateConsumed(listener: (state: string) => void): () => void {
+    BaseOAuthProvider.consumptionListeners.add(listener);
+    return () => {
+      BaseOAuthProvider.consumptionListeners.delete(listener);
+    };
+  }
+
+  public static notifyStateConsumed(state: string): void {
+    BaseOAuthProvider.sharedStateStore.delete(state);
+    for (const reg of BaseOAuthProvider.registries) {
+      try {
+        reg.deleteSession(state);
+      } catch {
+        // ignore
+      }
+    }
+    for (const listener of BaseOAuthProvider.consumptionListeners) {
+      try {
+        listener(state);
+      } catch {
+        // ignore
+      }
+    }
   }
 
   public static saveGlobalStateSession(session: OAuthStateSession): void {
@@ -387,7 +482,9 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
   }
 
   public static consumeGlobalStateSession(state: string): boolean {
-    return BaseOAuthProvider.sharedStateStore.delete(state);
+    const deleted = BaseOAuthProvider.sharedStateStore.delete(state);
+    BaseOAuthProvider.notifyStateConsumed(state);
+    return deleted;
   }
 
   public static cleanGlobalExpiredStates(): void {
