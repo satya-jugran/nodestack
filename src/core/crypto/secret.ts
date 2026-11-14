@@ -6,7 +6,7 @@ import * as crypto from 'crypto';
  * Compute a hex-encoded SHA-256 digest of a plaintext secret, or HMAC-SHA256 digest if key is provided.
  */
 export function hashSecret(secret: string, key?: string): string {
-  if (key) {
+  if (key !== undefined) {
     return crypto.createHmac('sha256', key).update(secret).digest('hex');
   }
   return crypto.createHash('sha256').update(secret).digest('hex');

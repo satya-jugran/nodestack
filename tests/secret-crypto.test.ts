@@ -23,6 +23,15 @@ describe('core/crypto/secret', () => {
       expect(hashSecret('my-secret-token', serverKey)).not.toBe(plainExpected);
       expect(hashSecret('my-secret-token', serverKey)).toMatch(/^[0-9a-f]{64}$/);
     });
+
+    it('does not silently fall back to plain SHA-256 when an empty string key is provided', () => {
+      const secret = 'my-secret-token';
+      const plainSha256 = crypto.createHash('sha256').update(secret).digest('hex');
+      const hmacEmptyKey = crypto.createHmac('sha256', '').update(secret).digest('hex');
+
+      expect(hashSecret(secret, '')).toBe(hmacEmptyKey);
+      expect(hashSecret(secret, '')).not.toBe(plainSha256);
+    });
   });
 
   describe('hmacSecret', () => {
@@ -84,6 +93,15 @@ describe('core/crypto/secret', () => {
       expect(verifySecret(hmacHash, secret, serverSecret)).toBe(true);
       expect(verifySecret(hmacHash, secret, 'wrong-server-secret')).toBe(false);
       expect(verifySecret(hmacHash, 'wrong-token', serverSecret)).toBe(false);
+    });
+
+    it('does not silently fall back to plain SHA-256 when an empty string key is provided', () => {
+      const secret = 'nsk_live_token_empty_key';
+      const plainHash = hashSecret(secret); // unsalted SHA-256
+      const hmacEmptyKeyHash = hashSecret(secret, ''); // HMAC with empty key
+
+      expect(verifySecret(hmacEmptyKeyHash, secret, '')).toBe(true);
+      expect(verifySecret(plainHash, secret, '')).toBe(false);
     });
 
     it('returns false for missing or malformed hashes', () => {
