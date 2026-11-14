@@ -36,7 +36,7 @@ export class AuthMiddleware {
     return (req as any)?.appScope?.apiKeys || this.apiKeyService;
   }
 
-  public async handle(req: FastifyRequest, _reply?: FastifyReply): Promise<void> {
+  public async handle(req: FastifyRequest, reply?: FastifyReply): Promise<void> {
     req.auth = null;
     requestAuthRevalidators.delete(req);
 
@@ -119,17 +119,17 @@ export class AuthMiddleware {
     // 2. Standard JWT Authentication (Bearer <jwt> or ?token=<jwt>)
     let token: string | undefined;
     const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
+    if (authHeader && (authHeader.startsWith('Bearer ') || authHeader.startsWith('bearer '))) {
       token = authHeader.substring(7).trim();
     } else if (req.query && typeof (req.query as any).token === 'string') {
-      token = (req.query as any).token;
+      token = (req.query as any).token.trim();
     } else if (req.url && req.url.includes('?')) {
       try {
         const queryIndex = req.url.indexOf('?');
         const qs = new URLSearchParams(req.url.slice(queryIndex + 1));
         const qToken = qs.get('token');
         if (qToken) {
-          token = qToken;
+          token = qToken.trim();
         }
       } catch {}
     }
@@ -137,9 +137,11 @@ export class AuthMiddleware {
     if (token) {
       const authService = this.getAuthService(req);
       let verifiedAuthService = authService;
+      let authError: any;
       try {
         req.auth = await authService.verifyToken(token);
-      } catch {
+      } catch (err: any) {
+        authError = err;
         // Fallback to global authService if scoped verification fails for super-admin tokens
         if (authService !== this.authService) {
           try {
@@ -147,21 +149,33 @@ export class AuthMiddleware {
             if (adminClaims && adminClaims.isSuperAdmin) {
               req.auth = adminClaims;
               verifiedAuthService = this.authService;
+              authError = undefined;
             }
-          } catch {
-            // Leave req.auth as null
+          } catch (adminErr: any) {
+            authError = adminErr || authError;
           }
         }
       }
-      if (req.auth) {
-        requestAuthRevalidators.set(req, (claims) => verifiedAuthService.verifyClaims(claims as AuthClaims));
+
+      if (!req.auth) {
+        if (reply && !reply.sent) {
+          reply.status(401).send({
+            statusCode: 401,
+            message: authError?.message || 'Invalid or expired authentication token',
+          });
+          return;
+        }
+        return;
       }
+
+      requestAuthRevalidators.set(req, (claims) => verifiedAuthService.verifyClaims(claims as AuthClaims));
     }
   }
 
   public requireSuperAdmin() {
     return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
       await this.handle(req, reply);
+      if (reply.sent) return;
       const isAuthorized = Boolean(req.auth?.isSuperAdmin);
 
       if (!isAuthorized) {
@@ -176,6 +190,7 @@ export class AuthMiddleware {
   public requireAdmin() {
     return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
       await this.handle(req, reply);
+      if (reply.sent) return;
       const isAuthorized =
         Boolean(req.auth?.isAdmin) ||
         Boolean(req.auth?.isApiKey && (req.auth.scopes?.includes('*') || req.auth.scopes?.includes('admin:*')));
@@ -192,6 +207,7 @@ export class AuthMiddleware {
   public requireAdminOrInitialSetup() {
     return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
       await this.handle(req, reply);
+      if (reply.sent) return;
       const authService = this.getAuthService(req);
       const hasAdmins = await authService.hasAdmins();
       if (!hasAdmins) {
@@ -238,6 +254,7 @@ export class AuthMiddleware {
   public requireAuth() {
     return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
       await this.handle(req, reply);
+      if (reply.sent) return;
       if (!req.auth) {
         reply.status(401).send({
           statusCode: 401,
@@ -250,6 +267,7 @@ export class AuthMiddleware {
   public requireScope(resource: string, action: string) {
     return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
       await this.handle(req, reply);
+      if (reply.sent) return;
       if (!req.auth) {
         return reply.status(401).send({
           statusCode: 401,

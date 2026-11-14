@@ -424,7 +424,8 @@ export class HttpServer {
       }
 
       // Extract authentication claims first so req.auth is populated for gate checks
-      await this.authMiddleware.handle(req, null as any);
+      await this.authMiddleware.handle(req, reply);
+      if (reply.sent) return;
 
       // Deny tenant-scoped credentials (both API keys and JWTs) access to host-level endpoints (/api/apps and /api/system/*)
       const urlPath = (req.url || '').split('?')[0];
