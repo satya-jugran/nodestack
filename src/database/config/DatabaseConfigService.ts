@@ -291,6 +291,7 @@ export class DatabaseConfigService {
                 dataDir: targetConfig.provider === 'sqlite' ? this.config.dataDir : undefined,
                 appsDir: targetConfig.provider === 'sqlite' ? this.config.appsDir : undefined,
                 ssl: targetConfig.ssl,
+                ca: targetConfig.ca,
                 options: targetConfig.options,
               };
               rDriver = await DriverRegistry.createDriver(rConfig);

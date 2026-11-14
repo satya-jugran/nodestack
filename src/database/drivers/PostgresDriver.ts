@@ -1,6 +1,15 @@
+import * as fs from 'fs';
 import { IDatabaseDriver, IPreparedStatement, RunResult } from './IDatabaseDriver';
 import { ISqlDialect } from '../dialects/ISqlDialect';
 import { PostgresDialect } from '../dialects/PostgresDialect';
+
+export interface PostgresSslOptions {
+  rejectUnauthorized?: boolean;
+  ca?: string | Buffer | (string | Buffer)[];
+  key?: string | Buffer | (string | Buffer)[];
+  cert?: string | Buffer | (string | Buffer)[];
+  [key: string]: any;
+}
 
 export interface PostgresDriverOptions {
   connectionString?: string;
@@ -9,7 +18,11 @@ export interface PostgresDriverOptions {
   user?: string;
   password?: string;
   database?: string;
-  ssl?: any;
+  ssl?: boolean | PostgresSslOptions | any;
+  ca?: string | Buffer | (string | Buffer)[];
+  key?: string | Buffer | (string | Buffer)[];
+  cert?: string | Buffer | (string | Buffer)[];
+  options?: any;
   max?: number;
   min?: number;
   idleTimeoutMillis?: number;
@@ -35,6 +48,161 @@ export class PostgresDriver implements IDatabaseDriver {
   private isSharedPool = false;
   private savepointDepth = 0;
   private options: string | PostgresDriverOptions;
+  private sslConfig?: PostgresSslOptions;
+
+  public static stripSslParams(uri: string): string {
+    try {
+      const u = new URL(uri);
+      u.searchParams.delete('ssl');
+      u.searchParams.delete('sslmode');
+      return u.toString();
+    } catch {
+      return uri.replace(/([?&])(ssl|sslmode)=[^&#]*/gi, '').replace(/[?&]&+/g, '?').replace(/\?$/, '');
+    }
+  }
+
+  private static loadCertString(val: string): string {
+    const trimmed = val.trim();
+    if (trimmed.includes('-----BEGIN') || trimmed.includes('\n')) {
+      return val;
+    }
+    try {
+      if (fs.existsSync(val)) {
+        const stat = fs.statSync(val);
+        if (stat.isFile()) {
+          return fs.readFileSync(val, 'utf8');
+        }
+      }
+    } catch {
+      // Fallback to val
+    }
+    return val;
+  }
+
+  private static resolveCertData(
+    certOrPath: string | Buffer | (string | Buffer)[] | undefined
+  ): string | Buffer | (string | Buffer)[] | undefined {
+    if (!certOrPath) return undefined;
+    if (Buffer.isBuffer(certOrPath)) return certOrPath;
+    if (Array.isArray(certOrPath)) {
+      return certOrPath.map((item) => {
+        if (typeof item === 'string') {
+          return PostgresDriver.loadCertString(item);
+        }
+        return item;
+      });
+    }
+    if (typeof certOrPath === 'string') {
+      return PostgresDriver.loadCertString(certOrPath);
+    }
+    return certOrPath;
+  }
+
+  public static resolveSslConfig(
+    options?: string | PostgresDriverOptions | boolean
+  ): PostgresSslOptions | undefined {
+    if (!options) return undefined;
+
+    if (typeof options === 'boolean') {
+      return options ? { rejectUnauthorized: true } : undefined;
+    }
+
+    if (typeof options === 'string') {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { parse } = require('pg-connection-string');
+        const parsed = parse(options);
+        if (parsed.ssl === false || parsed.sslmode === 'disable') {
+          return undefined;
+        }
+        if (parsed.ssl) {
+          if (typeof parsed.ssl === 'object' && parsed.ssl !== null) {
+            return {
+              ...parsed.ssl,
+              rejectUnauthorized: parsed.ssl.rejectUnauthorized !== undefined
+                ? Boolean(parsed.ssl.rejectUnauthorized)
+                : true,
+            };
+          }
+          return { rejectUnauthorized: true };
+        }
+        if (parsed.sslmode && parsed.sslmode !== 'disable') {
+          const rejectUnauthorized = parsed.sslmode === 'no-verify' ? false : true;
+          return { rejectUnauthorized };
+        }
+      } catch {
+        if (/([?&])ssl=(true|1)\b/i.test(options) || /([?&])sslmode=(require|verify-ca|verify-full)\b/i.test(options)) {
+          return { rejectUnauthorized: true };
+        }
+        if (/([?&])sslmode=no-verify\b/i.test(options)) {
+          return { rejectUnauthorized: false };
+        }
+      }
+      return undefined;
+    }
+
+    const rawSsl = options.ssl !== undefined ? options.ssl : options.options?.ssl;
+    const rawCa = options.ca ?? options.ssl?.ca ?? options.options?.ca ?? (options as any).caCert ?? (options as any).sslCa;
+    const rawKey = options.key ?? options.ssl?.key ?? options.options?.key;
+    const rawCert = options.cert ?? options.ssl?.cert ?? options.options?.cert;
+
+    if (rawSsl === false || rawSsl === 'false' || rawSsl === '0') {
+      return undefined;
+    }
+
+    let connSsl: PostgresSslOptions | undefined;
+    if (options.connectionString) {
+      connSsl = PostgresDriver.resolveSslConfig(options.connectionString);
+    }
+
+    const isSslEnabled = Boolean(
+      rawSsl ||
+      rawCa ||
+      rawCert ||
+      rawKey ||
+      connSsl
+    );
+
+    if (!isSslEnabled) {
+      return undefined;
+    }
+
+    const sslConfig: PostgresSslOptions = {};
+
+    if (connSsl && typeof connSsl === 'object') {
+      Object.assign(sslConfig, connSsl);
+    }
+
+    if (rawSsl && typeof rawSsl === 'object') {
+      Object.assign(sslConfig, rawSsl);
+    }
+
+    // Default rejectUnauthorized to true unless explicitly overridden
+    if (sslConfig.rejectUnauthorized !== undefined) {
+      sslConfig.rejectUnauthorized = Boolean(sslConfig.rejectUnauthorized);
+    } else if (options.options?.rejectUnauthorized !== undefined) {
+      sslConfig.rejectUnauthorized = Boolean(options.options.rejectUnauthorized);
+    } else {
+      sslConfig.rejectUnauthorized = true;
+    }
+
+    const resolvedCa = PostgresDriver.resolveCertData(rawCa);
+    if (resolvedCa !== undefined) {
+      sslConfig.ca = resolvedCa;
+    }
+
+    const resolvedKey = PostgresDriver.resolveCertData(rawKey);
+    if (resolvedKey !== undefined) {
+      sslConfig.key = resolvedKey;
+    }
+
+    const resolvedCert = PostgresDriver.resolveCertData(rawCert);
+    if (resolvedCert !== undefined) {
+      sslConfig.cert = resolvedCert;
+    }
+
+    return sslConfig;
+  }
 
   constructor(options: string | PostgresDriverOptions) {
     this.options = options;
@@ -53,9 +221,18 @@ export class PostgresDriver implements IDatabaseDriver {
     const Pool = pgModule ? (pgModule.Pool || pgModule.default?.Pool) : null;
 
     if (typeof options === 'string') {
-      this.pool = new Pool({ connectionString: options });
+      const resolvedSsl = PostgresDriver.resolveSslConfig(options);
+      this.sslConfig = resolvedSsl;
+      const connStr = resolvedSsl ? PostgresDriver.stripSslParams(options) : options;
+      this.pool = new Pool({
+        connectionString: connStr,
+        ...(resolvedSsl ? { ssl: resolvedSsl } : {}),
+      });
       this.schemaName = 'public';
     } else {
+      const resolvedSsl = PostgresDriver.resolveSslConfig(options);
+      this.sslConfig = resolvedSsl;
+
       if (options.isSharedPool || options.pool) {
         this.isSharedPool = true;
       }
@@ -66,9 +243,11 @@ export class PostgresDriver implements IDatabaseDriver {
         for (const uri of options.readReplicas) {
           if (uri && uri.trim()) {
             try {
+              const replicaSsl = resolvedSsl ?? PostgresDriver.resolveSslConfig(uri.trim());
+              const replicaUri = replicaSsl ? PostgresDriver.stripSslParams(uri.trim()) : uri.trim();
               const rPool = new Pool({
-                connectionString: uri.trim(),
-                ssl: options.ssl,
+                connectionString: replicaUri,
+                ...(replicaSsl ? { ssl: replicaSsl } : {}),
                 max: options.max ?? 10,
                 min: options.min ?? 1,
                 idleTimeoutMillis: options.idleTimeoutMillis ?? 30000,
@@ -89,9 +268,12 @@ export class PostgresDriver implements IDatabaseDriver {
       } else if (options.pool) {
         this.pool = options.pool;
       } else if (options.connectionString) {
+        const connStr = resolvedSsl
+          ? PostgresDriver.stripSslParams(options.connectionString)
+          : options.connectionString;
         this.pool = new Pool({
-          connectionString: options.connectionString,
-          ssl: options.ssl,
+          connectionString: connStr,
+          ...(resolvedSsl ? { ssl: resolvedSsl } : {}),
           max: options.max ?? 20,
           min: options.min ?? 2,
           idleTimeoutMillis: options.idleTimeoutMillis ?? 30000,
@@ -104,7 +286,7 @@ export class PostgresDriver implements IDatabaseDriver {
           user: options.user,
           password: options.password,
           database: options.database,
-          ssl: options.ssl,
+          ...(resolvedSsl ? { ssl: resolvedSsl } : {}),
           max: options.max ?? 20,
           min: options.min ?? 2,
           idleTimeoutMillis: options.idleTimeoutMillis ?? 30000,
@@ -112,6 +294,14 @@ export class PostgresDriver implements IDatabaseDriver {
         });
       }
     }
+  }
+
+  public getSslConfig(): PostgresSslOptions | undefined {
+    return this.sslConfig;
+  }
+
+  public getPool(): any {
+    return this.pool;
   }
 
   public getReplicaPools(): any[] {
@@ -326,6 +516,7 @@ export class PostgresDriver implements IDatabaseDriver {
       client,
       pool: this.pool,
       schemaName: this.schemaName,
+      ssl: this.sslConfig,
     });
 
     try {
@@ -365,6 +556,7 @@ export class PostgresDriver implements IDatabaseDriver {
       replicaPools: this.replicaPools,
       schemaName,
       isSharedPool: true,
+      ssl: this.sslConfig,
     });
   }
 

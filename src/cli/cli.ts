@@ -516,6 +516,8 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
     .option('-u, --user <user>', 'Database username')
     .option('--password <password>', 'Database password')
     .option('--database <database>', 'Database name')
+    .option('--ssl', 'Enable SSL for database connection')
+    .option('--ca <path>', 'Path to CA certificate file for database SSL')
     .option('-m, --migrate', 'Migrate existing schema and data to target database', false)
     .option('--confirm <text>', 'Confirmation string ("migrate") to bypass interactive prompt')
     .action(async (actionArg, targetProviderArg, targetUriArg, options) => {
@@ -556,6 +558,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             password: options.password || savedConfigForProvider?.password,
             database: options.database || savedConfigForProvider?.database,
             ssl: options.ssl !== undefined ? Boolean(options.ssl) : savedConfigForProvider?.ssl,
+            ca: (options as any).ca || (savedConfigForProvider as any)?.ca,
             options: savedConfigForProvider?.options,
             readReplicas: savedConfigForProvider?.readReplicas,
             dataDir: provider === 'sqlite' ? app.config.dataDir : undefined,
@@ -613,6 +616,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             password: options.password || savedConfigForProvider?.password,
             database: options.database || savedConfigForProvider?.database,
             ssl: options.ssl !== undefined ? Boolean(options.ssl) : savedConfigForProvider?.ssl,
+            ca: (options as any).ca || (savedConfigForProvider as any)?.ca,
             options: savedConfigForProvider?.options,
             readReplicas: savedConfigForProvider?.readReplicas,
             dataDir: provider === 'sqlite' ? app.config.dataDir : undefined,
