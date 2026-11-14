@@ -364,4 +364,39 @@ describe('PostgresDriver SSL & CA Certificate Hardening', () => {
     expect(driverWithSslFalse.getPool().options.ssl).toBeUndefined();
     await driverWithSslFalse.close();
   });
+
+  it('should save --ssl and --ca flags in CLI configure action', async () => {
+    const { runCli } = await import('../src/cli/cli');
+    const { NodeStack } = await import('../src/index');
+    const cliDataDir = path.join(tmpDir, 'cli-test-data');
+    await runCli([
+      'node',
+      'nodestack',
+      'db',
+      'configure',
+      'postgres',
+      '--dir',
+      cliDataDir,
+      '--host',
+      'localhost',
+      '--port',
+      '5432',
+      '--database',
+      'testdb',
+      '--user',
+      'postgres',
+      '--password',
+      'secret',
+      '--ssl',
+      '--ca',
+      certFilePath,
+    ]);
+
+    const app = new NodeStack({ dataDir: cliDataDir });
+    const saved = await app.databaseConfig.getLatestConfigForProvider('postgres');
+    expect(saved).toBeDefined();
+    expect(saved?.ssl).toBe(true);
+    expect(saved?.ca).toBe(certFilePath);
+    app.close();
+  });
 });

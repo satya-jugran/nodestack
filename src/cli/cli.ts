@@ -584,14 +584,22 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             console.error(chalk.red('\n✗ Target provider is required: db configure <sqlite|postgres|mssql> [uri]\n'));
             process.exit(1);
           }
+          let savedConfigForProvider: DatabaseConfig | null = null;
+          if (!connectionString && !options.host && provider !== 'sqlite') {
+            savedConfigForProvider = await app.databaseConfig.getLatestConfigForProvider(provider);
+          }
           const targetConfig: DatabaseConfig = {
             provider: provider as any,
-            connectionString,
-            host: options.host,
-            port: options.port ? parseInt(options.port, 10) : undefined,
-            user: options.user,
-            password: options.password,
-            database: options.database,
+            connectionString: connectionString || savedConfigForProvider?.connectionString,
+            host: options.host || savedConfigForProvider?.host,
+            port: options.port ? parseInt(options.port, 10) : savedConfigForProvider?.port,
+            user: options.user || savedConfigForProvider?.user,
+            password: options.password || savedConfigForProvider?.password,
+            database: options.database || savedConfigForProvider?.database,
+            ssl: options.ssl !== undefined ? Boolean(options.ssl) : savedConfigForProvider?.ssl,
+            ca: (options as any).ca || (savedConfigForProvider as any)?.ca,
+            options: savedConfigForProvider?.options,
+            readReplicas: savedConfigForProvider?.readReplicas,
             dataDir: provider === 'sqlite' ? app.config.dataDir : undefined,
             appsDir: provider === 'sqlite' ? app.config.appsDir : undefined,
             dbPath: provider === 'sqlite' ? (connectionString || options.dbPath || app.config.getAppDbPath('default')) : undefined,
