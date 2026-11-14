@@ -188,6 +188,152 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       const secondVerify = app.apiKeys.verifyKey(legacySecretKey);
       expect(secondVerify.valid).toBe(true);
     });
+
+    it('should conditionally update legacy hash and prevent resurrecting a rotated key if verify races with rotateKey', async () => {
+      const legacyKeyId = 'leg_race_456';
+      const legacyPrefix = 'nsk_test_race456';
+      const legacyEntropy = '11223344556677889900aabbccddeeff1122334455667788';
+      const legacySecretKey = `${legacyPrefix}_${legacyEntropy}`;
+      const legacyPlainHash = crypto.createHash('sha256').update(legacySecretKey).digest('hex');
+      const now = new Date().toISOString();
+
+      app.db.prepare(`
+        INSERT INTO _api_keys (
+          id, name, description, keyPrefix, secretHash, redactedKey, role, scopes, allowedIps,
+          expiresAt, lastUsedAt, lastUsedIp, totalRequests, status, createdBy, created, updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        legacyKeyId,
+        'Race Legacy Key',
+        'Key for testing race between verify migration and rotateKey',
+        legacyPrefix,
+        legacyPlainHash,
+        `${legacyPrefix}...7788`,
+        'service',
+        JSON.stringify(['*']),
+        JSON.stringify([]),
+        null,
+        null,
+        null,
+        0,
+        'active',
+        null,
+        now,
+        now
+      );
+
+      // Simulate asynchronous driver execution where migration update is delayed
+      const originalRun = app.db.run.bind(app.db);
+      let resolveMigrationPromise: () => void;
+      const migrationBlocked = new Promise<void>((resolve) => {
+        resolveMigrationPromise = resolve;
+      });
+
+      let migrationIntercepted = false;
+      (app.db as any).run = (sql: string, ...params: any[]) => {
+        if (sql.includes('UPDATE _api_keys SET secretHash = ? WHERE id = ? AND secretHash = ?') && params[1] === legacyKeyId) {
+          migrationIntercepted = true;
+          return migrationBlocked.then(() => originalRun(sql, ...params));
+        }
+        return originalRun(sql, ...params);
+      };
+
+      try {
+        // 1. Trigger verification with the legacy key (begins migration, which pauses on migrationBlocked)
+        const verifyPromise = app.apiKeys.verifyKey(legacySecretKey);
+        expect(migrationIntercepted).toBe(true);
+
+        // 2. Concurrently, rotateKey is called (simulating rotation winning the database write or racing)
+        resolveMigrationPromise!();
+        await Promise.all([
+          verifyPromise,
+          app.apiKeys.rotateKey(legacyKeyId),
+        ]);
+
+        // 3. Now rotate the key explicitly to guarantee a new rotated secret is in the DB
+        const rotated = await app.apiKeys.rotateKey(legacyKeyId);
+        const rotatedRow = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(legacyKeyId) as any;
+
+        // 4. Verification with the old legacy key MUST now fail (not resurrected)
+        const oldKeyVerify = await app.apiKeys.verifyKey(legacySecretKey);
+        expect(oldKeyVerify.valid).toBe(false);
+
+        // 5. Verification with the new rotated secret MUST succeed
+        const newKeyVerify = await app.apiKeys.verifyKey(rotated.secretKey);
+        expect(newKeyVerify.valid).toBe(true);
+
+        // 6. DB row secretHash MUST match the rotated key's HMAC, not the old legacy key's HMAC
+        const expectedRotatedHmac = crypto
+          .createHmac('sha256', 'test_api_keys_secret_12345678901234567890')
+          .update(rotated.secretKey)
+          .digest('hex');
+        expect(rotatedRow.secretHash).toBe(expectedRotatedHmac);
+      } finally {
+        (app.db as any).run = originalRun;
+      }
+    });
+
+    it('should handle zero-row result if rotation completes in the database before conditional migration runs', async () => {
+      const legacyKeyId = 'leg_zero_789';
+      const legacyPrefix = 'nsk_test_zero789';
+      const legacyEntropy = 'aabbccddeeff00112233445566778899aabbccddeeff0011';
+      const legacySecretKey = `${legacyPrefix}_${legacyEntropy}`;
+      const legacyPlainHash = crypto.createHash('sha256').update(legacySecretKey).digest('hex');
+      const now = new Date().toISOString();
+
+      app.db.prepare(`
+        INSERT INTO _api_keys (
+          id, name, description, keyPrefix, secretHash, redactedKey, role, scopes, allowedIps,
+          expiresAt, lastUsedAt, lastUsedIp, totalRequests, status, createdBy, created, updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        legacyKeyId,
+        'Zero Row Key',
+        'Testing 0-row conditional update when rotated first',
+        legacyPrefix,
+        legacyPlainHash,
+        `${legacyPrefix}...0011`,
+        'service',
+        JSON.stringify(['*']),
+        JSON.stringify([]),
+        null,
+        null,
+        null,
+        0,
+        'active',
+        null,
+        now,
+        now
+      );
+
+      // Intercept run to simulate an asynchronous driver where rotation writes first in DB
+      const originalRun = app.db.run.bind(app.db);
+      (app.db as any).run = (sql: string, ...params: any[]) => {
+        if (sql.includes('UPDATE _api_keys SET secretHash = ? WHERE id = ? AND secretHash = ?') && params[1] === legacyKeyId) {
+          // Before this migration runs in the DB, rotate the key in DB directly
+          const newSecretEntropy = crypto.randomBytes(24).toString('hex');
+          const newSecretKey = `${legacyPrefix}_${newSecretEntropy}`;
+          const newHmac = crypto
+            .createHmac('sha256', 'test_api_keys_secret_12345678901234567890')
+            .update(newSecretKey)
+            .digest('hex');
+          originalRun("UPDATE _api_keys SET secretHash = ? WHERE id = ?", newHmac, legacyKeyId);
+
+          // Now execute the conditional migration query (which will affect 0 rows because secretHash != legacyPlainHash)
+          return Promise.resolve().then(() => originalRun(sql, ...params));
+        }
+        return originalRun(sql, ...params);
+      };
+
+      try {
+        const verifyRes = await app.apiKeys.verifyKey(legacySecretKey);
+        // The old key must be rejected because the conditional update failed (0 rows) and the DB row was rotated
+        expect(verifyRes.valid).toBe(false);
+        expect(verifyRes.error).toBe('Invalid API key secret');
+      } finally {
+        (app.db as any).run = originalRun;
+      }
+    });
   });
 
   describe('2. AuthMiddleware Authentication with API Keys', () => {

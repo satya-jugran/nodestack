@@ -89,6 +89,7 @@ export class ApiKeyService {
   // In-memory quick lookup cache (keyPrefix -> CachedKey) with 10s TTL
   private keyCache: Map<string, { key: ApiKeyModel; expiresAt: number }> = new Map();
   private pendingUsageUpdates: Map<string, { lastUsedAt: string; lastUsedIp: string; count: number }> = new Map();
+  private inFlightMigrations: Map<string, Promise<any>> = new Map();
   private usageFlushTimer?: NodeJS.Timeout;
   private realtimeService?: RealtimeService;
   private keyRevokedListeners: Array<(filter: RealtimeIdentityFilter) => void> = [];
@@ -288,65 +289,125 @@ export class ApiKeyService {
       keyModel = cached.key;
     }
 
-    const validateModel = (model?: ApiKeyModel): any => {
-      if (!model) {
+    const validateModel = (initialModel?: ApiKeyModel): any => {
+      if (!initialModel) {
         return { valid: false, error: 'API key not found' };
       }
 
-      if (model.status !== 'active') {
-        return { valid: false, error: `API key is ${model.status}` };
+      if (initialModel.status !== 'active') {
+        return { valid: false, error: `API key is ${initialModel.status}` };
       }
+
+      const activeModel = initialModel;
 
       // 2. Cryptographic comparison using HMAC-SHA256 keyed with server secret
       const serverSecret = this.getServerSecret();
-      let isValid = verifySecret(model.secretHash, trimmed, serverSecret);
+      let isValid = verifySecret(activeModel.secretHash, trimmed, serverSecret);
 
-      // Support legacy unsalted SHA-256 hashes with transparent automatic upgrade to HMAC-SHA256
-      if (!isValid && verifySecret(model.secretHash, trimmed)) {
-        isValid = true;
-        const upgradedHash = this.hashApiKey(trimmed);
-        model.secretHash = upgradedHash;
-        try {
-          const updateRes = this.db.run('UPDATE _api_keys SET secretHash = ? WHERE id = ?', upgradedHash, model.id);
-          if (updateRes && typeof (updateRes as any).catch === 'function') {
-            (updateRes as any).catch(() => {});
+      const proceedAfterCrypto = (targetModel: ApiKeyModel): any => {
+        if (!isValid) {
+          return { valid: false, error: 'Invalid API key secret' };
+        }
+
+        // 3. Expiration check
+        const expired = this.handleIfExpired(targetModel);
+        const finalizeValid = (isExpired: boolean): any => {
+          if (isExpired) {
+            return { valid: false, error: 'API key has expired' };
           }
-        } catch {
-          // non-fatal if DB write fails
-        }
-      }
 
-      if (!isValid) {
-        return { valid: false, error: 'Invalid API key secret' };
-      }
-
-      // 3. Expiration check
-      const expired = this.handleIfExpired(model);
-      const finalizeValid = (isExpired: boolean): any => {
-        if (isExpired) {
-          return { valid: false, error: 'API key has expired' };
-        }
-
-        // 4. IP allowlist check
-        if (model.allowedIps && model.allowedIps.length > 0 && clientIp) {
-          if (!this.isIpAllowed(clientIp, model.allowedIps)) {
-            return { valid: false, error: `IP ${clientIp} not in allowed range` };
+          // 4. IP allowlist check
+          if (targetModel.allowedIps && targetModel.allowedIps.length > 0 && clientIp) {
+            if (!this.isIpAllowed(clientIp, targetModel.allowedIps)) {
+              return { valid: false, error: `IP ${clientIp} not in allowed range` };
+            }
           }
-        }
 
-        // 5. Asynchronously record usage statistics
-        this.recordUsage(model.id, clientIp);
+          // 5. Asynchronously record usage statistics
+          this.recordUsage(targetModel.id, clientIp);
 
-        return {
-          valid: true,
-          apiKey: model,
+          return {
+            valid: true,
+            apiKey: targetModel,
+          };
         };
+
+        if (expired && typeof (expired as any).then === 'function') {
+          return (expired as Promise<boolean>).then(finalizeValid);
+        }
+        return finalizeValid(Boolean(expired));
       };
 
-      if (expired && typeof (expired as any).then === 'function') {
-        return (expired as Promise<boolean>).then(finalizeValid);
+      // Support legacy unsalted SHA-256 hashes with transparent automatic upgrade to HMAC-SHA256
+      if (!isValid && verifySecret(activeModel.secretHash, trimmed)) {
+        const legacyHash = activeModel.secretHash;
+        const upgradedHash = this.hashApiKey(trimmed);
+
+        const handleMigrationResult = (res: any): any => {
+          const changes = Number(res?.changes ?? res?.rowCount ?? (typeof res === 'number' ? res : 0));
+          if (changes > 0) {
+            activeModel.secretHash = upgradedHash;
+            isValid = true;
+            return proceedAfterCrypto(activeModel);
+          }
+
+          // Zero rows were affected: another process/transaction already modified or rotated this key.
+          this.keyCache.delete(activeModel.keyPrefix);
+
+          // Re-fetch current key row from the database to inspect its state
+          const recheckRow = this.db.get<any>('SELECT * FROM _api_keys WHERE id = ?', activeModel.id);
+          const verifyLatest = (r: any): any => {
+            if (!r) {
+              return { valid: false, error: 'API key not found' };
+            }
+            const latestModel = this.mapRow(r);
+            // If the row now has the upgraded HMAC hash (from another concurrent migration), it's valid
+            if (verifySecret(latestModel.secretHash, trimmed, serverSecret)) {
+              this.keyCache.set(latestModel.keyPrefix, { key: latestModel, expiresAt: Date.now() + 10000 });
+              isValid = true;
+              return proceedAfterCrypto(latestModel);
+            }
+            // Key was rotated or secret was changed concurrently; reject the old secret
+            return { valid: false, error: 'Invalid API key secret' };
+          };
+
+          if (recheckRow && typeof (recheckRow as any).then === 'function') {
+            return (recheckRow as any).then(verifyLatest);
+          }
+          return verifyLatest(recheckRow);
+        };
+
+        try {
+          // Conditional UPDATE prevents overwriting a rotated key if verify races with rotateKey
+          const updateRes = this.db.run(
+            'UPDATE _api_keys SET secretHash = ? WHERE id = ? AND secretHash = ?',
+            upgradedHash,
+            activeModel.id,
+            legacyHash
+          );
+
+          if (updateRes && typeof (updateRes as any).then === 'function') {
+            const migPromise = (updateRes as any).then(handleMigrationResult).catch(() => {
+              this.keyCache.delete(activeModel.keyPrefix);
+              return { valid: false, error: 'Failed to migrate legacy API key secret' };
+            });
+            this.inFlightMigrations.set(activeModel.id, migPromise);
+            migPromise.finally(() => {
+              if (this.inFlightMigrations.get(activeModel.id) === migPromise) {
+                this.inFlightMigrations.delete(activeModel.id);
+              }
+            });
+            return migPromise;
+          }
+
+          return handleMigrationResult(updateRes);
+        } catch {
+          this.keyCache.delete(activeModel.keyPrefix);
+          return { valid: false, error: 'Failed to migrate legacy API key secret' };
+        }
       }
-      return finalizeValid(Boolean(expired));
+
+      return proceedAfterCrypto(activeModel);
     };
 
     if (keyModel) {
@@ -673,6 +734,13 @@ export class ApiKeyService {
    * Rotates an API Key secret. Invalides old secret, generates new one, and returns it.
    */
   public rotateKey(id: string): any {
+    const inFlight = this.inFlightMigrations.get(id);
+    if (inFlight) {
+      return inFlight.then(
+        () => this.rotateKey(id),
+        () => this.rotateKey(id)
+      );
+    }
     const existing = this.getKey(id);
     const doRotate = (current: any) => {
       const keyPrefix = current.keyPrefix;
