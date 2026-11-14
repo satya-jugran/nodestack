@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
@@ -601,6 +601,120 @@ describe('CORS Security & Credentials Hardening', { timeout: 15000 }, () => {
       });
       expect(resDenied.headers['access-control-allow-origin']).toBeUndefined();
       expect(resDenied.headers['access-control-allow-credentials']).toBeUndefined();
+    });
+  });
+
+  describe('9. Permissive CORS Configuration Warnings (CWE-942)', () => {
+    it('should warn when both origin: true and credentials: true are configured', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const app = trackApp({
+        dataDir: testDataDir,
+        cors: {
+          origin: true,
+          credentials: true,
+        },
+      });
+      await app.server.app.ready();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[HttpServer] Warning: CORS configuration has both permissive origin and credentials enabled')
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it('should warn when wildcard origin (*) and credentials: true are configured', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const app = trackApp({
+        dataDir: testDataDir,
+        cors: {
+          origin: '*',
+          credentials: true,
+        },
+      });
+      await app.server.app.ready();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[HttpServer] Warning: CORS configuration has both permissive origin and credentials enabled')
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it('should warn when origin: true is configured without explicit credentials: false', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const app = trackApp({
+        dataDir: testDataDir,
+        cors: {
+          origin: true,
+        },
+      });
+      await app.server.app.ready();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[HttpServer] Warning: CORS configuration has both permissive origin and credentials enabled')
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it('should NOT warn when an explicit allowlist is used with credentials: true', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const app = trackApp({
+        dataDir: testDataDir,
+        cors: {
+          origin: ['https://trusted.app.com'],
+          credentials: true,
+        },
+      });
+      await app.server.app.ready();
+
+      const corsWarns = warnSpy.mock.calls.filter((call) =>
+        typeof call[0] === 'string' && call[0].includes('CORS configuration has both permissive origin')
+      );
+      expect(corsWarns.length).toBe(0);
+
+      warnSpy.mockRestore();
+    });
+
+    it('should NOT warn when origin: true is configured with credentials: false', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const app = trackApp({
+        dataDir: testDataDir,
+        cors: {
+          origin: true,
+          credentials: false,
+        },
+      });
+      await app.server.app.ready();
+
+      const corsWarns = warnSpy.mock.calls.filter((call) =>
+        typeof call[0] === 'string' && call[0].includes('CORS configuration has both permissive origin')
+      );
+      expect(corsWarns.length).toBe(0);
+
+      warnSpy.mockRestore();
+    });
+
+    it('should NOT warn with default CORS configuration', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const app = trackApp({
+        dataDir: testDataDir,
+      });
+      await app.server.app.ready();
+
+      const corsWarns = warnSpy.mock.calls.filter((call) =>
+        typeof call[0] === 'string' && call[0].includes('CORS configuration has both permissive origin')
+      );
+      expect(corsWarns.length).toBe(0);
+
+      warnSpy.mockRestore();
     });
   });
 });

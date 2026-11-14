@@ -89,6 +89,10 @@ export class ConfigService {
           const trimmed = envCorsOrigin.trim();
           if (trimmed === '*') {
             corsOpts.origin = '*';
+          } else if (trimmed.toLowerCase() === 'true') {
+            corsOpts.origin = true;
+          } else if (trimmed.toLowerCase() === 'false') {
+            corsOpts.origin = false;
           } else if (trimmed.includes(',')) {
             corsOpts.origin = trimmed
               .split(',')
@@ -112,6 +116,9 @@ export class ConfigService {
           corsOpts.origin.some((p) => typeof p === 'string' && p.trim() === '*'));
 
       if (isWildcard) {
+        if (corsOpts.credentials === true) {
+          (corsOpts as any)._permissiveCredentialsAttempted = true;
+        }
         corsOpts.origin = '*';
         corsOpts.credentials = false;
       }

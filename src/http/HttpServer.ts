@@ -187,6 +187,22 @@ export class HttpServer {
       (Array.isArray(configCors.origin) &&
         configCors.origin.some((p) => typeof p === 'string' && p.trim() === '*'));
 
+    // Warn when both origin and credentials are configured permissively (CWE-942)
+    const isPermissiveOrigin =
+      configCors.origin === true ||
+      isWildcardOrigin;
+
+    const isPermissiveCredentials =
+      configCors.credentials === true ||
+      (configCors as any)._permissiveCredentialsAttempted === true ||
+      (configCors.origin === true && configCors.credentials !== false);
+
+    if (isPermissiveOrigin && isPermissiveCredentials) {
+      console.warn(
+        '[HttpServer] Warning: CORS configuration has both permissive origin and credentials enabled. Allowing credentialed requests from arbitrary or reflected origins poses a security risk.'
+      );
+    }
+
     const isMatch = (origin: string, pattern: string | RegExp | Array<string | RegExp>): boolean => {
       if (Array.isArray(pattern)) {
         return pattern.some((p) => isMatch(origin, p));
