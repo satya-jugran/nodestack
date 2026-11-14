@@ -1,7 +1,69 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+
+// Mock 'pg' and 'pg-connection-string' so this test suite does not require optional peer dependencies in CI
+vi.mock('pg', () => {
+  class MockPool {
+    public options: any;
+    constructor(options: any) {
+      this.options = options;
+    }
+    public async end(): Promise<void> {}
+    public async query(): Promise<any> {
+      return { rows: [] };
+    }
+    public async connect(): Promise<any> {
+      return {
+        query: async () => ({ rows: [] }),
+        release: () => {},
+      };
+    }
+  }
+
+  return {
+    Pool: MockPool,
+    default: {
+      Pool: MockPool,
+    },
+  };
+});
+
+vi.mock('pg-connection-string', () => {
+  return {
+    parse: (uri: string) => {
+      const result: any = {};
+      try {
+        const url = new URL(uri);
+        result.host = url.hostname;
+        result.port = url.port;
+        result.database = url.pathname ? url.pathname.slice(1) : undefined;
+        result.user = url.username;
+        result.password = url.password;
+        const ssl = url.searchParams.get('ssl');
+        const sslmode = url.searchParams.get('sslmode');
+        if (ssl === 'true' || ssl === '1') {
+          result.ssl = true;
+        } else if (ssl === 'false' || ssl === '0') {
+          result.ssl = false;
+        }
+        if (sslmode) {
+          result.sslmode = sslmode;
+          if (sslmode === 'require' || sslmode === 'verify-ca' || sslmode === 'verify-full') {
+            result.ssl = {};
+          } else if (sslmode === 'no-verify') {
+            result.ssl = { rejectUnauthorized: false };
+          } else if (sslmode === 'disable') {
+            result.ssl = false;
+          }
+        }
+      } catch {}
+      return result;
+    },
+  };
+});
+
 import { PostgresDriver } from '../src/database/drivers/PostgresDriver';
 import { DriverRegistry } from '../src/database/drivers/DriverRegistry';
 
