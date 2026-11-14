@@ -14,6 +14,7 @@ export interface DatabaseConfig {
   password?: string;
   database?: string;
   ssl?: boolean | Record<string, any>;
+  ca?: string | Buffer | (string | Buffer)[];
   dataDir?: string;
   appsDir?: string;
   dbPath?: string;
@@ -171,10 +172,14 @@ export class DriverRegistry {
     });
 
     DriverRegistry.register('postgres', (config) => {
+      const ssl = config.ssl !== undefined ? config.ssl : config.options?.ssl;
+      const ca = config.ca ?? config.options?.ca;
       if (config.connectionString) {
         return new PostgresDriver({
           connectionString: config.connectionString,
-          ssl: config.ssl,
+          ssl,
+          ca,
+          options: config.options,
           readReplicas: config.readReplicas,
           ...config.pool,
         });
@@ -185,7 +190,9 @@ export class DriverRegistry {
         user: config.user,
         password: config.password,
         database: config.database,
-        ssl: config.ssl,
+        ssl,
+        ca,
+        options: config.options,
         readReplicas: config.readReplicas,
         ...config.pool,
       });
