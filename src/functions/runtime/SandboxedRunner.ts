@@ -35,6 +35,19 @@ export class SandboxedRunner {
   }
 
   /**
+   * Interrupts currently executing user code on the active runtime.
+   */
+  public interrupt(): void {
+    try {
+      if (this.runtime.interrupt) {
+        this.runtime.interrupt();
+      } else {
+        void this.runtime.dispose();
+      }
+    } catch {}
+  }
+
+  /**
    * Executes user code with the given context and resource boundaries.
    */
   public async execute(
@@ -47,16 +60,41 @@ export class SandboxedRunner {
       memoryLimitMb: Math.max(4, Math.min(options.memoryLimitMb ?? 32, 128)),
     };
 
+    let timer: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<FunctionExecutionResult>((_, reject) => {
+      timer = setTimeout(() => {
+        this.interrupt();
+        reject(new Error(`Function execution timed out after ${safeOptions.timeoutMs}ms (interrupted)`));
+      }, safeOptions.timeoutMs);
+    });
+
     try {
-      return await this.runtime.execute(code, hostServices, safeOptions);
+      return await Promise.race([
+        this.runtime.execute(code, hostServices, safeOptions),
+        timeoutPromise,
+      ]);
     } catch (fatalError: any) {
+      const errMsg = fatalError?.message || String(fatalError);
+      if (errMsg.includes('timed out') || errMsg.includes('interrupted')) {
+        return {
+          status: 'timeout',
+          statusCode: 504,
+          durationMs: safeOptions.timeoutMs,
+          logs: [],
+          error: `Function execution timed out after ${safeOptions.timeoutMs}ms`,
+        };
+      }
       return {
         status: 'error',
         statusCode: 500,
         durationMs: 0,
         logs: [],
-        error: `Fatal runtime error: ${fatalError.message || String(fatalError)}`,
+        error: `Fatal runtime error: ${errMsg}`,
       };
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
     }
   }
 

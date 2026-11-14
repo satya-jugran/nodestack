@@ -1,4 +1,4 @@
-import { getQuickJS, shouldInterruptAfterDeadline, QuickJSWASMModule } from 'quickjs-emscripten';
+import { getQuickJS, shouldInterruptAfterDeadline, QuickJSWASMModule, QuickJSContext } from 'quickjs-emscripten';
 import { IFunctionRuntime, RuntimeExecutionOptions } from './IFunctionRuntime';
 import { FunctionHostServices, FunctionExecutionResult } from '../types';
 
@@ -7,12 +7,27 @@ function safeJsonForEval(val: any): string {
   return json.replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 }
 
+interface ActiveExecutionEntry {
+  vm: QuickJSContext;
+  interrupt: (reason?: string) => void;
+}
+
 export class QuickJsWasmRuntime implements IFunctionRuntime {
   public readonly name = 'QuickJS-Wasm';
   public readonly version = '0.32.0';
 
   private qjs: QuickJSWASMModule | null = null;
   private initPromise: Promise<void> | null = null;
+  private activeExecutions: Set<ActiveExecutionEntry> = new Set();
+
+  public interrupt(): void {
+    for (const entry of Array.from(this.activeExecutions)) {
+      try {
+        entry.interrupt();
+      } catch {}
+    }
+    this.activeExecutions.clear();
+  }
 
   public async init(): Promise<void> {
     if (this.qjs) return;
@@ -49,6 +64,29 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
 
     const vm = this.qjs.newContext();
     let isVmDisposed = false;
+    let rejectInterrupt: ((err: Error) => void) | null = null;
+    const interruptPromise = new Promise<never>((_, reject) => {
+      rejectInterrupt = reject;
+    });
+
+    const activeEntry: ActiveExecutionEntry = {
+      vm,
+      interrupt: (reason?: string) => {
+        isVmDisposed = true;
+        try {
+          vm.runtime.setInterruptHandler(() => true);
+        } catch {}
+        try {
+          if (vm.alive) {
+            vm.dispose();
+          }
+        } catch {}
+        if (rejectInterrupt) {
+          rejectInterrupt(new Error(reason || `Function execution interrupted`));
+        }
+      },
+    };
+    this.activeExecutions.add(activeEntry);
 
     try {
       // 1. Memory limit (in bytes)
@@ -433,13 +471,14 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
       const timeoutPromise = new Promise<never>((_, reject) => {
         const remainingMs = Math.max(0, deadline - Date.now());
         timeoutTimer = setTimeout(() => {
+          activeEntry.interrupt(`Function execution timed out after ${timeoutMs}ms (interrupted)`);
           reject(new Error(`Function execution timed out after ${timeoutMs}ms (interrupted)`));
         }, remainingMs);
       });
 
       let finalOutcome: any;
       try {
-        finalOutcome = await Promise.race([promiseHandle, timeoutPromise]);
+        finalOutcome = await Promise.race([promiseHandle, timeoutPromise, interruptPromise]);
       } finally {
         if (timeoutTimer) {
           clearTimeout(timeoutTimer);
@@ -527,6 +566,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
         error: errMsg,
       };
     } finally {
+      this.activeExecutions.delete(activeEntry);
       isVmDisposed = true;
       try {
         if (vm.alive) {
@@ -537,6 +577,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
   }
 
   public async dispose(): Promise<void> {
+    this.interrupt();
     this.qjs = null;
     this.initPromise = null;
   }

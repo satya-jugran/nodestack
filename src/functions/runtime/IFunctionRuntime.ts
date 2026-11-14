@@ -25,6 +25,11 @@ export interface IFunctionRuntime {
   ): Promise<FunctionExecutionResult>;
 
   /**
+   * Interrupts any active execution running in the runtime.
+   */
+  interrupt?(): void;
+
+  /**
    * Cleans up and disposes runtime resources
    */
   dispose(): Promise<void>;
