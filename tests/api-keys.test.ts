@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
@@ -100,6 +101,238 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       expect(keys[0].secretKey).toBeUndefined();
       expect(keys[0].secretHash).toBeUndefined();
       expect(keys[0].keyPrefix).toBe(data.apiKey.keyPrefix);
+    });
+
+    it('should store API keys using HMAC-SHA256 keyed with server secret to prevent offline rainbow-table attacks', async () => {
+      const created = app.apiKeys.createKey({
+        name: 'HMAC Protected Key',
+        role: 'service',
+        scopes: ['orders:read'],
+      });
+
+      const row = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(created.apiKey.id) as any;
+      expect(row).toBeDefined();
+
+      const expectedHmac = crypto
+        .createHmac('sha256', 'test_api_keys_secret_12345678901234567890')
+        .update(created.secretKey)
+        .digest('hex');
+      const unsaltedPlainSha256 = crypto
+        .createHash('sha256')
+        .update(created.secretKey)
+        .digest('hex');
+
+      // The stored hash MUST match HMAC-SHA256 with the server secret
+      expect(row.secretHash).toBe(expectedHmac);
+      // The stored hash MUST NOT match plain unsalted SHA-256
+      expect(row.secretHash).not.toBe(unsaltedPlainSha256);
+
+      // Verify that verifyKey succeeds with the key
+      const verification = app.apiKeys.verifyKey(created.secretKey);
+      expect(verification.valid).toBe(true);
+      expect(verification.apiKey.id).toBe(created.apiKey.id);
+    });
+
+    it('should authenticate legacy plain SHA-256 keys and transparently upgrade them to HMAC-SHA256 in the database', async () => {
+      const legacyKeyId = 'leg_test_123';
+      const legacyPrefix = 'nsk_test_leg123';
+      const legacyEntropy = 'abcdef0123456789abcdef0123456789abcdef0123456789';
+      const legacySecretKey = `${legacyPrefix}_${legacyEntropy}`;
+      const legacyPlainHash = crypto.createHash('sha256').update(legacySecretKey).digest('hex');
+      const now = new Date().toISOString();
+
+      app.db.prepare(`
+        INSERT INTO _api_keys (
+          id, name, description, keyPrefix, secretHash, redactedKey, role, scopes, allowedIps,
+          expiresAt, lastUsedAt, lastUsedIp, totalRequests, status, createdBy, created, updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        legacyKeyId,
+        'Legacy Key',
+        'Pre-upgrade plain SHA256 key',
+        legacyPrefix,
+        legacyPlainHash,
+        `${legacyPrefix}...6789`,
+        'service',
+        JSON.stringify(['*']),
+        JSON.stringify([]),
+        null,
+        null,
+        null,
+        0,
+        'active',
+        null,
+        now,
+        now
+      );
+
+      // 1. Initial row has unsalted plain SHA-256 hash
+      const initialRow = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(legacyKeyId) as any;
+      expect(initialRow.secretHash).toBe(legacyPlainHash);
+
+      // 2. Verification succeeds via legacy fallback
+      const verifyRes = app.apiKeys.verifyKey(legacySecretKey);
+      expect(verifyRes.valid).toBe(true);
+      expect(verifyRes.apiKey.id).toBe(legacyKeyId);
+
+      // 3. Stored hash is transparently upgraded to HMAC-SHA256
+      const upgradedRow = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(legacyKeyId) as any;
+      const expectedUpgradedHmac = crypto
+        .createHmac('sha256', 'test_api_keys_secret_12345678901234567890')
+        .update(legacySecretKey)
+        .digest('hex');
+      expect(upgradedRow.secretHash).toBe(expectedUpgradedHmac);
+      expect(upgradedRow.secretHash).not.toBe(legacyPlainHash);
+
+      // 4. Subsequent verification uses the upgraded HMAC-SHA256 hash directly
+      const secondVerify = app.apiKeys.verifyKey(legacySecretKey);
+      expect(secondVerify.valid).toBe(true);
+    });
+
+    it('should conditionally update legacy hash and prevent resurrecting a rotated key if verify races with rotateKey', async () => {
+      const legacyKeyId = 'leg_race_456';
+      const legacyPrefix = 'nsk_test_race456';
+      const legacyEntropy = '11223344556677889900aabbccddeeff1122334455667788';
+      const legacySecretKey = `${legacyPrefix}_${legacyEntropy}`;
+      const legacyPlainHash = crypto.createHash('sha256').update(legacySecretKey).digest('hex');
+      const now = new Date().toISOString();
+
+      app.db.prepare(`
+        INSERT INTO _api_keys (
+          id, name, description, keyPrefix, secretHash, redactedKey, role, scopes, allowedIps,
+          expiresAt, lastUsedAt, lastUsedIp, totalRequests, status, createdBy, created, updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        legacyKeyId,
+        'Race Legacy Key',
+        'Key for testing race between verify migration and rotateKey',
+        legacyPrefix,
+        legacyPlainHash,
+        `${legacyPrefix}...7788`,
+        'service',
+        JSON.stringify(['*']),
+        JSON.stringify([]),
+        null,
+        null,
+        null,
+        0,
+        'active',
+        null,
+        now,
+        now
+      );
+
+      // Simulate asynchronous driver execution where migration update is delayed
+      const originalRun = app.db.run.bind(app.db);
+      let resolveMigrationPromise: () => void;
+      const migrationBlocked = new Promise<void>((resolve) => {
+        resolveMigrationPromise = resolve;
+      });
+
+      let migrationIntercepted = false;
+      (app.db as any).run = (sql: string, ...params: any[]) => {
+        if (sql.includes('UPDATE _api_keys SET secretHash = ? WHERE id = ? AND secretHash = ?') && params[1] === legacyKeyId) {
+          migrationIntercepted = true;
+          return migrationBlocked.then(() => originalRun(sql, ...params));
+        }
+        return originalRun(sql, ...params);
+      };
+
+      try {
+        // 1. Trigger verification with the legacy key (begins migration, which pauses on migrationBlocked)
+        const verifyPromise = app.apiKeys.verifyKey(legacySecretKey);
+        expect(migrationIntercepted).toBe(true);
+
+        // 2. Concurrently, rotateKey is called (simulating rotation winning the database write or racing)
+        resolveMigrationPromise!();
+        await Promise.all([
+          verifyPromise,
+          app.apiKeys.rotateKey(legacyKeyId),
+        ]);
+
+        // 3. Now rotate the key explicitly to guarantee a new rotated secret is in the DB
+        const rotated = await app.apiKeys.rotateKey(legacyKeyId);
+        const rotatedRow = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(legacyKeyId) as any;
+
+        // 4. Verification with the old legacy key MUST now fail (not resurrected)
+        const oldKeyVerify = await app.apiKeys.verifyKey(legacySecretKey);
+        expect(oldKeyVerify.valid).toBe(false);
+
+        // 5. Verification with the new rotated secret MUST succeed
+        const newKeyVerify = await app.apiKeys.verifyKey(rotated.secretKey);
+        expect(newKeyVerify.valid).toBe(true);
+
+        // 6. DB row secretHash MUST match the rotated key's HMAC, not the old legacy key's HMAC
+        const expectedRotatedHmac = crypto
+          .createHmac('sha256', 'test_api_keys_secret_12345678901234567890')
+          .update(rotated.secretKey)
+          .digest('hex');
+        expect(rotatedRow.secretHash).toBe(expectedRotatedHmac);
+      } finally {
+        (app.db as any).run = originalRun;
+      }
+    });
+
+    it('should handle zero-row result if rotation completes in the database before conditional migration runs', async () => {
+      const legacyKeyId = 'leg_zero_789';
+      const legacyPrefix = 'nsk_test_zero789';
+      const legacyEntropy = 'aabbccddeeff00112233445566778899aabbccddeeff0011';
+      const legacySecretKey = `${legacyPrefix}_${legacyEntropy}`;
+      const legacyPlainHash = crypto.createHash('sha256').update(legacySecretKey).digest('hex');
+      const now = new Date().toISOString();
+
+      app.db.prepare(`
+        INSERT INTO _api_keys (
+          id, name, description, keyPrefix, secretHash, redactedKey, role, scopes, allowedIps,
+          expiresAt, lastUsedAt, lastUsedIp, totalRequests, status, createdBy, created, updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        legacyKeyId,
+        'Zero Row Key',
+        'Testing 0-row conditional update when rotated first',
+        legacyPrefix,
+        legacyPlainHash,
+        `${legacyPrefix}...0011`,
+        'service',
+        JSON.stringify(['*']),
+        JSON.stringify([]),
+        null,
+        null,
+        null,
+        0,
+        'active',
+        null,
+        now,
+        now
+      );
+
+      // Intercept run to simulate an asynchronous driver where rotation writes first in DB
+      const originalRun = app.db.run.bind(app.db);
+      (app.db as any).run = (sql: string, ...params: any[]) => {
+        if (sql.includes('UPDATE _api_keys SET secretHash = ? WHERE id = ? AND secretHash = ?') && params[1] === legacyKeyId) {
+          // Before this migration runs in the DB, rotate the key in DB directly
+          const newSecretEntropy = crypto.randomBytes(24).toString('hex');
+          const newSecretKey = `${legacyPrefix}_${newSecretEntropy}`;
+          const newHmac = crypto
+            .createHmac('sha256', 'test_api_keys_secret_12345678901234567890')
+            .update(newSecretKey)
+            .digest('hex');
+          originalRun("UPDATE _api_keys SET secretHash = ? WHERE id = ?", newHmac, legacyKeyId);
+
+          // Now execute the conditional migration query (which will affect 0 rows because secretHash != legacyPlainHash)
+          return Promise.resolve().then(() => originalRun(sql, ...params));
+        }
+        return originalRun(sql, ...params);
+      };
+
+      try {
+        const verifyRes = await app.apiKeys.verifyKey(legacySecretKey);
+        // The old key must be rejected because the conditional update failed (0 rows) and the DB row was rotated
+        expect(verifyRes.valid).toBe(false);
+        expect(verifyRes.error).toBe('Invalid API key secret');
+      } finally {
+        (app.db as any).run = originalRun;
+      }
     });
   });
 
@@ -292,6 +525,14 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
         headers: { Authorization: `Bearer ${rotated.secretKey}` },
       });
       expect(resNew.status).toBe(200);
+
+      // Verify rotated key is hashed with HMAC-SHA256 keyed with server secret
+      const rotatedRow = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(created.apiKey.id) as any;
+      const expectedRotatedHmac = crypto
+        .createHmac('sha256', 'test_api_keys_secret_12345678901234567890')
+        .update(rotated.secretKey)
+        .digest('hex');
+      expect(rotatedRow.secretHash).toBe(expectedRotatedHmac);
     });
 
     it('should support nodestack-client configured with apiKey option', async () => {

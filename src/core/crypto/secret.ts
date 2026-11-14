@@ -3,10 +3,20 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 
 /**
- * Compute a hex-encoded SHA-256 digest of a plaintext secret.
+ * Compute a hex-encoded SHA-256 digest of a plaintext secret, or HMAC-SHA256 digest if key is provided.
  */
-export function hashSecret(secret: string): string {
+export function hashSecret(secret: string, key?: string): string {
+  if (key !== undefined) {
+    return crypto.createHmac('sha256', key).update(secret).digest('hex');
+  }
   return crypto.createHash('sha256').update(secret).digest('hex');
+}
+
+/**
+ * Compute a hex-encoded HMAC-SHA256 digest of a plaintext secret using a server key.
+ */
+export function hmacSecret(secret: string, key: string): string {
+  return crypto.createHmac('sha256', key).update(secret).digest('hex');
 }
 
 /**
@@ -41,17 +51,18 @@ export function timingSafeEqualStrings(
 }
 
 /**
- * Verify a plaintext secret against its expected hex-encoded SHA-256 hash
+ * Verify a plaintext secret against its expected hex-encoded SHA-256 or HMAC-SHA256 hash
  * using constant-time comparison.
  */
 export function verifySecret(
   expectedHash: string | undefined | null,
-  providedSecret: string | undefined | null
+  providedSecret: string | undefined | null,
+  key?: string
 ): boolean {
   if (!expectedHash || !providedSecret) {
     return false;
   }
-  const providedHash = hashSecret(providedSecret);
+  const providedHash = hashSecret(providedSecret, key);
   return timingSafeEqualStrings(expectedHash, providedHash, 'hex');
 }
 
