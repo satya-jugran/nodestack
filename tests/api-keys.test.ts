@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
@@ -100,6 +101,92 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       expect(keys[0].secretKey).toBeUndefined();
       expect(keys[0].secretHash).toBeUndefined();
       expect(keys[0].keyPrefix).toBe(data.apiKey.keyPrefix);
+    });
+
+    it('should store API keys using HMAC-SHA256 keyed with server secret to prevent offline rainbow-table attacks', async () => {
+      const created = app.apiKeys.createKey({
+        name: 'HMAC Protected Key',
+        role: 'service',
+        scopes: ['orders:read'],
+      });
+
+      const row = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(created.apiKey.id) as any;
+      expect(row).toBeDefined();
+
+      const expectedHmac = crypto
+        .createHmac('sha256', 'test_api_keys_secret_12345678901234567890')
+        .update(created.secretKey)
+        .digest('hex');
+      const unsaltedPlainSha256 = crypto
+        .createHash('sha256')
+        .update(created.secretKey)
+        .digest('hex');
+
+      // The stored hash MUST match HMAC-SHA256 with the server secret
+      expect(row.secretHash).toBe(expectedHmac);
+      // The stored hash MUST NOT match plain unsalted SHA-256
+      expect(row.secretHash).not.toBe(unsaltedPlainSha256);
+
+      // Verify that verifyKey succeeds with the key
+      const verification = app.apiKeys.verifyKey(created.secretKey);
+      expect(verification.valid).toBe(true);
+      expect(verification.apiKey.id).toBe(created.apiKey.id);
+    });
+
+    it('should authenticate legacy plain SHA-256 keys and transparently upgrade them to HMAC-SHA256 in the database', async () => {
+      const legacyKeyId = 'leg_test_123';
+      const legacyPrefix = 'nsk_test_leg123';
+      const legacyEntropy = 'abcdef0123456789abcdef0123456789abcdef0123456789';
+      const legacySecretKey = `${legacyPrefix}_${legacyEntropy}`;
+      const legacyPlainHash = crypto.createHash('sha256').update(legacySecretKey).digest('hex');
+      const now = new Date().toISOString();
+
+      app.db.prepare(`
+        INSERT INTO _api_keys (
+          id, name, description, keyPrefix, secretHash, redactedKey, role, scopes, allowedIps,
+          expiresAt, lastUsedAt, lastUsedIp, totalRequests, status, createdBy, created, updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        legacyKeyId,
+        'Legacy Key',
+        'Pre-upgrade plain SHA256 key',
+        legacyPrefix,
+        legacyPlainHash,
+        `${legacyPrefix}...6789`,
+        'service',
+        JSON.stringify(['*']),
+        JSON.stringify([]),
+        null,
+        null,
+        null,
+        0,
+        'active',
+        null,
+        now,
+        now
+      );
+
+      // 1. Initial row has unsalted plain SHA-256 hash
+      const initialRow = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(legacyKeyId) as any;
+      expect(initialRow.secretHash).toBe(legacyPlainHash);
+
+      // 2. Verification succeeds via legacy fallback
+      const verifyRes = app.apiKeys.verifyKey(legacySecretKey);
+      expect(verifyRes.valid).toBe(true);
+      expect(verifyRes.apiKey.id).toBe(legacyKeyId);
+
+      // 3. Stored hash is transparently upgraded to HMAC-SHA256
+      const upgradedRow = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(legacyKeyId) as any;
+      const expectedUpgradedHmac = crypto
+        .createHmac('sha256', 'test_api_keys_secret_12345678901234567890')
+        .update(legacySecretKey)
+        .digest('hex');
+      expect(upgradedRow.secretHash).toBe(expectedUpgradedHmac);
+      expect(upgradedRow.secretHash).not.toBe(legacyPlainHash);
+
+      // 4. Subsequent verification uses the upgraded HMAC-SHA256 hash directly
+      const secondVerify = app.apiKeys.verifyKey(legacySecretKey);
+      expect(secondVerify.valid).toBe(true);
     });
   });
 
@@ -292,6 +379,14 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
         headers: { Authorization: `Bearer ${rotated.secretKey}` },
       });
       expect(resNew.status).toBe(200);
+
+      // Verify rotated key is hashed with HMAC-SHA256 keyed with server secret
+      const rotatedRow = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(created.apiKey.id) as any;
+      const expectedRotatedHmac = crypto
+        .createHmac('sha256', 'test_api_keys_secret_12345678901234567890')
+        .update(rotated.secretKey)
+        .digest('hex');
+      expect(rotatedRow.secretHash).toBe(expectedRotatedHmac);
     });
 
     it('should support nodestack-client configured with apiKey option', async () => {

@@ -142,6 +142,29 @@ export class ApiKeyService {
   }
 
   /**
+   * Retrieves the server secret used for keying HMAC-SHA256 operations.
+   */
+  public getServerSecret(): string {
+    const secret =
+      this.config?.apiKeySecret ||
+      this.config?.jwtSecret ||
+      process.env.NODESTACK_API_KEY_SECRET ||
+      process.env.NODESTACK_JWT_SECRET ||
+      process.env.NODEBASE_JWT_SECRET;
+    if (secret && typeof secret === 'string' && secret.trim()) {
+      return secret.trim();
+    }
+    return 'nodestack_fallback_api_key_server_secret';
+  }
+
+  /**
+   * Hashes an API key secret using HMAC-SHA256 keyed with the server secret.
+   */
+  public hashApiKey(secretKey: string): string {
+    return hashSecret(secretKey, this.getServerSecret());
+  }
+
+  /**
    * Generates a new API Key with full secret returned only once.
    */
   public createKey(dto: CreateApiKeyDto): any {
@@ -157,7 +180,7 @@ export class ApiKeyService {
     const keyPrefix = `nsk_${env}_${keyId}`;
     const redactedKey = `${keyPrefix}...${secretEntropy.slice(-4)}`;
 
-    const secretHash = hashSecret(secretKey);
+    const secretHash = this.hashApiKey(secretKey);
     const id = `key_${keyId}_${crypto.randomBytes(3).toString('hex')}`;
     const now = new Date().toISOString();
 
@@ -274,8 +297,26 @@ export class ApiKeyService {
         return { valid: false, error: `API key is ${model.status}` };
       }
 
-      // 2. Cryptographic comparison of SHA-256 hash
-      if (!verifySecret(model.secretHash, trimmed)) {
+      // 2. Cryptographic comparison using HMAC-SHA256 keyed with server secret
+      const serverSecret = this.getServerSecret();
+      let isValid = verifySecret(model.secretHash, trimmed, serverSecret);
+
+      // Support legacy unsalted SHA-256 hashes with transparent automatic upgrade to HMAC-SHA256
+      if (!isValid && verifySecret(model.secretHash, trimmed)) {
+        isValid = true;
+        const upgradedHash = this.hashApiKey(trimmed);
+        model.secretHash = upgradedHash;
+        try {
+          const updateRes = this.db.run('UPDATE _api_keys SET secretHash = ? WHERE id = ?', upgradedHash, model.id);
+          if (updateRes && typeof (updateRes as any).catch === 'function') {
+            (updateRes as any).catch(() => {});
+          }
+        } catch {
+          // non-fatal if DB write fails
+        }
+      }
+
+      if (!isValid) {
         return { valid: false, error: 'Invalid API key secret' };
       }
 
@@ -638,7 +679,7 @@ export class ApiKeyService {
       const secretEntropy = crypto.randomBytes(24).toString('hex');
       const secretKey = `${keyPrefix}_${secretEntropy}`;
       const redactedKey = `${keyPrefix}...${secretEntropy.slice(-4)}`;
-      const secretHash = hashSecret(secretKey);
+      const secretHash = this.hashApiKey(secretKey);
       const now = new Date().toISOString();
 
       const runRes = this.db.run(

@@ -26,6 +26,7 @@ export interface NodeStackConfigOptions {
   port?: number;
   host?: string;
   jwtSecret?: string;
+  apiKeySecret?: string;
   appName?: string;
   dev?: boolean;
   chaosEnabled?: boolean;
@@ -52,6 +53,7 @@ export class ConfigService {
   public readonly port: number;
   public readonly host: string;
   public readonly jwtSecret: string;
+  public readonly apiKeySecret?: string;
   public readonly appName: string;
   public readonly dev: boolean;
   public readonly chaosEnabled: boolean;
@@ -176,6 +178,9 @@ export class ConfigService {
     if (!fs.existsSync(this.storageDir)) {
       fs.mkdirSync(this.storageDir, { recursive: true });
     }
+
+    // API Key secret override if specified
+    this.apiKeySecret = options.apiKeySecret || process.env.NODESTACK_API_KEY_SECRET;
 
     // JWT Secret persistence or generation
     const secretFilePath = path.join(this.dataDir, '.secret');
