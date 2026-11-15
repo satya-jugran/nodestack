@@ -21,4 +21,5 @@ export interface IDatabaseDriver {
   close(): Promise<void>;
   isOpen(): boolean;
   clone?(): IDatabaseDriver;
+  getSchemaName?(): string;
 }
