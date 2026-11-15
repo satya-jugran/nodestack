@@ -21,6 +21,7 @@ export { hashSecret, hmacSecret, verifySecret, timingSafeEqualStrings, loadOrCre
 export { DatabaseService } from './database/DatabaseService';
 export { IDatabaseDriver, IPreparedStatement, RunResult } from './database/drivers/IDatabaseDriver';
 export { NodeSqliteDriver } from './database/drivers/NodeSqliteDriver';
+export { DatabaseMigrationService, Migration, MigrationSummary, MigrationProgress } from './database/migration/DatabaseMigrationService';
 
 // Schema
 export { SchemaService } from './schema/SchemaService';

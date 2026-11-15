@@ -52,6 +52,14 @@ export class DatabaseService {
     return this.driver;
   }
 
+  public getSchemaName(): string | undefined {
+    const driver = this.getDriver();
+    if (driver && typeof driver.getSchemaName === 'function') {
+      return driver.getSchemaName();
+    }
+    return undefined;
+  }
+
   public isOpen(): boolean {
     return this.driver.isOpen();
   }

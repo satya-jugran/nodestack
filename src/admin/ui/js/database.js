@@ -670,18 +670,18 @@ function renderTestResultBanner() {
   const renderReplicaDetails = () => {
     if (!result.replicas || result.replicas.length === 0) return '';
     return `
-      <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.15); display: flex; flex-direction: column; gap: 4px;">
-        <div style="font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.9;">
+      <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 4px;">
+        <div style="font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-heading);">
           HA Read Replicas Verification (${result.replicas.length}):
         </div>
         ${result.replicas.map((r, i) => `
           <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; padding: 2px 0;">
             <div style="display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              <span style="color: ${r.ok ? '#10b981' : '#ef4444'}; font-weight: 700;">${r.ok ? '✓' : '✗'}</span>
-              <span style="font-family: var(--font-mono, monospace); font-size: 11px;">Replica ${i + 1}: ${escapeDbHtml(r.url)}</span>
+              <span style="color: ${r.ok ? 'var(--accent-success)' : 'var(--accent-danger)'}; font-weight: 700;">${r.ok ? '✓' : '✗'}</span>
+              <span style="font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text-main);">Replica ${i + 1}: ${escapeDbHtml(r.url)}</span>
             </div>
-            <span style="font-size: 10.5px; opacity: 0.85; margin-left: 8px;">
-              ${r.ok ? `${r.latencyMs}ms latency` : `<span style="color: #ef4444;">${escapeDbHtml(r.error || 'Failed')}</span>`}
+            <span style="font-size: 10.5px; margin-left: 8px;">
+              ${r.ok ? `<span style="color: var(--text-muted);">${r.latencyMs}ms latency</span>` : `<span style="color: var(--accent-danger);">${escapeDbHtml(r.error || 'Failed')}</span>`}
             </span>
           </div>
         `).join('')}
@@ -691,12 +691,12 @@ function renderTestResultBanner() {
 
   if (result.ok) {
     return `
-      <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; border-radius: 6px; padding: 10px 14px; color: #10b981; display: flex; flex-direction: column; gap: 4px;">
+      <div style="background: var(--accent-success-subtle); border: 1px solid var(--accent-success); border-radius: 6px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px;">
         <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="font-size: 16px;">✓</span>
-          <div style="font-size: 12px;">
-            <strong>Primary Connection Successful!</strong> Latency: ${result.latencyMs}ms${result.version ? ' • Version: ' + escapeDbHtml(result.version) : ''}
-            <div style="font-size: 11px; opacity: 0.9; margin-top: 2px;">Primary schema & table creation privileges verified successfully.</div>
+          <span style="font-size: 16px; color: var(--accent-success);">✓</span>
+          <div style="font-size: 12px; color: var(--text-main);">
+            <strong style="color: var(--accent-success);">Primary Connection Successful!</strong> <span style="color: var(--text-muted);">Latency: ${result.latencyMs}ms${result.version ? ' • Version: ' + escapeDbHtml(result.version) : ''}</span>
+            <div style="font-size: 11px; color: var(--text-main); margin-top: 2px;">Primary schema & table creation privileges verified successfully.</div>
           </div>
         </div>
         ${renderReplicaDetails()}
@@ -704,12 +704,12 @@ function renderTestResultBanner() {
     `;
   } else {
     return `
-      <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: 6px; padding: 10px 14px; color: #ef4444; display: flex; flex-direction: column; gap: 4px;">
+      <div style="background: var(--accent-danger-subtle); border: 1px solid var(--accent-danger); border-radius: 6px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px;">
         <div style="display: flex; align-items: flex-start; gap: 10px;">
-          <span style="font-size: 16px; line-height: 1;">⚠</span>
-          <div style="font-size: 12px;">
-            <strong>Connection Failed</strong>
-            <div style="font-size: 11.5px; margin-top: 2px; word-break: break-all;">${escapeDbHtml(result.error || 'Could not connect to target database.')}</div>
+          <span style="font-size: 16px; line-height: 1; color: var(--accent-danger);">⚠</span>
+          <div style="font-size: 12px; color: var(--text-main);">
+            <strong style="color: var(--accent-danger);">Connection Failed</strong>
+            <div style="font-size: 11.5px; margin-top: 2px; word-break: break-all; color: var(--text-main);">${escapeDbHtml(result.error || 'Could not connect to target database.')}</div>
           </div>
         </div>
         ${renderReplicaDetails()}
@@ -858,21 +858,21 @@ function renderConfirmSwitchStep(activeProvider, targetProvider) {
     <div style="display: flex; flex-direction: column; gap: 1rem;">
       
       <!-- Warning Banner -->
-      <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid #f59e0b; border-radius: 8px; padding: 12px 16px; color: #f59e0b; display: flex; align-items: flex-start; gap: 10px;">
+      <div style="background: var(--accent-warning-subtle); border: 1px solid var(--accent-warning); border-radius: 8px; padding: 12px 16px; display: flex; align-items: flex-start; gap: 10px;">
         <span style="font-size: 20px; line-height: 1;">⚠️</span>
-        <div style="font-size: 12.5px; line-height: 1.5;">
-          <strong style="font-size: 13.5px; display: block; margin-bottom: 2px;">Application Database Cutover: ${escapeDbHtml(activeAppName)} (${escapeDbHtml(activeAppSlug)})</strong>
-          You are about to switch the live database for application <strong>${escapeDbHtml(activeAppName)}</strong> from <strong>${fromLabel}</strong> to <strong>${toLabel}</strong>. Other applications will remain unaffected.
+        <div style="font-size: 12.5px; line-height: 1.5; color: var(--text-main);">
+          <strong style="font-size: 13.5px; display: block; margin-bottom: 2px; color: var(--accent-warning); font-weight: 700;">Application Database Cutover: ${escapeDbHtml(activeAppName)} (${escapeDbHtml(activeAppSlug)})</strong>
+          You are about to switch the live database for application <strong style="color: var(--text-heading);">${escapeDbHtml(activeAppName)}</strong> from <strong style="color: var(--text-heading);">${fromLabel}</strong> to <strong style="color: var(--text-heading);">${toLabel}</strong>. Other applications will remain unaffected.
         </div>
       </div>
 
       <!-- Consequence Alert Banner -->
-      <div style="background: rgba(239, 68, 68, 0.08); border: 1.5px solid #ef4444; border-radius: 8px; padding: 12px 16px; color: #ef4444; font-size: 12.5px; line-height: 1.5;">
+      <div style="background: var(--accent-danger-subtle); border: 1.5px solid var(--accent-danger); border-radius: 8px; padding: 12px 16px; font-size: 12.5px; line-height: 1.5;">
         <div style="display: flex; align-items: flex-start; gap: 8px;">
           <span style="font-size: 16px;">⚠️</span>
-          <div>
-            <strong style="font-size: 13px; display: block; margin-bottom: 2px;">Snapshot Lifecycle Consequence</strong>
-            All existing snapshots for <strong>${escapeDbHtml(activeAppName)}</strong> will be deleted post-migration.
+          <div style="color: var(--text-main);">
+            <strong style="font-size: 13px; display: block; margin-bottom: 2px; color: var(--accent-danger); font-weight: 700;">Snapshot Lifecycle Consequence</strong>
+            All existing snapshots for <strong style="color: var(--text-heading);">${escapeDbHtml(activeAppName)}</strong> will be deleted post-migration.
             ${isTargetSqlite 
               ? 'A fresh baseline snapshot will be automatically created immediately after cutover.'
               : 'In-app snapshots are disabled on PostgreSQL / SQL Server (cloud backups recommended for production).'
@@ -901,8 +901,8 @@ function renderConfirmSwitchStep(activeProvider, targetProvider) {
       </label>
 
       ${!databaseState.migrateData ? `
-        <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid #ef4444; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #ef4444;">
-          <strong>Warning:</strong> Without migration, the new database will start with empty schemas. Existing data will remain intact in ${fromLabel}, but will not be active.
+        <div style="background: var(--accent-danger-subtle); border: 1px solid var(--accent-danger); border-radius: 6px; padding: 10px 14px; font-size: 12px; color: var(--text-main); line-height: 1.45;">
+          <strong style="color: var(--accent-danger);">Warning:</strong> Without migration, the new database will start with empty schemas. Existing data will remain intact in <strong style="color: var(--text-heading);">${fromLabel}</strong>, but will not be active.
         </div>
       ` : ''}
 
@@ -910,7 +910,7 @@ function renderConfirmSwitchStep(activeProvider, targetProvider) {
       ${isMigrate ? `
         <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;">
           <label style="font-size: 12px; font-weight: 700; color: var(--text-heading);">
-            Type <code style="color: #ef4444; font-size: 12.5px; background: rgba(239, 68, 68, 0.1); padding: 1px 6px; border-radius: 4px;">migrate</code> to confirm and unlock activation:
+            Type <code style="color: var(--accent-danger); font-size: 12.5px; background: var(--accent-danger-subtle); padding: 1px 6px; border-radius: 4px; font-weight: 700;">migrate</code> to confirm and unlock activation:
           </label>
           <input 
             type="text" 

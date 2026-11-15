@@ -3,7 +3,7 @@
       const main = document.getElementById('page-view-home') || document.getElementById('main-body');
       const collections = state.collections || [];
       const curDbProvider = (typeof databaseState !== 'undefined' && databaseState.status?.provider ? databaseState.status.provider : 'sqlite').toLowerCase();
-      const initialSubText = curDbProvider === 'postgres' ? 'PostgreSQL database' : (curDbProvider === 'mssql' ? 'SQL Server database' : 'data.db + WAL journal');
+      const initialSubText = curDbProvider === 'postgres' ? 'PostgreSQL schema' : (curDbProvider === 'mssql' ? 'SQL Server schema' : 'data.db + WAL journal');
       const collectionsCount = collections.length;
 
       // Webhooks initial count
@@ -105,7 +105,7 @@
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem;">
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 0.35rem;">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><line x1="22" y1="12" x2="2" y2="12"></line><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path><line x1="6" y1="16" x2="6.01" y2="16"></line><line x1="10" y1="16" x2="10.01" y2="16"></line></svg>
-                  <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Storage Size</span>
+                  <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;" id="home-stat-size-label">Storage Size</span>
                 </div>
                 <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-size">--</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-size-sub">${initialSubText}</div>
@@ -314,14 +314,25 @@
           sizeEl.textContent = metrics.database.sizeFormatted;
         }
 
+        const sizeLabelEl = document.getElementById('home-stat-size-label');
         const sizeSubEl = document.getElementById('home-stat-size-sub');
         if (sizeSubEl && metrics.database?.provider) {
           if (metrics.database.provider === 'postgres') {
-            sizeSubEl.textContent = 'PostgreSQL database';
+            if (sizeLabelEl) sizeLabelEl.textContent = 'Schema Storage Size';
+            const schema = metrics.database.schemaName || (typeof state !== 'undefined' && state.activeApp?.slug ? `app_${state.activeApp.slug}` : 'public');
+            const totalText = metrics.database.totalDatabaseSizeFormatted ? ` • DB: ${metrics.database.totalDatabaseSizeFormatted}` : '';
+            sizeSubEl.textContent = `Schema: ${schema}${totalText}`;
+            sizeSubEl.title = `Application-isolated storage in PostgreSQL schema '${schema}'${totalText}`;
           } else if (metrics.database.provider === 'mssql') {
-            sizeSubEl.textContent = 'SQL Server database';
+            if (sizeLabelEl) sizeLabelEl.textContent = 'Schema Storage Size';
+            const schema = metrics.database.schemaName || (typeof state !== 'undefined' && state.activeApp?.slug ? `app_${state.activeApp.slug}` : 'dbo');
+            const totalText = metrics.database.totalDatabaseSizeFormatted ? ` • DB: ${metrics.database.totalDatabaseSizeFormatted}` : '';
+            sizeSubEl.textContent = `Schema: [${schema}]${totalText}`;
+            sizeSubEl.title = `Application-isolated storage in SQL Server schema '[${schema}]'${totalText}`;
           } else {
+            if (sizeLabelEl) sizeLabelEl.textContent = 'Storage Size';
             sizeSubEl.textContent = 'data.db + WAL journal';
+            sizeSubEl.title = 'Local SQLite database file and write-ahead log';
           }
         }
 

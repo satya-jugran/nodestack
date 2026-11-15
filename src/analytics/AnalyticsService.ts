@@ -18,6 +18,9 @@ export interface DatabaseMetrics {
   totalRecords: number;
   collectionsBreakdown: CollectionRecordCount[];
   provider?: string;
+  schemaName?: string;
+  totalDatabaseSizeBytes?: number;
+  totalDatabaseSizeFormatted?: string;
 }
 
 export interface RealtimeMetrics {
@@ -107,18 +110,58 @@ export class AnalyticsService {
     if (isAsync) {
       return (async (): Promise<DatabaseMetrics> => {
         let effectiveSizeBytes = sizeBytes;
+        let totalDatabaseSizeBytes: number | undefined;
+        let schemaName: string | undefined;
+
         if (this.db.dialect?.name === 'postgres') {
+          const targetSchema = (this.db as any).getSchemaName?.() || 
+            (typeof (this.db.getDriver?.() as any)?.getSchemaName === 'function' ? (this.db.getDriver() as any).getSchemaName() : 'public');
+          schemaName = targetSchema;
+
           try {
-            const sizeRow = await this.db.get<{ size: number | string }>('SELECT pg_database_size(current_database()) as size');
-            if (sizeRow && sizeRow.size !== undefined && sizeRow.size !== null) {
-              effectiveSizeBytes = Number(sizeRow.size);
+            // 1. Measure app-specific schema storage size (tables + indexes + TOAST)
+            const schemaSizeRow = await this.db.get<{ size: number | string }>(
+              `SELECT COALESCE(SUM(pg_total_relation_size(quote_ident(schemaname) || '.' || quote_ident(tablename))), 0) as size ` +
+              `FROM pg_tables WHERE schemaname = current_schema() OR schemaname = '${targetSchema.replace(/'/g, "''")}'`
+            );
+            if (schemaSizeRow && schemaSizeRow.size !== undefined && schemaSizeRow.size !== null) {
+              effectiveSizeBytes = Number(schemaSizeRow.size);
+            }
+          } catch {}
+
+          try {
+            // 2. Measure overall shared physical database size for context
+            const dbSizeRow = await this.db.get<{ size: number | string }>('SELECT pg_database_size(current_database()) as size');
+            if (dbSizeRow && dbSizeRow.size !== undefined && dbSizeRow.size !== null) {
+              totalDatabaseSizeBytes = Number(dbSizeRow.size);
             }
           } catch {}
         } else if (this.db.dialect?.name === 'mssql') {
+          const targetSchema = (this.db as any).getSchemaName?.() || 
+            (typeof (this.db.getDriver?.() as any)?.getSchemaName === 'function' ? (this.db.getDriver() as any).getSchemaName() : 'dbo');
+          schemaName = targetSchema;
+
           try {
-            const sizeRow = await this.db.get<{ size: number | string }>('SELECT SUM(size) * 8 * 1024 as size FROM sys.database_files');
-            if (sizeRow && sizeRow.size !== undefined && sizeRow.size !== null) {
-              effectiveSizeBytes = Number(sizeRow.size);
+            // 1. Measure app-specific schema storage size (tables + indexes + LOB pages)
+            const schemaSizeRow = await this.db.get<{ size: number | string }>(
+              `SELECT COALESCE(SUM(a.total_pages) * 8 * 1024, 0) as size ` +
+              `FROM sys.tables t ` +
+              `JOIN sys.schemas s ON t.schema_id = s.schema_id ` +
+              `JOIN sys.indexes i ON t.object_id = i.object_id ` +
+              `JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id ` +
+              `JOIN sys.allocation_units a ON p.partition_id = a.container_id ` +
+              `WHERE s.name = '${targetSchema.replace(/'/g, "''")}' OR s.name = SCHEMA_NAME()`
+            );
+            if (schemaSizeRow && schemaSizeRow.size !== undefined && schemaSizeRow.size !== null) {
+              effectiveSizeBytes = Number(schemaSizeRow.size);
+            }
+          } catch {}
+
+          try {
+            // 2. Measure overall database file size
+            const dbSizeRow = await this.db.get<{ size: number | string }>('SELECT SUM(size) * 8 * 1024 as size FROM sys.database_files');
+            if (dbSizeRow && dbSizeRow.size !== undefined && dbSizeRow.size !== null) {
+              totalDatabaseSizeBytes = Number(dbSizeRow.size);
             }
           } catch {}
         }
@@ -150,6 +193,24 @@ export class AnalyticsService {
           }
         }
 
+        // Fallback: If catalog query returned 0/empty or was blocked, attempt summing collections relation size
+        if (this.db.dialect?.name === 'postgres' && effectiveSizeBytes === 0 && Array.isArray(cols) && cols.length > 0) {
+          let fallbackSum = 0;
+          for (const col of cols) {
+            try {
+              const relRow = await this.db.get<{ size: number | string }>(
+                `SELECT pg_total_relation_size(${this.db.dialect.quoteIdentifier(col.name)}) as size`
+              );
+              if (relRow && relRow.size !== undefined && relRow.size !== null) {
+                fallbackSum += Number(relRow.size);
+              }
+            } catch {}
+          }
+          if (fallbackSum > 0) {
+            effectiveSizeBytes = fallbackSum;
+          }
+        }
+
         return {
           sizeBytes: effectiveSizeBytes,
           sizeFormatted: formatBytes(effectiveSizeBytes),
@@ -157,6 +218,9 @@ export class AnalyticsService {
           totalRecords,
           collectionsBreakdown,
           provider: this.db.dialect?.name || 'sqlite',
+          schemaName,
+          totalDatabaseSizeBytes,
+          totalDatabaseSizeFormatted: totalDatabaseSizeBytes !== undefined ? formatBytes(totalDatabaseSizeBytes) : undefined,
         };
       })();
     }

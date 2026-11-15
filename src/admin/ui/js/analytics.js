@@ -69,7 +69,7 @@ function renderAnalyticsView() {
         <!-- Card 2: Database Storage Size -->
         <div class="analytics-card analytics-card-accent-emerald">
           <div class="analytics-card-header">
-            <span class="analytics-card-title" id="kpi-db-size-title">${isSqlite ? 'Database Size on Disk' : 'Database Storage Size'}</span>
+            <span class="analytics-card-title" id="kpi-db-size-title">${isSqlite ? 'Database Size on Disk' : 'Schema Storage Size'}</span>
             <div class="analytics-card-icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12H2M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="10.01" y2="16"/></svg>
             </div>
@@ -78,8 +78,8 @@ function renderAnalyticsView() {
             <span>--</span>
           </div>
           <div class="analytics-card-sub">
-            <span id="kpi-db-wal">${isPg ? 'PostgreSQL database' : isMssql ? 'SQL Server database' : 'data.db + WAL'}</span>
-            <span class="badge ${isPg ? 'badge-success' : isMssql ? 'badge-warning' : 'badge-status-200'}" id="kpi-db-mode-badge" style="font-size:10px;">${isPg ? 'Postgres' : isMssql ? 'MSSQL' : 'WAL Mode'}</span>
+            <span id="kpi-db-wal">${isPg ? 'PostgreSQL schema' : isMssql ? 'SQL Server schema' : 'data.db + WAL'}</span>
+            <span class="badge ${isPg ? 'badge-success' : isMssql ? 'badge-warning' : 'badge-status-200'}" id="kpi-db-mode-badge" style="font-size:10px;">${isPg ? 'Schema Mode' : isMssql ? 'Schema Mode' : 'WAL Mode'}</span>
           </div>
         </div>
 
@@ -274,24 +274,26 @@ function updateAnalyticsUI(data) {
 
   const kpiDbSizeTitle = document.getElementById('kpi-db-size-title');
   if (kpiDbSizeTitle) {
-    kpiDbSizeTitle.textContent = provider === 'sqlite' ? 'Database Size on Disk' : 'Database Storage Size';
+    kpiDbSizeTitle.textContent = provider === 'sqlite' ? 'Database Size on Disk' : 'Schema Storage Size';
   }
 
   const kpiDbWal = document.getElementById('kpi-db-wal');
   const kpiDbModeBadge = document.getElementById('kpi-db-mode-badge');
   if (kpiDbWal) {
     if (provider === 'postgres') {
-      const dbName = (typeof databaseState !== 'undefined' && databaseState.status?.config?.database) ? databaseState.status.config.database : 'PostgreSQL Database';
-      kpiDbWal.textContent = `PostgreSQL • ${dbName}`;
+      const schema = data.database?.schemaName || (typeof state !== 'undefined' && state.activeApp?.slug ? `app_${state.activeApp.slug}` : 'public');
+      const totalText = data.database?.totalDatabaseSizeFormatted ? ` • DB: ${data.database.totalDatabaseSizeFormatted}` : '';
+      kpiDbWal.textContent = `Schema: ${schema}${totalText}`;
       if (kpiDbModeBadge) {
-        kpiDbModeBadge.textContent = 'Postgres';
+        kpiDbModeBadge.textContent = 'Schema Mode';
         kpiDbModeBadge.className = 'badge badge-success';
       }
     } else if (provider === 'mssql') {
-      const dbName = (typeof databaseState !== 'undefined' && databaseState.status?.config?.database) ? databaseState.status.config.database : 'SQL Server Database';
-      kpiDbWal.textContent = `SQL Server • ${dbName}`;
+      const schema = data.database?.schemaName || (typeof state !== 'undefined' && state.activeApp?.slug ? `app_${state.activeApp.slug}` : 'dbo');
+      const totalText = data.database?.totalDatabaseSizeFormatted ? ` • DB: ${data.database.totalDatabaseSizeFormatted}` : '';
+      kpiDbWal.textContent = `Schema: [${schema}]${totalText}`;
       if (kpiDbModeBadge) {
-        kpiDbModeBadge.textContent = 'MSSQL';
+        kpiDbModeBadge.textContent = 'Schema Mode';
         kpiDbModeBadge.className = 'badge badge-warning';
       }
     } else {
