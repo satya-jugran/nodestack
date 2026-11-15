@@ -861,6 +861,9 @@ export class HttpServer {
     if (this.queueController) {
       const requireAdmin = this.authMiddleware.requireAdmin();
       const requireSuperAdmin = this.authMiddleware.requireSuperAdmin();
+      const requireQueueSend = this.authMiddleware.requireAdminOrScope('queues', 'send');
+      const requireQueueRead = this.authMiddleware.requireAdminOrScope('queues', 'read');
+      const requireQueueDelete = this.authMiddleware.requireAdminOrScope('queues', 'delete');
       app.get('/api/apps/:appId/queues', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getQueues(req, reply)
       );
@@ -885,31 +888,31 @@ export class HttpServer {
       app.delete('/api/apps/:appId/queues/:name', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.deleteQueue(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/messages', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues/:name/messages', { preHandler: requireQueueSend }, (req: any, reply) =>
         this.queueController!.sendMessage(req, reply)
       );
-      app.get('/api/apps/:appId/queues/:name/messages', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.get('/api/apps/:appId/queues/:name/messages', { preHandler: requireQueueRead }, (req: any, reply) =>
         this.queueController!.getMessages(req, reply)
       );
-      app.get('/api/apps/:appId/queues/:name/messages/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.get('/api/apps/:appId/queues/:name/messages/:id', { preHandler: requireQueueRead }, (req: any, reply) =>
         this.queueController!.getMessage(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/messages/:id/ack', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues/:name/messages/:id/ack', { preHandler: requireQueueSend }, (req: any, reply) =>
         this.queueController!.ackMessage(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/messages/:id/nack', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues/:name/messages/:id/nack', { preHandler: requireQueueSend }, (req: any, reply) =>
         this.queueController!.nackMessage(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/messages/:id/touch', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues/:name/messages/:id/touch', { preHandler: requireQueueSend }, (req: any, reply) =>
         this.queueController!.touchMessage(req, reply)
       );
       app.post('/api/apps/:appId/queues/:name/messages/:id/skip', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.forceSkipMessage(req, reply)
       );
-      app.post('/api/apps/:appId/queues/:name/messages/:id/retry', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.post('/api/apps/:appId/queues/:name/messages/:id/retry', { preHandler: requireQueueSend }, (req: any, reply) =>
         this.queueController!.retryMessage(req, reply)
       );
-      app.delete('/api/apps/:appId/queues/:name/messages/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.delete('/api/apps/:appId/queues/:name/messages/:id', { preHandler: requireQueueDelete }, (req: any, reply) =>
         this.queueController!.deleteMessage(req, reply)
       );
       app.post('/api/apps/:appId/queues/:name/dlq/retry', { preHandler: requireAdmin }, (req: any, reply) =>
@@ -1274,6 +1277,9 @@ export class HttpServer {
     if (this.queueController) {
       const requireAdmin = this.authMiddleware.requireAdmin();
       const requireSuperAdmin = this.authMiddleware.requireSuperAdmin();
+      const requireQueueSend = this.authMiddleware.requireAdminOrScope('queues', 'send');
+      const requireQueueRead = this.authMiddleware.requireAdminOrScope('queues', 'read');
+      const requireQueueDelete = this.authMiddleware.requireAdminOrScope('queues', 'delete');
       app.get('/api/queues', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.getQueues(req, reply)
       );
@@ -1298,31 +1304,31 @@ export class HttpServer {
       app.delete('/api/queues/:name', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.deleteQueue(req, reply)
       );
-      app.post('/api/queues/:name/messages', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.post('/api/queues/:name/messages', { preHandler: requireQueueSend }, (req: any, reply) =>
         this.queueController!.sendMessage(req, reply)
       );
-      app.get('/api/queues/:name/messages', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.get('/api/queues/:name/messages', { preHandler: requireQueueRead }, (req: any, reply) =>
         this.queueController!.getMessages(req, reply)
       );
-      app.get('/api/queues/:name/messages/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.get('/api/queues/:name/messages/:id', { preHandler: requireQueueRead }, (req: any, reply) =>
         this.queueController!.getMessage(req, reply)
       );
-      app.post('/api/queues/:name/messages/:id/ack', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.post('/api/queues/:name/messages/:id/ack', { preHandler: requireQueueSend }, (req: any, reply) =>
         this.queueController!.ackMessage(req, reply)
       );
-      app.post('/api/queues/:name/messages/:id/nack', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.post('/api/queues/:name/messages/:id/nack', { preHandler: requireQueueSend }, (req: any, reply) =>
         this.queueController!.nackMessage(req, reply)
       );
-      app.post('/api/queues/:name/messages/:id/touch', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.post('/api/queues/:name/messages/:id/touch', { preHandler: requireQueueSend }, (req: any, reply) =>
         this.queueController!.touchMessage(req, reply)
       );
       app.post('/api/queues/:name/messages/:id/skip', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.forceSkipMessage(req, reply)
       );
-      app.post('/api/queues/:name/messages/:id/retry', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.post('/api/queues/:name/messages/:id/retry', { preHandler: requireQueueSend }, (req: any, reply) =>
         this.queueController!.retryMessage(req, reply)
       );
-      app.delete('/api/queues/:name/messages/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+      app.delete('/api/queues/:name/messages/:id', { preHandler: requireQueueDelete }, (req: any, reply) =>
         this.queueController!.deleteMessage(req, reply)
       );
       app.post('/api/queues/:name/dlq/retry', { preHandler: requireAdmin }, (req: any, reply) =>

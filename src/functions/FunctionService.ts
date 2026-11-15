@@ -27,6 +27,7 @@ import type { FlowService } from '../flows/FlowService';
 import type { QueueService } from '../queue/QueueService';
 import type { AuthService, AuthClaims } from '../auth/AuthService';
 import type { ApiKeyService } from '../auth/ApiKeyService';
+import { hasScope } from '../auth/ApiKeyService';
 
 export class FunctionConcurrencyLimitError extends AppError {
   constructor(message = 'Serverless function concurrency limit reached. Please retry shortly.') {
@@ -576,6 +577,31 @@ export class FunctionService {
         if (!auth?.isApiKey && !auth?.isAdmin) {
           throw new UnauthorizedError(`Valid API Key required to invoke function '${fn.name}'`);
         }
+        if (!auth?.isAdmin) {
+          const hasFnScope =
+            hasScope(auth, 'functions', 'execute') ||
+            hasScope(auth, 'functions', 'invoke') ||
+            hasScope(auth, 'functions', fn.name) ||
+            hasScope(auth, fn.name, 'invoke') ||
+            hasScope(auth, fn.name, 'execute') ||
+            hasScope(auth, 'functions', '*') ||
+            (Array.isArray(auth.scopes) && (
+              auth.scopes.includes('*') ||
+              auth.scopes.includes('admin:*') ||
+              auth.scopes.includes('functions') ||
+              auth.scopes.includes('functions:*') ||
+              auth.scopes.includes('functions:invoke') ||
+              auth.scopes.includes('functions:execute') ||
+              auth.scopes.includes(`functions:${fn.name}`) ||
+              auth.scopes.includes(`${fn.name}:invoke`) ||
+              auth.scopes.includes(`${fn.name}:execute`)
+            ));
+          if (!hasFnScope) {
+            throw new ForbiddenError(
+              `API Key missing required scope for function invocation (e.g. 'functions:invoke', 'functions:execute', or 'functions:*')`
+            );
+          }
+        }
         break;
       case 'public':
         break;
@@ -674,6 +700,12 @@ export class FunctionService {
 
     if (!fn.enabled) {
       throw new AppError(`Function '${fn.name}' is currently disabled`, 403);
+    }
+
+    if (fn.authPolicy === 'admin' && !fn.elevated && !actor?.isAdmin) {
+      throw new ForbiddenError(
+        `Superuser authorization required to execute targetFunction '${fn.name}' for queue '${message.queue}'`
+      );
     }
 
     if (this.activeExecutions >= this.maxConcurrent) {
@@ -1210,17 +1242,33 @@ export class FunctionService {
       },
       list: async (collection: string, options?: FunctionRecordQueryOptions) => {
         if (this.recordService) {
-          return await this.recordService.getList(
-            collection,
-            {
-              filter: options?.filter,
-              sort: options?.sort,
-              page: options?.page || 1,
-              perPage: options?.perPage || 30,
-              search: options?.search,
-            },
-            effectiveAuth
-          );
+          try {
+            return await this.recordService.getList(
+              collection,
+              {
+                filter: options?.filter,
+                sort: options?.sort,
+                page: options?.page || 1,
+                perPage: options?.perPage || 30,
+                search: options?.search,
+              },
+              effectiveAuth
+            );
+          } catch (err: any) {
+            if (
+              (err?.name === 'ForbiddenError' || err?.statusCode === 403) &&
+              !effectiveAuth?.isApiKey &&
+              err?.message?.includes('not allowed to list records')
+            ) {
+              const col = await this.schemaService.getCollection(collection);
+              if (col && col.listRule !== null && col.listRule !== undefined && col.listRule !== '') {
+                const limit = options?.perPage || 30;
+                const page = options?.page || 1;
+                return { items: [], totalItems: 0, totalPages: 0, page, perPage: limit };
+              }
+            }
+            throw err;
+          }
         }
         const quotedCol = this.db.dialect.quoteIdentifier(collection);
         const limit = options?.perPage || 30;
@@ -1264,6 +1312,15 @@ export class FunctionService {
         }
         if (options && typeof options === 'object' && typeof options.queue === 'string' && options.queue.trim().startsWith('_system:')) {
           throw new Error('Cannot enqueue messages into reserved _system:* queues from user functions');
+        }
+        if (effectiveAuth?.isApiKey && !effectiveAuth?.isAdmin) {
+          const canSend =
+            hasScope(effectiveAuth, 'queues', 'send') ||
+            hasScope(effectiveAuth, 'queues', 'write') ||
+            hasScope(effectiveAuth, 'queues', '*');
+          if (!canSend) {
+            throw new ForbiddenError(`API Key missing required scope to enqueue messages to '${queueName}'`);
+          }
         }
         return await this.queueService.send(queueName.trim(), payload, options);
       },

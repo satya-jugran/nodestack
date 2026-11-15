@@ -183,51 +183,38 @@ function renderDatabaseView() {
   container.innerHTML = `
     <div style="width: 100%; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem; padding-bottom: 2.5rem;">
       
-      <!-- Top Overview Banner -->
-      <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 1.25rem 1.75rem; display: flex; flex-direction: column; gap: 1rem;">
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
-          <div style="display: flex; align-items: center; gap: 14px;">
-            <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-primary);">
-                <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
-                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
-                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
-              </svg>
-            </div>
-            <div>
-              <h2 style="font-size: 18px; font-weight: 800; color: var(--text-heading); margin: 0; letter-spacing: -0.01em;">
+      <!-- Top Overview Banner (Compact) -->
+      <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 0.85rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.85rem;">
+        <div style="display: flex; align-items: center; gap: 12px; min-width: 260px;">
+          <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-primary);">
+              <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+            </svg>
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <h2 style="font-size: 15px; font-weight: 800; color: var(--text-heading); margin: 0; letter-spacing: -0.01em;">
                 Database Engine
               </h2>
-              <p style="font-size: 12px; color: var(--text-muted); margin: 3px 0 0 0; line-height: 1.4;">
-                Application: <strong style="color: var(--accent-primary); font-family: var(--font-mono); font-size: 12px;">${state.activeApp?.name || 'Default App'} (${state.activeApp?.slug || 'default'})</strong> • Configure storage engines and zero-downtime migrations.
-              </p>
+              <span class="badge ${status.connected ? 'badge-success' : 'badge-danger'}" style="font-size: 10px; padding: 1px 7px;">
+                ${status.connected ? '● Connected' : '✕ Disconnected'}
+              </span>
+              ${status.latencyMs !== undefined ? `<span style="font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono); font-weight: 600;">(${status.latencyMs}ms)</span>` : ''}
             </div>
-          </div>
-
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="fetchDatabaseStatus().then(() => renderDatabaseView())" style="display: flex; align-items: center; gap: 6px; padding: 6px 12px;">
-              <span>↻</span><span>Refresh Status</span>
-            </button>
+            <p style="font-size: 11.5px; color: var(--text-muted); margin: 2px 0 0 0; line-height: 1.4;">
+              Active: <strong style="color: var(--text-heading);">${labelMap[activeProvider] || activeProvider}</strong>
+              <span style="opacity: 0.4; margin: 0 4px;">•</span>
+              Application: <strong style="color: var(--accent-primary); font-family: var(--font-mono);">${state.activeApp?.name || 'Default App'} (${state.activeApp?.slug || 'default'})</strong>
+            </p>
           </div>
         </div>
 
-        <!-- Telemetry & Status Strip -->
-        <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 0.9rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
-          <div>
-            <div style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.06em;">Active Storage Engine</div>
-            <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-              <span style="font-size: 17px; font-weight: 800; color: var(--text-heading);">${labelMap[activeProvider] || activeProvider}</span>
-              <span class="badge ${status.connected ? 'badge-success' : 'badge-danger'}" style="font-size: 10.5px; padding: 2px 8px;">
-                ${status.connected ? '● Connected' : '✕ Disconnected'}
-              </span>
-              ${status.latencyMs !== undefined ? `<span style="font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); font-weight: 600;">(${status.latencyMs}ms latency)</span>` : ''}
-            </div>
-          </div>
-          <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; font-size: 12px; color: var(--text-muted);">
-            <div>Tenant Isolation: <strong style="color: var(--text-heading); font-family: var(--font-mono);">app_&lt;slug&gt; schema</strong></div>
-            <div>Control Plane: <strong style="color: var(--text-heading);">Encrypted AES-256</strong></div>
-            <div>Driver: <strong style="color: var(--text-heading); text-transform: capitalize;">${activeProvider}</strong></div>
-          </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="fetchDatabaseStatus().then(() => renderDatabaseView())" style="display: flex; align-items: center; gap: 6px; padding: 5px 11px; font-size: 11.5px;">
+            <span>↻</span><span>Refresh Status</span>
+          </button>
         </div>
       </div>
 

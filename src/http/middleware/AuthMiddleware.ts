@@ -282,4 +282,32 @@ export class AuthMiddleware {
       }
     };
   }
+
+  public requireAdminOrScope(resource: string, action: string) {
+    return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+      await this.handle(req, reply);
+      if (reply.sent) return;
+      if (!req.auth) {
+        return reply.status(401).send({
+          statusCode: 401,
+          message: 'Authentication required to access this resource',
+        });
+      }
+      const isAuthorized =
+        Boolean(req.auth.isAdmin) ||
+        Boolean(
+          req.auth.isApiKey &&
+            (hasScope(req.auth, resource, action) ||
+              (action === 'send' && (hasScope(req.auth, resource, 'write') || hasScope(req.auth, resource, 'create'))) ||
+              (action === 'read' && hasScope(req.auth, resource, 'view')))
+        );
+
+      if (!isAuthorized) {
+        return reply.status(403).send({
+          statusCode: 403,
+          message: `Only admins or API Keys with '${resource}:${action}' scope are authorized to access this resource`,
+        });
+      }
+    };
+  }
 }

@@ -733,5 +733,93 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       });
       expect(resAdmin.status).toBe(200);
     });
+
+    it('should permit API keys with queues:send scope to enqueue messages via REST API and reject unauthorized keys', async () => {
+      await app.queue.upsertQueue({ name: 'api-key-test-queue' });
+
+      const queueSenderKey = app.apiKeys.createKey({
+        name: 'Queue Producer Key',
+        role: 'service',
+        scopes: ['queues:send'],
+      });
+
+      const unauthorizedKey = app.apiKeys.createKey({
+        name: 'Read Only Key',
+        role: 'service',
+        scopes: ['orders:read'],
+      });
+
+      // 1. Authorized API key with queues:send succeeds (201)
+      const resAllowed = await fetch(`${serverUrl}/api/queues/api-key-test-queue/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `ApiKey ${queueSenderKey.secretKey}`,
+        },
+        body: JSON.stringify({ payload: { task: 'send_welcome_email' } }),
+      });
+      expect(resAllowed.status).toBe(201);
+      const enqueued = await resAllowed.json();
+      expect(enqueued.id).toBeDefined();
+      expect(enqueued.queue).toBe('api-key-test-queue');
+
+      // 2. Unauthorized API key without queue scopes is rejected with 403
+      const resDenied = await fetch(`${serverUrl}/api/queues/api-key-test-queue/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `ApiKey ${unauthorizedKey.secretKey}`,
+        },
+        body: JSON.stringify({ payload: { task: 'unauthorized_job' } }),
+      });
+      expect(resDenied.status).toBe(403);
+    });
+
+    it('should enforce function-specific scopes on API keys invoking authPolicy: apiKey functions', async () => {
+      app.functions.createFunction({
+        name: 'finance-report-fn',
+        code: `export default async function(core, ctx) { return { reportId: 42 }; }`,
+        enabled: true,
+        authPolicy: 'apiKey',
+      });
+
+      const fnScopedKey = app.apiKeys.createKey({
+        name: 'Function Invoker Key',
+        role: 'service',
+        scopes: ['functions:invoke'],
+      });
+
+      const unprivilegedKey = app.apiKeys.createKey({
+        name: 'Orders Reader Key',
+        role: 'service',
+        scopes: ['orders:read'],
+      });
+
+      // 1. Key with functions:invoke succeeds (200)
+      const resAllowed = await fetch(`${serverUrl}/api/functions/finance-report-fn/invoke`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `ApiKey ${fnScopedKey.secretKey}`,
+        },
+        body: JSON.stringify({}),
+      });
+      expect(resAllowed.status).toBe(200);
+      const data = await resAllowed.json();
+      expect(data.reportId).toBe(42);
+
+      // 2. Key with only orders:read is rejected with 403
+      const resDenied = await fetch(`${serverUrl}/api/functions/finance-report-fn/invoke`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `ApiKey ${unprivilegedKey.secretKey}`,
+        },
+        body: JSON.stringify({}),
+      });
+      expect(resDenied.status).toBe(403);
+      const err = await resDenied.json();
+      expect(err.message).toContain('missing required scope');
+    });
   });
 });
