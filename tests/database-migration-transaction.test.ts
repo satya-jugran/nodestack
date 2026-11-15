@@ -397,4 +397,36 @@ describe('DatabaseMigrationService - Migration Transaction Safety', () => {
     expect(txRolledBack).toBe(true);
     expect(txCommitted).toBe(false);
   });
+
+  it('should safely serialize and skip second concurrent runner without failing on unique key or running up twice', async () => {
+    let upCallCount = 0;
+
+    const migration: Migration = {
+      id: '20261115_concurrent_race_test',
+      name: 'concurrent_test',
+      up: async (db) => {
+        upCallCount++;
+        // Small delay to simulate work inside up()
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        await db.exec('CREATE TABLE concurrent_race (id TEXT PRIMARY KEY);');
+      },
+    };
+
+    // Run both runners concurrently
+    const [result1, result2] = await Promise.all([
+      DatabaseMigrationService.runMigration(driver, migration),
+      DatabaseMigrationService.runMigration(driver, migration),
+    ]);
+
+    // Exactly one must return true (applied), and the other must return false (safely skipped)
+    expect([result1, result2].filter(Boolean)).toHaveLength(1);
+    expect(upCallCount).toBe(1);
+
+    // Table must exist
+    expect(await driver.prepare("SELECT name FROM sqlite_master WHERE name = 'concurrent_race'").get()).toBeDefined();
+
+    // Migration must be recorded once
+    const records = await driver.prepare("SELECT * FROM _migrations WHERE id = '20261115_concurrent_race_test'").all();
+    expect(records).toHaveLength(1);
+  });
 });

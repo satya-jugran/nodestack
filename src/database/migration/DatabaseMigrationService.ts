@@ -31,6 +31,19 @@ export interface Migration {
 }
 
 export class DatabaseMigrationService {
+  private static migrationMutex: Promise<void> = Promise.resolve();
+
+  private static async acquireMigrationLock(): Promise<() => void> {
+    let release: () => void;
+    const nextLock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const currentLock = DatabaseMigrationService.migrationMutex;
+    DatabaseMigrationService.migrationMutex = currentLock.then(() => nextLock).catch(() => nextLock);
+    await currentLock;
+    return release!;
+  }
+
   /**
    * Ensures the _migrations tracking table exists.
    */
@@ -74,53 +87,85 @@ export class DatabaseMigrationService {
     driver: IDatabaseDriver,
     migration: Migration
   ): Promise<boolean> {
-    await DatabaseMigrationService.ensureMigrationsTable(driver);
+    const releaseLock = await DatabaseMigrationService.acquireMigrationLock();
+    try {
+      await DatabaseMigrationService.ensureMigrationsTable(driver);
 
-    const existing = await driver
-      .prepare('SELECT id FROM _migrations WHERE id = ?')
-      .get<{ id: string }>(migration.id);
-    const existingRow = existing && typeof (existing as any).then === 'function' ? await existing : existing;
-    if (existingRow) {
-      return false; // Already applied
-    }
+      const insertSql = `INSERT INTO _migrations (id, name, appliedAt) VALUES (?, ?, ?)`;
+      const migrationName = migration.name || migration.id;
+      const now = new Date().toISOString();
 
-    const insertSql = `INSERT INTO _migrations (id, name, appliedAt) VALUES (?, ?, ?)`;
-    const migrationName = migration.name || migration.id;
-    const now = new Date().toISOString();
-
-    if (driver.dialect.name === 'sqlite') {
-      await driver.exec('BEGIN IMMEDIATE;');
-      try {
-        await migration.up(driver);
-        await driver.prepare(insertSql).run(migration.id, migrationName, now);
-        await driver.exec('COMMIT;');
-        return true;
-      } catch (err) {
+      if (driver.dialect.name === 'sqlite') {
+        await driver.exec('BEGIN IMMEDIATE;');
         try {
-          await driver.exec('ROLLBACK;');
-        } catch {}
-        throw err;
-      }
-    } else if (typeof driver.transaction === 'function') {
-      await driver.transaction(async (txDriver) => {
-        const tx = txDriver || driver;
-        await migration.up(tx);
-        await tx.prepare(insertSql).run(migration.id, migrationName, now);
-      });
-      return true;
-    } else {
-      await driver.exec('BEGIN;');
-      try {
-        await migration.up(driver);
-        await driver.prepare(insertSql).run(migration.id, migrationName, now);
-        await driver.exec('COMMIT;');
-        return true;
-      } catch (err) {
+          const existing = await driver
+            .prepare('SELECT id FROM _migrations WHERE id = ?')
+            .get<{ id: string }>(migration.id);
+          const existingRow = existing && typeof (existing as any).then === 'function' ? await existing : existing;
+          if (existingRow) {
+            await driver.exec('COMMIT;');
+            return false; // Already applied
+          }
+
+          await migration.up(driver);
+          await driver.prepare(insertSql).run(migration.id, migrationName, now);
+          await driver.exec('COMMIT;');
+          return true;
+        } catch (err) {
+          try {
+            await driver.exec('ROLLBACK;');
+          } catch {}
+          throw err;
+        }
+      } else if (typeof driver.transaction === 'function') {
+        return await driver.transaction(async (txDriver) => {
+          const tx = txDriver || driver;
+
+          if (driver.dialect.name === 'postgres') {
+            try {
+              await tx.exec('LOCK TABLE _migrations IN SHARE ROW EXCLUSIVE MODE;');
+            } catch {
+              // ignore if not supported in mock
+            }
+          }
+
+          const existing = await tx
+            .prepare('SELECT id FROM _migrations WHERE id = ?')
+            .get<{ id: string }>(migration.id);
+          const existingRow = existing && typeof (existing as any).then === 'function' ? await existing : existing;
+          if (existingRow) {
+            return false; // Already applied
+          }
+
+          await migration.up(tx);
+          await tx.prepare(insertSql).run(migration.id, migrationName, now);
+          return true;
+        });
+      } else {
+        await driver.exec('BEGIN;');
         try {
-          await driver.exec('ROLLBACK;');
-        } catch {}
-        throw err;
+          const existing = await driver
+            .prepare('SELECT id FROM _migrations WHERE id = ?')
+            .get<{ id: string }>(migration.id);
+          const existingRow = existing && typeof (existing as any).then === 'function' ? await existing : existing;
+          if (existingRow) {
+            await driver.exec('COMMIT;');
+            return false; // Already applied
+          }
+
+          await migration.up(driver);
+          await driver.prepare(insertSql).run(migration.id, migrationName, now);
+          await driver.exec('COMMIT;');
+          return true;
+        } catch (err) {
+          try {
+            await driver.exec('ROLLBACK;');
+          } catch {}
+          throw err;
+        }
       }
+    } finally {
+      releaseLock();
     }
   }
 
@@ -163,51 +208,83 @@ export class DatabaseMigrationService {
       throw new Error(`Migration '${migration.id}' does not implement down()`);
     }
 
-    await DatabaseMigrationService.ensureMigrationsTable(driver);
+    const releaseLock = await DatabaseMigrationService.acquireMigrationLock();
+    try {
+      await DatabaseMigrationService.ensureMigrationsTable(driver);
 
-    const existing = await driver
-      .prepare('SELECT id FROM _migrations WHERE id = ?')
-      .get<{ id: string }>(migration.id);
-    const existingRow = existing && typeof (existing as any).then === 'function' ? await existing : existing;
-    if (!existingRow) {
-      return false; // Not applied
-    }
+      const deleteSql = `DELETE FROM _migrations WHERE id = ?`;
 
-    const deleteSql = `DELETE FROM _migrations WHERE id = ?`;
-
-    if (driver.dialect.name === 'sqlite') {
-      await driver.exec('BEGIN IMMEDIATE;');
-      try {
-        await migration.down(driver);
-        await driver.prepare(deleteSql).run(migration.id);
-        await driver.exec('COMMIT;');
-        return true;
-      } catch (err) {
+      if (driver.dialect.name === 'sqlite') {
+        await driver.exec('BEGIN IMMEDIATE;');
         try {
-          await driver.exec('ROLLBACK;');
-        } catch {}
-        throw err;
-      }
-    } else if (typeof driver.transaction === 'function') {
-      await driver.transaction(async (txDriver) => {
-        const tx = txDriver || driver;
-        await migration.down!(tx);
-        await tx.prepare(deleteSql).run(migration.id);
-      });
-      return true;
-    } else {
-      await driver.exec('BEGIN;');
-      try {
-        await migration.down(driver);
-        await driver.prepare(deleteSql).run(migration.id);
-        await driver.exec('COMMIT;');
-        return true;
-      } catch (err) {
+          const existing = await driver
+            .prepare('SELECT id FROM _migrations WHERE id = ?')
+            .get<{ id: string }>(migration.id);
+          const existingRow = existing && typeof (existing as any).then === 'function' ? await existing : existing;
+          if (!existingRow) {
+            await driver.exec('COMMIT;');
+            return false; // Not applied
+          }
+
+          await migration.down(driver);
+          await driver.prepare(deleteSql).run(migration.id);
+          await driver.exec('COMMIT;');
+          return true;
+        } catch (err) {
+          try {
+            await driver.exec('ROLLBACK;');
+          } catch {}
+          throw err;
+        }
+      } else if (typeof driver.transaction === 'function') {
+        return await driver.transaction(async (txDriver) => {
+          const tx = txDriver || driver;
+
+          if (driver.dialect.name === 'postgres') {
+            try {
+              await tx.exec('LOCK TABLE _migrations IN SHARE ROW EXCLUSIVE MODE;');
+            } catch {
+              // ignore if not supported in mock
+            }
+          }
+
+          const existing = await tx
+            .prepare('SELECT id FROM _migrations WHERE id = ?')
+            .get<{ id: string }>(migration.id);
+          const existingRow = existing && typeof (existing as any).then === 'function' ? await existing : existing;
+          if (!existingRow) {
+            return false; // Not applied
+          }
+
+          await migration.down!(tx);
+          await tx.prepare(deleteSql).run(migration.id);
+          return true;
+        });
+      } else {
+        await driver.exec('BEGIN;');
         try {
-          await driver.exec('ROLLBACK;');
-        } catch {}
-        throw err;
+          const existing = await driver
+            .prepare('SELECT id FROM _migrations WHERE id = ?')
+            .get<{ id: string }>(migration.id);
+          const existingRow = existing && typeof (existing as any).then === 'function' ? await existing : existing;
+          if (!existingRow) {
+            await driver.exec('COMMIT;');
+            return false; // Not applied
+          }
+
+          await migration.down(driver);
+          await driver.prepare(deleteSql).run(migration.id);
+          await driver.exec('COMMIT;');
+          return true;
+        } catch (err) {
+          try {
+            await driver.exec('ROLLBACK;');
+          } catch {}
+          throw err;
+        }
       }
+    } finally {
+      releaseLock();
     }
   }
   public static async migrateAllApps(
@@ -377,75 +454,85 @@ export class DatabaseMigrationService {
       });
 
       // Save metadata in target _collections and ensure table within transaction
-      const exists = await targetDriver
-        .prepare('SELECT id FROM _collections WHERE name = ?')
-        .get(col.name);
-
       let targetColumns: Set<string>;
 
-      if (!exists) {
-        const insertCollectionSql = `
-          INSERT INTO _collections (
-            id, name, type, system, schema, indexes, listRule, viewRule,
-            createRule, updateRule, deleteRule, options, created, updated
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `;
-        const insertParams = [
-          col.id,
-          col.name,
-          col.type,
-          col.system ? 1 : 0,
-          typeof col.schema === 'string' ? col.schema : JSON.stringify(col.schema || []),
-          typeof col.indexes === 'string' ? col.indexes : JSON.stringify(col.indexes || []),
-          col.listRule,
-          col.viewRule,
-          col.createRule,
-          col.updateRule,
-          col.deleteRule,
-          typeof col.options === 'string' ? col.options : JSON.stringify(col.options || {}),
-          col.created,
-          col.updated,
-        ];
+      const insertCollectionSql = `
+        INSERT INTO _collections (
+          id, name, type, system, schema, indexes, listRule, viewRule,
+          createRule, updateRule, deleteRule, options, created, updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      const insertParams = [
+        col.id,
+        col.name,
+        col.type,
+        col.system ? 1 : 0,
+        typeof col.schema === 'string' ? col.schema : JSON.stringify(col.schema || []),
+        typeof col.indexes === 'string' ? col.indexes : JSON.stringify(col.indexes || []),
+        col.listRule,
+        col.viewRule,
+        col.createRule,
+        col.updateRule,
+        col.deleteRule,
+        typeof col.options === 'string' ? col.options : JSON.stringify(col.options || {}),
+        col.created,
+        col.updated,
+      ];
 
-        if (targetDriver.dialect.name === 'sqlite') {
-          await targetDriver.exec('BEGIN IMMEDIATE;');
-          try {
-            targetColumns = await DatabaseMigrationService.ensurePhysicalCollectionTable(col, targetDriver);
-            await DatabaseMigrationService.ensureCollectionIndexes(col, targetDriver);
+      if (targetDriver.dialect.name === 'sqlite') {
+        await targetDriver.exec('BEGIN IMMEDIATE;');
+        try {
+          const exists = await targetDriver
+            .prepare('SELECT id FROM _collections WHERE name = ?')
+            .get(col.name);
+
+          targetColumns = await DatabaseMigrationService.ensurePhysicalCollectionTable(col, targetDriver);
+          await DatabaseMigrationService.ensureCollectionIndexes(col, targetDriver);
+
+          if (!exists) {
             await targetDriver.prepare(insertCollectionSql).run(...insertParams);
-            await targetDriver.exec('COMMIT;');
-          } catch (colErr) {
-            try {
-              await targetDriver.exec('ROLLBACK;');
-            } catch {}
-            throw colErr;
           }
-        } else if (typeof targetDriver.transaction === 'function') {
-          targetColumns = await targetDriver.transaction(async (tx) => {
-            const cols = await DatabaseMigrationService.ensurePhysicalCollectionTable(col, tx);
-            await DatabaseMigrationService.ensureCollectionIndexes(col, tx);
-            await tx.prepare(insertCollectionSql).run(...insertParams);
-            return cols;
-          });
-        } else {
-          await targetDriver.exec('BEGIN;');
+          await targetDriver.exec('COMMIT;');
+        } catch (colErr) {
           try {
-            targetColumns = await DatabaseMigrationService.ensurePhysicalCollectionTable(col, targetDriver);
-            await DatabaseMigrationService.ensureCollectionIndexes(col, targetDriver);
-            await targetDriver.prepare(insertCollectionSql).run(...insertParams);
-            await targetDriver.exec('COMMIT;');
-          } catch (colErr) {
-            try {
-              await targetDriver.exec('ROLLBACK;');
-            } catch {}
-            throw colErr;
-          }
+            await targetDriver.exec('ROLLBACK;');
+          } catch {}
+          throw colErr;
         }
+      } else if (typeof targetDriver.transaction === 'function') {
+        targetColumns = await targetDriver.transaction(async (tx) => {
+          const exists = await tx
+            .prepare('SELECT id FROM _collections WHERE name = ?')
+            .get(col.name);
+
+          const cols = await DatabaseMigrationService.ensurePhysicalCollectionTable(col, tx);
+          await DatabaseMigrationService.ensureCollectionIndexes(col, tx);
+
+          if (!exists) {
+            await tx.prepare(insertCollectionSql).run(...insertParams);
+          }
+          return cols;
+        });
       } else {
-        // Ensure physical collection table exists on target
-        targetColumns = await DatabaseMigrationService.ensurePhysicalCollectionTable(col, targetDriver);
-        // Recreate collection indexes on target
-        await DatabaseMigrationService.ensureCollectionIndexes(col, targetDriver);
+        await targetDriver.exec('BEGIN;');
+        try {
+          const exists = await targetDriver
+            .prepare('SELECT id FROM _collections WHERE name = ?')
+            .get(col.name);
+
+          targetColumns = await DatabaseMigrationService.ensurePhysicalCollectionTable(col, targetDriver);
+          await DatabaseMigrationService.ensureCollectionIndexes(col, targetDriver);
+
+          if (!exists) {
+            await targetDriver.prepare(insertCollectionSql).run(...insertParams);
+          }
+          await targetDriver.exec('COMMIT;');
+        } catch (colErr) {
+          try {
+            await targetDriver.exec('ROLLBACK;');
+          } catch {}
+          throw colErr;
+        }
       }
 
       // Clear any pre-existing records on target collection to avoid duplicate or unique key collisions
