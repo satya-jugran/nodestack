@@ -147,21 +147,21 @@ function renderPluginView(item) {
 
   const isStripeLive = item.id === 'stripe' && (item.badge === 'LIVE' || item.badgeVariant === 'danger');
   const liveAlertHtml = isStripeLive ? `
-    <div class="alert alert-danger" style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 8px; padding: 0.75rem 1rem; color: #fca5a5; font-size: 11.5px; display: flex; align-items: flex-start; gap: 0.75rem;">
+    <div class="alert alert-danger" style="background: var(--accent-danger-subtle); border: 1px solid var(--accent-danger); border-radius: 8px; padding: 0.75rem 1rem; color: var(--text-main); font-size: 11.5px; display: flex; align-items: flex-start; gap: 0.75rem;">
       <span style="font-size: 16px; line-height: 1;">🚨</span>
       <div>
-        <strong style="color: #ef4444; font-size: 12px; display: block; margin-bottom: 2px;">CAUTION: LIVE PRODUCTION MODE ACTIVE</strong>
+        <strong style="color: var(--accent-danger); font-size: 12px; display: block; margin-bottom: 2px;">CAUTION: LIVE PRODUCTION MODE ACTIVE</strong>
         This extension is configured with a live Stripe secret key. All checkout and payment operations will debit real payment methods and deduct real currency.
       </div>
     </div>
   ` : '';
 
   const disclaimerHtml = `
-    <div class="plugin-disclaimer-banner" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 0.75rem 1rem; font-size: 11.5px; line-height: 1.45; color: #fcd34d;">
-      <div style="font-weight: 700; display: flex; align-items: center; gap: 6px; margin-bottom: 2px; color: #fbbf24;">
+    <div class="plugin-disclaimer-banner" style="background: var(--accent-warning-subtle); border: 1px solid var(--accent-warning); border-radius: 8px; padding: 0.75rem 1rem; font-size: 11.5px; line-height: 1.45;">
+      <div style="font-weight: 700; display: flex; align-items: center; gap: 6px; margin-bottom: 4px; color: var(--accent-warning);">
         <span>⚠️</span> <span>Third-Party Integration & Credentials Disclaimer</span>
       </div>
-      <div style="color: #cbd5e1; font-size: 11.5px;">
+      <div style="color: var(--text-main); font-size: 11.5px; line-height: 1.5;">
         This extension connects and transmits credentials directly to external third-party services. NodeStack operates solely as an execution harness; you are solely responsible for securing API keys, monitoring quotas, and any external account billing, charges, or data mutations incurred.
       </div>
     </div>

@@ -1040,7 +1040,7 @@
             );
           } catch (err) {
             drawerHistoryState.isLoading = false;
-            historyContainer.innerHTML = '<div class="audit-card" style="color:#fca5a5; padding:1rem;">Failed to load history: ' + escapeHtml(err.message) + '</div>';
+            historyContainer.innerHTML = '<div class="audit-card" style="color:var(--accent-danger); padding:1rem;">Failed to load history: ' + escapeHtml(err.message) + '</div>';
           }
         }
       }

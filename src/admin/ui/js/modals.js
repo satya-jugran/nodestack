@@ -2065,7 +2065,7 @@
                         <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:0.4rem;">Collections included:</div>
                         <div style="display:flex; flex-wrap:wrap; gap:4px;">
                           ${t.collections.map(c => `
-                            <span style="background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px; font-family:var(--font-mono); font-size:11px; color:#cbd5e1;">${c}</span>
+                            <span style="background:var(--bg-input); border:1px solid var(--border-subtle); padding:2px 6px; border-radius:4px; font-family:var(--font-mono); font-size:11px; color:var(--text-main);">${c}</span>
                           `).join('')}
                         </div>
                       </div>
@@ -2188,11 +2188,11 @@
               </div>
 
               ${existingMatches.length > 0 ? `
-                <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 0.75rem 1rem;">
-                  <div style="font-size: 12px; font-weight: 700; color: #f59e0b; margin-bottom: 0.25rem;">
+                <div style="background: var(--accent-warning-subtle); border: 1px solid var(--accent-warning); border-radius: 8px; padding: 0.75rem 1rem;">
+                  <div style="font-size: 12px; font-weight: 700; color: var(--accent-warning); margin-bottom: 0.25rem;">
                     ⚠️ Existing Collections Detected
                   </div>
-                  <div style="font-size: 12px; color: #cbd5e1; line-height: 1.4;">
+                  <div style="font-size: 12px; color: var(--text-main); line-height: 1.4;">
                     The following collection(s) already exist: <strong style="color: var(--text-heading);">${existingMatches.map(m => m.name).join(', ')}</strong>.
                   </div>
                 </div>

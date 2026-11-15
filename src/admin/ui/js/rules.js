@@ -294,10 +294,10 @@
       const summaryText = getRulePresetSummary(r.mode, key);
 
       let badgeHtml = '';
-      if (r.mode === 'admin') badgeHtml = '<span class="badge" style="background:rgba(239,68,68,0.18); color:#fca5a5;">🔒 Admin Only</span>';
-      else if (r.mode === 'public') badgeHtml = '<span class="badge" style="background:rgba(16,185,129,0.18); color:#6ee7b7;">🌐 Public</span>';
-      else if (r.mode === 'auth') badgeHtml = '<span class="badge" style="background:rgba(59,130,246,0.18); color: var(--accent-primary);">👤 Auth Users</span>';
-      else badgeHtml = '<span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24;">⚙ Custom Rule</span>';
+      if (r.mode === 'admin') badgeHtml = '<span class="badge" style="background:var(--accent-danger-subtle); color:var(--accent-danger); font-weight:700;">🔒 Admin Only</span>';
+      else if (r.mode === 'public') badgeHtml = '<span class="badge" style="background:var(--accent-success-subtle); color:var(--accent-success); font-weight:700;">🌐 Public</span>';
+      else if (r.mode === 'auth') badgeHtml = '<span class="badge" style="background:var(--accent-primary-subtle); color:var(--accent-primary); font-weight:700;">👤 Auth Users</span>';
+      else badgeHtml = '<span class="badge" style="background:var(--accent-warning-subtle); color:var(--accent-warning); font-weight:700;">⚙ Custom Rule</span>';
 
       return `
         <div class="rule-card" id="rule-card-${key}">

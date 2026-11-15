@@ -26,20 +26,20 @@ function openPluginTesterDrawer(pluginId) {
 
     formHtml = `
       ${!isStripeConfigured ? `
-        <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; color: #fcd34d; font-size: 11.5px;">
-          <div style="font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+        <div style="background: var(--accent-warning-subtle); border: 1px solid var(--accent-warning); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; font-size: 11.5px;">
+          <div style="font-weight: 700; color: var(--accent-warning); display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
             <span>⚠️</span> <span>Stripe Unconfigured</span>
           </div>
-          <div style="color: #cbd5e1; font-size: 11px;">
+          <div style="color: var(--text-main); font-size: 11px; line-height: 1.45;">
             Stripe Secret Key is not configured yet. Checkout session creation and test calls will fail until you provide a Stripe API key (<code>sk_test_...</code> or <code>sk_live_...</code>) in extension settings.
           </div>
         </div>
       ` : isStripeLive ? `
-        <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; color: #fca5a5; font-size: 11.5px;">
-          <div style="font-weight: 800; color: #ef4444; display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+        <div style="background: var(--accent-danger-subtle); border: 1px solid var(--accent-danger); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; font-size: 11.5px;">
+          <div style="font-weight: 800; color: var(--accent-danger); display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
             <span>🚨</span> <span>LIVE PRODUCTION MODE ACTIVE</span>
           </div>
-          <div>Live Stripe Secret Key (<code>sk_live_...</code>) is configured. Creating checkout sessions will initiate REAL credit card transactions and monetary deductions!</div>
+          <div style="color: var(--text-main); line-height: 1.45;">Live Stripe Secret Key (<code>sk_live_...</code>) is configured. Creating checkout sessions will initiate REAL credit card transactions and monetary deductions!</div>
         </div>
       ` : `
         <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.85rem; color: var(--accent-primary); font-size: 11px;">
@@ -83,11 +83,11 @@ function openPluginTesterDrawer(pluginId) {
     const isS3Configured = s3NavItem && s3NavItem.badge !== 'UNCONFIGURED' && !s3NavItem.view?.description?.includes('Unconfigured');
     formHtml = `
       ${!isS3Configured ? `
-        <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; color: #fcd34d; font-size: 11.5px;">
-          <div style="font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+        <div style="background: var(--accent-warning-subtle); border: 1px solid var(--accent-warning); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; font-size: 11.5px;">
+          <div style="font-weight: 700; color: var(--accent-warning); display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
             <span>⚠️</span> <span>S3 Cloud Storage Unconfigured</span>
           </div>
-          <div style="color: #cbd5e1; font-size: 11px;">
+          <div style="color: var(--text-main); font-size: 11px; line-height: 1.45;">
             No S3 bucket has been configured yet. URL presigning and bucket connectivity tests will fail until you specify a bucket name in extension settings or environment variables.
           </div>
         </div>
@@ -169,11 +169,11 @@ function openPluginTesterDrawer(pluginId) {
       : '<option value="users">users</option>';
     formHtml = `
       ${!isAlgoliaConfigured ? `
-        <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; color: #fcd34d; font-size: 11.5px;">
-          <div style="font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+        <div style="background: var(--accent-warning-subtle); border: 1px solid var(--accent-warning); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; font-size: 11.5px;">
+          <div style="font-weight: 700; color: var(--accent-warning); display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
             <span>⚠️</span> <span>Algolia Search Unconfigured</span>
           </div>
-          <div style="color: #cbd5e1; font-size: 11px;">
+          <div style="color: var(--text-main); font-size: 11px; line-height: 1.45;">
             No Algolia Application ID or Admin API Key configured. Index synchronization and queue processing will fail until credentials are configured in extension settings or environment variables.
           </div>
         </div>
@@ -266,11 +266,11 @@ function openPluginTesterDrawer(pluginId) {
       </div>
 
       <div class="drawer-body">
-        <div class="plugin-disclaimer-banner" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; font-size: 11.5px; line-height: 1.45; color: #fcd34d;">
-          <div style="font-weight: 700; display: flex; align-items: center; gap: 5px; margin-bottom: 2px; color: #fbbf24;">
+        <div class="plugin-disclaimer-banner" style="background: var(--accent-warning-subtle); border: 1px solid var(--accent-warning); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; font-size: 11.5px; line-height: 1.45;">
+          <div style="font-weight: 700; display: flex; align-items: center; gap: 5px; margin-bottom: 4px; color: var(--accent-warning);">
             <span>⚠️</span> <span>External Service Disclaimer</span>
           </div>
-          <div style="color: #cbd5e1; font-size: 11px;">
+          <div style="color: var(--text-main); font-size: 11px; line-height: 1.45;">
             Actions executed here communicate directly with your configured external service provider. Live operations, resource usage, or data changes may occur. You are solely responsible for all actions triggered and any external fees or modifications incurred.
           </div>
         </div>

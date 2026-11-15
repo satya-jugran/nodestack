@@ -136,7 +136,7 @@ function renderSnapshotsView() {
             ${statusBadge}
           </div>
           <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-            Captured on <strong style="color: #cbd5e1;">${snapTime}</strong> • ${activeSnap.totalRecords} records across ${activeSnap.totalCollections} collections
+            Captured on <strong style="color: var(--text-heading);">${snapTime}</strong> • ${activeSnap.totalRecords} records across ${activeSnap.totalCollections} collections
           </div>
         </div>
 
@@ -182,17 +182,17 @@ function renderSnapshotsView() {
                     <code style="font-size:10.5px; color:var(--text-muted); background:var(--bg-input); padding:2px 6px; border-radius:4px; font-family:var(--font-mono);">${snap.id}</code>
                   </div>
                   <div style="font-size:12px; color:var(--text-muted); margin-top:3px;">
-                    ${snap.description ? `${snap.description} • ` : ''}Created on <strong style="color:#cbd5e1;">${snapTime}</strong>
+                    ${snap.description ? `${snap.description} • ` : ''}Created on <strong style="color:var(--text-heading);">${snapTime}</strong>
                   </div>
 
                   <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; font-size:11.5px; color:var(--text-muted);">
-                    <span><strong style="color:#60a5fa;">${snap.totalRecords}</strong> records</span>
+                    <span><strong style="color:var(--accent-primary);">${snap.totalRecords}</strong> records</span>
                     <span style="opacity:0.35;">•</span>
                     <span><strong style="color: var(--text-heading);">${snap.totalCollections}</strong> collections</span>
                     <span style="opacity:0.35;">•</span>
-                    <span><strong style="color:#cbd5e1;">${snap.totalFiles}</strong> files (${storageKb} KB)</span>
+                    <span><strong style="color:var(--text-heading);">${snap.totalFiles}</strong> files (${storageKb} KB)</span>
                     <span style="opacity:0.35;">•</span>
-                    <span><strong style="color:#cbd5e1;">${dbKb} KB</strong> SQLite</span>
+                    <span><strong style="color:var(--text-heading);">${dbKb} KB</strong> SQLite</span>
                   </div>
                 </div>
 
@@ -239,13 +239,13 @@ function renderSnapshotsView() {
           </div>
         </div>
         <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.85rem 1rem;">
-          <div style="font-size: 12px; font-weight: 700; color: #34d399; margin-bottom: 4px;">2. Non-Destructive Restore</div>
+          <div style="font-size: 12px; font-weight: 700; color: var(--accent-success); margin-bottom: 4px;">2. Non-Destructive Restore</div>
           <div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
             Restoring an earlier snapshot never destroys newer checkpoints. Jump backward and forward freely across your history.
           </div>
         </div>
         <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.85rem 1rem;">
-          <div style="font-size: 12px; font-weight: 700; color: #fbbf24; margin-bottom: 4px;">3. 10-Snapshot Rolling Cap</div>
+          <div style="font-size: 12px; font-weight: 700; color: var(--accent-warning); margin-bottom: 4px;">3. 10-Snapshot Rolling Cap</div>
           <div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
             Stores up to 10 snapshots. If the limit is reached, you are prompted with a confirmation before the oldest snapshot is purged.
           </div>
@@ -378,7 +378,7 @@ function openCreateSnapshotModal() {
         <div style="font-size:13px; font-weight:700; color:var(--accent-danger); margin-bottom:4px;">
           Snapshot Capacity Limit Reached (${total} / ${maxLimit})
         </div>
-        <div style="font-size:12px; color:#cbd5e1; line-height:1.4;">
+        <div style="font-size:12px; color:var(--text-main); line-height:1.4;">
           Taking this new snapshot will <strong>permanently delete the oldest snapshot</strong>:
         </div>
         <div style="margin-top:6px; background:rgba(0,0,0,0.25); border:1px solid rgba(239, 68, 68, 0.2); border-radius:6px; padding:6px 10px; font-size:11.5px;">
@@ -479,14 +479,14 @@ function openEvictionConfirmationModal(name, description, oldest) {
       <div class="modal" style="max-width:460px;">
         <div class="modal-header" style="border-bottom-color:rgba(239, 68, 68, 0.3);">
           <div>
-            <h2 class="modal-title" style="font-size:16px; color:#f87171;">Snapshot Limit Reached</h2>
+            <h2 class="modal-title" style="font-size:16px; color:var(--accent-danger);">Snapshot Limit Reached</h2>
             <span style="font-size:11px; color:var(--text-muted);">Maximum 10 snapshots allowed</span>
           </div>
           <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
         </div>
 
         <div class="modal-body" style="display:flex; flex-direction:column; gap:1rem;">
-          <p style="font-size:13px; color:#cbd5e1; margin:0; line-height:1.5;">
+          <p style="font-size:13px; color:var(--text-main); margin:0; line-height:1.5;">
             You have already reached the maximum storage capacity of <strong>10 snapshots</strong>.
             Creating <strong>'${name}'</strong> will permanently evict and delete your oldest snapshot:
           </p>
@@ -557,7 +557,7 @@ function openRestoreSnapshotModal(snapshotId) {
       <div class="modal" style="max-width:480px;">
         <div class="modal-header" style="border-bottom-color:rgba(245, 158, 11, 0.25);">
           <div>
-            <h2 class="modal-title" style="font-size:16px; color:#fbbf24;">Restore Application Snapshot</h2>
+            <h2 class="modal-title" style="font-size:16px; color:var(--accent-warning);">Restore Application Snapshot</h2>
             <span style="font-size:11px; color:var(--text-muted);">Safe non-destructive restoration</span>
           </div>
           <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>

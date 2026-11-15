@@ -95,11 +95,11 @@ function renderQueuesView() {
         </div>
         <div class="webhook-stat-card">
           <span class="webhook-stat-label">Queued / Pending</span>
-          <div class="webhook-stat-value" style="color: #60a5fa;" id="q-stat-queued">0</div>
+          <div class="webhook-stat-value" style="color: var(--accent-primary);" id="q-stat-queued">0</div>
         </div>
         <div class="webhook-stat-card">
           <span class="webhook-stat-label">Processing (Active)</span>
-          <div class="webhook-stat-value" style="color: #fbbf24;" id="q-stat-processing">0</div>
+          <div class="webhook-stat-value" style="color: var(--accent-warning);" id="q-stat-processing">0</div>
         </div>
         <div class="webhook-stat-card">
           <span class="webhook-stat-label">Completed Messages</span>
@@ -359,7 +359,7 @@ async function loadQueuesList() {
                         Messages
                       </button>
                       ${(qDlq > 0 || (isDlqTarget && (s.queued || 0) > 0)) ? `
-                        <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="handleRetryQueueDlq(this.getAttribute('data-name'))" title="${isDlqTarget ? 'Replay Forwarded DLQ Messages to Original Queue' : 'Retry Dead-Letter Messages'}" style="padding: 3px 8px; font-size: 11px; color: #fbbf24;">
+                        <button class="btn btn-secondary btn-sm" data-name="${escapeHtml(q.name)}" onclick="handleRetryQueueDlq(this.getAttribute('data-name'))" title="${isDlqTarget ? 'Replay Forwarded DLQ Messages to Original Queue' : 'Retry Dead-Letter Messages'}" style="padding: 3px 8px; font-size: 11px; color: var(--accent-warning);">
                           ↻ DLQ
                         </button>
                       ` : ''}
@@ -1273,7 +1273,7 @@ async function openQueueMessageDetailDrawer(messageId) {
                 ${(msg.forwardedToMessageId || msg.forwardedToJobId) ? `
                   <div>
                     <span style="font-size:10px; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Forwarded DLQ ID</span>
-                    <span style="font-family: var(--font-mono); font-size:11px; color:#fbbf24;">${escapeHtml(msg.forwardedToMessageId || msg.forwardedToJobId)}</span>
+                    <span style="font-family: var(--font-mono); font-size:11px; color:var(--accent-warning);">${escapeHtml(msg.forwardedToMessageId || msg.forwardedToJobId)}</span>
                   </div>
                 ` : ''}
                 ${isForwardedDlq ? `
@@ -1287,8 +1287,8 @@ async function openQueueMessageDetailDrawer(messageId) {
           </div>
 
           ${isForwardedDlq ? `
-            <div style="background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-radius:6px; padding:10px 14px; font-size:12px; color: #fbbf24; margin-top: 10px;">
-              <strong>Forwarded DLQ Message:</strong> This message was forwarded from queue <strong>${escapeHtml(origQueue || '--')}</strong> (Original ID: <code>${escapeHtml(origId || '--')}</code>).
+            <div style="background:var(--accent-warning-subtle); border:1px solid var(--accent-warning); border-radius:6px; padding:10px 14px; font-size:12px; color: var(--text-main); margin-top: 10px; line-height: 1.45;">
+              <strong style="color: var(--accent-warning);">Forwarded DLQ Message:</strong> This message was forwarded from queue <strong>${escapeHtml(origQueue || '--')}</strong> (Original ID: <code>${escapeHtml(origId || '--')}</code>).
               ${msg.payload && msg.payload.error ? `<div style="margin-top: 4px; color: var(--accent-danger);"><strong>Failure Reason:</strong> ${escapeHtml(msg.payload.error)}</div>` : ''}
             </div>
           ` : ''}

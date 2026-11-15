@@ -408,11 +408,11 @@ function promptDeleteApp(slug, name) {
           <button type="button" class="btn btn-secondary btn-sm" onclick="closeDeleteAppModal()">✕</button>
         </div>
         <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
-          <p style="font-size: 13px; color: #cbd5e1; line-height: 1.5; margin: 0;">
-            Are you sure you want to permanently delete application <strong style="color: var(--text-heading); font-family: var(--font-mono);">${escapeHtml(name)}</strong> (<code style="font-size: 12px; color: var(--accent-primary, #6366f1);">${escapeHtml(slug)}</code>)?
+          <p style="font-size: 13px; color: var(--text-main); line-height: 1.5; margin: 0;">
+            Are you sure you want to permanently delete application <strong style="color: var(--text-heading); font-family: var(--font-mono);">${escapeHtml(name)}</strong> (<code style="font-size: 12px; color: var(--accent-primary);">${escapeHtml(slug)}</code>)?
           </p>
-          <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; padding: 0.75rem; font-size: 12px; color: #fca5a5; line-height: 1.4;">
-            This will permanently delete its SQLite database, files in storage, and schema collections. This action cannot be undone.
+          <div style="background: var(--accent-danger-subtle); border: 1px solid var(--accent-danger); border-radius: 6px; padding: 0.75rem; font-size: 12px; color: var(--text-main); line-height: 1.45;">
+            <strong style="color: var(--accent-danger);">Warning:</strong> This will permanently delete its SQLite database, files in storage, and schema collections. This action cannot be undone.
           </div>
         </div>
         <div class="modal-footer" style="padding: 0.75rem 1.25rem;">
