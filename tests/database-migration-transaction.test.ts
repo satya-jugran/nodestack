@@ -429,4 +429,83 @@ describe('DatabaseMigrationService - Migration Transaction Safety', () => {
     const records = await driver.prepare("SELECT * FROM _migrations WHERE id = '20261115_concurrent_race_test'").all();
     expect(records).toHaveLength(1);
   });
+
+  it('should safely serialize concurrent rollbackMigration calls and skip second caller without double-invoking down', async () => {
+    let downCallCount = 0;
+
+    const migration: Migration = {
+      id: '20261115_concurrent_rollback_test',
+      name: 'concurrent_rollback',
+      up: async (db) => {
+        await db.exec('CREATE TABLE concurrent_rollback_table (id TEXT PRIMARY KEY);');
+      },
+      down: async (db) => {
+        downCallCount++;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        await db.exec('DROP TABLE concurrent_rollback_table;');
+      },
+    };
+
+    await DatabaseMigrationService.runMigration(driver, migration);
+    expect(await driver.prepare("SELECT name FROM sqlite_master WHERE name = 'concurrent_rollback_table'").get()).toBeDefined();
+
+    // Concurrent rollback calls
+    const [res1, res2] = await Promise.all([
+      DatabaseMigrationService.rollbackMigration(driver, migration),
+      DatabaseMigrationService.rollbackMigration(driver, migration),
+    ]);
+
+    // Exactly one should perform the rollback (true), the second should observe unapplied row and return false
+    expect([res1, res2].filter(Boolean)).toHaveLength(1);
+    expect(downCallCount).toBe(1);
+
+    // Table dropped
+    expect(await driver.prepare("SELECT name FROM sqlite_master WHERE name = 'concurrent_rollback_table'").get()).toBeUndefined();
+    // Record deleted
+    expect(await driver.prepare("SELECT id FROM _migrations WHERE id = '20261115_concurrent_rollback_test'").get()).toBeUndefined();
+  });
+
+  it('should check existence inside primary transaction during PostgreSQL rollbackMigration', async () => {
+    const executed: string[] = [];
+    let released = false;
+
+    const mockClient = {
+      query: async (sql: string, params?: any[]) => {
+        executed.push(sql);
+        if (sql.includes('SELECT id FROM _migrations') || sql.includes('SELECT id FROM "_migrations"')) {
+          // Verify that this query was executed after BEGIN; on this primary connection
+          expect(executed).toContain('BEGIN;');
+          return { rows: [{ id: '20261115_pg_rollback_test' }] };
+        }
+        return { rows: [] };
+      },
+      release: () => {
+        released = true;
+      },
+    };
+
+    const mockPool = {
+      connect: async () => mockClient,
+      query: async (sql: string) => mockClient.query(sql),
+      end: async () => {},
+    };
+
+    const pgDriver = new PostgresDriver({ pool: mockPool as any, schemaName: 'public' });
+
+    let downExecuted = false;
+    const migration: Migration = {
+      id: '20261115_pg_rollback_test',
+      down: async (db) => {
+        downExecuted = true;
+        await db.exec('DROP TABLE pg_rollback_table;');
+      },
+    };
+
+    const res = await DatabaseMigrationService.rollbackMigration(pgDriver, migration);
+    expect(res).toBe(true);
+    expect(downExecuted).toBe(true);
+    expect(executed).toContain('BEGIN;');
+    expect(executed).toContain('COMMIT;');
+    expect(released).toBe(true);
+  });
 });
