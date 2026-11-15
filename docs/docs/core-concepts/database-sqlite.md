@@ -1,30 +1,69 @@
 ---
 sidebar_position: 2
 id: database-sqlite
-title: Embedded SQLite Database
-description: Zero-compilation embedded SQLite powered natively by Node.js
+title: Database Engines & Multi-Database Architecture
+description: Zero-compilation embedded SQLite, PostgreSQL, and Microsoft SQL Server with live migrations
 ---
 
-️ Embedded SQLite Database
+# 🗄️ Database Engines & Multi-Database Architecture
 
-NodeStack runs on SQLite powered natively by Node.js (`node:sqlite`).
+NodeStack runs on embedded **SQLite** by default (powered natively by Node.js `node:sqlite`), and in **v2.5.0** introduces first-class multi-database architecture supporting **PostgreSQL** and **Microsoft SQL Server (MSSQL)**.
 
 ---
 
-## Why Native `node:sqlite`?
+## Supported Database Engines
+
+| Provider | Engine Type | Use Cases | Snapshots Supported |
+| :--- | :--- | :--- | :--- |
+| `sqlite` (Default) | Embedded (`node:sqlite`) | Local development, edge deployments, single-VPS hosting | ✅ Atomic Checkpoints |
+| `postgres` | Remote client (`pg`) | High-concurrency production, distributed services, cloud RDS | Managed cloud backups |
+| `mssql` | Remote client (`mssql`) | Enterprise Microsoft infrastructure, Azure SQL | Managed cloud backups |
+
+---
+
+## Why Native `node:sqlite` by Default?
 
 Traditional Node.js SQLite drivers (such as `better-sqlite3` or `sqlite3`) require `node-gyp`, Python, and a C++ compiler installed on the host machine. This frequently causes build failures in Docker, minimal Alpine images, and Windows environments.
 
 NodeStack leverages Node's native embedded SQLite module:
 * **Zero Compilation**: No C++ build tools or native binaries needed.
 * **Instant Start**: Boots in milliseconds.
-* **Zero External Services**: No PostgreSQL or MySQL servers to manage, connect, or maintain.
+* **Zero External Services**: No external database servers to manage or configure for initial development.
 
 ---
 
-## Performance & WAL Mode
+## PostgreSQL & MSSQL Support (v2.5.0)
 
-NodeStack configures SQLite for high-throughput concurrent workloads:
+For production scale and enterprise environments, NodeStack allows switching database engines per tenant/app scope:
+
+* **Dialect Abstraction**: Specialized dialect engines (`ISqlDialect`, `SqliteDialect`, `PostgresDialect`, `MssqlDialect`) handle query rendering, camelCase identifier quoting, boolean record normalization, and upserts.
+* **Multi-Engine Full-Text Search**: Seamless BM25 FTS across engines using `SqliteFts5Driver`, `PostgresFtsDriver` (`tsvector`), and `MssqlFtsDriver` (`CONTAINSTABLE`).
+* **Dual Queue Execution**: Synchronous queue processing for SQLite (`SyncQueueEngine`) and asynchronous execution for remote pools (`AsyncQueueEngine`).
+* **Strict SSL Verification**: PostgreSQL connections support strict CA certificate validation for secure cloud database hosting.
+
+---
+
+## Live Engine Migration & CLI
+
+You can inspect, test, configure, and switch database providers directly via the Admin UI (**Database** view) or using the NodeStack CLI:
+
+```bash
+# Check current database status and latency
+nodestack db status
+
+# Test connection to a remote PostgreSQL or MSSQL database
+nodestack db test postgres "postgres://user:pass@db.example.com:5432/myapp?ssl=true"
+nodestack db test mssql "mssql://user:pass@db.example.com:1433/myapp"
+
+# Switch provider with live schema & data migration
+nodestack db switch postgres "postgres://user:pass@db.example.com:5432/myapp?ssl=true" --migrate --confirm migrate
+```
+
+---
+
+## Performance & WAL Mode (SQLite)
+
+When running on SQLite, NodeStack configures SQLite for high-throughput concurrent workloads:
 
 * **WAL Mode (Write-Ahead Logging)**:
   ```sql
@@ -46,9 +85,9 @@ NodeStack configures SQLite for high-throughput concurrent workloads:
 
 ---
 
-## File Layout
+## File Layout (SQLite)
 
-All database assets live in your configured `dataDir`:
+When using SQLite, database files live in your configured `dataDir`:
 
 ```
 nodestack_data/

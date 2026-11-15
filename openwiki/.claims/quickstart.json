@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:233f76af961a48682bb21a09cfc13b7de54e73dbd23b46bb49870e3a1fe8679e",
+  "pageVersion": "sha256:f40e2544d12f66c6e04ff73a35cbb33f53d5cfba95d4795d7c48d1cef57db596",
   "claims": [
     {
       "id": "claim_e0a4841e457a4b0cbe35115f2034eb88",
-      "statement": "The nodestack CLI (src/cli/cli.ts) provides start (alias serve), superuser (create, reset-password), typegen, openapi, mock, import-json, template, collection, and snapshots commands.",
+      "statement": "The nodestack CLI (src/cli/cli.ts) provides start (alias serve), superuser (create, reset-password), typegen, openapi, mock, import-json, template, collection, snapshots, and db (status, test, configure, switch) commands.",
       "evidence": [
         {
           "resource": "repo://package.json",
-          "version": "repo-file-v1:sha256:66ef3fe32ae00db2f5f43868773bf33ba9ae8db01dbb655fe88c2213e24b6b6a"
+          "version": "repo-file-v1:sha256:15f07f34c6bf009275dea7c162c422a924da5a12ccf81b4cf0cc60ef929fa4f8"
         },
         {
           "resource": "repo://src/cli/cli.ts",
-          "version": "repo-file-v1:sha256:53a5046aaf0f4038c4c728842341e48e042dd8038afdedf1bbb6e285ce6c9d97"
+          "version": "repo-file-v1:sha256:3ef9372085f7a9e14abdbe9838f28282975996887d6557bae18ca2612c6089e9"
         }
       ]
     },
@@ -22,11 +22,11 @@
       "evidence": [
         {
           "resource": "repo://src/NodeStack.ts",
-          "version": "repo-file-v1:sha256:d592d7afab62d8c08285228d8a85e878904c216b6c3fd89586b37343a813f3cf"
+          "version": "repo-file-v1:sha256:c1f5659bcb80e80ab24f9e902dd097ddba16756d98fcb80688ad69705ea0be1d"
         },
         {
           "resource": "repo://src/index.ts",
-          "version": "repo-file-v1:sha256:83c1258b0ac1e112ddf48b9d91e6c05e9e2c36cc2a9cfe8d688c69b0213fdba6"
+          "version": "repo-file-v1:sha256:8a3b6f939f05c209a5ab7e9b40d209edcdeb38af78fef89e4cdeb19c4218a8b9"
         },
         {
           "resource": "repo://tests/nodestack.test.ts",
@@ -40,11 +40,11 @@
       "evidence": [
         {
           "resource": "repo://src/cli/cli.ts",
-          "version": "repo-file-v1:sha256:53a5046aaf0f4038c4c728842341e48e042dd8038afdedf1bbb6e285ce6c9d97"
+          "version": "repo-file-v1:sha256:3ef9372085f7a9e14abdbe9838f28282975996887d6557bae18ca2612c6089e9"
         },
         {
           "resource": "repo://src/core/config/ConfigService.ts",
-          "version": "repo-file-v1:sha256:dccd3d8eea96af42a85122c4d9ef38543053f2b34e2c19d618a38844b9e47eba"
+          "version": "repo-file-v1:sha256:26972d2cb3b2886a6c5c486cd589585ade40ce4508bab1e76d520bd6823369a2"
         },
         {
           "resource": "repo://src/core/config/EnvLoader.ts",
@@ -58,7 +58,7 @@
       "evidence": [
         {
           "resource": "repo://package.json",
-          "version": "repo-file-v1:sha256:66ef3fe32ae00db2f5f43868773bf33ba9ae8db01dbb655fe88c2213e24b6b6a"
+          "version": "repo-file-v1:sha256:15f07f34c6bf009275dea7c162c422a924da5a12ccf81b4cf0cc60ef929fa4f8"
         },
         {
           "resource": "repo://src/cli/sea-entry.ts",
@@ -69,6 +69,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-08T15:20:09.692Z"
+    "at": "2026-11-15T09:01:29.660Z"
   }
 }

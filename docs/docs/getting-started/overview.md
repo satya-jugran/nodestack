@@ -24,16 +24,17 @@ Building modern web and mobile apps often requires juggling separate database en
 
 NodeStack packages this entire backend architecture into a **single Node.js process**:
 
+- **Multi-Database Support (v2.5.0)**: Native engine support for **PostgreSQL**, **Microsoft SQL Server**, and embedded **SQLite**, with zero-downtime live migrations, dynamic driver switching, per-schema storage tracking, and dual sync/async queue execution.
 - **Embedded SQLite with Zero Native Compilation**: Powered directly by Node.js (`node:sqlite`). No Python, C++ compilers, or external database daemon installations required.
-- **Multi-Application Platform**: Host multiple completely isolated application tenants within a single process—with separate SQLite databases, file storage directories, auth collections, and realtime SSE buses.
+- **Multi-Application Platform**: Host multiple completely isolated application tenants within a single process—with separate database schemas, file storage directories, auth collections, and realtime SSE buses.
 - **Instant REST CRUD & Server-Sent Events (SSE)**: Immediately exposes JSON endpoints and realtime change event streams for every collection.
 - **Embedded Web Admin Dashboard**: A responsive dashboard served directly from `http://localhost:8090/_/` without needing an external web server.
 - **Application Snapshots & Checkpoints**: Atomic transactional state checkpoints, non-destructive rollbacks, and live schema drift detection.
 - **Themed Admin Portal**: Instant runtime switching between System, Light, and Dark modes with zero-flicker loading.
-- **Native SQLite FTS5 Full-Text Search**: High-performance BM25 relevance ranking, keyword prefix matching, and contextual snippet highlighting.
+- **Native Full-Text Search (FTS)**: Multi-engine BM25 relevance ranking and snippet highlights supporting SQLite FTS5, PostgreSQL `to_tsvector`, and MSSQL `CONTAINSTABLE`.
 - **Embedded Serverless Functions**: Run isolated JavaScript/TypeScript lambdas in WebAssembly with sub-millisecond cold starts, Anti-SSRF network firewalls, direct HTTP routes, database lifecycle hooks, and a dedicated CodeMirror IDE workbench.
 - **Serverless Function Flows**: In-engine visual state machine workflow orchestration with drag-and-drop designer, declarative Code DSL, 9 state types, database lifecycle triggers, flow concurrency throttling, and referential integrity protection.
-- **NodeStack Queues Subsystem (v2.4.0)**: Transactional SQLite-backed message queuing with atomic claiming, configurable retries, Dead-Letter Queues (DLQ), strict partition FIFO ordering, serverless function binding, and dedicated Admin UI queues manager.
+- **NodeStack Queues Subsystem**: Transactional message queuing with atomic claiming, configurable retries, Dead-Letter Queues (DLQ), strict partition FIFO ordering, serverless function binding, and dual Sync/Async queue engines.
 - **Outbound Webhooks Subsystem**: Trigger-based HTTP dispatch with HMAC-SHA256 signature verification and automated retries.
 - **Immutable Audit Logging**: Field-level `{ old, new }` diff computation, actor attribution, sensitive field masking, and visual record timeline.
 - **Built-in Authentication & File Storage**: JWT tokens, bcrypt password hashing, auth collections (`users`), and multipart file uploads with MIME validation.
@@ -67,9 +68,10 @@ graph TD
             StorageService["File Storage Engine"]
             FunctionService["Serverless Functions Engine (QuickJS-Wasm)"]
             RealtimeHub["SSE Realtime Hub"]
+            QueueEngine["Dual Queue Engine (Sync / Async)"]
         end
 
-        SqliteDriver["Embedded SQLite (node:sqlite)"]
+        DbDriver["Multi-Database Driver (SQLite / PostgreSQL / MSSQL)"]
     end
 
     Client -->|HTTP / SSE| Fastify
@@ -85,7 +87,7 @@ graph TD
     Router --> FunctionService
     RecordService --> FunctionService
     RecordService --> RealtimeHub
-    RecordService --> SqliteDriver
+    RecordService --> DbDriver
 ```
 
 ### Storage on Disk

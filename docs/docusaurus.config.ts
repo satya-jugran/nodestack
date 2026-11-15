@@ -89,7 +89,7 @@ const config: Config = {
         {
           type: 'html',
           position: 'right',
-          value: '<span class="badge badge--info" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 9999px;">v2.4.0</span>',
+          value: '<span class="badge badge--info" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 9999px;">v2.5.0</span>',
         },
         {
           href: 'https://github.com/satya-jugran/nodestack',
@@ -117,8 +117,8 @@ const config: Config = {
               to: '/functions/overview',
             },
             {
-              label: 'Function Flows & Queues (v2.4.0)',
-              to: '/flows/overview',
+              label: 'Multi-Database Engine (v2.5.0)',
+              to: '/core-concepts/database-sqlite',
             },
             {
               label: 'Multi-Application Platform',
@@ -133,8 +133,8 @@ const config: Config = {
               to: '/core-concepts/fts5-search',
             },
             {
-              label: 'Outbound Webhooks',
-              to: '/webhooks/outbound-webhooks',
+              label: 'Flows & Queues',
+              to: '/flows/overview',
             },
           ],
         },

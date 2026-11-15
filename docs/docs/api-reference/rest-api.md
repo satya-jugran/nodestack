@@ -168,3 +168,11 @@ GET /_/openapi.json
 | `POST` | `/api/snapshots/clear` | Delete all snapshots for the active application (Superuser). |
 | `GET` | `/api/snapshots/status` | Retrieve snapshot count, 10-snapshot limit, and capacity warnings (Superuser). |
 | Any | `/api/apps/:appId/snapshots/*` | Route any snapshot operation to a specific application tenant. |
+
+### Database Engine & Management (v2.5.0)
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/system/database/status` | Retrieve active database engine, connection health, and latency (Superuser). |
+| `GET` | `/api/system/database/migration-progress` | Check real-time progress for active database migration and cutover (Superuser). |
+| `POST` | `/api/system/database/test` | Test connectivity to a target SQLite, PostgreSQL, or MSSQL database (Superuser). |
+| `POST` | `/api/system/database/switch` | Switch active database engine with optional live schema and data migration (Superuser). |

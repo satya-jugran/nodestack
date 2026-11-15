@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:4a4e21b66b8071b0dadea3b8c72dee6d66d53c3fc1a24413a4041fe40d9af8e8",
+  "pageVersion": "sha256:33aa8ad8f1794b0d158aa8cacb982c70af8360eae222a22e02129aeee166b390",
   "claims": [
     {
       "id": "claim_d8170633bd4a4cb798aa45ef105ae15f",
@@ -8,7 +8,7 @@
       "evidence": [
         {
           "resource": "repo://src/files/FileStorageService.ts",
-          "version": "repo-file-v1:sha256:a3513a4bb435635c40b62de9dffc2ae522e905d76d347a851785f5f3e46cae83"
+          "version": "repo-file-v1:sha256:26e741a4b62d6120e6562e60f7257d80016bcd86aac917089c30134955f38af8"
         }
       ]
     },
@@ -18,7 +18,7 @@
       "evidence": [
         {
           "resource": "repo://src/realtime/RealtimeService.ts",
-          "version": "repo-file-v1:sha256:b7e463f51114bb87770730ebc747a55b79f8107862cdc8df40cbac646691d73e"
+          "version": "repo-file-v1:sha256:2179b93c2d824185404ebc1e205d5c94fdc399f903c6885a36beea93f1e49fee"
         }
       ]
     },
@@ -28,7 +28,7 @@
       "evidence": [
         {
           "resource": "repo://src/webhooks/WebhookService.ts",
-          "version": "repo-file-v1:sha256:f3e9cede0ba902b53373efc8f369f4a21205a26f8e721fccb03ba03f5713629b"
+          "version": "repo-file-v1:sha256:e627a64cc283134622d7766068cf022d577177c3fdc0275ca12692098615b58c"
         }
       ]
     },
@@ -38,7 +38,7 @@
       "evidence": [
         {
           "resource": "repo://src/snapshots/SnapshotService.ts",
-          "version": "repo-file-v1:sha256:dd11706ac2c6ce88be9630fd461feceb8cb184ef75202f3dbf0bc39049325d5c"
+          "version": "repo-file-v1:sha256:f2dad02ed0198cc1cea798b3f4ac92e8772cb4e6a91d0fe10d70f4940d15167c"
         }
       ]
     },
@@ -58,7 +58,7 @@
       "evidence": [
         {
           "resource": "repo://src/analytics/AnalyticsService.ts",
-          "version": "repo-file-v1:sha256:171a98de2c15143a2f7a2db29eab6a46ecd265a4c45d80a154dd34d96221c3e9"
+          "version": "repo-file-v1:sha256:4a80b963bb2d8e27dc817b790efb47fca66af9e36e9179cf05dda94456e900a5"
         },
         {
           "resource": "repo://src/logger/LogService.ts",
@@ -69,6 +69,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-08T15:20:09.692Z"
+    "at": "2026-11-15T09:01:29.660Z"
   }
 }

@@ -4,7 +4,7 @@ title: "Plugins, Starter Templates & Client SDK"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-08T15:20:09.692Z
+    at: 2026-11-15T09:01:29.660Z
 sources:
   - id: openwiki-source-986c92d89ee5ef388488c0d6
     resource: repo://packages/client/src/auth/BaseAuthStore.ts

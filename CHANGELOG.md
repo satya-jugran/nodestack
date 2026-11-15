@@ -7,6 +7,110 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.5.0] - 2026-11-15
+
+Release v2.5.0 introduces **Native Multi-Database Support**—expanding NodeStack beyond SQLite to include first-class support for **PostgreSQL** and **Microsoft SQL Server (MSSQL)** with dynamic driver hot-swapping, zero-downtime live migrations, multi-engine Full-Text Search (FTS), and dual synchronous/asynchronous background queue engines; adds a dedicated **Admin UI Database Manager** and `nodestack db` CLI commands; delivers an extensive **Security Hardening Overhaul** addressing initial setup authorization, tenant privilege escalation, API key HMAC-SHA256 hashing, granular API key scopes, cryptographically validated OAuth state sessions with SSRF protection, wildcard CORS credential reflection mitigation, PostgreSQL SSL certificate enforcement, and realtime SSE subscriber privacy; and wraps all schema migrations in atomic database transactions with concurrency race condition prevention.
+
+### Added
+
+#### 1. Multi-Database Architecture (PostgreSQL, MSSQL, SQLite)
+* **Unified Dialect Engine (`ISqlDialect`, `DriverRegistry`)**:
+  * Implemented an extensible SQL dialect architecture with `SqliteDialect`, `PostgresDialect`, and `MssqlDialect` handling engine-specific query rendering, camelCase identifier quoting, boolean record normalization, and upsert semantics.
+  * Added optional peer dependencies for `pg` (^8.11.0) and `mssql` (^10.0.0 || ^11.0.0 || ^12.0.0).
+  * Maintained control plane system tables on embedded SQLite while allowing independent, per-tenant data store routing to PostgreSQL and MSSQL.
+* **Multi-Engine Full-Text Search (FTS)**:
+  * Implemented dedicated FTS drivers: `SqliteFts5Driver` (SQLite FTS5 / BM25), `PostgresFtsDriver` (PostgreSQL `to_tsvector` / `ts_rank_cd`), and `MssqlFtsDriver` (MSSQL `CONTAINSTABLE`).
+  * Unified search predicates, snippet generation, and reserved field handling across all supported database engines.
+* **Dual Queue Engine Architecture (`SyncQueueEngine`, `AsyncQueueEngine`)**:
+  * Refactored `SqliteQueueDriver` into specialized queue engines: `SyncQueueEngine` for synchronous in-process SQLite execution and `AsyncQueueEngine` for asynchronous connection pooling in PostgreSQL and MSSQL.
+  * Preserved full transactional queue guarantees, strict partition FIFO ordering, lease renewals, and dead-letter queue (DLQ) isolation across all engines.
+* **Cross-Engine Snapshots & Portable Migration**:
+  * Added `LogicalSnapshotDriver` and `SqliteToRemoteSnapshotDriver` for portable schema and record export/import across heterogeneous database engines.
+  * Confined physical raw binary snapshots strictly to SQLite to prevent snapshot corruption.
+* **Per-Schema Storage Metrics**:
+  * Added real-time calculation and reporting of database storage size broken down per schema and collection table.
+
+#### 2. Database Management in Admin UI & CLI
+* **Admin UI Database View (`database.js`)**:
+  * Added a dedicated Database pageview in the Admin Portal displaying active provider, connection health, live latency, and storage analytics.
+  * Added interactive connection test utilities for PostgreSQL and MSSQL prior to cutover.
+  * Real-time progress bar and phase reporting during live database migrations.
+* **Database Management CLI (`nodestack db`)**:
+  * Added `nodestack db status`, `nodestack db test`, `nodestack db configure`, and `nodestack db switch` CLI commands with interactive progress rendering and confirmation safety gates.
+
+#### 3. Documentation & Developer Guides
+* **Roles & Permissions Guide**: Published comprehensive documentation at `docs/docs/auth-and-security/roles-and-permissions.md`.
+* **Database Management API Reference**: Documented `/api/system/database/*` endpoints in the official REST API reference.
+
+### Security
+
+#### 1. Authentication, Tenant Isolation & Privilege Escalation
+* **Initial Setup Authorization Bypass & Admin Creation Race (PR #34)**:
+  * Resolved an authorization bypass vulnerability on the initial setup endpoint (`/api/setup`).
+  * Eliminated race conditions during initial superuser/admin account creation.
+* **Tenant Admin & API Key Privilege Escalation Prevention (PR #33)**:
+  * Enforced strict tenant boundary validation to prevent tenant-scoped admins and tenant API keys from escalating to global superuser privileges.
+  * Restricted global API key fallback when accessing tenant-scoped resources.
+  * Enforced tenant-scoped admin creation and response schema compliance.
+
+#### 2. API Key Security & Granular Scopes (PR #37, `0ac15f3`)
+* **HMAC-SHA256 Key Hashing**:
+  * Migrated API key storage from reversible representations to salted HMAC-SHA256 hashing.
+  * Resolved key rotation migration race conditions.
+  * Enforced granular API key scopes across queue endpoints and serverless functions.
+  * Rejected invalid tokens with standard 401 Unauthorized status and prevented fallback on empty keys.
+
+#### 3. OAuth2 State Validation & SSRF Guard (PR #36, `ebe19ec`)
+* **Session-Scoped State & Cookie Validation**:
+  * Enforced cryptographically secure OAuth state validation with session-scoped, provider-specific state cookies.
+  * Synchronized OAuth state store invalidation across concurrent requests.
+  * Validated OAuth callback collection binding and applied per-request OAuth scopes.
+* **OAuth Avatar SSRF Mitigation**:
+  * Guarded against Server-Side Request Forgery (SSRF) when fetching user avatars from external OAuth identity providers.
+
+#### 4. CORS Hardening & Credential Protection (PR #32, `e1eeb6a`)
+* **Wildcard CORS Reflection Fix**:
+  * Fixed credential reflection vulnerability when wildcard origins are requested.
+  * Explicitly disabled credentials for wildcard origin arrays and excluded `*` from trusted CORS origin sets.
+  * Made CORS RegExp origin matching strictly stateless and honored explicit `origin: false`.
+
+#### 5. Realtime SSE Privacy & Subscription Hardening (PR #35)
+* **Email Data Leakage Fix**:
+  * Prevented user email addresses and sensitive profile attributes from leaking through realtime SSE event payloads.
+* **Realtime Scopes & Dynamic Revalidation**:
+  * Enforced API key realtime scopes on SSE subscription endpoints.
+  * Implemented dynamic session revocation and revalidation for active realtime event streams.
+
+#### 6. Network, Filesystem & Execution Safety
+* **Postgres SSL Verification (PR #38)**:
+  * Enforced strict Postgres SSL certificate verification with CA validation by default.
+* **Webhook SSRF & DNS Rebinding Protection**:
+  * Enforced strict target URL validation before webhook delivery with DNS rebinding defenses.
+* **Filesystem Containment**:
+  * Confined SQLite database file paths within project data boundaries to eliminate arbitrary file writing and path traversal.
+  * Prevented directory path traversal in file handling and sanitized `Content-Disposition` headers.
+  * Fixed stored XSS vulnerabilities during file downloads.
+* **Sandboxed Runner & Rule Hardening**:
+  * Enforced hard process interruption when QuickJS serverless functions exceed execution timeouts.
+  * Eliminated Time-Of-Check to Time-Of-Use (TOCTOU) race conditions in secret management.
+  * Sanitized sort field names against query injection and rejected unauthenticated variables in `RuleEngine`.
+  * Automatically stripped sensitive authentication headers on cross-origin redirects.
+
+### Fixed
+* **Atomic Database Migrations (PR #39)**:
+  * Wrapped schema and data migrations in atomic database transactions with automatic rollback on error.
+  * Synchronized SQLite transaction depth tracking and prevented concurrent migration race conditions on multi-instance boots.
+* **Dialect & Database Queries**:
+  * Fixed MSSQL queue polling queries and full-text search predicates.
+  * Normalized boolean record representations and quoted camelCase column identifiers in PostgreSQL.
+  * Fixed dialect-specific upserts for administrative accounts.
+  * Fixed relation record expansion for multi-select relation fields.
+* **Snapshot Driver Integrity**:
+  * Cleared target tables correctly when restoring snapshots from empty source schemas.
+  * Preserved active driver instances on snapshot restore and reconnect.
+
+---
+
 ## [2.4.0] - 2026-11-07
 
 Release v2.4.0 introduces **NodeStack Queues**—an embedded, transactional background message queue and worker subsystem backed by SQLite with atomic claiming, lease renewal, retries, dead-letter queues (DLQ), strict partition FIFO ordering, and direct serverless function binding; delivers **Flow Execution Concurrency Throttling** using system queues; adds an interactive **Admin UI Queues Manager** with system queue filtering, payload drawers, and DLQ re-drive; exposes `client.queue(name)` in `nodestack-client` and `core.sdk.queue` inside QuickJS sandboxes; introduces an **Agent OpenWiki Evidence Index** for AI developer tooling; decommissions the legacy demo state subsystem in favor of the unified `SnapshotService`; and hardens security, execution state consistency, and path traversal protections.

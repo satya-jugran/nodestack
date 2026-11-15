@@ -4,7 +4,7 @@ title: "HTTP Server, REST Controllers & Admin UI"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-08T15:20:09.692Z
+    at: 2026-11-15T09:01:29.660Z
 sources:
   - id: openwiki-source-4bb0492330e9cc8fed4432fd
     resource: repo://src/admin/AdminUIBundler.ts
@@ -24,7 +24,7 @@ sources:
     resource: repo://src/http/middleware/AppResolutionMiddleware.ts
   - id: openwiki-source-3e62e37659aa60446b558759
     resource: repo://src/http/middleware/ChaosMiddleware.ts
-generated: { by: "doc-gen", at: "2026-11-05T17:08:40.212Z" }
+generated: { by: "doc-gen", at: "2026-11-15T08:56:16.837Z" }
 ---
 
 # HTTP Server, REST Controllers & Admin UI
@@ -127,7 +127,7 @@ All controllers inherit from `BaseController` (`src/http/controllers/BaseControl
 
 1. Reads `src/admin/ui/index.html`.
 2. Concatenates and inlines the 6 CSS stylesheets from `src/admin/ui/css/` (`codemirror.css`, `main.css`, `rules.css`, `analytics.css`, `webhooks.css`, `flows.css`) into a `<style>` block before `</head>`.
-3. Concatenates and inlines the 27 JavaScript modules from `src/admin/ui/js/` (`codemirror.js`, `state.js`, `theme.js`, `api.js`, `apps.js`, `rules.js`, `schema.js`, `records.js`, `modals.js`, `snapshots.js`, `analytics.js`, `views.js`, `collections.js`, `plugins.js`, `plugin-tester.js`, `command-palette.js`, `webhooks.js`, `functions.js`, `functions-tester.js`, `functions-workbench.js`, `flows.js`, `flows-designer.js`, `flows-designer-forms.js`, `flows-designer-modal.js`, `flows-designer-diagram.js`, `queues.js`, `app.js`) into a `<script>` block before `</body>`.
+3. Concatenates and inlines the 28 JavaScript modules from `src/admin/ui/js/` (`codemirror.js`, `state.js`, `theme.js`, `api.js`, `apps.js`, `rules.js`, `schema.js`, `records.js`, `modals.js`, `snapshots.js`, `database.js`, `analytics.js`, `views.js`, `collections.js`, `plugins.js`, `plugin-tester.js`, `command-palette.js`, `webhooks.js`, `functions.js`, `functions-tester.js`, `functions-workbench.js`, `flows.js`, `flows-designer.js`, `flows-designer-forms.js`, `flows-designer-modal.js`, `flows-designer-diagram.js`, `queues.js`, `app.js`) into a `<script>` block before `</body>`.
 
 ### `AdminUIService`
 

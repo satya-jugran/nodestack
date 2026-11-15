@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:4abb9783f102bb1147d6c5ae67adc15258f5d1dc1b143ac730e9319f4e469c1f",
+  "pageVersion": "sha256:3902d5593189f6dcefc758b3c97f4d17854724791ac103655c4b79882391eb28",
   "claims": [
     {
       "id": "claim_8a8b9d89e7b340a4b9bb2285225cdc4e",
@@ -8,11 +8,11 @@
       "evidence": [
         {
           "resource": "repo://src/http/HttpServer.ts",
-          "version": "repo-file-v1:sha256:9f5d3a234645a45ff7ec385c289231b4607d7ce60de4a053892822e0100222bb"
+          "version": "repo-file-v1:sha256:ea94f65de207b84c782172075a14958294722d2b8f8f3f375fa3e2d9f2f0da1a"
         },
         {
           "resource": "repo://src/http/controllers/BaseController.ts",
-          "version": "repo-file-v1:sha256:e39f5e607b2ecd876a801364092d6d85954b40f559870b228600eed8bd9e4c7d"
+          "version": "repo-file-v1:sha256:419f34dcdee5319fced5fb5d1df60a54df6dc7cf43d55f3c866ca2c4b73a3f5c"
         },
         {
           "resource": "repo://src/http/controllers/CollectionController.ts",
@@ -20,7 +20,7 @@
         },
         {
           "resource": "repo://src/http/controllers/RecordController.ts",
-          "version": "repo-file-v1:sha256:64b0c6c7908ebac07813631eb2927ecc2488b317e6b6a94eef97db242561b97a"
+          "version": "repo-file-v1:sha256:6ca6b36f5cffe5fbf12280c3bcbb94aeddac871a3f38dd6742c637fe84880d2d"
         }
       ]
     },
@@ -30,7 +30,7 @@
       "evidence": [
         {
           "resource": "repo://src/http/middleware/AppResolutionMiddleware.ts",
-          "version": "repo-file-v1:sha256:243d97c89904b1ac017829689e6889455432cc1e30732dff85f3030d4bb8fe32"
+          "version": "repo-file-v1:sha256:3534f30f3c84dd9ca1f7f8420b107e83c5a7304152428ed20925a33f84eaafbb"
         }
       ]
     },
@@ -71,6 +71,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-08T15:20:09.692Z"
+    "at": "2026-11-15T09:01:29.660Z"
   }
 }

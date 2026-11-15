@@ -2,12 +2,12 @@
 sidebar_position: 3
 id: configuration
 title: Configuration & Environment
-description: Environment variables and startup flags for NodeStack
+description: Environment variables, startup flags, and database configuration for NodeStack
 ---
 
-️ Configuration & Environment
+# ⚙️ Configuration & Environment
 
-NodeStack can be configured via environment variables or CLI flags.
+NodeStack can be configured via environment variables, CLI flags, or programmatic options.
 
 ---
 
@@ -39,6 +39,27 @@ npx @nodestackapp/server start --dir /var/data/nodestack
 
 # Enable debug logging
 npx @nodestackapp/server start --log-level debug
+```
+
+---
+
+## Database Management CLI (`nodestack db`)
+
+NodeStack includes built-in commands for managing database engines, performing connection diagnostics, and running live data migrations across SQLite, PostgreSQL, and MSSQL:
+
+```bash
+# Display active engine status, connection health, and latency
+nodestack db status [--app <app-slug>]
+
+# Test connection to a PostgreSQL or MSSQL target
+nodestack db test postgres "postgres://user:pass@localhost:5432/nodestack?ssl=true"
+nodestack db test mssql --host localhost --port 1433 --user sa --password secret --database myapp
+
+# Save configuration without migrating immediately
+nodestack db configure postgres "postgres://user:pass@localhost:5432/nodestack"
+
+# Live migration and engine cutover
+nodestack db switch postgres "postgres://user:pass@localhost:5432/nodestack" --migrate --confirm migrate
 ```
 
 ---

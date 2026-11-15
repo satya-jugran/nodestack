@@ -4,12 +4,16 @@ title: "Database, Schema & Record Management"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-08T15:20:09.692Z
+    at: 2026-11-15T09:01:29.660Z
 sources:
   - id: openwiki-source-a7511f573894f05c34c471d2
     resource: repo://src/database/DatabaseService.ts
+  - id: openwiki-source-05f796863461a6483aa773aa
+    resource: repo://src/database/drivers/DriverRegistry.ts
   - id: openwiki-source-c1a0db389c1099e5b0450593
     resource: repo://src/database/drivers/NodeSqliteDriver.ts
+  - id: openwiki-source-2f13f4932408126f9a4ca045
+    resource: repo://src/database/migration/DatabaseMigrationService.ts
   - id: openwiki-source-fb3cd1ee4364ec2db05a0c4f
     resource: repo://src/database/migrations/SystemMigrations.ts
   - id: openwiki-source-c3bc035013aa43202a4a09fa
@@ -28,12 +32,22 @@ sources:
     resource: repo://src/schema/SchemaService.ts
   - id: openwiki-source-0135a8c502d832c59da98841
     resource: repo://src/schema/TypeGenerator.ts
-generated: { by: "doc-gen", at: "2026-11-05T17:08:40.212Z" }
+generated: { by: "doc-gen", at: "2026-11-15T08:56:16.837Z" }
 ---
 
 # Database, Schema & Record Management
 
-NodeStack provides a zero-dependency SQLite persistence layer, dynamic schema management with full-text search (FTS5), JSON schema inference, TypeScript/OpenAPI code generation, and a unified `RecordService` for CRUD, relational expansion, CSV/JSON import-export, and synthetic mock data generation.
+NodeStack provides an extensible multi-database persistence layer supporting embedded SQLite, PostgreSQL, and Microsoft SQL Server (MSSQL), dynamic schema management with full-text search (FTS), atomic schema migrations, JSON schema inference, TypeScript/OpenAPI code generation, and a unified `RecordService` for CRUD, relational expansion, CSV/JSON import-export, and synthetic mock data generation.
+
+---
+
+## Multi-Database Architecture & Dialects (`DriverRegistry`, `ISqlDialect`)
+
+In v2.5.0, NodeStack abstracts SQL execution across three primary engines via `ISqlDialect` (`src/database/dialects/ISqlDialect.ts`) and `DriverRegistry` (`src/database/drivers/DriverRegistry.ts`):
+- **`SqliteDialect` & `NodeSqliteDriver`**: Embedded zero-compilation SQLite powered natively by Node.js (`node:sqlite`).
+- **`PostgresDialect` & `PostgresDriver`**: Production PostgreSQL driver (`pg`) with strict SSL CA verification, camelCase identifier quoting, and boolean normalization.
+- **`MssqlDialect` & `MssqlDriver`**: Enterprise Microsoft SQL Server driver (`mssql`) with schema isolation and `CONTAINSTABLE` FTS predicates.
+- **Live Migration**: `DatabaseMigrationService` migrates collections, indexes, and records across engines with atomic transaction wrapping and real-time progress callbacks.
 
 ---
 

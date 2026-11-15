@@ -4,7 +4,7 @@ title: "Files, Realtime, Webhooks, Snapshots & Observability"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-08T15:20:09.692Z
+    at: 2026-11-15T09:01:29.660Z
 sources:
   - id: openwiki-source-f89e861107ff41a995cce15a
     resource: repo://src/analytics/AnalyticsService.ts
@@ -20,7 +20,7 @@ sources:
     resource: repo://src/snapshots/SnapshotService.ts
   - id: openwiki-source-42775f04299d5f47c666d7ad
     resource: repo://src/webhooks/WebhookService.ts
-generated: { by: "doc-gen", at: "2026-11-05T17:08:40.212Z" }
+generated: { by: "doc-gen", at: "2026-11-15T08:56:16.837Z" }
 ---
 
 # Files, Realtime, Webhooks, Snapshots & Observability
@@ -34,11 +34,11 @@ Each `AppContext` provisions dedicated instances of these operational services s
 | Subsystem | Service Class | Source File | Purpose |
 | :--- | :--- | :--- | :--- |
 | **File Storage** | `FileStorageService` | `src/files/FileStorageService.ts` | Local file persistence, size/MIME validation, and path traversal protection |
-| **Realtime (SSE)** | `RealtimeService` | `src/realtime/RealtimeService.ts` | Server-Sent Events streaming with topic subscriptions and per-client `viewRule` checks |
-| **Webhooks** | `WebhookService` | `src/webhooks/WebhookService.ts` | Outbound HTTP webhook dispatch, HMAC-SHA256 signing, SSRF protection, and delivery history |
-| **Snapshots** | `SnapshotService` | `src/snapshots/SnapshotService.ts` | Point-in-time database + file storage snapshots, drift detection, and atomic restores |
+| **Realtime (SSE)** | `RealtimeService` | `src/realtime/RealtimeService.ts` | Server-Sent Events streaming with topic subscriptions, API key realtime scopes, and per-client `viewRule` checks |
+| **Webhooks** | `WebhookService` | `src/webhooks/WebhookService.ts` | Outbound HTTP webhook dispatch, HMAC-SHA256 signing, SSRF & DNS rebinding protection, and delivery history |
+| **Snapshots** | `SnapshotService` | `src/snapshots/SnapshotService.ts` | Point-in-time database + file storage snapshots, multi-database logical drivers, drift detection, and atomic restores |
 | **Audit Logs** | `AuditLogService` | `src/audit/AuditLogService.ts` | Immutable record-level mutation history with field diffs and secret redaction |
-| **Analytics** | `AnalyticsService` | `src/analytics/AnalyticsService.ts` | Database storage sizing, collection counts, 24-hour traffic buckets, and process metrics |
+| **Analytics** | `AnalyticsService` | `src/analytics/AnalyticsService.ts` | Database storage sizing per schema, collection counts, 24-hour traffic buckets, and process metrics |
 | **Request Logs** | `LogService` | `src/logger/LogService.ts` | Buffered SQLite HTTP access logging (`_logs`) and console formatting |
 
 ---

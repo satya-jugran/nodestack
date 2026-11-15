@@ -4,7 +4,7 @@ title: "Serverless Functions, Workflows & Queues"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-08T15:20:09.692Z
+    at: 2026-11-15T09:01:29.660Z
 sources:
   - id: openwiki-source-e69860785030352a5a6b3062
     resource: repo://src/flows/FlowEngine.ts
@@ -30,12 +30,12 @@ sources:
     resource: repo://src/queue/drivers/SqliteQueueDriver.ts
   - id: openwiki-source-75c9cc054eb2d6fc3f07ef6a
     resource: repo://src/queue/QueueService.ts
-generated: { by: "doc-gen", at: "2026-11-07T08:27:51.831Z" }
+generated: { by: "doc-gen", at: "2026-11-15T08:56:16.837Z" }
 ---
 
 # Serverless Functions, Workflows & Queues
 
-NodeStack includes a sandboxed WebAssembly serverless functions runtime (`QuickJsWasmRuntime`), an Amazon States Language (ASL)-inspired workflow state machine (`FlowEngine` & `FlowService`), and a stateless SQLite-backed background job orchestrator (`QueueService` & `SqliteQueueDriver`).
+NodeStack includes a sandboxed WebAssembly serverless functions runtime (`QuickJsWasmRuntime`), an Amazon States Language (ASL)-inspired workflow state machine (`FlowEngine` & `FlowService`), and a dual-engine background job orchestrator (`QueueService`, `SyncQueueEngine`, and `AsyncQueueEngine`).
 
 ---
 
@@ -147,7 +147,7 @@ NodeStack's Flow Engine implements an Amazon States Language (ASL)-compatible wo
 
 ## Persistent Background Queues (`QueueService` & `SqliteQueueDriver`)
 
-`QueueService` (`src/queue/QueueService.ts`) and `SqliteQueueDriver` (`src/queue/drivers/SqliteQueueDriver.ts`) provide a stateless, database-driven background queue engine backed by `_queues` and `_queue_jobs`.
+`QueueService` (`src/queue/QueueService.ts`) and `SqliteQueueDriver` (`src/queue/drivers/SqliteQueueDriver.ts`), powered by `SyncQueueEngine` (SQLite) and `AsyncQueueEngine` (PostgreSQL / MSSQL), provide a database-driven background queue engine backed by `_queues` and `_queue_jobs`.
 
 ### Queue & Job Capabilities
 

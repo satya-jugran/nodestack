@@ -4,7 +4,7 @@ title: "Authentication, OAuth2, API Keys & Access Rules"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-08T15:20:09.692Z
+    at: 2026-11-15T09:01:29.660Z
 sources:
   - id: openwiki-source-46bed1e718db2844a20df5a0
     resource: repo://src/auth/ApiKeyService.ts
@@ -30,7 +30,7 @@ sources:
     resource: repo://tests/rule-builder.test.ts
   - id: openwiki-source-7a6d6991cdc34a8bbf49c67a
     resource: repo://tests/rules.test.ts
-generated: { by: "doc-gen", at: "2026-11-05T17:08:40.212Z" }
+generated: { by: "doc-gen", at: "2026-11-15T08:56:16.837Z" }
 ---
 
 # Authentication, OAuth2, API Keys & Access Rules
@@ -119,10 +119,10 @@ Users can inspect or unlink social identities via `getExternalAuths(collectionNa
   - `<env>` defaults to `'test'` in dev mode (`config.dev === true`) or `'live'` in production.
   - `<keyId>` is 6 hex characters (`3` random bytes).
   - `<secretEntropy>` is 48 hex characters (`24` random bytes).
-- **Storage**: The plaintext `secretKey` is returned **only once** upon creation or rotation (`rotateKey(id)`). The database stores only `keyPrefix` (`nsk_<env>_<keyId>`), `redactedKey` (`nsk_<env>_<keyId>...<last4>`), and `secretHash` (the SHA-256 hex digest of `secretKey`).
+- **Storage**: The plaintext `secretKey` is returned **only once** upon creation or rotation (`rotateKey(id)`). The database stores only `keyPrefix` (`nsk_<env>_<keyId>`), `redactedKey` (`nsk_<env>_<keyId>...<last4>`), and `secretHash` (the HMAC-SHA256 hex digest of `secretKey` keyed with server secret, with transparent upgrade from legacy SHA-256).
 - **Verification (`verifyKey`)**:
   - Looks up the key by `keyPrefix` using a 10-second in-memory `keyCache` before querying `_api_keys`.
-  - Compares the SHA-256 hash of the presented token with `secretHash` using `crypto.timingSafeEqual`.
+  - Compares the HMAC-SHA256 hash of the presented token with `secretHash` using `crypto.timingSafeEqual`.
   - Checks `status === 'active'`, validates `expiresAt` (automatically marking expired keys as `status = 'expired'` in SQLite), and checks client IP against `allowedIps` (supporting exact IPs, `*`, `localhost`/`::1`, trailing-dot prefixes like `192.168.1.`, and `/24` CIDR notation).
   - Buffers usage statistics (`lastUsedAt`, `lastUsedIp`, `totalRequests`) in memory and flushes them in a single SQLite transaction every 5 seconds (`usageFlushTimer`).
 

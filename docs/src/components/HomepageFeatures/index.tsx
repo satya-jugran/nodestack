@@ -11,19 +11,19 @@ type FeatureItem = {
 
 const FeatureList: FeatureItem[] = [
   {
-    title: 'Multi-Application Platform',
+    title: 'Multi-Database & Multi-Tenant',
+    badge: 'v2.5.0',
     description: (
       <>
-        Host multiple completely isolated application tenants in a single process—with dedicated SQLite databases, asset storage, auth pools, and realtime SSE streams.
+        Host multiple isolated application tenants with native support for SQLite, PostgreSQL, and Microsoft SQL Server, seamless live migration, and dedicated schemas.
       </>
     ),
   },
   {
     title: 'Queues, Functions & Flows',
-    badge: 'v2.4.0',
     description: (
       <>
-        Transactional SQLite queues with strict FIFO partitions, visual state machine flow orchestration, and sandboxed QuickJS-Wasm serverless execution.
+        Transactional multi-database queues with strict FIFO partitions, visual state machine flow orchestration, and sandboxed QuickJS-Wasm serverless execution.
       </>
     ),
   },

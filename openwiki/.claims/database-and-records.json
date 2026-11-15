@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:ce15eb1ebced6976df60dee29de471a5e34342bb72936e3f908507280f5ac871",
+  "pageVersion": "sha256:68a4de0a5b3dff39a147b0c9ec52201f051e754987ea1fcbc4ae375b93f19ff8",
   "claims": [
     {
       "id": "claim_94d5e801b563413891e89f45f2242afe",
@@ -8,7 +8,7 @@
       "evidence": [
         {
           "resource": "repo://src/database/DatabaseService.ts",
-          "version": "repo-file-v1:sha256:e629d7ad9178878f220f8f257420dcadc918b5ca3aa9241d78d48700fa1d27f5"
+          "version": "repo-file-v1:sha256:bff4227ccde236535acaee644bef07731579eec393b6c023e8820bef1d5cd18b"
         },
         {
           "resource": "repo://src/database/drivers/NodeSqliteDriver.ts",
@@ -22,7 +22,7 @@
       "evidence": [
         {
           "resource": "repo://src/database/migrations/SystemMigrations.ts",
-          "version": "repo-file-v1:sha256:6f063ba75d2dfbdbbbcc6aea6e3cc4a502d265ec08b34114e546e9c6067baa9e"
+          "version": "repo-file-v1:sha256:dd8afad3f8b3ad0eb85b9a3e2dc2a2a1dc74d6516a2418b615c79c7c4cfb8330"
         }
       ]
     },
@@ -36,7 +36,7 @@
         },
         {
           "resource": "repo://src/schema/SchemaService.ts",
-          "version": "repo-file-v1:sha256:12f5d3d95aca77098054351e428788e4066366d6ef9fdc8939196d93eb162488"
+          "version": "repo-file-v1:sha256:9ad1ee60384e03af7dc0bcb81141abd1873a2870c8262baba2456a1aa0653e81"
         }
       ]
     },
@@ -46,11 +46,11 @@
       "evidence": [
         {
           "resource": "repo://src/schema/OpenApiGenerator.ts",
-          "version": "repo-file-v1:sha256:16c9bd85180fd2448cc344416ad319a7997ece80ec76034c80177b2a5e56bb3b"
+          "version": "repo-file-v1:sha256:c1bc7f9622f68d798381b19740baf71650f6ec697670f8097786219e53557be0"
         },
         {
           "resource": "repo://src/schema/SchemaInferenceService.ts",
-          "version": "repo-file-v1:sha256:79173184ed98c93a3c502cc8778fa4cc3b5b3abc285bad37d276b38464fdd285"
+          "version": "repo-file-v1:sha256:56cc4666ef2f2d6e469dea223e2df76dcab8267bb509e3b6e4086ebe62109c37"
         },
         {
           "resource": "repo://src/schema/TypeGenerator.ts",
@@ -64,21 +64,35 @@
       "evidence": [
         {
           "resource": "repo://src/records/MockDataService.ts",
-          "version": "repo-file-v1:sha256:6ab19b056b51d2f1f037fc9b379e4493a6c151a88b1d892c4640976ebb5a90b1"
+          "version": "repo-file-v1:sha256:577748091e098a1af1fd992efac14bd86017a7269b6bd743a7c51313710632f7"
         },
         {
           "resource": "repo://src/records/QueryFilterParser.ts",
-          "version": "repo-file-v1:sha256:15dc4459cc0d8f9659389075845080888d112817895f7c4ac32d64abbf68f009"
+          "version": "repo-file-v1:sha256:6d4082c8aa15bf63c17e58d97283191e0158225addb1578208d5c7567cd8a0fc"
         },
         {
           "resource": "repo://src/records/RecordService.ts",
-          "version": "repo-file-v1:sha256:2a26187c8bd93ef5a3eaabc66a5ad24d335a5b789d72d577a8d81b6ea846f997"
+          "version": "repo-file-v1:sha256:c16d843cc45723f77e2203b6c8d451573dc35470b0bb66171dedcb4001f7a9dc"
+        }
+      ]
+    },
+    {
+      "id": "claim_20b0f2d3565a42768a74b6201f2583a9",
+      "statement": "DriverRegistry and DatabaseMigrationService support SQLite, PostgreSQL, and MSSQL with engine-specific dialects, atomic migrations, and live tenant driver hot-swapping.",
+      "evidence": [
+        {
+          "resource": "repo://src/database/drivers/DriverRegistry.ts",
+          "version": "repo-file-v1:sha256:bdcd595b70a489a7c657d21f7c4d4d5399b71b750af52266f8867e4d1baa9988"
+        },
+        {
+          "resource": "repo://src/database/migration/DatabaseMigrationService.ts",
+          "version": "repo-file-v1:sha256:4f4ef0068ac42030b958e1479d18d615ab0ee162bd510af981c848881d517f5e"
         }
       ]
     }
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-08T15:20:09.692Z"
+    "at": "2026-11-15T09:01:29.660Z"
   }
 }

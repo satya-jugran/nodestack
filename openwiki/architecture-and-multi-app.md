@@ -4,11 +4,11 @@ title: "Core Architecture & Multi-Application Engine"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-08T15:20:09.692Z
+    at: 2026-11-15T09:01:29.660Z
 sources:
   - id: openwiki-source-b4b029988cbb0f1f8db7496e
     resource: repo://src/NodeStack.ts
-generated: { by: "doc-gen", at: "2026-11-07T08:27:51.831Z" }
+generated: { by: "doc-gen", at: "2026-11-15T08:56:16.837Z" }
 ---
 
 # Core Architecture & Multi-Application Engine
@@ -19,7 +19,7 @@ NodeStack is architected around a central orchestrator (`NodeStack`) backed by a
 
 ## High-Level Architecture
 
-At startup, a single `NodeStack` instance initializes global infrastructure—configuration (`ConfigService`), the system database registry (`AppRegistry`), the multi-application manager (`AppManager`), the Fastify HTTP server (`HttpServer`), and the plugin manager (`PluginManager`)—while delegating tenant-specific state and services to isolated `AppScope` instances.
+At startup, a single `NodeStack` instance initializes global infrastructure—configuration (`ConfigService`), the system database registry (`AppRegistry`), the multi-application manager (`AppManager`), the Fastify HTTP server (`HttpServer`), the database configuration manager (`DatabaseConfigService`), and the plugin manager (`PluginManager`)—while delegating tenant-specific state and services to isolated `AppScope` instances.
 
 ```
 NodeStack (Root Orchestrator & Facade)
