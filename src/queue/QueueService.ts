@@ -41,6 +41,9 @@ export class QueueService {
 
   private workerId: string;
   private isDisposed = false;
+  private isClosing = false;
+  private inFlightJobs = new Set<Promise<any>>();
+  private closePromise?: Promise<void>;
   private startPromise?: Promise<void>;
   private resetPromise?: Promise<void>;
   private delayedTimer: NodeJS.Timeout | null = null;
@@ -49,6 +52,10 @@ export class QueueService {
   private cleanupTimer: NodeJS.Timeout | null = null;
   private reclaimIntervalMs: number;
   private cleanupIntervalMs: number;
+
+  public get inFlightJobCount(): number {
+    return this.inFlightJobs.size;
+  }
 
   constructor(
     private driver: IQueueDriver,
@@ -123,6 +130,7 @@ export class QueueService {
       return this.startPromise;
     }
     this.isDisposed = false;
+    this.isClosing = false;
     this.startPromise = (async () => {
       try {
         await this.driver.init();
@@ -179,6 +187,7 @@ export class QueueService {
           } catch {}
         }
         this.isDisposed = false;
+    this.isClosing = false;
         this.drainingQueues.clear();
         this.pendingWake.clear();
         if (this.delayedTimer) {
@@ -220,7 +229,7 @@ export class QueueService {
    * and schedules a drain for each one. Zero idle queues are loaded into memory.
    */
   public async wakePendingQueuesFromStorage(): Promise<void> {
-    if (!this.isDbAvailable()) return;
+    if (this.isClosing || this.isDisposed || !this.isDbAvailable()) return;
     try {
       const pendingQueues = await this.driver.getQueuesWithPendingMessages();
       for (const queueName of pendingQueues) {
@@ -233,9 +242,15 @@ export class QueueService {
 
   private startBackgroundSweepers(): void {
     if (!this.reclaimTimer && this.reclaimIntervalMs > 0) {
-      this.reclaimTimer = setInterval(() => {
-        if (!this.isDbAvailable()) return;
-        this.reclaimOrphaned().catch(() => {});
+      this.reclaimTimer = setInterval(async () => {
+        try {
+          if (this.isClosing || this.isDisposed || !this.isDbAvailable()) return;
+          await this.reclaimOrphaned();
+        } catch (err: any) {
+          if (!this.isClosing && !this.isDisposed) {
+            console.warn(`[QueueService] Reclaim sweeper error: ${err?.message || err}`);
+          }
+        }
       }, this.reclaimIntervalMs);
       if (typeof this.reclaimTimer.unref === 'function') {
         this.reclaimTimer.unref();
@@ -243,10 +258,16 @@ export class QueueService {
     }
 
     if (!this.cleanupTimer && this.cleanupIntervalMs > 0) {
-      this.cleanupTimer = setInterval(() => {
-        if (!this.isDbAvailable()) return;
-        const retentionDays = this.config?.queueJobRetentionDays ?? 7;
-        this.cleanup(retentionDays).catch(() => {});
+      this.cleanupTimer = setInterval(async () => {
+        try {
+          if (this.isClosing || this.isDisposed || !this.isDbAvailable()) return;
+          const retentionDays = this.config?.queueJobRetentionDays ?? 7;
+          await this.cleanup(retentionDays);
+        } catch (err: any) {
+          if (!this.isClosing && !this.isDisposed) {
+            console.warn(`[QueueService] Cleanup sweeper error: ${err?.message || err}`);
+          }
+        }
       }, this.cleanupIntervalMs);
       if (typeof this.cleanupTimer.unref === 'function') {
         this.cleanupTimer.unref();
@@ -393,16 +414,20 @@ export class QueueService {
    */
   public wakeWorker(queueName: string): void {
     if (!queueName || typeof queueName !== 'string') return;
-    if (this.isDisposed) return;
+    if (this.isClosing || this.isDisposed) return;
     if (this.pendingWake.has(queueName)) {
       return;
     }
     this.pendingWake.add(queueName);
 
     setImmediate(() => {
-      this.pendingWake.delete(queueName);
-      if (this.isDisposed || !this.isDbAvailable()) return;
-      void this.drainQueue(queueName);
+      try {
+        this.pendingWake.delete(queueName);
+        if (this.isClosing || this.isDisposed || !this.isDbAvailable()) return;
+        void this.drainQueue(queueName);
+      } catch {
+        // ignore
+      }
     });
   }
 
@@ -653,7 +678,7 @@ export class QueueService {
   // ==========================================
 
   private async drainQueue(queueName: string): Promise<void> {
-    if (this.isDisposed || !this.isDbAvailable()) return;
+    if (this.isClosing || this.isDisposed || !this.isDbAvailable()) return;
     if (this.drainingQueues.has(queueName)) {
       // Another drain cycle is currently claiming for this queue; mark pendingWake so it re-checks after
       this.pendingWake.add(queueName);
@@ -691,6 +716,10 @@ export class QueueService {
         return;
       }
 
+      if (this.isClosing || this.isDisposed) {
+        return;
+      }
+
       // Driver atomically checks active 'processing' count in SQLite against concurrency limit
       // and claims up to `effectiveLimit` available slots in a single transaction
       const claimed = await this.driver.claim(queueName, this.workerId, visibilityTimeout, effectiveLimit);
@@ -700,15 +729,21 @@ export class QueueService {
       }
 
       for (const job of claimed) {
-        void this.executeClaimedMessage(queueName, job, config, memoryHandler);
+        const jobPromise = this.executeClaimedMessage(queueName, job, config, memoryHandler).catch((err) => {
+          console.warn(`[QueueService] Unhandled error executing job '${job.id}' in '${queueName}': ${err?.message || err}`);
+        });
+        this.inFlightJobs.add(jobPromise);
+        void jobPromise.finally(() => {
+          this.inFlightJobs.delete(jobPromise);
+        });
       }
     } catch (err: any) {
-      if (!this.isDisposed && this.isDbAvailable()) {
+      if (!this.isClosing && !this.isDisposed && this.isDbAvailable()) {
         console.warn(`[QueueService] Error draining queue '${queueName}': ${err.message}`);
       }
     } finally {
       this.drainingQueues.delete(queueName);
-      if (this.pendingWake.has(queueName) && !this.isDisposed) {
+      if (this.pendingWake.has(queueName) && !this.isClosing && !this.isDisposed) {
         this.pendingWake.delete(queueName);
         this.wakeWorker(queueName);
       }
@@ -757,36 +792,40 @@ export class QueueService {
         }
       }
     } catch (err: any) {
-      if (!this.isDisposed && this.isDbAvailable()) {
-        const isCapacityLimit =
-          (err as any)?.statusCode === 429 ||
-          err instanceof FunctionConcurrencyLimitError ||
-          /concurrency limit reached/i.test(err?.message || '');
+      try {
+        if (!this.isDisposed && this.isDbAvailable()) {
+          const isCapacityLimit =
+            (err as any)?.statusCode === 429 ||
+            err instanceof FunctionConcurrencyLimitError ||
+            /concurrency limit reached/i.test(err?.message || '');
 
-        if (isCapacityLimit) {
-          // Defer capacity-rejected jobs without incrementing their execution-attempt budget
-          const deferDelayMs = Math.max(50, Math.min(config?.backoffDelayMs ?? 200, 200));
-          await this.driver.defer(
-            job.id,
-            deferDelayMs,
-            err.message || 'Serverless function concurrency limit reached (deferred)'
-          );
-          this.scheduleDelayedAt(Date.now() + deferDelayMs);
-        } else {
-          const errMsg = err?.message || String(err);
-          await this.fail(job.id, errMsg, config?.backoffDelayMs, job.claimToken || undefined);
+          if (isCapacityLimit) {
+            // Defer capacity-rejected jobs without incrementing their execution-attempt budget
+            const deferDelayMs = Math.max(50, Math.min(config?.backoffDelayMs ?? 200, 200));
+            await this.driver.defer(
+              job.id,
+              deferDelayMs,
+              err.message || 'Serverless function concurrency limit reached (deferred)'
+            );
+            this.scheduleDelayedAt(Date.now() + deferDelayMs);
+          } else {
+            const errMsg = err?.message || String(err);
+            await this.fail(job.id, errMsg, config?.backoffDelayMs, job.claimToken || undefined);
+          }
         }
+      } catch (innerErr: any) {
+        console.warn(`[QueueService] Error finalizing failed job '${job.id}' in '${queueName}': ${innerErr?.message || innerErr}`);
       }
     } finally {
       // As soon as this job finishes and frees its 'processing' row in SQLite, wake the queue to claim next
-      if (!this.isDisposed && this.isDbAvailable()) {
+      if (!this.isClosing && !this.isDisposed && this.isDbAvailable()) {
         this.wakeWorker(queueName);
       }
     }
   }
 
   private scheduleDelayedAt(targetMs: number): void {
-    if (this.isDisposed) return;
+    if (this.isClosing || this.isDisposed) return;
     if (this.nextDelayedTargetMs !== null && this.nextDelayedTargetMs <= targetMs && this.delayedTimer) {
       return;
     }
@@ -800,11 +839,15 @@ export class QueueService {
     this.nextDelayedTargetMs = targetMs;
 
     this.delayedTimer = setTimeout(() => {
-      this.delayedTimer = null;
-      this.nextDelayedTargetMs = null;
-      if (this.isDisposed || !this.isDbAvailable()) return;
-      void this.wakePendingQueuesFromStorage();
-      void this.scheduleNextDelayedWake();
+      try {
+        this.delayedTimer = null;
+        this.nextDelayedTargetMs = null;
+        if (this.isClosing || this.isDisposed || !this.isDbAvailable()) return;
+        void this.wakePendingQueuesFromStorage();
+        void this.scheduleNextDelayedWake();
+      } catch {
+        // ignore
+      }
     }, Math.min(delayMs, 2147483647));
 
     if (typeof this.delayedTimer.unref === 'function') {
@@ -813,7 +856,7 @@ export class QueueService {
   }
 
   private async scheduleNextDelayedWake(queueName?: string): Promise<void> {
-    if (this.isDisposed || !this.isDbAvailable()) return;
+    if (this.isClosing || this.isDisposed || !this.isDbAvailable()) return;
     try {
       const nextIso = await this.driver.getNextDelayedTimestamp(queueName);
       if (nextIso) {
@@ -827,26 +870,50 @@ export class QueueService {
     }
   }
 
+  public async close(): Promise<void> {
+    return this.dispose();
+  }
+
   public async dispose(): Promise<void> {
-    this.isDisposed = true;
-    this.startPromise = undefined;
-    this.resetPromise = undefined;
-    this.pendingWake.clear();
-    this.drainingQueues.clear();
-    if (this.delayedTimer) {
-      clearTimeout(this.delayedTimer);
-      this.delayedTimer = null;
-    }
-    if (this.reclaimTimer) {
-      clearInterval(this.reclaimTimer);
-      this.reclaimTimer = null;
-    }
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-      this.cleanupTimer = null;
-    }
+    if (this.isDisposed) return;
+    if (this.closePromise) return this.closePromise;
+
+    this.closePromise = (async () => {
+      this.isClosing = true;
+      this.startPromise = undefined;
+      this.resetPromise = undefined;
+      this.pendingWake.clear();
+      this.drainingQueues.clear();
+      if (this.delayedTimer) {
+        clearTimeout(this.delayedTimer);
+        this.delayedTimer = null;
+      }
+      if (this.reclaimTimer) {
+        clearInterval(this.reclaimTimer);
+        this.reclaimTimer = null;
+      }
+      if (this.cleanupTimer) {
+        clearInterval(this.cleanupTimer);
+        this.cleanupTimer = null;
+      }
+
+      // Await all in-flight job executions and their driver complete/fail calls
+      if (this.inFlightJobs.size > 0) {
+        await Promise.allSettled(Array.from(this.inFlightJobs));
+      }
+
+      this.isDisposed = true;
+      this.isClosing = false;
+
+      try {
+        await this.driver.close();
+      } catch {}
+    })();
+
     try {
-      await this.driver.close();
-    } catch {}
+      await this.closePromise;
+    } finally {
+      this.closePromise = undefined;
+    }
   }
 }

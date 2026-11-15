@@ -2593,4 +2593,101 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
     });
   });
 
+  describe('8. Graceful Teardown, In-Flight Job Await & Sweeper Error Resilience', () => {
+    it('should await in-flight asynchronous operations in SqliteQueueDriver.close()', async () => {
+      const { SqliteQueueDriver } = await import('../src/queue/drivers/SqliteQueueDriver');
+      const driver = new SqliteQueueDriver(app.db);
+      await driver.init();
+
+      let opFinished = false;
+
+      // Start an in-flight operation tracked by driver
+      const opPromise = (driver as any).trackInFlight(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        opFinished = true;
+        return true;
+      });
+
+      expect(driver.inFlightCount).toBe(1);
+
+      // Close must await the in-flight operation
+      await driver.close();
+
+      expect(opFinished).toBe(true);
+      expect(driver.inFlightCount).toBe(0);
+      expect(driver.initialized).toBe(false);
+    });
+
+    it('should track and await in-flight job callbacks during QueueService.close() / dispose()', async () => {
+      const qName = 'graceful-shutdown-queue';
+      await app.queue.upsertQueue({
+        name: qName,
+        concurrency: 1,
+      });
+
+      let jobStarted = false;
+      let jobFinished = false;
+
+      app.queue.registerWorker(qName, async (job) => {
+        jobStarted = true;
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        jobFinished = true;
+        return { success: true, processedAt: Date.now() };
+      });
+
+      const message = await app.queue.send(qName, { task: 'graceful-job' });
+
+      // Wait until the worker starts processing
+      while (!jobStarted) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+
+      // At this point, the job is in-flight
+      expect(app.queue.inFlightJobCount).toBeGreaterThanOrEqual(1);
+      expect(jobFinished).toBe(false);
+
+      // Call close() while the job is in-flight; close() must await the in-flight job
+      await app.queue.close();
+
+      expect(jobFinished).toBe(true);
+      expect(app.queue.inFlightJobCount).toBe(0);
+
+      // Restart queue service for subsequent tests
+      await app.queue.start();
+
+      // Check the job was completed and its result persisted before driver closed
+      const completedJob = await app.queue.getMessage(message.id);
+      expect(completedJob?.status).toBe('completed');
+      expect(completedJob?.result?.success).toBe(true);
+    });
+
+    it('should handle background sweeper timer rejections gracefully inside try/catch without unhandled rejections', async () => {
+      const { QueueService } = await import('../src/queue/QueueService');
+      const { SqliteQueueDriver } = await import('../src/queue/drivers/SqliteQueueDriver');
+
+      const mockDriver = new SqliteQueueDriver(app.db);
+      await mockDriver.init();
+
+      // Mock reclaimOrphaned to reject
+      mockDriver.reclaimOrphaned = async () => {
+        throw new Error('Simulated transient DB failure during sweeper interval');
+      };
+
+      const testQueue = new QueueService(mockDriver, undefined, undefined, app.db, {
+        reclaimIntervalMs: 30,
+        cleanupIntervalMs: 60000,
+      });
+
+      await testQueue.start();
+
+      // Wait for at least 2 interval ticks
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      // If there were an unhandled promise rejection without try/catch, Node would have crashed.
+      // Now cleanly dispose
+      await testQueue.dispose();
+      await mockDriver.close();
+    });
+  });
+
 });
