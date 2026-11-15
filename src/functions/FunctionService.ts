@@ -1260,7 +1260,7 @@ export class FunctionService {
               !effectiveAuth?.isApiKey &&
               err?.message?.includes('not allowed to list records')
             ) {
-              const col = await this.schemaService.getCollection(collection);
+              const col = await this.schemaService?.getCollection(collection);
               if (col && col.listRule !== null && col.listRule !== undefined && col.listRule !== '') {
                 const limit = options?.perPage || 30;
                 const page = options?.page || 1;
