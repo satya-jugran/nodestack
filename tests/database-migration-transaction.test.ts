@@ -508,4 +508,34 @@ describe('DatabaseMigrationService - Migration Transaction Safety', () => {
     expect(executed).toContain('COMMIT;');
     expect(released).toBe(true);
   });
+
+  it('should support nested driver.transaction() calls inside migration.up() by keeping transactionDepth in sync', async () => {
+    let nestedRan = false;
+
+    const migration: Migration = {
+      id: '20261115_nested_tx_test',
+      name: 'nested_tx_migration',
+      up: async (db) => {
+        await db.exec('CREATE TABLE outer_tbl (id TEXT PRIMARY KEY);');
+
+        // Nested transaction call using public driver.transaction() API
+        db.transaction((tx) => {
+          if ('execSync' in tx && typeof (tx as any).execSync === 'function') {
+            (tx as any).execSync('CREATE TABLE inner_tbl (id TEXT PRIMARY KEY);');
+          } else {
+            tx.exec('CREATE TABLE inner_tbl (id TEXT PRIMARY KEY);');
+          }
+          nestedRan = true;
+        });
+      },
+    };
+
+    const res = await DatabaseMigrationService.runMigration(driver, migration);
+    expect(res).toBe(true);
+    expect(nestedRan).toBe(true);
+
+    expect(await driver.prepare("SELECT name FROM sqlite_master WHERE name = 'outer_tbl'").get()).toBeDefined();
+    expect(await driver.prepare("SELECT name FROM sqlite_master WHERE name = 'inner_tbl'").get()).toBeDefined();
+    expect(await driver.prepare("SELECT id FROM _migrations WHERE id = '20261115_nested_tx_test'").get()).toBeDefined();
+  });
 });
