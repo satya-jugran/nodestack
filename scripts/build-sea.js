@@ -63,6 +63,9 @@ async function main() {
     '--platform=node',
     '--target=node24',
     '--format=cjs',
+    '--external:mssql',
+    '--external:pg',
+    '--external:pg-connection-string',
     `--outfile="${bundlePath}"`
   ].join(' ');
 

@@ -347,8 +347,15 @@ export class MssqlDriver implements IDatabaseDriver {
       return await fn(this);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mssqlModule = require('mssql');
+    let mssqlModule: any;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      mssqlModule = require('mssql');
+    } catch {
+      throw new Error(
+        "SQL Server driver requires the 'mssql' package. Install it via 'npm install mssql'."
+      );
+    }
     const Transaction = mssqlModule.Transaction || mssqlModule.default?.Transaction;
     const tx = new Transaction(this.pool);
 
