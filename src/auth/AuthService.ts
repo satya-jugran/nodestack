@@ -1026,7 +1026,7 @@ export class AuthService {
       }
       if (this.registry && this.isControlPlane) {
         try {
-          const res = this.registry.getDriver().prepare('UPDATE _admins SET verified = ?, updated = ? WHERE id = ?').run(1, now, claims.id);
+          const res = this.registry.updateAdminVerified(claims.id, true);
           if (res && typeof (res as any).then === 'function') {
             await res;
           }
