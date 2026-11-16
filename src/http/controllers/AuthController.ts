@@ -251,8 +251,8 @@ export class AuthController extends BaseController {
       throw new AppError('Email is required', 400);
     }
     const auth = this.getAuth(req);
-    const result = await auth.requestVerification(collection, email);
-    this.ok(reply, result);
+    await auth.requestVerification(collection, email);
+    this.ok(reply, { message: 'Verification email sent successfully' });
   }
 
   public async confirmVerification(
@@ -274,8 +274,8 @@ export class AuthController extends BaseController {
       throw new AppError('Email is required', 400);
     }
     const auth = this.getAuth(req);
-    const result = await auth.requestVerification('_admins', email);
-    this.ok(reply, result);
+    await auth.requestVerification('_admins', email);
+    this.ok(reply, { message: 'Verification email sent successfully' });
   }
 
   public async confirmAdminVerification(req: FastifyRequest, reply: FastifyReply): Promise<void> {

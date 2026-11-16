@@ -93,6 +93,9 @@ describe('Registration Security: Rate Limiting, Email Verification & Atomic Conc
         body: JSON.stringify({ email: 'cooldown_user@nodestack.test' }),
       });
       expect(res1.status).toBe(200);
+      const data1 = await res1.json();
+      expect(data1.token).toBeUndefined(); // Non-sensitive acknowledgement: token must NOT leak in HTTP response
+      expect(data1.message).toContain('Verification email sent');
 
       // 2nd immediate request must be rejected with 429 and cooldown message
       const res2 = await fetch(`${baseUrl}/api/collections/users/request-verification`, {
@@ -177,6 +180,19 @@ describe('Registration Security: Rate Limiting, Email Verification & Atomic Conc
       await expect(
         app.auth.requestVerification('_admins', 'verify_admin@nodestack.test')
       ).rejects.toThrow(/already verified/i);
+    });
+
+    it('should return non-sensitive acknowledgement on admin verification request without exposing token', async () => {
+      await app.auth.createAdmin('token_leak_admin@nodestack.test', 'AdminPassword123!');
+      const res = await fetch(`${baseUrl}/api/admins/request-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'token_leak_admin@nodestack.test' }),
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.token).toBeUndefined();
+      expect(data.message).toContain('Verification email sent');
     });
 
     it('should reject verification tokens replayed across different applications/tenants', async () => {

@@ -898,7 +898,7 @@ export class OpenApiGenerator {
               },
             },
             responses: {
-              '200': { description: 'Verification token generated successfully' },
+              '200': { description: 'Verification email sent successfully' },
               '400': { description: 'Invalid email' },
               '404': { description: 'Account not found' },
               '429': { description: 'Too many requests' },
@@ -1053,7 +1053,7 @@ export class OpenApiGenerator {
           },
         },
         responses: {
-          '200': { description: 'Verification requested' },
+          '200': { description: 'Verification email sent successfully' },
           '400': { description: 'Invalid email' },
           '404': { description: 'Admin not found' },
           '429': { description: 'Too many requests' },
