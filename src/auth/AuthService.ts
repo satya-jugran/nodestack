@@ -835,6 +835,9 @@ export class AuthService {
     tokenKey?: string,
     expiresIn: string | number = '24h'
   ): string {
+    const currentAppSlug = (this.options?.appSlug || (this.isControlPlane ? 'default' : undefined) || 'default').trim().toLowerCase();
+    const currentAppId = this.options?.appId || (currentAppSlug === 'default' ? 'app_default' : undefined);
+
     const payload = {
       id: recordId,
       email: email.trim().toLowerCase(),
@@ -842,11 +845,20 @@ export class AuthService {
       tokenKey: tokenKey || '',
       type: 'verification',
       action: 'verify-email',
+      appId: currentAppId,
+      appSlug: currentAppSlug,
     };
     return jwt.sign(payload, this.config.jwtSecret, { expiresIn: expiresIn as any });
   }
 
-  public async verifyVerificationToken(token: string): Promise<{ id: string; email: string; collection: string; tokenKey: string }> {
+  public async verifyVerificationToken(token: string): Promise<{
+    id: string;
+    email: string;
+    collection: string;
+    tokenKey: string;
+    appId?: string;
+    appSlug?: string;
+  }> {
     let decoded: any;
     try {
       decoded = jwt.verify(token, this.config.jwtSecret);
@@ -856,6 +868,25 @@ export class AuthService {
 
     if (!decoded || !decoded.id || !decoded.collection || decoded.type !== 'verification' || decoded.action !== 'verify-email') {
       throw new UnauthorizedError('Invalid verification token payload');
+    }
+
+    // Tenant / Application binding verification:
+    // Reject tokens issued for another application to prevent cross-tenant token replay attacks
+    const expectedAppSlug = (this.options?.appSlug || (this.isControlPlane ? 'default' : undefined) || 'default').trim().toLowerCase();
+    const tokenAppSlug = (decoded.appSlug || '').trim().toLowerCase();
+
+    if (!tokenAppSlug || tokenAppSlug !== expectedAppSlug) {
+      throw new UnauthorizedError('Verification token was issued for a different application');
+    }
+
+    if (decoded.appId && this.options?.appId) {
+      const isDefaultMatch = expectedAppSlug === 'default' &&
+        (decoded.appId === 'default' || decoded.appId === 'app_default') &&
+        (this.options.appId === 'default' || this.options.appId === 'app_default');
+
+      if (!isDefaultMatch && decoded.appId !== this.options.appId) {
+        throw new UnauthorizedError('Verification token was issued for a different application');
+      }
     }
 
     if (decoded.collection === '_admins') {
@@ -957,6 +988,8 @@ export class AuthService {
         id: targetId,
         email: cleanEmail,
         token,
+        appId: this.options?.appId,
+        appSlug: this.options?.appSlug,
       });
     } catch {
       // non-fatal
@@ -1009,6 +1042,8 @@ export class AuthService {
           collection: col.name,
           id: claims.id,
           email: claims.email,
+          appId: this.options?.appId,
+          appSlug: this.options?.appSlug,
         });
       } catch {
         // non-fatal

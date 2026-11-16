@@ -178,6 +178,63 @@ describe('Registration Security: Rate Limiting, Email Verification & Atomic Conc
         app.auth.requestVerification('_admins', 'verify_admin@nodestack.test')
       ).rejects.toThrow(/already verified/i);
     });
+
+    it('should reject verification tokens replayed across different applications/tenants', async () => {
+      // 1. Create two isolated tenant scopes
+      const tenantA = await app.apps.create({ name: 'Tenant A', slug: 'tenant-a' });
+      const tenantB = await app.apps.create({ name: 'Tenant B', slug: 'tenant-b' });
+
+      // 2. In tenantA, create a user with a specific record ID and email
+      const userA = await tenantA.records.create('users', {
+        id: 'shared_record_id_123',
+        email: 'user_a@nodestack.test',
+        password: 'PasswordTenantA123!',
+      });
+      expect(userA.id).toBe('shared_record_id_123');
+      expect(userA.verified).toBe(false);
+
+      // 3. In tenantB, create a victim user with the EXACT SAME record ID but different email
+      const userB = await tenantB.records.create('users', {
+        id: 'shared_record_id_123',
+        email: 'victim@nodestack.test',
+        password: 'PasswordTenantB123!',
+      });
+      expect(userB.id).toBe('shared_record_id_123');
+      expect(userB.verified).toBe(false);
+
+      // 4. Request verification token in tenantA
+      const { token: tokenA } = await tenantA.auth.requestVerification('users', 'user_a@nodestack.test');
+      expect(tokenA).toBeDefined();
+
+      // 5. Attacker attempts to replay tokenA against tenantB to verify victim account
+      await expect(
+        tenantB.auth.confirmVerification(tokenA)
+      ).rejects.toThrow(/different application/i);
+
+      // Verify that victim user in tenantB was NOT marked verified
+      const victimInDb = (tenantB as any).db.prepare('SELECT verified FROM users WHERE id = ?').get('shared_record_id_123');
+      expect(Boolean(victimInDb.verified)).toBe(false);
+
+      // 6. Attacker attempts to replay tokenA against root/default app
+      await expect(
+        app.auth.confirmVerification(tokenA)
+      ).rejects.toThrow(/different application/i);
+
+      // 7. Request token in root app and attempt to replay against tenantA
+      await app.records.create('users', {
+        email: 'default_cross_app@nodestack.test',
+        password: 'DefaultUserPass123!',
+      });
+      const { token: defaultToken } = await app.auth.requestVerification('users', 'default_cross_app@nodestack.test');
+      await expect(
+        tenantA.auth.confirmVerification(defaultToken)
+      ).rejects.toThrow(/different application/i);
+
+      // 8. Confirming tokenA in tenantA (legitimate target) must succeed
+      const confirmedA = await tenantA.auth.confirmVerification(tokenA);
+      expect(confirmedA.verified).toBe(true);
+      expect(confirmedA.email).toBe('user_a@nodestack.test');
+    });
   });
 
   describe('2. Atomic Concurrency & Race Condition Prevention', () => {
