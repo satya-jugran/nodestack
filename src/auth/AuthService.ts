@@ -1016,14 +1016,14 @@ export class AuthService {
     const verifiedVal = isPg ? true : 1;
 
     if (claims.collection === '_admins') {
-      try {
-        await this.db.run(
-          'UPDATE _admins SET verified = ?, updated = ? WHERE id = ?',
-          verifiedVal, now, claims.id
-        );
-      } catch {
-        // non-fatal if table doesn't have verified column
+      const result = await this.db.run(
+        'UPDATE _admins SET verified = ?, updated = ? WHERE id = ?',
+        verifiedVal, now, claims.id
+      );
+      if (result && Number(result.changes || 0) === 0) {
+        throw new NotFoundError(`Admin '${claims.id}' not found`);
       }
+
       if (this.registry && this.isControlPlane) {
         try {
           const res = this.registry.updateAdminVerified(claims.id, true);
@@ -1031,20 +1031,29 @@ export class AuthService {
             await res;
           }
         } catch {
-          // non-fatal
+          // non-fatal secondary registry sync
         }
       }
       const admin = await this.getAdminById(claims.id);
+      if (!admin) {
+        throw new NotFoundError(`Admin '${claims.id}' not found`);
+      }
       return { ...admin, verified: true };
     } else {
       const col = await this.schemaService.getCollectionOrThrow(claims.collection);
       const qTable = this.db.dialect.quoteIdentifier(col.name);
-      await this.db.run(
+      const result = await this.db.run(
         `UPDATE ${qTable} SET verified = ?, updated = ? WHERE id = ?`,
         verifiedVal, now, claims.id
       );
+      if (result && Number(result.changes || 0) === 0) {
+        throw new NotFoundError(`Record '${claims.id}' not found in '${col.name}'`);
+      }
 
       const record = await this.db.get<any>(`SELECT * FROM ${qTable} WHERE id = ?`, claims.id);
+      if (!record) {
+        throw new NotFoundError(`Record '${claims.id}' not found in '${col.name}'`);
+      }
       const { passwordHash, tokenKey, ...safeRecord } = record || {};
 
       try {
