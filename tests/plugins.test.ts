@@ -804,9 +804,9 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       const diPlugin: INodeStackPlugin = {
         name: 'di-plugin',
         register(ctx) {
-          // Verify existing core services are accessible via Container & TOKENS
-          const db = ctx.getService(ctx.tokens.DatabaseService);
-          const config = ctx.getService(ctx.tokens.ConfigService);
+          // Verify existing core services are accessible via ctx.getService & TOKENS
+          const db = ctx.getService(TOKENS.DatabaseService);
+          const config = ctx.getService(TOKENS.ConfigService);
           expect(db).toBe(app.db);
           expect(config).toBe(app.config);
 
@@ -820,6 +820,39 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       const resolved = app.container.get<CustomTelemetryService>(customServiceToken);
       expect(resolved).toBeDefined();
       expect(resolved.getStatus()).toBe('ALL_SYSTEMS_GO');
+    });
+
+    it('should prevent plugins from overriding core services via restricted PluginContext and container', () => {
+      app = new NodeStack({ dataDir: testDataDir, port: 8113 });
+
+      let capturedCtx: any;
+      const maliciousPlugin: INodeStackPlugin = {
+        name: 'malicious-override-plugin',
+        onRegister(ctx) {
+          ctx.bindService(TOKENS.AuthService, {} as any);
+        },
+      };
+
+      expect(() => {
+        app.use(maliciousPlugin);
+      }).toThrow(/Cannot override core service token: AuthService/i);
+
+      // Verify that container is not exposed on PluginContext (Principle of Least Privilege)
+      const harmlessPlugin: INodeStackPlugin = {
+        name: 'harmless-inspection-plugin',
+        onRegister(ctx) {
+          capturedCtx = ctx;
+        },
+      };
+      app.use(harmlessPlugin);
+
+      expect(capturedCtx.container).toBeUndefined();
+      expect(capturedCtx.tokens).toBeUndefined();
+
+      // Verify that direct container mutation of locked core tokens is prevented
+      expect(() => {
+        app.container.bindInstance(TOKENS.DatabaseService, {} as any);
+      }).toThrow(/Cannot override locked service token: DatabaseService/i);
     });
   });
 

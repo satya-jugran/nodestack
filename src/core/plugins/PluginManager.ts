@@ -7,6 +7,9 @@ import {
   INodeStackPlugin,
   NodeStackPlugin,
   NodeStackPluginContext,
+  PluginAppFacade,
+  PluginManagerFacade,
+  PluginEventBus,
   PluginMetadata,
   RegisteredPluginRecord,
   HttpMethod,
@@ -116,6 +119,15 @@ export const OFFICIAL_PLUGINS: OfficialPluginDef[] = [
   },
 ];
 
+const CORE_TOKENS_SET = new Set<any>(Object.values(TOKENS));
+
+export const ALLOWED_CORE_SERVICE_TOKENS = new Set<ServiceIdentifier>([
+  TOKENS.DatabaseService,
+  TOKENS.SchemaService,
+  TOKENS.RecordService,
+  TOKENS.ConfigService,
+]);
+
 export class PluginManager {
   private plugins = new Map<string, RegisteredPluginRecord>();
   private pendingInits: Promise<void>[] = [];
@@ -185,6 +197,13 @@ export class PluginManager {
       });
     }
 
+  }
+
+  /**
+   * Load any auto-enabled plugins on startup. Must be invoked after core service tokens
+   * are locked in the IoC container to enforce least privilege.
+   */
+  public loadAutoEnabledPluginsOnStartup(): void {
     if (this.app.db.dialect.name === 'sqlite') {
       this.loadAutoEnabledPluginsSync();
     } else {
@@ -193,60 +212,186 @@ export class PluginManager {
   }
 
   /**
-   * Install/use a plugin on the NodeStack instance
+   * Build a secure, restricted PluginContext API for plugin lifecycle execution.
+   * In accordance with the Principle of Least Privilege:
+   * - No raw DI Container access
+   * - No raw Fastify instance access (router.raw removed)
+   * - No internal core DI tokens leaked
+   * - No raw admin UI engine leaked
+   * - Safe application facade (records, db, schema, config, etc.) without host lifecycle (stop, start, maintenanceGate)
+   * - Safe EventBus without destructive clear()
+   * - Read-only getService() and custom plugin bindService() (core tokens sealed)
    */
-  public use(pluginOrFn: NodeStackPlugin, targetScope?: AppScope): this {
-    // 1. Normalize plugin
-    let plugin: INodeStackPlugin;
-    if (typeof pluginOrFn === 'function') {
-      if (this.registeredFunctions.has(pluginOrFn)) {
-        throw new Error('[PluginManager] This plugin function is already registered.');
-      }
-      const fnName = pluginOrFn.name || `plugin_${this.anonymousCounter++}`;
-      plugin = {
-        name: fnName,
-        register: pluginOrFn,
-      };
-    } else {
-      plugin = pluginOrFn;
-    }
+  public createPluginContext(pluginName: string, targetScope?: AppScope): NodeStackPluginContext {
+    const isDefaultScope =
+      !targetScope ||
+      targetScope === this.app.defaultApp ||
+      targetScope.app.slug === 'default' ||
+      targetScope.db === this.app.db;
 
-    if (!plugin || typeof plugin !== 'object' || !plugin.name) {
-      throw new Error('[PluginManager] Invalid plugin provided: must have a valid name');
-    }
+    const targetDb = targetScope ? targetScope.db : this.app.db;
+    const targetSchema = targetScope ? targetScope.schema : this.app.schema;
+    const targetRecords = targetScope ? targetScope.records : this.app.records;
+    const targetConfig = targetScope ? targetScope.config : this.app.config;
+    const targetEventBus = targetScope ? targetScope.eventBus : this.app.eventBus;
 
-    // 2. Check duplicate registration
-    if (this.plugins.has(plugin.name)) {
-      throw new Error(
-        `[PluginManager] Plugin "${plugin.name}" is already registered. Duplicate plugin registrations are not permitted.`
-      );
-    }
+    // 1. Safe PluginManagerFacade: Exposes ONLY own effective configuration (or justified alias), NOT container, app, use, disposeScope, or arbitrary plugin secrets
+    const allowedConfigPluginNames = new Set<string>([pluginName]);
+    if (pluginName === 'chat-notifications') allowedConfigPluginNames.add('webhooks');
+    if (pluginName === 'webhooks') allowedConfigPluginNames.add('chat-notifications');
 
-    if (typeof pluginOrFn === 'function') {
-      this.registeredFunctions.add(pluginOrFn);
-    }
-
-    // 3. Validate dependencies
-    if (plugin.dependencies && plugin.dependencies.length > 0) {
-      for (const dep of plugin.dependencies) {
-        if (!this.plugins.has(dep)) {
+    const pluginManagerFacade: PluginManagerFacade = {
+      getEffectiveConfig: (name?: string, db?: DatabaseService) => {
+        const targetName = name || pluginName;
+        if (!allowedConfigPluginNames.has(targetName)) {
           throw new Error(
-            `[PluginManager] Plugin "${plugin.name}" requires dependent plugin "${dep}" which has not been registered.`
+            `[PluginManager] Unauthorized configuration access: Plugin "${pluginName}" is not permitted to access configuration for "${targetName}".`
           );
         }
+        if (!isDefaultScope && db && db !== targetDb) {
+          throw new Error(
+            `[PluginManager] Unauthorized database access: Scoped plugins cannot query configuration outside their assigned application scope.`
+          );
+        }
+        const effectiveDb = db || targetDb;
+        return this.getEffectiveConfig(targetName, effectiveDb);
+      },
+    };
+
+    // 2. Safe PluginAppFacade: Exposes ONLY domain data services, NOT container, server, stop(), or maintenanceGate
+    const appFacade: PluginAppFacade = {
+      db: targetDb,
+      schema: targetSchema,
+      records: targetRecords,
+      config: targetConfig,
+      plugins: pluginManagerFacade,
+    };
+
+    // 2. Safe PluginEventBus: Exposes ONLY emit and on, NO destructive clear()
+    const safeEventBus: PluginEventBus = {
+      emit: (event: string, data?: any) => targetEventBus.emit(event, data),
+      on: (event: string, handler: (data?: any) => Promise<void> | void) => targetEventBus.on(event, handler),
+    };
+
+    // 3. DI helpers: getService (restricted to safe capabilities and custom tokens) and bindService (custom tokens only, core tokens locked)
+    const getService = <T>(token: ServiceIdentifier<T>): T => {
+      if (CORE_TOKENS_SET.has(token)) {
+        if (!ALLOWED_CORE_SERVICE_TOKENS.has(token)) {
+          const tokenName = typeof token === 'symbol' ? (token.description || token.toString()) : String(token);
+          throw new Error(`[PluginManager] Access to restricted service token is not permitted: ${tokenName}`);
+        }
+        if (token === TOKENS.DatabaseService) return targetDb as unknown as T;
+        if (token === TOKENS.SchemaService) return targetSchema as unknown as T;
+        if (token === TOKENS.RecordService) return targetRecords as unknown as T;
+        if (token === TOKENS.ConfigService) return targetConfig as unknown as T;
       }
+      return this.container.get<T>(token);
+    };
+
+    const bindService = <T>(token: ServiceIdentifier<T>, instance: T): void => {
+      if (this.container.isLocked(token)) {
+        const tokenName = typeof token === 'symbol' ? (token.description || token.toString()) : String(token);
+        throw new Error(`[PluginManager] Cannot override core service token: ${tokenName}`);
+      }
+      this.container.bindInstance<T>(token, instance);
+    };
+
+    if (!isDefaultScope && targetScope) {
+      const scopedContext: NodeStackPluginContext = {
+        app: appFacade,
+        config: targetConfig,
+        db: targetDb,
+        schema: targetSchema,
+        records: targetRecords,
+        eventBus: safeEventBus,
+        auth: {
+          requireAdmin: () => this.app.authMiddleware.requireAdmin(),
+          requireAdminOrInitial: () => this.app.authMiddleware.requireAdminOrInitialSetup(),
+          requireAuth: () => this.app.authMiddleware.requireAuth(),
+        },
+        router: {
+          get: () => {},
+          post: () => {},
+          patch: () => {},
+          delete: () => {},
+          put: () => {},
+        },
+        registerRoute: () => {},
+        registerAdminNav: () => {},
+        registerSystemCollection: (dto) => targetSchema.registerSystemCollection(dto),
+        registerHook: (event: string, handler: any, collection?: string) => {
+          const guardedHandler = async (...args: any[]) => {
+            if (!this.isPluginEnabledInDb(pluginName, targetScope.db)) {
+              return;
+            }
+            return handler(...args);
+          };
+
+          let unsubscribe: () => void;
+          switch (event) {
+            case 'beforeCreate':
+              unsubscribe = targetScope.eventBus.onRecordBeforeCreate(
+                collection ? collection : guardedHandler,
+                collection ? guardedHandler : undefined
+              );
+              break;
+            case 'afterCreate':
+              unsubscribe = targetScope.eventBus.onRecordAfterCreate(
+                collection ? collection : guardedHandler,
+                collection ? guardedHandler : undefined
+              );
+              break;
+            case 'beforeUpdate':
+              unsubscribe = targetScope.eventBus.onRecordBeforeUpdate(
+                collection ? collection : guardedHandler,
+                collection ? guardedHandler : undefined
+              );
+              break;
+            case 'afterUpdate':
+              unsubscribe = targetScope.eventBus.onRecordAfterUpdate(
+                collection ? collection : guardedHandler,
+                collection ? guardedHandler : undefined
+              );
+              break;
+            case 'beforeDelete':
+              unsubscribe = targetScope.eventBus.onRecordBeforeDelete(
+                collection ? collection : guardedHandler,
+                collection ? guardedHandler : undefined
+              );
+              break;
+            case 'afterDelete':
+              unsubscribe = targetScope.eventBus.onRecordAfterDelete(
+                collection ? collection : guardedHandler,
+                collection ? guardedHandler : undefined
+              );
+              break;
+            case 'beforeServe':
+              unsubscribe = targetScope.eventBus.onBeforeServe(guardedHandler);
+              break;
+            case 'afterServe':
+              unsubscribe = targetScope.eventBus.onAfterServe(guardedHandler);
+              break;
+            default:
+              unsubscribe = targetScope.eventBus.on(event, guardedHandler);
+              break;
+          }
+
+          this.addScopedHookUnsubscriber(targetScope.app.slug, pluginName, unsubscribe);
+        },
+        getService,
+        bindService: () => {},
+      };
+
+      return scopedContext;
     }
 
-    // 4. Build Plugin Context
     const context: NodeStackPluginContext = {
-      app: this.app,
-      container: this.container,
-      tokens: TOKENS,
+      app: appFacade,
       config: this.app.config,
       db: this.app.db,
       schema: this.app.schema,
-      eventBus: this.app.eventBus,
-      adminUi: this.app.adminUi,
+      records: this.app.records,
+      eventBus: safeEventBus,
       auth: {
         requireAdmin: () => this.app.authMiddleware.requireAdmin(),
         requireAdminOrInitial: () => this.app.authMiddleware.requireAdminOrInitialSetup(),
@@ -263,7 +408,6 @@ export class PluginManager {
           context.registerRoute('DELETE', path, handler, options),
         put: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) =>
           context.registerRoute('PUT', path, handler, options),
-        raw: this.app.server.app,
       },
       registerRoute: (
         method: HttpMethod,
@@ -275,7 +419,7 @@ export class PluginManager {
         const resolvedOptions = this.resolveRouteOptions(options);
 
         const routeHandler: RouteHandlerMethod = async (req, reply) => {
-          if (!this.plugins.has(plugin.name)) {
+          if (!this.plugins.has(pluginName)) {
             return reply.status(404).send({
               statusCode: 404,
               error: 'Not Found',
@@ -286,7 +430,7 @@ export class PluginManager {
         };
 
         const registerBoth = (p: string) => {
-          this.registerDynamicRoute(method, p, routeHandler, resolvedOptions, plugin.name);
+          this.registerDynamicRoute(method, p, routeHandler, resolvedOptions, pluginName);
           const isBooted = this.isFastifyBooted(fastify);
           if (!isBooted) {
             try {
@@ -317,9 +461,8 @@ export class PluginManager {
         handler: any,
         collection?: string
       ) => {
-        // Guard handler with the plugin's active status
         const guardedHandler = async (...args: any[]) => {
-          if (!this.plugins.has(plugin.name)) {
+          if (!this.plugins.has(pluginName)) {
             return;
           }
           return handler(...args);
@@ -374,10 +517,10 @@ export class PluginManager {
             break;
         }
 
-        if (!this.pluginHookUnsubscribers.has(plugin.name)) {
-          this.pluginHookUnsubscribers.set(plugin.name, []);
+        if (!this.pluginHookUnsubscribers.has(pluginName)) {
+          this.pluginHookUnsubscribers.set(pluginName, []);
         }
-        this.pluginHookUnsubscribers.get(plugin.name)!.push(unsubscribe);
+        this.pluginHookUnsubscribers.get(pluginName)!.push(unsubscribe);
       },
       registerSystemCollection: (dto) => {
         return this.app.schema.registerSystemCollection(dto);
@@ -385,13 +528,60 @@ export class PluginManager {
       registerAdminNav: (item) => {
         this.app.adminUi.registerNavItem(item);
       },
-      getService: <T>(token: ServiceIdentifier<T>): T => {
-        return this.container.get<T>(token);
-      },
-      bindService: <T>(token: ServiceIdentifier<T>, instance: T) => {
-        this.container.bindInstance<T>(token, instance);
-      },
+      getService,
+      bindService,
     };
+
+    return context;
+  }
+
+  /**
+   * Install/use a plugin on the NodeStack instance
+   */
+  public use(pluginOrFn: NodeStackPlugin, targetScope?: AppScope): this {
+    // 1. Normalize plugin
+    let plugin: INodeStackPlugin;
+    if (typeof pluginOrFn === 'function') {
+      if (this.registeredFunctions.has(pluginOrFn)) {
+        throw new Error('[PluginManager] This plugin function is already registered.');
+      }
+      const fnName = pluginOrFn.name || `plugin_${this.anonymousCounter++}`;
+      plugin = {
+        name: fnName,
+        register: pluginOrFn,
+      };
+    } else {
+      plugin = pluginOrFn;
+    }
+
+    if (!plugin || typeof plugin !== 'object' || !plugin.name) {
+      throw new Error('[PluginManager] Invalid plugin provided: must have a valid name');
+    }
+
+    // 2. Check duplicate registration
+    if (this.plugins.has(plugin.name)) {
+      throw new Error(
+        `[PluginManager] Plugin "${plugin.name}" is already registered. Duplicate plugin registrations are not permitted.`
+      );
+    }
+
+    if (typeof pluginOrFn === 'function') {
+      this.registeredFunctions.add(pluginOrFn);
+    }
+
+    // 3. Validate dependencies
+    if (plugin.dependencies && plugin.dependencies.length > 0) {
+      for (const dep of plugin.dependencies) {
+        if (!this.plugins.has(dep)) {
+          throw new Error(
+            `[PluginManager] Plugin "${plugin.name}" requires dependent plugin "${dep}" which has not been registered.`
+          );
+        }
+      }
+    }
+
+    // 4. Build Plugin Context
+    const context = this.createPluginContext(plugin.name);
 
     // 5. Execute Declarative Registrations
     const scopeToProvision = targetScope || this.app.defaultApp;
@@ -416,7 +606,23 @@ export class PluginManager {
     }
 
     // 6. Execute Lifecycle Hooks
-    if (typeof plugin.register === 'function') {
+    if (typeof (plugin as any).onRegister === 'function') {
+      const regRes = (plugin as any).onRegister(context);
+      if (regRes instanceof Promise) {
+        this.pendingInits.push(
+          regRes.catch((err: any) => {
+            const record = this.plugins.get(plugin.name);
+            if (record) {
+              record.status = 'error';
+              record.error = err;
+            }
+            console.error(`[PluginManager] Error in onRegister hook for "${plugin.name}":`, err);
+          })
+        );
+      }
+    }
+
+    if (typeof plugin.register === 'function' && plugin.register !== (plugin as any).onRegister) {
       const regRes = plugin.register(context);
       if (regRes instanceof Promise) {
         this.pendingInits.push(
@@ -1152,119 +1358,28 @@ export class PluginManager {
   }
 
   private wireScopedPluginLifecycle(plugin: INodeStackPlugin, scope: AppScope): void {
-    if (typeof plugin.register !== 'function') return;
+    if (typeof plugin.register !== 'function' && typeof (plugin as any).onRegister !== 'function') return;
 
     try {
       const def = OFFICIAL_PLUGINS.find((p) => p.name === plugin.name || p.id === plugin.name);
       const scopedPlugin: INodeStackPlugin = def ? def.factory() : plugin;
 
-      const scopedApp = new Proxy(this.app, {
-        get(target, prop, receiver) {
-          if (prop === 'db') return scope.db;
-          if (prop === 'schema') return scope.schema;
-          if (prop === 'records') return scope.records;
-          if (prop === 'eventBus') return scope.eventBus;
-          if (prop === 'files') return scope.files;
-          if (prop === 'fts') return scope.fts;
-          if (prop === 'analytics') return scope.analytics;
-          if (prop === 'auditLogs') return scope.auditLogs;
-          if (prop === 'webhooks') return scope.webhooks;
-          return Reflect.get(target, prop, receiver);
-        },
-      });
-
-      const scopedContext: NodeStackPluginContext = {
-        app: scopedApp,
-        container: this.container,
-        tokens: TOKENS,
-        config: scope.config,
-        db: scope.db,
-        schema: scope.schema,
-        eventBus: scope.eventBus,
-        adminUi: this.app.adminUi,
-        auth: {
-          requireAdmin: () => this.app.authMiddleware.requireAdmin(),
-          requireAdminOrInitial: () => this.app.authMiddleware.requireAdminOrInitialSetup(),
-          requireAuth: () => this.app.authMiddleware.requireAuth(),
-        },
-        router: {
-          get: () => {},
-          post: () => {},
-          patch: () => {},
-          delete: () => {},
-          put: () => {},
-          raw: this.app.server?.app as any,
-        },
-        registerRoute: () => {},
-        registerAdminNav: () => {},
-        registerSystemCollection: (dto) => scope.schema.registerSystemCollection(dto),
-        registerHook: (event: string, handler: any, collection?: string) => {
-          const guardedHandler = async (...args: any[]) => {
-            if (!this.isPluginEnabledInDb(scopedPlugin.name, scope.db)) {
-              return;
-            }
-            return handler(...args);
-          };
-
-          let unsubscribe: () => void;
-          switch (event) {
-            case 'beforeCreate':
-              unsubscribe = scope.eventBus.onRecordBeforeCreate(
-                collection ? collection : guardedHandler,
-                collection ? guardedHandler : undefined
-              );
-              break;
-            case 'afterCreate':
-              unsubscribe = scope.eventBus.onRecordAfterCreate(
-                collection ? collection : guardedHandler,
-                collection ? guardedHandler : undefined
-              );
-              break;
-            case 'beforeUpdate':
-              unsubscribe = scope.eventBus.onRecordBeforeUpdate(
-                collection ? collection : guardedHandler,
-                collection ? guardedHandler : undefined
-              );
-              break;
-            case 'afterUpdate':
-              unsubscribe = scope.eventBus.onRecordAfterUpdate(
-                collection ? collection : guardedHandler,
-                collection ? guardedHandler : undefined
-              );
-              break;
-            case 'beforeDelete':
-              unsubscribe = scope.eventBus.onRecordBeforeDelete(
-                collection ? collection : guardedHandler,
-                collection ? guardedHandler : undefined
-              );
-              break;
-            case 'afterDelete':
-              unsubscribe = scope.eventBus.onRecordAfterDelete(
-                collection ? collection : guardedHandler,
-                collection ? guardedHandler : undefined
-              );
-              break;
-            case 'beforeServe':
-              unsubscribe = scope.eventBus.onBeforeServe(guardedHandler);
-              break;
-            case 'afterServe':
-              unsubscribe = scope.eventBus.onAfterServe(guardedHandler);
-              break;
-            default:
-              unsubscribe = scope.eventBus.on(event, guardedHandler);
-              break;
-          }
-
-          this.addScopedHookUnsubscriber(scope.app.slug, scopedPlugin.name, unsubscribe);
-        },
-        getService: <T>(token: ServiceIdentifier<T>): T => this.container.get<T>(token),
-        bindService: () => {},
-      };
-
+      const scopedContext = this.createPluginContext(scopedPlugin.name, scope);
       const key = this.getScopedHookKey(scope.app.slug, scopedPlugin.name);
       this.scopedPlugins.set(key, { plugin: scopedPlugin, context: scopedContext });
 
-      if (typeof scopedPlugin.register === 'function') {
+      if (typeof (scopedPlugin as any).onRegister === 'function') {
+        const regRes = (scopedPlugin as any).onRegister(scopedContext);
+        if (regRes instanceof Promise) {
+          this.pendingInits.push(
+            regRes.catch((err: any) => {
+              console.error(`[PluginManager] Scoped onRegister error for "${scopedPlugin.name}" in app "${scope.app.slug}":`, err);
+            })
+          );
+        }
+      }
+
+      if (typeof scopedPlugin.register === 'function' && scopedPlugin.register !== (scopedPlugin as any).onRegister) {
         const regRes = scopedPlugin.register(scopedContext);
         if (regRes instanceof Promise) {
           this.pendingInits.push(
