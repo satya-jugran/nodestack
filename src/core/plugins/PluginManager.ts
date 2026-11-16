@@ -197,6 +197,13 @@ export class PluginManager {
       });
     }
 
+  }
+
+  /**
+   * Load any auto-enabled plugins on startup. Must be invoked after core service tokens
+   * are locked in the IoC container to enforce least privilege.
+   */
+  public loadAutoEnabledPluginsOnStartup(): void {
     if (this.app.db.dialect.name === 'sqlite') {
       this.loadAutoEnabledPluginsSync();
     } else {

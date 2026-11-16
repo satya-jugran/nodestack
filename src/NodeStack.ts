@@ -341,6 +341,9 @@ export class NodeStack {
 
     // 20. Lock all Core Service TOKENS (Principle of Least Privilege / Immutability)
     this.container.lockTokens(Object.values(TOKENS));
+
+    // 21. Load Auto-Enabled Plugins after core tokens are locked
+    this.pluginManager.loadAutoEnabledPluginsOnStartup();
   }
 
   // --- Formal Plugin Architecture (app.use) ---

@@ -345,4 +345,37 @@ describe('Plugin Security: Principle of Least Privilege (PoLP) PluginContext & C
     scopedCtx!.bindService(tenantCustomToken, { tenant: 'Tenant A' });
     expect(app.container.has(tenantCustomToken)).toBe(false);
   });
+
+  it('should ensure core tokens are locked BEFORE auto-enabled plugins run on startup', async () => {
+    const startupTestDataDir = path.join(__dirname, '.test_plugin_startup_race_' + Date.now());
+    fs.mkdirSync(startupTestDataDir, { recursive: true });
+
+    try {
+      const initApp = new NodeStack({ dataDir: startupTestDataDir, port: 8225 });
+      await initApp.db.run(
+        `INSERT INTO _plugin_settings (pluginName, settings, updatedAt) VALUES (?, ?, ?)`,
+        'stripe',
+        JSON.stringify({ _enabled: true }),
+        new Date().toISOString()
+      );
+      await initApp.stop();
+
+      // Restart app: PluginManager auto-loads 'stripe' after tokens are locked
+      const restartedApp = new NodeStack({ dataDir: startupTestDataDir, port: 8226 });
+
+      expect(restartedApp.container.isLocked(TOKENS.AuthService)).toBe(true);
+      expect(restartedApp.container.isLocked(TOKENS.DatabaseService)).toBe(true);
+      expect(restartedApp.container.isLocked(TOKENS.HttpServer)).toBe(true);
+      expect(restartedApp.container.isLocked(TOKENS.PluginRegistry)).toBe(true);
+
+      expect(restartedApp.container.get(TOKENS.AuthService)).toBe(restartedApp.auth);
+      expect(restartedApp.container.get(TOKENS.DatabaseService)).toBe(restartedApp.db);
+
+      await restartedApp.stop();
+    } finally {
+      if (fs.existsSync(startupTestDataDir)) {
+        fs.rmSync(startupTestDataDir, { recursive: true, force: true });
+      }
+    }
+  });
 });
