@@ -235,9 +235,21 @@ export class PluginManager {
     const targetConfig = targetScope ? targetScope.config : this.app.config;
     const targetEventBus = targetScope ? targetScope.eventBus : this.app.eventBus;
 
-    // 1. Safe PluginManagerFacade: Exposes ONLY read-only capabilities (getEffectiveConfig), NOT container, app, use, or disposeScope
+    // 1. Safe PluginManagerFacade: Exposes ONLY own effective configuration (or justified alias), NOT container, app, use, disposeScope, or arbitrary plugin secrets
+    const allowedConfigPluginNames = new Set<string>([pluginName]);
+    if (pluginName === 'chat-notifications') allowedConfigPluginNames.add('webhooks');
+    if (pluginName === 'webhooks') allowedConfigPluginNames.add('chat-notifications');
+
     const pluginManagerFacade: PluginManagerFacade = {
-      getEffectiveConfig: (name: string, db?: DatabaseService) => this.getEffectiveConfig(name, db),
+      getEffectiveConfig: (name?: string, db?: DatabaseService) => {
+        const targetName = name || pluginName;
+        if (!allowedConfigPluginNames.has(targetName)) {
+          throw new Error(
+            `[PluginManager] Unauthorized configuration access: Plugin "${pluginName}" is not permitted to access configuration for "${targetName}".`
+          );
+        }
+        return this.getEffectiveConfig(targetName, db);
+      },
     };
 
     // 2. Safe PluginAppFacade: Exposes ONLY domain data services, NOT container, server, stop(), or maintenanceGate

@@ -378,4 +378,72 @@ describe('Plugin Security: Principle of Least Privilege (PoLP) PluginContext & C
       }
     }
   });
+
+  it('should prevent plugins from accessing other plugins effective config and secrets', () => {
+    app = new NodeStack({ dataDir: testDataDir, port: 8227 });
+
+    let capturedAttackerCtx: PluginContext | null = null;
+    const attackerPlugin: INodeStackPlugin = {
+      name: 'attacker-plugin',
+      configSchema: {
+        fields: [{ name: 'ownSecret', type: 'password', isLocked: false, source: 'code' }],
+      },
+      codeOptions: { ownSecret: 'attacker-secret' },
+      onRegister(ctx) {
+        capturedAttackerCtx = ctx;
+      },
+    };
+
+    const victimPlugin: INodeStackPlugin = {
+      name: 'victim-payment-plugin',
+      configSchema: {
+        fields: [{ name: 'apiKey', type: 'password', isLocked: false, source: 'code' }],
+      },
+      codeOptions: { apiKey: 'super-secret-stripe-key' },
+    };
+
+    app.use(victimPlugin);
+    app.use(attackerPlugin);
+
+    expect(capturedAttackerCtx).toBeDefined();
+
+    // 1. Attacker CAN read its own effective config
+    const ownConfig = capturedAttackerCtx!.app.plugins?.getEffectiveConfig();
+    expect(ownConfig).toBeDefined();
+    expect(ownConfig?.ownSecret).toBe('attacker-secret');
+
+    const ownConfigByName = capturedAttackerCtx!.app.plugins?.getEffectiveConfig('attacker-plugin');
+    expect(ownConfigByName?.ownSecret).toBe('attacker-secret');
+
+    // 2. Attacker CANNOT read victim plugin's config or secrets
+    expect(() => {
+      capturedAttackerCtx!.app.plugins?.getEffectiveConfig('victim-payment-plugin');
+    }).toThrow(/Unauthorized configuration access: Plugin "attacker-plugin" is not permitted to access configuration for "victim-payment-plugin"/i);
+
+    expect(() => {
+      capturedAttackerCtx!.app.plugins?.getEffectiveConfig('stripe');
+    }).toThrow(/Unauthorized configuration access: Plugin "attacker-plugin" is not permitted to access configuration for "stripe"/i);
+  });
+
+  it('should allow chat-notifications and webhooks to access each other as justified aliases', () => {
+    app = new NodeStack({ dataDir: testDataDir, port: 8228 });
+
+    let chatCtx: PluginContext | null = null;
+    const chatPlugin: INodeStackPlugin = {
+      name: 'chat-notifications',
+      onRegister(ctx) {
+        chatCtx = ctx;
+      },
+    };
+
+    app.use(chatPlugin);
+
+    expect(chatCtx).toBeDefined();
+    // Can access chat-notifications
+    expect(() => chatCtx!.app.plugins?.getEffectiveConfig('chat-notifications')).not.toThrow();
+    // Can access justified alias webhooks
+    expect(() => chatCtx!.app.plugins?.getEffectiveConfig('webhooks')).not.toThrow();
+    // Cannot access unrelated plugin
+    expect(() => chatCtx!.app.plugins?.getEffectiveConfig('resend')).toThrow(/Unauthorized configuration access/i);
+  });
 });

@@ -104,8 +104,8 @@ export interface PluginConfigResult {
 }
 
 export interface PluginManagerFacade {
-  /** Resolve the effective configuration for a plugin across precedence layers */
-  getEffectiveConfig(name: string, db?: DatabaseService): Record<string, any>;
+  /** Resolve the effective configuration for this plugin across precedence layers */
+  getEffectiveConfig(name?: string, db?: DatabaseService): Record<string, any>;
 }
 
 export interface PluginAppFacade {
