@@ -193,17 +193,21 @@ describe('Plugin Security: Principle of Least Privilege (PoLP) PluginContext & C
     expect(resolvedFromContext).toBe(resolved);
   });
 
-  it('should allow plugins to resolve core services via ctx.getService', () => {
+  it('should allow plugins to resolve safe allowlisted core services via ctx.getService', () => {
     app = new NodeStack({ dataDir: testDataDir, port: 8216 });
 
     let resolvedDb: any = null;
     let resolvedConfig: any = null;
+    let resolvedSchema: any = null;
+    let resolvedRecords: any = null;
 
     const observerPlugin: INodeStackPlugin = {
       name: 'observer-plugin',
       onRegister(ctx) {
         resolvedDb = ctx.getService(TOKENS.DatabaseService);
         resolvedConfig = ctx.getService(TOKENS.ConfigService);
+        resolvedSchema = ctx.getService(TOKENS.SchemaService);
+        resolvedRecords = ctx.getService(TOKENS.RecordService);
       },
     };
 
@@ -211,6 +215,41 @@ describe('Plugin Security: Principle of Least Privilege (PoLP) PluginContext & C
 
     expect(resolvedDb).toBe(app.db);
     expect(resolvedConfig).toBe(app.config);
+    expect(resolvedSchema).toBe(app.schema);
+    expect(resolvedRecords).toBe(app.records);
+  });
+
+  it('should prevent plugins from resolving restricted core services via ctx.getService', () => {
+    app = new NodeStack({ dataDir: testDataDir, port: 8217 });
+
+    const restrictedTokens = [
+      TOKENS.HttpServer,
+      TOKENS.AdminUIService,
+      TOKENS.MaintenanceGate,
+      TOKENS.PluginRegistry,
+      TOKENS.AppManager,
+      TOKENS.AppRegistry,
+      TOKENS.EventBus,
+      TOKENS.RuleEngine,
+      TOKENS.ChaosMiddleware,
+    ];
+
+    let capturedCtx: PluginContext | null = null;
+    const testPlugin: INodeStackPlugin = {
+      name: 'token-probe-plugin',
+      onRegister(ctx) {
+        capturedCtx = ctx;
+      },
+    };
+
+    app.use(testPlugin);
+    expect(capturedCtx).toBeDefined();
+
+    for (const token of restrictedTokens) {
+      expect(() => {
+        capturedCtx!.getService(token);
+      }).toThrow(/Access to restricted service token is not permitted/i);
+    }
   });
 
   it('should allow plugins to perform CRUD operations via ctx.records', async () => {

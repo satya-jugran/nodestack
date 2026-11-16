@@ -119,6 +119,15 @@ export const OFFICIAL_PLUGINS: OfficialPluginDef[] = [
   },
 ];
 
+const CORE_TOKENS_SET = new Set<any>(Object.values(TOKENS));
+
+export const ALLOWED_CORE_SERVICE_TOKENS = new Set<ServiceIdentifier>([
+  TOKENS.DatabaseService,
+  TOKENS.SchemaService,
+  TOKENS.RecordService,
+  TOKENS.ConfigService,
+]);
+
 export class PluginManager {
   private plugins = new Map<string, RegisteredPluginRecord>();
   private pendingInits: Promise<void>[] = [];
@@ -239,8 +248,18 @@ export class PluginManager {
       on: (event: string, handler: (data?: any) => Promise<void> | void) => targetEventBus.on(event, handler),
     };
 
-    // 3. DI helpers: getService (read-only) and bindService (custom tokens only, core tokens locked)
+    // 3. DI helpers: getService (restricted to safe capabilities and custom tokens) and bindService (custom tokens only, core tokens locked)
     const getService = <T>(token: ServiceIdentifier<T>): T => {
+      if (CORE_TOKENS_SET.has(token)) {
+        if (!ALLOWED_CORE_SERVICE_TOKENS.has(token)) {
+          const tokenName = typeof token === 'symbol' ? (token.description || token.toString()) : String(token);
+          throw new Error(`[PluginManager] Access to restricted service token is not permitted: ${tokenName}`);
+        }
+        if (token === TOKENS.DatabaseService) return targetDb as unknown as T;
+        if (token === TOKENS.SchemaService) return targetSchema as unknown as T;
+        if (token === TOKENS.RecordService) return targetRecords as unknown as T;
+        if (token === TOKENS.ConfigService) return targetConfig as unknown as T;
+      }
       return this.container.get<T>(token);
     };
 
