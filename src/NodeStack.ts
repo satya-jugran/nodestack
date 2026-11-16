@@ -338,6 +338,9 @@ export class NodeStack {
     // 19. Plugin Manager
     this.pluginManager = new PluginManager(this, this.container);
     this.container.bindInstance(TOKENS.PluginRegistry, this.pluginManager);
+
+    // 20. Lock all Core Service TOKENS (Principle of Least Privilege / Immutability)
+    this.container.lockTokens(Object.values(TOKENS));
   }
 
   // --- Formal Plugin Architecture (app.use) ---

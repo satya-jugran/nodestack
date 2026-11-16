@@ -1,19 +1,16 @@
 import { FastifyInstance, RouteHandlerMethod } from 'fastify';
-import { Container } from '../container/Container';
-import { TOKENS, ServiceIdentifier } from '../container/Tokens';
+import { ServiceIdentifier } from '../container/Tokens';
 import { ConfigService } from '../config/ConfigService';
 import { DatabaseService } from '../../database/DatabaseService';
 import { SchemaService } from '../../schema/SchemaService';
+import { RecordService } from '../../records/RecordService';
 import { CreateCollectionDto, CollectionModel } from '../../schema/models/Collection';
-import { EventBus } from '../events/EventBus';
 import {
   HookHandler,
   RecordBeforeEventContext,
   RecordAfterEventContext,
   ServeEventContext,
 } from '../events/types';
-import { AdminUIService } from '../../admin/AdminUIService';
-import type { NodeStack } from '../../NodeStack';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
 
@@ -106,38 +103,57 @@ export interface PluginConfigResult {
   fields: ResolvedPluginConfigField[];
 }
 
+export interface PluginAppFacade {
+  /** Database service for queries and migrations */
+  readonly db: DatabaseService;
+  /** Schema service for collection metadata */
+  readonly schema: SchemaService;
+  /** Record service for CRUD data operations */
+  readonly records: RecordService;
+  /** System configuration service */
+  readonly config: ConfigService;
+  /** Plugins manager facade (e.g. for effective configuration resolution) */
+  readonly plugins?: any;
+  /** Default app scope fallback if multi-app is enabled */
+  readonly defaultApp?: any;
+}
+
+export interface PluginEventBus {
+  /** Emit an event across the event bus */
+  emit(event: string, data?: any): Promise<void>;
+  /** Subscribe to an event, returning an unsubscribe callback */
+  on(event: string, handler: (data?: any) => Promise<void> | void): () => void;
+}
+
+export interface PluginRouter {
+  get: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
+  post: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
+  patch: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
+  delete: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
+  put: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
+}
+
 export interface NodeStackPluginContext {
-  /** The parent NodeStack application instance */
-  app: NodeStack;
-  /** IoC Dependency Injection Container */
-  container: Container;
-  /** Core Dependency Injection TOKENS */
-  tokens: typeof TOKENS;
+  /** Application facade providing safe domain capabilities (records, db, schema, etc.) without host runtime controls */
+  readonly app: PluginAppFacade;
   /** System Configuration Service */
-  config: ConfigService;
+  readonly config: ConfigService;
   /** Database Service */
-  db: DatabaseService;
+  readonly db: DatabaseService;
   /** Schema & Collections Service */
-  schema: SchemaService;
-  /** Global EventBus for event & hook dispatching */
-  eventBus: EventBus;
-  /** Admin UI & Embedded Dashboard Service */
-  adminUi: AdminUIService;
+  readonly schema: SchemaService;
+  /** Record Service for CRUD operations on collections */
+  readonly records: RecordService;
+  /** Sandboxed EventBus for event dispatching without destructive clear() */
+  readonly eventBus: PluginEventBus;
   /** Auth prehandlers and policy helpers for securing plugin routes */
-  auth: {
+  readonly auth: {
     requireAdmin: () => (req: any, reply: any) => Promise<void>;
     requireAdminOrInitial: () => (req: any, reply: any) => Promise<void>;
     requireAuth: () => (req: any, reply: any) => Promise<void>;
   };
-  /** Expressive router helper */
-  router: {
-    get: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
-    post: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
-    patch: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
-    delete: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
-    put: (path: string, handler: RouteHandlerMethod, options?: PluginRouteOptions) => void;
-    raw: FastifyInstance;
-  };
+  /** Expressive router helper without raw Fastify access */
+  readonly router: PluginRouter;
 
   /** Register a custom route with Fastify and optional auth policy */
   registerRoute: (
@@ -160,12 +176,14 @@ export interface NodeStackPluginContext {
   /** Register a navigation item in the Admin UI sidebar */
   registerAdminNav: (item: AdminNavItem) => void;
 
-  /** Resolve a service from the container */
+  /** Resolve a service from the container (read-only capability) */
   getService: <T>(token: ServiceIdentifier<T>) => T;
 
-  /** Bind or override a service instance in the container */
+  /** Bind a custom plugin service instance. Core tokens are protected and cannot be re-registered. */
   bindService: <T>(token: ServiceIdentifier<T>, instance: T) => void;
 }
+
+export type PluginContext = NodeStackPluginContext;
 
 export interface INodeStackPlugin {
   /** Unique name of the plugin, e.g. 'stripe', 's3-storage', 'resend' */
@@ -193,6 +211,7 @@ export interface INodeStackPlugin {
 
   // Lifecycle methods
   register?(context: NodeStackPluginContext): void | Promise<void>;
+  onRegister?(context: NodeStackPluginContext): void | Promise<void>;
   init?(context: NodeStackPluginContext): void | Promise<void>;
   onBeforeServe?(context: ServeEventContext): void | Promise<void>;
   onAfterServe?(context: ServeEventContext): void | Promise<void>;

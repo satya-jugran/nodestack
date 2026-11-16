@@ -14,11 +14,45 @@ interface Binding<T> {
 export class Container {
   private bindings = new Map<ServiceIdentifier, Binding<any>>();
   private singletons = new Map<ServiceIdentifier, any>();
+  private lockedTokens = new Set<ServiceIdentifier>();
+
+  /**
+   * Lock a token so its binding cannot be overridden.
+   */
+  public lockToken(token: ServiceIdentifier): this {
+    this.lockedTokens.add(token);
+    return this;
+  }
+
+  /**
+   * Lock multiple tokens so their bindings cannot be overridden.
+   */
+  public lockTokens(tokens: Iterable<ServiceIdentifier>): this {
+    for (const token of tokens) {
+      this.lockedTokens.add(token);
+    }
+    return this;
+  }
+
+  /**
+   * Check if a token is locked against re-registration.
+   */
+  public isLocked(token: ServiceIdentifier): boolean {
+    return this.lockedTokens.has(token);
+  }
+
+  private checkNotLocked(token: ServiceIdentifier): void {
+    if (this.lockedTokens.has(token)) {
+      const name = typeof token === 'symbol' ? token.description : String(token);
+      throw new Error(`[IoC Container] Cannot override locked service token: ${name}`);
+    }
+  }
 
   /**
    * Bind an instance directly to a token
    */
   public bindInstance<T>(token: ServiceIdentifier<T>, instance: T): this {
+    this.checkNotLocked(token);
     this.bindings.set(token, {
       type: 'instance',
       value: instance,
@@ -32,6 +66,7 @@ export class Container {
    * Bind a factory function to a token
    */
   public bindFactory<T>(token: ServiceIdentifier<T>, factory: Factory<T>, isSingleton = true): this {
+    this.checkNotLocked(token);
     this.bindings.set(token, {
       type: 'factory',
       factory,
@@ -49,6 +84,7 @@ export class Container {
     dependencies: ServiceIdentifier[] = [],
     isSingleton = true
   ): this {
+    this.checkNotLocked(token);
     this.bindings.set(token, {
       type: 'class',
       ctor,
