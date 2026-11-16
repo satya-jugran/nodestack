@@ -446,4 +446,58 @@ describe('Plugin Security: Principle of Least Privilege (PoLP) PluginContext & C
     // Cannot access unrelated plugin
     expect(() => chatCtx!.app.plugins?.getEffectiveConfig('resend')).toThrow(/Unauthorized configuration access/i);
   });
+
+  it('should default getEffectiveConfig to targetDb in tenant-scoped context and block foreign db access', async () => {
+    app = new NodeStack({ dataDir: testDataDir, port: 8229 });
+    await app.start();
+
+    // 1. Configure root app settings for a test plugin
+    const testConfigPlugin: INodeStackPlugin = {
+      name: 'tenant-test-plugin',
+      configSchema: {
+        fields: [{ name: 'apiKey', type: 'password', isLocked: false, source: 'code' }],
+      },
+      codeOptions: { apiKey: 'default-code-key' },
+    };
+    app.use(testConfigPlugin);
+
+    // Save root-level setting in root app.db
+    await app.db.run(
+      `INSERT INTO _plugin_settings (pluginName, settings, updatedAt) VALUES (?, ?, ?)`,
+      'tenant-test-plugin',
+      JSON.stringify({ apiKey: 'root-secret-key-12345' }),
+      new Date().toISOString()
+    );
+
+    // 2. Create tenant app scope and save tenant-specific setting
+    const tenantScope = await app.apps.create({ name: 'Tenant B', slug: 'tenant-b' });
+    await tenantScope.db.run(
+      `INSERT INTO _plugin_settings (pluginName, settings, updatedAt) VALUES (?, ?, ?)`,
+      'tenant-test-plugin',
+      JSON.stringify({ apiKey: 'tenant-b-secret-key-67890' }),
+      new Date().toISOString()
+    );
+
+    let scopedCtx: PluginContext | null = null;
+    const scopedInspectorPlugin: INodeStackPlugin = {
+      name: 'tenant-test-plugin',
+      register(ctx) {
+        scopedCtx = ctx;
+      },
+    };
+
+    app.pluginManager.provisionPluginForScope(scopedInspectorPlugin, tenantScope);
+    expect(scopedCtx).toBeDefined();
+
+    // 3. Omitting db argument in tenant-scoped context MUST resolve from tenantScope.db (NOT root app.db)
+    const effective = scopedCtx!.app.plugins?.getEffectiveConfig();
+    expect(effective).toBeDefined();
+    expect(effective?.apiKey).toBe('tenant-b-secret-key-67890');
+    expect(effective?.apiKey).not.toBe('root-secret-key-12345');
+
+    // 4. Attempting to query foreign database (e.g. root app.db) from tenant-scoped context throws
+    expect(() => {
+      scopedCtx!.app.plugins?.getEffectiveConfig('tenant-test-plugin', app.db);
+    }).toThrow(/Unauthorized database access: Scoped plugins cannot query configuration outside their assigned application scope/i);
+  });
 });

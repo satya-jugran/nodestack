@@ -248,7 +248,13 @@ export class PluginManager {
             `[PluginManager] Unauthorized configuration access: Plugin "${pluginName}" is not permitted to access configuration for "${targetName}".`
           );
         }
-        return this.getEffectiveConfig(targetName, db);
+        if (!isDefaultScope && db && db !== targetDb) {
+          throw new Error(
+            `[PluginManager] Unauthorized database access: Scoped plugins cannot query configuration outside their assigned application scope.`
+          );
+        }
+        const effectiveDb = db || targetDb;
+        return this.getEffectiveConfig(targetName, effectiveDb);
       },
     };
 
