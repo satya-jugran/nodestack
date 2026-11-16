@@ -268,7 +268,11 @@ export class EventBus {
 
     for (const hook of this.afterCreateHooks) {
       if (!hook.collection || hook.collection === collection) {
-        await hook.handler(ctx);
+        try {
+          await hook.handler(ctx);
+        } catch (err) {
+          console.error(`[EventBus] Error in afterCreate listener for "${collection}":`, err);
+        }
       }
     }
   }
@@ -320,7 +324,11 @@ export class EventBus {
 
     for (const hook of this.afterUpdateHooks) {
       if (!hook.collection || hook.collection === collection) {
-        await hook.handler(ctx);
+        try {
+          await hook.handler(ctx);
+        } catch (err) {
+          console.error(`[EventBus] Error in afterUpdate listener for "${collection}":`, err);
+        }
       }
     }
   }
@@ -368,7 +376,11 @@ export class EventBus {
 
     for (const hook of this.afterDeleteHooks) {
       if (!hook.collection || hook.collection === collection) {
-        await hook.handler(ctx);
+        try {
+          await hook.handler(ctx);
+        } catch (err) {
+          console.error(`[EventBus] Error in afterDelete listener for "${collection}":`, err);
+        }
       }
     }
   }
@@ -381,14 +393,22 @@ export class EventBus {
 
   public async triggerAfterServe(ctx: ServeEventContext): Promise<void> {
     for (const hook of this.afterServeHooks) {
-      await hook(ctx);
+      try {
+        await hook(ctx);
+      } catch (err) {
+        console.error('[EventBus] Error in afterServe listener:', err);
+      }
     }
   }
 
   public async triggerAuthRequest(ctx: AuthEventContext): Promise<void> {
     for (const hook of this.authHooks) {
       if (!hook.collection || hook.collection === ctx.collection) {
-        await hook.handler(ctx);
+        try {
+          await hook.handler(ctx);
+        } catch (err) {
+          console.error(`[EventBus] Error in authRequest listener for "${ctx.collection}":`, err);
+        }
       }
     }
   }
@@ -421,7 +441,11 @@ export class EventBus {
     const handlers = this.customEventHandlers.get(event);
     if (handlers) {
       for (const handler of handlers) {
-        await handler(data);
+        try {
+          await handler(data);
+        } catch (err) {
+          console.error(`[EventBus] Error in "${event}" listener:`, err);
+        }
       }
     }
   }
