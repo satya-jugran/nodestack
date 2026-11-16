@@ -296,7 +296,27 @@ describe('Registration Security: Rate Limiting, Email Verification & Atomic Conc
       });
       expect(user.verified).toBe(false);
 
-      // Public / non-admin user attempts to update profile with verified: true
+      // Authenticate as this user to get user JWT session
+      const authRes = await app.auth.authenticateRecord('users', 'update_spoof@nodestack.test', 'UserPassword123!');
+      const userJwt = authRes.token;
+
+      // Public / non-admin user attempts HTTP PATCH on their own record with verified: true
+      const patchRes = await fetch(`${baseUrl}/api/collections/users/records/${user.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${userJwt}`,
+        },
+        body: JSON.stringify({
+          verified: true, // Spoofed verified
+        }),
+      });
+
+      expect(patchRes.status).toBe(200);
+      const patched = await patchRes.json();
+      expect(patched.verified).toBe(false);
+
+      // Direct programmatic update check as non-admin
       const userAuth = { id: user.id, email: user.email, collection: 'users', isAdmin: false, tokenKey: 'tk' };
       const updated = await app.records.update('users', user.id, {
         verified: true, // Spoofed verified
