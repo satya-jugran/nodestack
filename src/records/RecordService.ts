@@ -507,12 +507,18 @@ export class RecordService {
           throw new ConflictError(`Email '${cleanEmail}' is already registered`);
         }
         updates.email = cleanEmail;
+        // Invalidate in-flight tokens and reset verification when email address changes
+        updates.tokenKey = crypto.randomBytes(16).toString('hex');
+        updates.verified = false;
       }
       if (processedData.emailVisibility !== undefined) {
         updates.emailVisibility = RecordValidator.toBoolean(processedData.emailVisibility);
       }
       if (processedData.verified !== undefined) {
-        updates.verified = RecordValidator.toBoolean(processedData.verified);
+        // Disallow non-admin callers from self-asserting verified during update
+        if (auth?.isAdmin) {
+          updates.verified = RecordValidator.toBoolean(processedData.verified);
+        }
       }
     }
 

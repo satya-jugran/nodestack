@@ -235,6 +235,61 @@ describe('Registration Security: Rate Limiting, Email Verification & Atomic Conc
       expect(confirmedA.verified).toBe(true);
       expect(confirmedA.email).toBe('user_a@nodestack.test');
     });
+
+    it('should reject verification token if account email changes after token issuance', async () => {
+      // 1. Create user with initial email
+      const user = await app.records.create('users', {
+        email: 'pre_change@nodestack.test',
+        password: 'UserPassword123!',
+      });
+      expect(user.verified).toBe(false);
+
+      // 2. Request verification token for initial email
+      const { token } = await app.auth.requestVerification('users', 'pre_change@nodestack.test');
+      expect(token).toBeDefined();
+
+      // 3. User or admin updates email address to new address
+      const userAuth = { id: user.id, email: user.email, collection: 'users', isAdmin: false, tokenKey: user.tokenKey };
+      const updatedUser = await app.records.update('users', user.id, {
+        email: 'post_change@nodestack.test',
+      }, userAuth);
+      expect(updatedUser.email).toBe('post_change@nodestack.test');
+      expect(updatedUser.verified).toBe(false);
+
+      // 4. Attempting to use the old verification token to verify the account MUST fail
+      await expect(
+        app.auth.confirmVerification(token)
+      ).rejects.toThrow(/(does not match|invalidated)/i);
+
+      // 5. Verify that the user remains unverified in database
+      const dbRow = (app as any).db.prepare('SELECT email, verified FROM users WHERE id = ?').get(user.id);
+      expect(dbRow.email).toBe('post_change@nodestack.test');
+      expect(Boolean(dbRow.verified)).toBe(false);
+
+      // 6. Requesting new verification for post_change@nodestack.test succeeds and can be confirmed
+      const { token: newToken } = await app.auth.requestVerification('users', 'post_change@nodestack.test');
+      const confirmed = await app.auth.confirmVerification(newToken);
+      expect(confirmed.verified).toBe(true);
+      expect(confirmed.email).toBe('post_change@nodestack.test');
+    });
+
+    it('should disallow non-admin callers from self-asserting verified: true during update', async () => {
+      const user = await app.records.create('users', {
+        email: 'update_spoof@nodestack.test',
+        password: 'UserPassword123!',
+      });
+      expect(user.verified).toBe(false);
+
+      // Public / non-admin user attempts to update profile with verified: true
+      const userAuth = { id: user.id, email: user.email, collection: 'users', isAdmin: false, tokenKey: 'tk' };
+      const updated = await app.records.update('users', user.id, {
+        verified: true, // Spoofed verified
+      }, userAuth);
+
+      expect(updated.verified).toBe(false);
+      const dbRow = (app as any).db.prepare('SELECT verified FROM users WHERE id = ?').get(user.id);
+      expect(Boolean(dbRow.verified)).toBe(false);
+    });
   });
 
   describe('2. Atomic Concurrency & Race Condition Prevention', () => {

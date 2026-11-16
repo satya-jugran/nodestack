@@ -899,10 +899,15 @@ export class AuthService {
       if (!admin) {
         throw new NotFoundError('Admin account for verification not found');
       }
+      const adminEmail = (admin.email || '').trim().toLowerCase();
+      const tokenEmail = (decoded.email || '').trim().toLowerCase();
+      if (!tokenEmail || tokenEmail !== adminEmail) {
+        throw new UnauthorizedError('Verification token does not match the current account email');
+      }
       if (decoded.tokenKey && admin.tokenKey && decoded.tokenKey !== admin.tokenKey) {
         throw new UnauthorizedError('Verification token has been invalidated');
       }
-      return { id: admin.id, email: admin.email, collection: '_admins', tokenKey: admin.tokenKey };
+      return { id: admin.id, email: adminEmail, collection: '_admins', tokenKey: admin.tokenKey, appId: decoded.appId, appSlug: decoded.appSlug };
     } else {
       const col = await this.schemaService.getCollectionOrThrow(decoded.collection);
       if (col.type !== 'auth') {
@@ -913,10 +918,15 @@ export class AuthService {
       if (!record) {
         throw new NotFoundError(`Record '${decoded.id}' not found in '${col.name}'`);
       }
+      const recordEmail = (record.email || '').trim().toLowerCase();
+      const tokenEmail = (decoded.email || '').trim().toLowerCase();
+      if (!tokenEmail || tokenEmail !== recordEmail) {
+        throw new UnauthorizedError('Verification token does not match the current account email');
+      }
       if (decoded.tokenKey && record.tokenKey && decoded.tokenKey !== record.tokenKey) {
         throw new UnauthorizedError('Verification token has been invalidated');
       }
-      return { id: record.id, email: record.email, collection: col.name, tokenKey: record.tokenKey };
+      return { id: record.id, email: recordEmail, collection: col.name, tokenKey: record.tokenKey, appId: decoded.appId, appSlug: decoded.appSlug };
     }
   }
 
