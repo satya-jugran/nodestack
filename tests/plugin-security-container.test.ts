@@ -328,7 +328,7 @@ describe('Plugin Security: Principle of Least Privilege (PoLP) PluginContext & C
       },
     };
 
-    app.pluginManager.use(scopedPlugin, tenantScope);
+    app.pluginManager.provisionPluginForScope(scopedPlugin, tenantScope);
 
     expect(scopedCtx).toBeDefined();
     expect((scopedCtx?.app as any).defaultApp).toBeUndefined();
@@ -339,5 +339,10 @@ describe('Plugin Security: Principle of Least Privilege (PoLP) PluginContext & C
     expect((scopedCtx?.app?.plugins as any).use).toBeUndefined();
     expect((scopedCtx?.app?.plugins as any).disposeScope).toBeUndefined();
     expect(typeof scopedCtx?.app?.plugins?.getEffectiveConfig).toBe('function');
+
+    // Verify tenant-scoped bindService is disabled and does NOT mutate root container
+    const tenantCustomToken = Symbol('TenantScopedService');
+    scopedCtx!.bindService(tenantCustomToken, { tenant: 'Tenant A' });
+    expect(app.container.has(tenantCustomToken)).toBe(false);
   });
 });

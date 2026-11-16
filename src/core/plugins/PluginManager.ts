@@ -354,7 +354,7 @@ export class PluginManager {
           this.addScopedHookUnsubscriber(targetScope.app.slug, pluginName, unsubscribe);
         },
         getService,
-        bindService,
+        bindService: () => {},
       };
 
       return scopedContext;
