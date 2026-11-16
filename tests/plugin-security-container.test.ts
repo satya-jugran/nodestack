@@ -273,4 +273,32 @@ describe('Plugin Security: Principle of Least Privilege (PoLP) PluginContext & C
 
     expect(eventPayload).toEqual({ success: true });
   });
+
+  it('should ensure tenant-scoped plugins receive restricted app facade without defaultApp or scope escalation', async () => {
+    app = new NodeStack({ dataDir: testDataDir, port: 8219 });
+    await app.start();
+
+    // Create a tenant app scope
+    const tenantScope = await app.apps.create({ name: 'Tenant A', slug: 'tenant-a' });
+
+    let scopedCtx: PluginContext | null = null;
+    const scopedPlugin: INodeStackPlugin = {
+      name: 'tenant-inspection-plugin',
+      register(ctx) {
+        scopedCtx = ctx;
+      },
+    };
+
+    app.pluginManager.use(scopedPlugin, tenantScope);
+
+    expect(scopedCtx).toBeDefined();
+    expect((scopedCtx?.app as any).defaultApp).toBeUndefined();
+    expect((scopedCtx?.app as any).container).toBeUndefined();
+    expect((scopedCtx?.app as any).server).toBeUndefined();
+    expect((scopedCtx?.app as any).maintenanceGate).toBeUndefined();
+    expect((scopedCtx?.app?.plugins as any).container).toBeUndefined();
+    expect((scopedCtx?.app?.plugins as any).use).toBeUndefined();
+    expect((scopedCtx?.app?.plugins as any).disposeScope).toBeUndefined();
+    expect(typeof scopedCtx?.app?.plugins?.getEffectiveConfig).toBe('function');
+  });
 });
