@@ -42,10 +42,12 @@ export class AppRegistry {
           passwordHash TEXT NOT NULL,
           tokenKey TEXT NOT NULL,
           avatar TEXT,
+          verified INTEGER NOT NULL DEFAULT 0,
           created TEXT NOT NULL,
           updated TEXT NOT NULL
         );
       `);
+      try { this.driver.execSync('ALTER TABLE _admins ADD COLUMN verified INTEGER NOT NULL DEFAULT 0;'); } catch {}
 
       const defaultExists = this.driver.prepareSync('SELECT id FROM _apps WHERE slug = ? OR isDefault = 1').get('default');
       if (!defaultExists) {

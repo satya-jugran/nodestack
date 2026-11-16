@@ -878,6 +878,59 @@ export class OpenApiGenerator {
             },
           },
         };
+
+        const reqVerPath = `${apiPrefix}/collections/${col.name}/request-verification`;
+        paths[reqVerPath] = {
+          post: {
+            tags: ['Auth', col.name],
+            summary: `Request email verification for ${col.name}`,
+            description: `Generates and sends an email verification token for an account in the **${col.name}** collection.`,
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: { email: { type: 'string', format: 'email' } },
+                    required: ['email'],
+                  },
+                },
+              },
+            },
+            responses: {
+              '200': { description: 'Verification token generated successfully' },
+              '400': { description: 'Invalid email' },
+              '404': { description: 'Account not found' },
+              '429': { description: 'Too many requests' },
+            },
+          },
+        };
+
+        const confVerPath = `${apiPrefix}/collections/${col.name}/confirm-verification`;
+        paths[confVerPath] = {
+          post: {
+            tags: ['Auth', col.name],
+            summary: `Confirm email verification for ${col.name}`,
+            description: `Confirms email verification for an account in the **${col.name}** collection using a signed token.`,
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: { token: { type: 'string' } },
+                    required: ['token'],
+                  },
+                },
+              },
+            },
+            responses: {
+              '200': { description: 'Email successfully verified' },
+              '400': { description: 'Invalid or expired verification token' },
+              '429': { description: 'Too many requests' },
+            },
+          },
+        };
       }
     }
 
@@ -978,6 +1031,57 @@ export class OpenApiGenerator {
               },
             },
           },
+        },
+      },
+    };
+
+    paths['/api/admins/request-verification'] = {
+      post: {
+        tags: ['Auth'],
+        summary: 'Request admin email verification',
+        description: 'Generates and emits an email verification token for an admin account.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { email: { type: 'string', format: 'email' } },
+                required: ['email'],
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Verification requested' },
+          '400': { description: 'Invalid email' },
+          '404': { description: 'Admin not found' },
+          '429': { description: 'Too many requests' },
+        },
+      },
+    };
+
+    paths['/api/admins/confirm-verification'] = {
+      post: {
+        tags: ['Auth'],
+        summary: 'Confirm admin email verification',
+        description: 'Confirms admin email verification using a signed token.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { token: { type: 'string' } },
+                required: ['token'],
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Admin verified successfully' },
+          '400': { description: 'Invalid or expired verification token' },
+          '429': { description: 'Too many requests' },
         },
       },
     };

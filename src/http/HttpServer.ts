@@ -2,6 +2,7 @@ import fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { Readable } from 'stream';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import rateLimit from '@fastify/rate-limit';
 import { ConfigService, CorsConfigOptions } from '../core/config/ConfigService';
 import { LogService } from '../logger/LogService';
 import { AuthMiddleware } from './middleware/AuthMiddleware';
@@ -137,9 +138,69 @@ export class HttpServer {
   }
 
   private analyticsController?: AnalyticsController;
+  private registrationRateLimitHook?: (req: any, reply: any) => Promise<any> | void;
+  private verificationRateLimitHook?: (req: any, reply: any) => Promise<any> | void;
+  private authRecordRegistrationRateLimitHook?: (req: any, reply: any) => Promise<any> | void;
 
   private setupPlugins(): void {
     this.setupCors();
+
+    this.app.register(rateLimit, {
+      global: false,
+      addHeaders: {
+        'x-ratelimit-limit': true,
+        'x-ratelimit-remaining': true,
+        'x-ratelimit-reset': true,
+        'retry-after': true,
+      },
+    });
+
+    this.app.after(() => {
+      if (typeof (this.app as any).rateLimit === 'function') {
+        this.registrationRateLimitHook = (this.app as any).rateLimit({
+          max: 10,
+          timeWindow: 60000,
+          keyGenerator: (req: any) => req.ip,
+          errorResponseBuilder: (_req: any, context: any) => ({
+            statusCode: 429,
+            error: 'Too Many Requests',
+            message: `Too many registration attempts. Please try again in ${Math.ceil(context.ttl / 1000)} seconds.`,
+          }),
+        });
+
+        this.verificationRateLimitHook = (this.app as any).rateLimit({
+          max: 10,
+          timeWindow: 60000,
+          keyGenerator: (req: any) => req.ip,
+          errorResponseBuilder: (_req: any, context: any) => ({
+            statusCode: 429,
+            error: 'Too Many Requests',
+            message: `Too many verification requests. Please try again in ${Math.ceil(context.ttl / 1000)} seconds.`,
+          }),
+        });
+
+        this.authRecordRegistrationRateLimitHook = (this.app as any).rateLimit({
+          max: 10,
+          timeWindow: 60000,
+          allowList: async (req: any) => {
+            if (req.auth?.isAdmin) return true;
+            const colName = req.params?.collection;
+            const schema = req.appScope?.schema;
+            if (schema && typeof schema.getCollection === 'function') {
+              const col = await schema.getCollection(colName);
+              if (col && col.type !== 'auth') return true;
+            }
+            return false;
+          },
+          keyGenerator: (req: any) => req.ip,
+          errorResponseBuilder: (_req: any, context: any) => ({
+            statusCode: 429,
+            error: 'Too Many Requests',
+            message: `Too many registration attempts. Please try again in ${Math.ceil(context.ttl / 1000)} seconds.`,
+          }),
+        });
+      }
+    });
 
     this.app.register(multipart, {
       limits: {
@@ -944,17 +1005,49 @@ export class HttpServer {
 
     // 2. Auth Endpoints
     const requireAdminOrInitialAuth = this.authMiddleware.requireAdminOrInitialSetup();
+
+    // Rate Limiting Guards for Sensitive Registration & Verification Endpoints
+    const registrationRateLimit = async (req: any, reply: any) => {
+      if (this.registrationRateLimitHook) {
+        await this.registrationRateLimitHook(req, reply);
+      }
+    };
+
+    const verificationRateLimit = async (req: any, reply: any) => {
+      if (this.verificationRateLimitHook) {
+        await this.verificationRateLimitHook(req, reply);
+      }
+    };
+
+    const authRecordRegistrationRateLimit = async (req: any, reply: any) => {
+      if (this.authRecordRegistrationRateLimitHook) {
+        await this.authRecordRegistrationRateLimitHook(req, reply);
+      }
+    };
+
     app.get('/api/admins/has-admins', (req, reply) => this.authController.hasAdmins(req, reply));
-    app.post('/api/admins', { preHandler: requireAdminOrInitialAuth }, (req, reply) =>
+    app.post('/api/admins', { preHandler: [registrationRateLimit, requireAdminOrInitialAuth] }, (req, reply) =>
       this.authController.createAdmin(req, reply)
     );
-    app.post('/api/admins/create-initial', { preHandler: requireAdminOrInitialAuth }, (req, reply) =>
+    app.post('/api/admins/create-initial', { preHandler: [registrationRateLimit, requireAdminOrInitialAuth] }, (req, reply) =>
       this.authController.createInitialAdmin(req, reply)
+    );
+    app.post('/api/admins/request-verification', { preHandler: verificationRateLimit }, (req, reply) =>
+      this.authController.requestAdminVerification(req, reply)
+    );
+    app.post('/api/admins/confirm-verification', { preHandler: verificationRateLimit }, (req, reply) =>
+      this.authController.confirmAdminVerification(req, reply)
     );
     app.post('/api/admins/auth-with-password', (req, reply) => this.authController.adminLogin(req, reply));
     app.get('/api/admins/me', (req, reply) => this.authController.getAdminMe(req, reply));
     app.post('/api/collections/:collection/auth-with-password', (req: any, reply) =>
       this.authController.recordLogin(req, reply)
+    );
+    app.post('/api/collections/:collection/request-verification', { preHandler: verificationRateLimit }, (req: any, reply) =>
+      this.authController.requestVerification(req, reply)
+    );
+    app.post('/api/collections/:collection/confirm-verification', { preHandler: verificationRateLimit }, (req: any, reply) =>
+      this.authController.confirmVerification(req, reply)
     );
     app.get('/api/collections/:collection/auth-methods', (req: any, reply) =>
       this.authController.listAuthMethods(req, reply)
@@ -1056,7 +1149,7 @@ export class HttpServer {
     app.get('/api/collections/:collection/records/:id', (req: any, reply) =>
       this.recordController.getOne(req, reply)
     );
-    app.post('/api/collections/:collection/records', (req: any, reply) =>
+    app.post('/api/collections/:collection/records', { preHandler: authRecordRegistrationRateLimit }, (req: any, reply) =>
       this.recordController.create(req, reply)
     );
     app.patch('/api/collections/:collection/records/:id', (req: any, reply) =>
