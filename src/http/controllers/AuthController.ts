@@ -240,4 +240,51 @@ export class AuthController extends BaseController {
     await auth.unlinkExternalAuth(collection, id, provider);
     this.noContent(reply);
   }
+
+  public async requestVerification(
+    req: FastifyRequest<{ Params: { collection: string } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const { collection } = req.params;
+    const { email } = (req.body as any) || {};
+    if (!email) {
+      throw new AppError('Email is required', 400);
+    }
+    const auth = this.getAuth(req);
+    await auth.requestVerification(collection, email);
+    this.ok(reply, { message: 'Verification email sent successfully' });
+  }
+
+  public async confirmVerification(
+    req: FastifyRequest<{ Params: { collection: string } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const { token } = (req.body as any) || {};
+    if (!token) {
+      throw new AppError('Verification token is required', 400);
+    }
+    const auth = this.getAuth(req);
+    const record = await auth.confirmVerification(token);
+    this.ok(reply, record);
+  }
+
+  public async requestAdminVerification(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const { email } = (req.body as any) || {};
+    if (!email) {
+      throw new AppError('Email is required', 400);
+    }
+    const auth = this.getAuth(req);
+    await auth.requestVerification('_admins', email);
+    this.ok(reply, { message: 'Verification email sent successfully' });
+  }
+
+  public async confirmAdminVerification(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const { token } = (req.body as any) || {};
+    if (!token) {
+      throw new AppError('Verification token is required', 400);
+    }
+    const auth = this.getAuth(req);
+    const record = await auth.confirmVerification(token);
+    this.ok(reply, record);
+  }
 }

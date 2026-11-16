@@ -392,7 +392,8 @@ export class RecordService {
 
       recordToInsert.email = processedData.email.trim().toLowerCase();
       recordToInsert.emailVisibility = RecordValidator.toBoolean(processedData.emailVisibility);
-      recordToInsert.verified = RecordValidator.toBoolean(processedData.verified);
+      // Public / non-admin callers cannot self-assert verified: true during registration
+      recordToInsert.verified = auth?.isAdmin ? RecordValidator.toBoolean(processedData.verified) : false;
       recordToInsert.passwordHash = await bcrypt.hash(processedData.password, 10);
       recordToInsert.tokenKey = crypto.randomBytes(16).toString('hex');
     }
@@ -410,7 +411,25 @@ export class RecordService {
     const values = Object.values(recordToInsert);
 
     const sql = `INSERT INTO ${dialect.quoteIdentifier(col.name)} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
-    await this.db.run(sql, ...values);
+    try {
+      await this.db.run(sql, ...values);
+    } catch (err: any) {
+      if (
+        err instanceof ConflictError ||
+        err?.message?.includes('UNIQUE constraint failed') ||
+        err?.message?.includes('duplicate key') ||
+        err?.code === '23505' ||
+        err?.number === 2627 ||
+        err?.number === 2601
+      ) {
+        throw new ConflictError(
+          col.type === 'auth' && recordToInsert.email
+            ? `Email '${recordToInsert.email}' is already registered`
+            : `Record with unique value already exists in '${col.name}'`
+        );
+      }
+      throw err;
+    }
 
     const insertedRecord = this.sanitizeRecord(recordToInsert, col, auth, true);
     const hookRecord = (col.type === 'auth' && recordToInsert.passwordHash)
@@ -488,12 +507,18 @@ export class RecordService {
           throw new ConflictError(`Email '${cleanEmail}' is already registered`);
         }
         updates.email = cleanEmail;
+        // Invalidate in-flight tokens and reset verification when email address changes
+        updates.tokenKey = crypto.randomBytes(16).toString('hex');
+        updates.verified = false;
       }
       if (processedData.emailVisibility !== undefined) {
         updates.emailVisibility = RecordValidator.toBoolean(processedData.emailVisibility);
       }
       if (processedData.verified !== undefined) {
-        updates.verified = RecordValidator.toBoolean(processedData.verified);
+        // Disallow non-admin callers from self-asserting verified during update
+        if (auth?.isAdmin) {
+          updates.verified = RecordValidator.toBoolean(processedData.verified);
+        }
       }
     }
 

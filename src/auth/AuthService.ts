@@ -63,6 +63,8 @@ export class AuthService {
   private tokenKeyCache = new Map<string, { tokenKey: string; expiresAt: number }>();
   private readonly tokenKeyCacheTtlMs = 30000; // 30 seconds TTL
   private readonly maxTokenKeyCacheSize = 5000;
+  private registrationLocks = new Map<string, Promise<void>>();
+  private verificationCooldowns = new Map<string, number>();
   public readonly isControlPlane: boolean;
 
   constructor(
@@ -256,9 +258,10 @@ export class AuthService {
 
     try {
       const driver = this.registry.getDriver();
-      const columns = ['id', 'email', 'passwordHash', 'tokenKey', 'avatar', 'created', 'updated'];
-      const updateColumns = ['email', 'passwordHash', 'tokenKey', 'avatar', 'created', 'updated'];
+      const columns = ['id', 'email', 'passwordHash', 'tokenKey', 'avatar', 'verified', 'created', 'updated'];
+      const updateColumns = ['email', 'passwordHash', 'tokenKey', 'avatar', 'verified', 'created', 'updated'];
       const upsertSql = driver.dialect.upsertSql('_admins', columns, 'id', updateColumns);
+      const isVerifiedVal = (admin.verified === true || admin.verified === 1 || String(admin.verified) === 'true' || String(admin.verified) === '1') ? 1 : 0;
       const runRes = driver
         .prepare(upsertSql)
         .run(
@@ -267,6 +270,7 @@ export class AuthService {
           admin.passwordHash,
           admin.tokenKey,
           admin.avatar || null,
+          isVerifiedVal,
           admin.created,
           admin.updated
         );
@@ -465,6 +469,25 @@ export class AuthService {
     };
   }
 
+  public async withRegistrationLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const cleanKey = key.trim().toLowerCase();
+    const previous = this.registrationLocks.get(cleanKey) || Promise.resolve();
+    let release: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.registrationLocks.set(cleanKey, current);
+    await previous.catch(() => {});
+    try {
+      return await fn();
+    } finally {
+      if (this.registrationLocks.get(cleanKey) === current) {
+        this.registrationLocks.delete(cleanKey);
+      }
+      release!();
+    }
+  }
+
   public async createAdmin(email: string, password: string, avatar?: string): Promise<Record<string, any>> {
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes('@')) {
@@ -474,46 +497,76 @@ export class AuthService {
       throw new AppError('Password must be at least 8 characters long', 400);
     }
 
-    if (this.registry && this.isControlPlane) {
-      const regExisting = await this.registry.getAdminByEmail(cleanEmail);
-      if (regExisting) {
+    return this.withRegistrationLock(`_admins:${cleanEmail}`, async () => {
+      if (this.registry && this.isControlPlane) {
+        const regExisting = await this.registry.getAdminByEmail(cleanEmail);
+        if (regExisting) {
+          throw new ConflictError(`Admin with email '${cleanEmail}' already exists`);
+        }
+      }
+      const existing = await this.db.get<any>('SELECT id FROM _admins WHERE LOWER(email) = ?', cleanEmail);
+      if (existing) {
         throw new ConflictError(`Admin with email '${cleanEmail}' already exists`);
       }
-    }
-    const existing = await this.db.get<any>('SELECT id FROM _admins WHERE email = ?', cleanEmail);
-    if (existing) {
-      throw new ConflictError(`Admin with email '${cleanEmail}' already exists`);
-    }
 
-    const id = `adm_${crypto.randomBytes(6).toString('hex')}`;
-    const passwordHash = await this.hashPassword(password);
-    const tokenKey = crypto.randomBytes(16).toString('hex');
-    const now = new Date().toISOString();
+      const id = `adm_${crypto.randomBytes(6).toString('hex')}`;
+      const passwordHash = await this.hashPassword(password);
+      const tokenKey = crypto.randomBytes(16).toString('hex');
+      const now = new Date().toISOString();
 
-    await this.db.run(
-      `INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      id, cleanEmail, passwordHash, tokenKey, avatar || null, now, now
-    );
+      const insertSql = `
+        INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
+        SELECT ?, ?, ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM _admins WHERE LOWER(email) = ?)
+      `;
 
-    if (this.registry && this.isControlPlane) {
       try {
-        await this.registry.getDriver().prepare(`
-          INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(id, cleanEmail, passwordHash, tokenKey, avatar || null, now, now);
-      } catch {
-        // ignore duplicate in system DB
-      }
-    }
+        const result = await this.db.run(
+          insertSql,
+          id, cleanEmail, passwordHash, tokenKey, avatar || null, now, now, cleanEmail
+        );
 
-    return {
-      id,
-      email: cleanEmail,
-      avatar: avatar || null,
-      created: now,
-      updated: now,
-    };
+        if (result && Number(result.changes || 0) === 0) {
+          throw new ConflictError(`Admin with email '${cleanEmail}' already exists`);
+        }
+      } catch (err: any) {
+        if (
+          err instanceof ConflictError ||
+          err?.message?.includes('UNIQUE constraint failed') ||
+          err?.message?.includes('duplicate key') ||
+          err?.code === '23505' ||
+          err?.number === 2627 ||
+          err?.number === 2601
+        ) {
+          throw new ConflictError(`Admin with email '${cleanEmail}' already exists`);
+        }
+        throw err;
+      }
+
+      if (this.registry && this.isControlPlane) {
+        try {
+          const regStmt = this.registry.getDriver().prepare(`
+            INSERT INTO _admins (id, email, passwordHash, tokenKey, avatar, created, updated)
+            SELECT ?, ?, ?, ?, ?, ?, ?
+            WHERE NOT EXISTS (SELECT 1 FROM _admins WHERE LOWER(email) = ?)
+          `);
+          const regRes = regStmt.run(id, cleanEmail, passwordHash, tokenKey, avatar || null, now, now, cleanEmail);
+          if (regRes && typeof (regRes as any).then === 'function') {
+            await regRes;
+          }
+        } catch {
+          // ignore duplicate in system DB
+        }
+      }
+
+      return {
+        id,
+        email: cleanEmail,
+        avatar: avatar || null,
+        created: now,
+        updated: now,
+      };
+    });
   }
 
   public async authenticateAdmin(email: string, password: string): Promise<AuthResult> {
@@ -749,6 +802,13 @@ export class AuthService {
       throw new UnauthorizedError('Invalid authentication credentials');
     }
 
+    if (col.options?.requireEmailVerification === true) {
+      const isVerified = Boolean(record.verified);
+      if (!isVerified) {
+        throw new ForbiddenError('Please verify your email address before logging in');
+      }
+    }
+
     const claims: AuthClaims = {
       id: record.id,
       email: record.email,
@@ -764,6 +824,252 @@ export class AuthService {
       token,
       record: recordSafe,
     };
+  }
+
+  // --- Email Verification ---
+
+  public createVerificationToken(
+    collectionName: string,
+    recordId: string,
+    email: string,
+    tokenKey?: string,
+    expiresIn: string | number = '24h'
+  ): string {
+    const currentAppSlug = (this.options?.appSlug || (this.isControlPlane ? 'default' : undefined) || 'default').trim().toLowerCase();
+    const currentAppId = this.options?.appId || (currentAppSlug === 'default' ? 'app_default' : undefined);
+
+    const payload = {
+      id: recordId,
+      email: email.trim().toLowerCase(),
+      collection: collectionName,
+      tokenKey: tokenKey || '',
+      type: 'verification',
+      action: 'verify-email',
+      appId: currentAppId,
+      appSlug: currentAppSlug,
+    };
+    return jwt.sign(payload, this.config.jwtSecret, { expiresIn: expiresIn as any });
+  }
+
+  public async verifyVerificationToken(token: string): Promise<{
+    id: string;
+    email: string;
+    collection: string;
+    tokenKey: string;
+    appId?: string;
+    appSlug?: string;
+  }> {
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, this.config.jwtSecret);
+    } catch {
+      throw new UnauthorizedError('Invalid or expired verification token');
+    }
+
+    if (!decoded || !decoded.id || !decoded.collection || decoded.type !== 'verification' || decoded.action !== 'verify-email') {
+      throw new UnauthorizedError('Invalid verification token payload');
+    }
+
+    // Tenant / Application binding verification:
+    // Reject tokens issued for another application to prevent cross-tenant token replay attacks
+    const expectedAppSlug = (this.options?.appSlug || (this.isControlPlane ? 'default' : undefined) || 'default').trim().toLowerCase();
+    const tokenAppSlug = (decoded.appSlug || '').trim().toLowerCase();
+
+    if (!tokenAppSlug || tokenAppSlug !== expectedAppSlug) {
+      throw new UnauthorizedError('Verification token was issued for a different application');
+    }
+
+    if (decoded.appId && this.options?.appId) {
+      const isDefaultMatch = expectedAppSlug === 'default' &&
+        (decoded.appId === 'default' || decoded.appId === 'app_default') &&
+        (this.options.appId === 'default' || this.options.appId === 'app_default');
+
+      if (!isDefaultMatch && decoded.appId !== this.options.appId) {
+        throw new UnauthorizedError('Verification token was issued for a different application');
+      }
+    }
+
+    if (decoded.collection === '_admins') {
+      let admin = (this.registry && this.isControlPlane)
+        ? await this.registry.getAdminById(decoded.id)
+        : undefined;
+      if (!admin) {
+        admin = await this.db.get<any>('SELECT * FROM _admins WHERE id = ?', decoded.id);
+      }
+      if (!admin) {
+        throw new NotFoundError('Admin account for verification not found');
+      }
+      const adminEmail = (admin.email || '').trim().toLowerCase();
+      const tokenEmail = (decoded.email || '').trim().toLowerCase();
+      if (!tokenEmail || tokenEmail !== adminEmail) {
+        throw new UnauthorizedError('Verification token does not match the current account email');
+      }
+      if (decoded.tokenKey && admin.tokenKey && decoded.tokenKey !== admin.tokenKey) {
+        throw new UnauthorizedError('Verification token has been invalidated');
+      }
+      return { id: admin.id, email: adminEmail, collection: '_admins', tokenKey: admin.tokenKey, appId: decoded.appId, appSlug: decoded.appSlug };
+    } else {
+      const col = await this.schemaService.getCollectionOrThrow(decoded.collection);
+      if (col.type !== 'auth') {
+        throw new AppError(`Collection '${decoded.collection}' is not an auth collection`, 400);
+      }
+      const qTable = this.db.dialect.quoteIdentifier(col.name);
+      const record = await this.db.get<any>(`SELECT * FROM ${qTable} WHERE id = ?`, decoded.id);
+      if (!record) {
+        throw new NotFoundError(`Record '${decoded.id}' not found in '${col.name}'`);
+      }
+      const recordEmail = (record.email || '').trim().toLowerCase();
+      const tokenEmail = (decoded.email || '').trim().toLowerCase();
+      if (!tokenEmail || tokenEmail !== recordEmail) {
+        throw new UnauthorizedError('Verification token does not match the current account email');
+      }
+      if (decoded.tokenKey && record.tokenKey && decoded.tokenKey !== record.tokenKey) {
+        throw new UnauthorizedError('Verification token has been invalidated');
+      }
+      return { id: record.id, email: recordEmail, collection: col.name, tokenKey: record.tokenKey, appId: decoded.appId, appSlug: decoded.appSlug };
+    }
+  }
+
+  public async requestVerification(collectionName: string, email: string): Promise<{ token: string; email: string }> {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      throw new AppError('Valid email is required', 400);
+    }
+
+    let targetId: string | undefined;
+    let targetTokenKey: string | undefined;
+
+    if (collectionName === '_admins') {
+      let admin = await this.db.get<any>('SELECT id, tokenKey, verified FROM _admins WHERE LOWER(email) = ?', cleanEmail);
+      if (!admin && this.registry && this.isControlPlane) {
+        admin = await this.registry.getAdminByEmail(cleanEmail);
+      }
+      if (!admin) {
+        throw new NotFoundError(`Admin with email '${cleanEmail}' not found`);
+      }
+      const isVerified = admin.verified === true || admin.verified === 1 || String(admin.verified) === 'true' || String(admin.verified) === '1';
+      if (isVerified) {
+        throw new AppError(`Admin '${cleanEmail}' is already verified`, 400);
+      }
+      targetId = admin.id;
+      targetTokenKey = admin.tokenKey;
+    } else {
+      const col = await this.schemaService.getCollectionOrThrow(collectionName);
+      if (col.type !== 'auth') {
+        throw new AppError(`Collection '${collectionName}' is not an auth collection`, 400);
+      }
+      const qTable = this.db.dialect.quoteIdentifier(col.name);
+      const record = await this.db.get<any>(`SELECT id, tokenKey, verified FROM ${qTable} WHERE LOWER(email) = ?`, cleanEmail);
+      if (!record) {
+        throw new NotFoundError(`Record with email '${cleanEmail}' not found in '${collectionName}'`);
+      }
+      const isVerified = record.verified === true || record.verified === 1 || String(record.verified) === 'true' || String(record.verified) === '1';
+      if (isVerified) {
+        throw new AppError(`Account '${cleanEmail}' is already verified`, 400);
+      }
+      targetId = record.id;
+      targetTokenKey = record.tokenKey;
+    }
+
+    const cooldownKey = `${collectionName}:${cleanEmail}`;
+    const lastSent = this.verificationCooldowns.get(cooldownKey);
+    const nowMs = Date.now();
+    const cooldownMs = 60000;
+    if (lastSent && nowMs - lastSent < cooldownMs) {
+      const waitSec = Math.ceil((cooldownMs - (nowMs - lastSent)) / 1000);
+      throw new AppError(`A verification email was recently requested for '${cleanEmail}'. Please wait ${waitSec} seconds before requesting again.`, 429);
+    }
+
+    this.verificationCooldowns.set(cooldownKey, nowMs);
+    if (this.verificationCooldowns.size > 2000) {
+      for (const [k, timestamp] of this.verificationCooldowns.entries()) {
+        if (nowMs - timestamp > cooldownMs) {
+          this.verificationCooldowns.delete(k);
+        }
+      }
+    }
+
+    const token = this.createVerificationToken(collectionName, targetId!, cleanEmail, targetTokenKey);
+
+    // Emit event on EventBus for email delivery plugins/mailers
+    try {
+      this.eventBus?.emit('email:verification', {
+        collection: collectionName,
+        id: targetId,
+        email: cleanEmail,
+        token,
+        appId: this.options?.appId,
+        appSlug: this.options?.appSlug,
+      });
+    } catch {
+      // non-fatal
+    }
+
+    return { token, email: cleanEmail };
+  }
+
+  public async confirmVerification(token: string): Promise<Record<string, any>> {
+    const claims = await this.verifyVerificationToken(token);
+    this.verificationCooldowns.delete(`${claims.collection}:${claims.email.toLowerCase()}`);
+    const now = new Date().toISOString();
+    const isPg = this.db.dialect?.name === 'postgres';
+    const verifiedVal = isPg ? true : 1;
+
+    if (claims.collection === '_admins') {
+      const result = await this.db.run(
+        'UPDATE _admins SET verified = ?, updated = ? WHERE id = ?',
+        verifiedVal, now, claims.id
+      );
+      if (result && Number(result.changes || 0) === 0) {
+        throw new NotFoundError(`Admin '${claims.id}' not found`);
+      }
+
+      if (this.registry && this.isControlPlane) {
+        try {
+          const res = this.registry.updateAdminVerified(claims.id, true);
+          if (res && typeof (res as any).then === 'function') {
+            await res;
+          }
+        } catch {
+          // non-fatal secondary registry sync
+        }
+      }
+      const admin = await this.getAdminById(claims.id);
+      if (!admin) {
+        throw new NotFoundError(`Admin '${claims.id}' not found`);
+      }
+      return { ...admin, verified: true };
+    } else {
+      const col = await this.schemaService.getCollectionOrThrow(claims.collection);
+      const qTable = this.db.dialect.quoteIdentifier(col.name);
+      const result = await this.db.run(
+        `UPDATE ${qTable} SET verified = ?, updated = ? WHERE id = ?`,
+        verifiedVal, now, claims.id
+      );
+      if (result && Number(result.changes || 0) === 0) {
+        throw new NotFoundError(`Record '${claims.id}' not found in '${col.name}'`);
+      }
+
+      const record = await this.db.get<any>(`SELECT * FROM ${qTable} WHERE id = ?`, claims.id);
+      if (!record) {
+        throw new NotFoundError(`Record '${claims.id}' not found in '${col.name}'`);
+      }
+      const { passwordHash, tokenKey, ...safeRecord } = record || {};
+
+      try {
+        this.eventBus?.emit('email:verified', {
+          collection: col.name,
+          id: claims.id,
+          email: claims.email,
+          appId: this.options?.appId,
+          appSlug: this.options?.appSlug,
+        });
+      } catch {
+        // non-fatal
+      }
+
+      return { ...safeRecord, verified: true };
+    }
   }
 
   // --- OAuth2 / Social Logins ---

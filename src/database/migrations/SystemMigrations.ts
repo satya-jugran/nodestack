@@ -34,6 +34,7 @@ export class SystemMigrations {
         passwordHash ${txt} NOT NULL,
         tokenKey ${txt} NOT NULL,
         avatar ${txt},
+        verified ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)},
         created ${date} NOT NULL,
         updated ${date} NOT NULL
       `),
@@ -308,6 +309,7 @@ export class SystemMigrations {
         for (const sql of statements) {
           d.exec(sql);
         }
+        try { d.exec(`ALTER TABLE _admins ADD COLUMN verified ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`); } catch {}
         const usersExists = d.prepare('SELECT id FROM _collections WHERE name = ?').get('users');
         if (!usersExists) {
           d.prepare(insertUserSql).run(
@@ -335,6 +337,7 @@ export class SystemMigrations {
         for (const sql of statements) {
           await d.exec(sql);
         }
+        try { await d.exec(`ALTER TABLE _admins ADD COLUMN verified ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`); } catch {}
         const usersExists = await d.prepare('SELECT id FROM _collections WHERE name = ?').get('users');
         if (!usersExists) {
           await d.prepare(insertUserSql).run(
