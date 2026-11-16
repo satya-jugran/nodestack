@@ -27,17 +27,35 @@ export class DatabaseService {
     return SystemMigrations.run(this.driver);
   }
 
-  public async switchDriver(newDriver: IDatabaseDriver): Promise<void> {
-    const oldDriver = this.driver;
-    this.driver = newDriver;
-    await this.init();
-    if (oldDriver && oldDriver !== newDriver) {
+  public async initialize(driver?: IDatabaseDriver): Promise<void> {
+    if (driver && this.driver && this.driver !== driver) {
       try {
-        await oldDriver.close();
+        await this.driver.close();
       } catch {
         // ignore
       }
     }
+    if (driver) {
+      this.driver = driver;
+    }
+
+    try {
+      if (this.driver.connect) {
+        await this.driver.connect();
+      }
+      await this.init();
+    } catch (err) {
+      try {
+        await this.driver.close();
+      } catch {
+        // ignore
+      }
+      throw err;
+    }
+  }
+
+  public async switchDriver(newDriver: IDatabaseDriver): Promise<void> {
+    await this.initialize(newDriver);
   }
 
   public get dialect(): ISqlDialect {
