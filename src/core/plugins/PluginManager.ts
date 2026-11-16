@@ -8,6 +8,7 @@ import {
   NodeStackPlugin,
   NodeStackPluginContext,
   PluginAppFacade,
+  PluginManagerFacade,
   PluginEventBus,
   PluginMetadata,
   RegisteredPluginRecord,
@@ -218,14 +219,18 @@ export class PluginManager {
     const targetConfig = targetScope ? targetScope.config : this.app.config;
     const targetEventBus = targetScope ? targetScope.eventBus : this.app.eventBus;
 
-    // 1. Safe PluginAppFacade: Exposes ONLY domain data services, NOT container, server, stop(), or maintenanceGate
+    // 1. Safe PluginManagerFacade: Exposes ONLY read-only capabilities (getEffectiveConfig), NOT container, app, use, or disposeScope
+    const pluginManagerFacade: PluginManagerFacade = {
+      getEffectiveConfig: (name: string, db?: DatabaseService) => this.getEffectiveConfig(name, db),
+    };
+
+    // 2. Safe PluginAppFacade: Exposes ONLY domain data services, NOT container, server, stop(), or maintenanceGate
     const appFacade: PluginAppFacade = {
       db: targetDb,
       schema: targetSchema,
       records: targetRecords,
       config: targetConfig,
-      plugins: this,
-      defaultApp: this.app.defaultApp,
+      plugins: pluginManagerFacade,
     };
 
     // 2. Safe PluginEventBus: Exposes ONLY emit and on, NO destructive clear()

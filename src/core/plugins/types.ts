@@ -103,6 +103,11 @@ export interface PluginConfigResult {
   fields: ResolvedPluginConfigField[];
 }
 
+export interface PluginManagerFacade {
+  /** Resolve the effective configuration for a plugin across precedence layers */
+  getEffectiveConfig(name: string, db?: DatabaseService): Record<string, any>;
+}
+
 export interface PluginAppFacade {
   /** Database service for queries and migrations */
   readonly db: DatabaseService;
@@ -112,10 +117,8 @@ export interface PluginAppFacade {
   readonly records: RecordService;
   /** System configuration service */
   readonly config: ConfigService;
-  /** Plugins manager facade (e.g. for effective configuration resolution) */
-  readonly plugins?: any;
-  /** Default app scope fallback if multi-app is enabled */
-  readonly defaultApp?: any;
+  /** Restricted plugin manager facade exposing only read-only configuration resolution */
+  readonly plugins?: PluginManagerFacade;
 }
 
 export interface PluginEventBus {

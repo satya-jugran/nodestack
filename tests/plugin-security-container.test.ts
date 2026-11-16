@@ -47,16 +47,24 @@ describe('Plugin Security: Principle of Least Privilege (PoLP) PluginContext & C
     expect((receivedCtx as any).adminUi).toBeUndefined();
     expect((receivedCtx?.router as any).raw).toBeUndefined();
 
-    // 3. Verify app facade does NOT expose host container, stop, or server internals
+    // 3. Verify app facade does NOT expose host container, stop, server, defaultApp, or raw PluginManager
     expect((receivedCtx?.app as any).container).toBeUndefined();
     expect((receivedCtx?.app as any).stop).toBeUndefined();
     expect((receivedCtx?.app as any).server).toBeUndefined();
     expect((receivedCtx?.app as any).maintenanceGate).toBeUndefined();
+    expect((receivedCtx?.app as any).defaultApp).toBeUndefined();
 
-    // 4. Verify eventBus does NOT expose clear()
+    // 4. Verify app.plugins is a restricted facade and does NOT expose container, app, use, or disposeScope
+    expect((receivedCtx?.app?.plugins as any).container).toBeUndefined();
+    expect((receivedCtx?.app?.plugins as any).app).toBeUndefined();
+    expect((receivedCtx?.app?.plugins as any).use).toBeUndefined();
+    expect((receivedCtx?.app?.plugins as any).disposeScope).toBeUndefined();
+    expect(typeof receivedCtx?.app?.plugins?.getEffectiveConfig).toBe('function');
+
+    // 5. Verify eventBus does NOT expose clear()
     expect((receivedCtx?.eventBus as any).clear).toBeUndefined();
 
-    // 5. Verify legitimate capabilities ARE present
+    // 6. Verify legitimate capabilities ARE present
     expect(receivedCtx?.app).toBeDefined();
     expect(receivedCtx?.db).toBeDefined();
     expect(receivedCtx?.schema).toBeDefined();
