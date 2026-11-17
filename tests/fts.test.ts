@@ -823,4 +823,76 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       expect(JSON.parse(exportAll.data).length).toBe(2);
     });
   });
+
+  describe('FTS Index Rebuild Concurrency & Drift Reconciliation (Issues 26 & 27)', () => {
+    it('should serialize concurrent rebuildIndex calls via in-memory lock without collisions', async () => {
+      // Create collection with text fields
+      app.schema.createCollection({
+        name: 'articles',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text', required: true },
+          { id: 'f_body', name: 'body', type: 'text' },
+        ],
+        listRule: '',
+        createRule: '',
+      });
+
+      await app.records.create('articles', {
+        title: 'Concurrent Rebuild Article',
+        body: 'Testing locking mechanism under concurrent calls',
+      });
+
+      // Fire 5 concurrent rebuild requests
+      const rebuildPromises = [
+        app.fts.rebuildIndex('articles'),
+        app.fts.rebuildIndex('articles'),
+        app.fts.rebuildIndex('articles'),
+        app.fts.rebuildIndex('articles'),
+        app.fts.rebuildIndex('articles'),
+      ];
+
+      // All should resolve cleanly
+      await expect(Promise.all(rebuildPromises)).resolves.not.toThrow();
+
+      // Verify search still functions correctly
+      const searchRes = await app.records.getList('articles', { search: 'concurrent' });
+      expect(searchRes.totalItems).toBe(1);
+      expect(searchRes.items[0].title).toBe('Concurrent Rebuild Article');
+    });
+
+    it('should detect drift and reconcile FTS index when records are out of sync', async () => {
+      app.schema.createCollection({
+        name: 'notes',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text', required: true },
+          { id: 'f_content', name: 'content', type: 'text' },
+        ],
+        listRule: '',
+        createRule: '',
+      });
+
+      await app.records.create('notes', {
+        id: 'note_1',
+        title: 'Desynchronized Note',
+        content: 'Content that is about to drift',
+      });
+
+      // Simulate drift: delete row directly from FTS table
+      app.db.exec(`DELETE FROM "_fts_notes" WHERE id = 'note_1'`);
+
+      // Verify drift exists: note is missing from FTS
+      const preReconcile = await app.records.getList('notes', { search: 'drift' });
+      expect(preReconcile.totalItems).toBe(0);
+
+      // Trigger reconciliation
+      const reconcileResult = await app.fts.reconcile('notes');
+      expect(reconcileResult.drifted).toBe(true);
+      expect(reconcileResult.repaired).toBe(true);
+
+      // Verify newly reconciled note is now found in search
+      const postReconcile = await app.records.getList('notes', { search: 'drift' });
+      expect(postReconcile.totalItems).toBe(1);
+      expect(postReconcile.items[0].id).toBe('note_1');
+    });
+  });
 });

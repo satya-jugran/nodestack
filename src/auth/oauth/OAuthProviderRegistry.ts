@@ -1,12 +1,24 @@
 import * as crypto from 'crypto';
 import { IOAuthProvider, OAuthProviderConfig, AuthMethodProviderInfo, PkceSession } from './types';
-import { AppError } from '../../core/errors/AppError';
+import { AppError, ConflictError } from '../../core/errors/AppError';
 import { BaseOAuthProvider, IOAuthRegistrySessionStore } from './BaseOAuthProvider';
 import { GoogleProvider } from './GoogleProvider';
 import { GitHubProvider } from './GitHubProvider';
 import { DiscordProvider } from './DiscordProvider';
 import { MicrosoftProvider } from './MicrosoftProvider';
 import { AppleProvider } from './AppleProvider';
+
+export const BUILTIN_OAUTH_PROVIDERS = new Set<string>([
+  'google',
+  'github',
+  'discord',
+  'microsoft',
+  'apple',
+]);
+
+export interface RegisterOAuthOptions {
+  allowOverwrite?: boolean;
+}
 
 export class OAuthProviderRegistry implements IOAuthRegistrySessionStore {
   private providers: Map<string, IOAuthProvider> = new Map();
@@ -75,15 +87,24 @@ export class OAuthProviderRegistry implements IOAuthRegistrySessionStore {
     }
   }
 
-  public register(provider: IOAuthProvider): void {
+  public register(provider: IOAuthProvider, options?: RegisterOAuthOptions): void {
+    const name = provider.name.toLowerCase();
     if (provider.enabled === false) {
-      this.unregister(provider.name);
+      this.unregister(name);
       return;
+    }
+    if (this.providers.has(name) && !options?.allowOverwrite) {
+      throw new ConflictError(
+        `OAuth provider '${provider.name}' is already registered. Explicit overwrite must be specified with { allowOverwrite: true }.`
+      );
+    }
+    if (this.providers.has(name)) {
+      this.unregister(name);
     }
     if (provider instanceof BaseOAuthProvider) {
       provider.bindRegistry(this);
     }
-    this.providers.set(provider.name.toLowerCase(), provider);
+    this.providers.set(name, provider);
   }
 
   public unregister(name: string): boolean {
@@ -108,28 +129,29 @@ export class OAuthProviderRegistry implements IOAuthRegistrySessionStore {
     this.sessions.clear();
   }
 
-  public registerFromConfig(config: OAuthProviderConfig): void {
+  public registerFromConfig(config: OAuthProviderConfig, options?: RegisterOAuthOptions): void {
     if (config.enabled === false) {
       this.unregister(config.name);
       return;
     }
 
+    const opts = options ?? { allowOverwrite: true };
     const name = config.name.toLowerCase();
     switch (name) {
       case 'google':
-        this.register(new GoogleProvider(config));
+        this.register(new GoogleProvider(config), opts);
         break;
       case 'github':
-        this.register(new GitHubProvider(config));
+        this.register(new GitHubProvider(config), opts);
         break;
       case 'discord':
-        this.register(new DiscordProvider(config));
+        this.register(new DiscordProvider(config), opts);
         break;
       case 'microsoft':
-        this.register(new MicrosoftProvider(config));
+        this.register(new MicrosoftProvider(config), opts);
         break;
       case 'apple':
-        this.register(new AppleProvider(config));
+        this.register(new AppleProvider(config), opts);
         break;
       default:
         break;

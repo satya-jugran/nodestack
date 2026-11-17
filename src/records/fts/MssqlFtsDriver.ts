@@ -58,11 +58,35 @@ export class MssqlFtsDriver implements IFtsDriver {
       existingColumns.every((colName, idx) => colName.toLowerCase() === fieldNames[idx].toLowerCase());
 
     if (columnsMatch) {
+      await this.reconcile(col.name, ftsTable, fieldNames);
       return;
     }
 
-    await this.dropCollectionFts(col.name);
-    await this.createFtsTableAndTriggers(col.name, ftsTable, fieldNames);
+    await this.db.transaction(async () => {
+      await this.dropCollectionFts(col.name);
+      await this.createFtsTableAndTriggers(col.name, ftsTable, fieldNames);
+    });
+  }
+
+  public async reconcile(collectionName: string, ftsTable?: string, fieldNames?: string[]): Promise<{ drifted: boolean; repaired: boolean }> {
+    const table = ftsTable || getFtsTableName(collectionName);
+    const cols = fieldNames || (await this.getFtsIndexColumns(collectionName));
+    if (!cols || cols.length === 0) return { drifted: false, repaired: false };
+
+    try {
+      const baseCountRow = await this.db.get<{ count: string | number }>(`SELECT COUNT(*) as count FROM [${collectionName}]`);
+      const ftsCountRow = await this.db.get<{ count: string | number }>(`SELECT COUNT(*) as count FROM [${table}]`);
+      const baseCount = Number(baseCountRow?.count || 0);
+      const ftsCount = Number(ftsCountRow?.count || 0);
+
+      if (baseCount !== ftsCount) {
+        await this.rebuildIndex(collectionName);
+        return { drifted: true, repaired: true };
+      }
+    } catch {
+      // ignore
+    }
+    return { drifted: false, repaired: false };
   }
 
   public async dropCollectionFts(collectionName: string): Promise<void> {

@@ -14,6 +14,7 @@ import { AppleProvider } from '../src/auth/oauth/AppleProvider';
 import { GitHubProvider } from '../src/auth/oauth/GitHubProvider';
 import { MicrosoftProvider } from '../src/auth/oauth/MicrosoftProvider';
 import { SsrfGuard } from '../src/functions/security/SsrfGuard';
+import { ConflictError } from '../src/core/errors/AppError';
 
 class MockOAuthProvider implements IOAuthProvider {
   public name: string;
@@ -224,6 +225,97 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(res.status).toBe(400);
       const err = await res.json();
       expect(err.message).toContain("OAuth2 provider 'google' is not configured or enabled");
+    });
+  });
+
+  describe('2b. OAuth Provider Registry Security & Overwrite Protection', () => {
+    it('should reject silent overwrite when registering an existing provider name', () => {
+      const registry = app.auth.getOAuthRegistry();
+      const providerA = new MockOAuthProvider('custom_prov', 'Custom Prov A', {
+        id: 'u1',
+        email: 'u1@custom.com',
+        isEmailVerified: true,
+        rawUser: { id: 'u1' },
+      });
+      const providerB = new MockOAuthProvider('custom_prov', 'Custom Prov B (Attacker)', {
+        id: 'u2',
+        email: 'u2@custom.com',
+        isEmailVerified: true,
+        rawUser: { id: 'u2' },
+      });
+
+      registry.register(providerA);
+      expect(() => registry.register(providerB)).toThrow(ConflictError);
+      expect(() => registry.register(providerB)).toThrow(/already registered.*allowOverwrite/);
+
+      // Verify original provider remains untouched
+      expect(registry.getProvider('custom_prov')?.displayName).toBe('Custom Prov A');
+    });
+
+    it('should allow overwriting an existing provider when allowOverwrite: true is specified', () => {
+      const registry = app.auth.getOAuthRegistry();
+      const providerA = new MockOAuthProvider('custom_prov_2', 'Original Provider', {
+        id: 'orig1',
+        email: 'orig@custom.com',
+        isEmailVerified: true,
+        rawUser: { id: 'orig1' },
+      });
+      const providerB = new MockOAuthProvider('custom_prov_2', 'Updated Provider', {
+        id: 'upd1',
+        email: 'upd@custom.com',
+        isEmailVerified: true,
+        rawUser: { id: 'upd1' },
+      });
+
+      registry.register(providerA);
+      expect(registry.getProvider('custom_prov_2')?.displayName).toBe('Original Provider');
+
+      registry.register(providerB, { allowOverwrite: true });
+      expect(registry.getProvider('custom_prov_2')?.displayName).toBe('Updated Provider');
+    });
+
+    it('should prevent silent overwrite for built-in provider names', () => {
+      const registry = app.auth.getOAuthRegistry();
+      const mockGoogleA = new MockOAuthProvider('google', 'Legitimate Google', {
+        id: 'g1',
+        email: 'legit@google.com',
+        isEmailVerified: true,
+        rawUser: { id: 'g1' },
+      });
+      const maliciousGoogle = new MockOAuthProvider('google', 'Malicious Google Overwrite', {
+        id: 'g2',
+        email: 'attacker@evil.com',
+        isEmailVerified: true,
+        rawUser: { id: 'g2' },
+      });
+
+      registry.register(mockGoogleA);
+      expect(() => registry.register(maliciousGoogle)).toThrow(ConflictError);
+      expect(registry.getProvider('google')?.displayName).toBe('Legitimate Google');
+
+      // But succeeds with explicit allowOverwrite
+      registry.register(maliciousGoogle, { allowOverwrite: true });
+      expect(registry.getProvider('google')?.displayName).toBe('Malicious Google Overwrite');
+    });
+
+    it('should allow updating built-in provider via registerFromConfig', () => {
+      const registry = app.auth.getOAuthRegistry();
+      registry.registerFromConfig({
+        name: 'google',
+        displayName: 'Google V1',
+        clientId: 'g_client_v1',
+        clientSecret: 'g_secret_v1',
+      });
+      expect(registry.getProvider('google')).toBeDefined();
+
+      // Updating config via registerFromConfig should succeed
+      registry.registerFromConfig({
+        name: 'google',
+        displayName: 'Google V2',
+        clientId: 'g_client_v2',
+        clientSecret: 'g_secret_v2',
+      });
+      expect(registry.getProvider('google')).toBeDefined();
     });
   });
 
@@ -1829,7 +1921,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
             isEmailVerified: true,
             rawUser: { id: `g_ssrf_${i}` },
           });
-          app.auth.getOAuthRegistry().register(mockProvider);
+          app.auth.getOAuthRegistry().register(mockProvider, { allowOverwrite: true });
           app.auth.getOAuthRegistry().registerSession({
             state: `ssrf_state_${i}`,
             provider: 'google',
