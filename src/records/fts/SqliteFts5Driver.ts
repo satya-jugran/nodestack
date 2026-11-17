@@ -89,6 +89,19 @@ export class SqliteFts5Driver implements IFtsDriver {
         this.rebuildIndex(collectionName);
         return { drifted: true, repaired: true };
       }
+
+      if (baseCount > 0) {
+        const colConditions = cols.map((c) => `(b."${c}" IS NOT f."${c}")`);
+        const whereClause = ['f.id IS NULL', ...colConditions].join(' OR ');
+        const mismatch = this.db.get(
+          `SELECT 1 as mismatch FROM "${collectionName}" b LEFT JOIN "${table}" f ON b.id = f.id WHERE ${whereClause} LIMIT 1`
+        );
+
+        if (mismatch) {
+          this.rebuildIndex(collectionName);
+          return { drifted: true, repaired: true };
+        }
+      }
     } catch {
       // ignore
     }

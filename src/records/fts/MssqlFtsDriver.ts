@@ -83,6 +83,22 @@ export class MssqlFtsDriver implements IFtsDriver {
         await this.rebuildIndex(collectionName);
         return { drifted: true, repaired: true };
       }
+
+      if (baseCount > 0) {
+        const colConditions = cols.map(
+          (c) =>
+            `(CAST(b.[${c}] AS NVARCHAR(MAX)) <> CAST(f.[${c}] AS NVARCHAR(MAX)) OR (b.[${c}] IS NULL AND f.[${c}] IS NOT NULL) OR (b.[${c}] IS NOT NULL AND f.[${c}] IS NULL))`
+        );
+        const whereClause = ['f.id IS NULL', ...colConditions].join(' OR ');
+        const mismatch = await this.db.get(
+          `SELECT TOP 1 1 as mismatch FROM [${collectionName}] b LEFT JOIN [${table}] f ON b.id = f.id WHERE ${whereClause}`
+        );
+
+        if (mismatch) {
+          await this.rebuildIndex(collectionName);
+          return { drifted: true, repaired: true };
+        }
+      }
     } catch {
       // ignore
     }
