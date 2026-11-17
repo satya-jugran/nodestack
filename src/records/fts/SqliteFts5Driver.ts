@@ -63,11 +63,49 @@ export class SqliteFts5Driver implements IFtsDriver {
 
     if (columnsMatch) {
       this.createTriggers(col.name, ftsTable, fieldNames);
+      this.reconcile(col.name, ftsTable, fieldNames);
       return;
     }
 
-    this.dropCollectionFts(col.name);
-    this.createFtsTableAndTriggers(col.name, ftsTable, fieldNames);
+    this.db.transaction(() => {
+      this.dropCollectionFts(col.name);
+      this.createFtsTableAndTriggers(col.name, ftsTable, fieldNames);
+    });
+  }
+
+  public reconcile(collectionName: string, ftsTable?: string, fieldNames?: string[]): { drifted: boolean; repaired: boolean } {
+    const table = ftsTable || getFtsTableName(collectionName);
+    const cols = fieldNames || (this.getFtsIndexColumns(collectionName) as string[]);
+    if (!cols || cols.length === 0) return { drifted: false, repaired: false };
+
+    try {
+      const baseCountRow = this.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM "${collectionName}"`);
+      const ftsCountRow = this.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM "${table}"`);
+      const baseCount = Number(baseCountRow?.count || 0);
+      const ftsCount = Number(ftsCountRow?.count || 0);
+
+      if (baseCount !== ftsCount) {
+        // Drift detected: perform atomic repair/rebuild
+        this.rebuildIndex(collectionName);
+        return { drifted: true, repaired: true };
+      }
+
+      if (baseCount > 0) {
+        const colConditions = cols.map((c) => `(b."${c}" IS NOT f."${c}")`);
+        const whereClause = ['f.id IS NULL', ...colConditions].join(' OR ');
+        const mismatch = this.db.get(
+          `SELECT 1 as mismatch FROM "${collectionName}" b LEFT JOIN "${table}" f ON b.id = f.id WHERE ${whereClause} LIMIT 1`
+        );
+
+        if (mismatch) {
+          this.rebuildIndex(collectionName);
+          return { drifted: true, repaired: true };
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return { drifted: false, repaired: false };
   }
 
   public dropCollectionFts(collectionName: string): any {

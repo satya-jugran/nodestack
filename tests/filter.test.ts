@@ -117,4 +117,60 @@ describe('QueryFilterParser', () => {
       expect(p2).toEqual([30]);
     });
   });
+
+  describe('strict filter validation & unparsed tail rejection (Issue 24)', () => {
+    it('should reject unparsed tails after string literals (e.g. SQL injection attempts)', () => {
+      expect(() => {
+        QueryFilterParser.parseFilter("status = 'active' OR 1=1", allowed);
+      }).toThrow(/unexpected trailing tokens/i);
+
+      expect(() => {
+        QueryFilterParser.parseFilter("status = 'active' extra_text", allowed);
+      }).toThrow(/unexpected trailing tokens/i);
+    });
+
+    it('should reject unquoted SQL-style logical operators in value positions', () => {
+      expect(() => {
+        QueryFilterParser.parseFilter("status = active OR 1=1", allowed);
+      }).toThrow(/unexpected 'active OR 1=1'/i);
+    });
+
+    it('should reject unclosed string literals', () => {
+      expect(() => {
+        QueryFilterParser.parseFilter("status = 'active", allowed);
+      }).toThrow(/unclosed string literal/i);
+    });
+
+    it('should ignore unallowed fields cleanly without exposing existence or erroring', () => {
+      const res = QueryFilterParser.parseFilter("secret_col = 'hacked'", allowed);
+      expect(res.clause).toBe('');
+      expect(res.params).toEqual([]);
+    });
+
+    it('should reject invalid field identifier syntax', () => {
+      expect(() => {
+        QueryFilterParser.parseFilter("bad-col! = 'hacked'", allowed);
+      }).toThrow(/invalid field name/i);
+    });
+
+    it('should reject invalid comparison syntax and random gibberish', () => {
+      expect(() => {
+        QueryFilterParser.parseFilter("random gibberish", allowed);
+      }).toThrow(/invalid comparison/i);
+
+      expect(() => {
+        QueryFilterParser.parseFilter("1=1", allowed);
+      }).toThrow(/invalid field name/i);
+    });
+
+    it('should reject empty operands in composite expressions', () => {
+      expect(() => {
+        QueryFilterParser.parseFilter("status = 'active' && ", allowed);
+      }).toThrow(/empty operand/i);
+
+      expect(() => {
+        QueryFilterParser.parseFilter(" || status = 'active'", allowed);
+      }).toThrow(/empty operand/i);
+    });
+  });
 });

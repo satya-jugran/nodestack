@@ -293,6 +293,31 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       syncSpy.mockRestore();
     });
 
+    it('should propagate synchronous driver exceptions from getFtsDriver().syncCollection and rollback transaction', () => {
+      const driver = app.fts.getFtsDriver();
+      const driverSpy = vi.spyOn(driver, 'syncCollection').mockImplementationOnce(() => {
+        throw new Error('Simulated synchronous driver FTS table creation failure');
+      });
+
+      expect(() => {
+        app.schema.createCollection({
+          name: 'driver_sync_failure_test',
+          schema: [{ id: 'f1', name: 'content', type: 'text' }],
+        });
+      }).toThrow(/Simulated synchronous driver FTS table creation failure/);
+
+      // Verify base table was rolled back and does NOT exist
+      const tableCheck = app.db.get(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'driver_sync_failure_test'"
+      );
+      expect(tableCheck).toBeUndefined();
+
+      // Verify _collections row was rolled back and does NOT exist
+      expect(app.schema.getCollection('driver_sync_failure_test')).toBeUndefined();
+
+      driverSpy.mockRestore();
+    });
+
     it('should reject schema updates that add reserved search metadata names', () => {
       const col = app.schema.createCollection({
         name: 'valid_articles',
@@ -821,6 +846,140 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       // 6. exportRecords without search: returns records normally
       const exportAll = await app.records.exportRecords('sensor_metrics', 'json');
       expect(JSON.parse(exportAll.data).length).toBe(2);
+    });
+  });
+
+  describe('FTS Index Rebuild Concurrency & Drift Reconciliation (Issues 26 & 27)', () => {
+    it('should serialize concurrent rebuildIndex calls via in-memory lock without collisions', async () => {
+      // Create collection with text fields
+      app.schema.createCollection({
+        name: 'articles',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text', required: true },
+          { id: 'f_body', name: 'body', type: 'text' },
+        ],
+        listRule: '',
+        createRule: '',
+      });
+
+      await app.records.create('articles', {
+        title: 'Concurrent Rebuild Article',
+        body: 'Testing locking mechanism under concurrent calls',
+      });
+
+      // Fire 5 concurrent rebuild requests
+      const rebuildPromises = [
+        app.fts.rebuildIndex('articles'),
+        app.fts.rebuildIndex('articles'),
+        app.fts.rebuildIndex('articles'),
+        app.fts.rebuildIndex('articles'),
+        app.fts.rebuildIndex('articles'),
+      ];
+
+      // All should resolve cleanly
+      const results = await Promise.all(rebuildPromises);
+      expect(results).toHaveLength(5);
+
+      // Verify search still functions correctly
+      const searchRes = await app.records.getList('articles', { search: 'concurrent' });
+      expect(searchRes.totalItems).toBe(1);
+      expect(searchRes.items[0].title).toBe('Concurrent Rebuild Article');
+    });
+
+    it('should detect drift and reconcile FTS index when records are out of sync', async () => {
+      app.schema.createCollection({
+        name: 'notes',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text', required: true },
+          { id: 'f_content', name: 'content', type: 'text' },
+        ],
+        listRule: '',
+        createRule: '',
+      });
+
+      await app.records.create('notes', {
+        id: 'note_1',
+        title: 'Desynchronized Note',
+        content: 'Content that is about to drift',
+      });
+
+      // Simulate drift: delete row directly from FTS table
+      app.db.exec(`DELETE FROM "_fts_notes" WHERE id = 'note_1'`);
+
+      // Verify drift exists: note is missing from FTS
+      const preReconcile = await app.records.getList('notes', { search: 'drift' });
+      expect(preReconcile.totalItems).toBe(0);
+
+      // Trigger reconciliation
+      const reconcileResult = await app.fts.reconcile('notes');
+      expect(reconcileResult.drifted).toBe(true);
+      expect(reconcileResult.repaired).toBe(true);
+
+      // Verify newly reconciled note is now found in search
+      const postReconcile = await app.records.getList('notes', { search: 'drift' });
+      expect(postReconcile.totalItems).toBe(1);
+      expect(postReconcile.items[0].id).toBe('note_1');
+
+      // Now both tables are synchronized: subsequent reconcile should report NO drift
+      const cleanReconcile = await app.fts.reconcile('notes');
+      expect(cleanReconcile.drifted).toBe(false);
+      expect(cleanReconcile.repaired).toBe(false);
+    });
+
+    it('should detect equal-cardinality drift when indexed text values or IDs mismatch', async () => {
+      app.schema.createCollection({
+        name: 'docs',
+        schema: [
+          { id: 'f_title', name: 'title', type: 'text', required: true },
+          { id: 'f_body', name: 'body', type: 'text' },
+        ],
+        listRule: '',
+        createRule: '',
+      });
+
+      await app.records.create('docs', {
+        id: 'doc_1',
+        title: 'Fresh Title',
+        body: 'Synchronized Body',
+      });
+
+      // Simulate equal-cardinality value drift:
+      // Replace FTS row with stale text (counts remain 1 and 1)
+      app.db.exec("DELETE FROM \"_fts_docs\" WHERE id = 'doc_1'");
+      app.db.exec("INSERT INTO \"_fts_docs\" (id, title, body) VALUES ('doc_1', 'Stale Mismatched Title', 'Synchronized Body')");
+
+      // Verify counts are equal before reconcile
+      const baseCount = (app.db.get<{ count: number }>('SELECT COUNT(*) as count FROM "docs"'))?.count;
+      const ftsCount = (app.db.get<{ count: number }>('SELECT COUNT(*) as count FROM "_fts_docs"'))?.count;
+      expect(baseCount).toBe(1);
+      expect(ftsCount).toBe(1);
+
+      // Search for fresh title before reconcile fails because FTS has stale title
+      const preReconcile = await app.records.getList('docs', { search: 'Fresh' });
+      expect(preReconcile.totalItems).toBe(0);
+
+      // Reconcile must detect the equal-cardinality value drift and repair it
+      const result = await app.fts.reconcile('docs');
+      expect(result.drifted).toBe(true);
+      expect(result.repaired).toBe(true);
+
+      // Search now succeeds
+      const postReconcile = await app.records.getList('docs', { search: 'Fresh' });
+      expect(postReconcile.totalItems).toBe(1);
+      expect(postReconcile.items[0].id).toBe('doc_1');
+
+      // Simulate equal-cardinality ID drift:
+      // FTS has a ghost row with id 'doc_ghost', while base table has 'doc_1' (counts are 1 and 1)
+      app.db.exec("DELETE FROM \"_fts_docs\" WHERE id = 'doc_1'");
+      app.db.exec("INSERT INTO \"_fts_docs\" (id, title, body) VALUES ('doc_ghost', 'Ghost Title', 'Ghost Body')");
+
+      const ghostResult = await app.fts.reconcile('docs');
+      expect(ghostResult.drifted).toBe(true);
+      expect(ghostResult.repaired).toBe(true);
+
+      const postGhostSearch = await app.records.getList('docs', { search: 'Fresh' });
+      expect(postGhostSearch.totalItems).toBe(1);
+      expect(postGhostSearch.items[0].id).toBe('doc_1');
     });
   });
 });

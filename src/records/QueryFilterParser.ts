@@ -1,6 +1,7 @@
 import { FilterCodec } from './FilterCodec';
 import { ISqlDialect } from '../database/dialects/ISqlDialect';
 import { SqliteDialect } from '../database/dialects/SqliteDialect';
+import { AppError } from '../core/errors/AppError';
 
 const defaultDialect = new SqliteDialect();
 
@@ -107,19 +108,35 @@ export class QueryFilterParser {
     // 1. Split top-level ||
     const orParts = this.splitTopLevel(expr, '||');
     if (orParts.length > 1) {
-      const sqlParts = orParts
-        .map((p) => this.convertFilterExpression(p.trim(), params, allowedFields, tablePrefix, dialect))
-        .filter(Boolean);
-      return sqlParts.length ? `(${sqlParts.join(' OR ')})` : '';
+      const sqlParts: string[] = [];
+      for (const p of orParts) {
+        const sub = p.trim();
+        if (!sub) {
+          throw new AppError(`Empty operand in '||' expression in filter: "${expr}"`, 400);
+        }
+        const res = this.convertFilterExpression(sub, params, allowedFields, tablePrefix, dialect);
+        if (res) {
+          sqlParts.push(res);
+        }
+      }
+      return sqlParts.length > 1 ? `(${sqlParts.join(' OR ')})` : (sqlParts[0] || '');
     }
 
     // 2. Split top-level &&
     const andParts = this.splitTopLevel(expr, '&&');
     if (andParts.length > 1) {
-      const sqlParts = andParts
-        .map((p) => this.convertFilterExpression(p.trim(), params, allowedFields, tablePrefix, dialect))
-        .filter(Boolean);
-      return sqlParts.length ? `(${sqlParts.join(' AND ')})` : '';
+      const sqlParts: string[] = [];
+      for (const p of andParts) {
+        const sub = p.trim();
+        if (!sub) {
+          throw new AppError(`Empty operand in '&&' expression in filter: "${expr}"`, 400);
+        }
+        const res = this.convertFilterExpression(sub, params, allowedFields, tablePrefix, dialect);
+        if (res) {
+          sqlParts.push(res);
+        }
+      }
+      return sqlParts.length > 1 ? `(${sqlParts.join(' AND ')})` : (sqlParts[0] || '');
     }
 
     // 3. Parentheses unwrapping
@@ -155,17 +172,17 @@ export class QueryFilterParser {
         let columnExpr: string;
         if (fieldName.includes('.')) {
           const [baseField, ...subPath] = fieldName.split('.');
-          if (!/^[a-zA-Z0-9_]+$/.test(baseField) || !subPath.every((s) => /^[a-zA-Z0-9_]+$/.test(s))) {
-            return '';
+          if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(baseField) || !subPath.every((s) => /^[a-zA-Z0-9_]+$/.test(s))) {
+            throw new AppError(`Invalid field name '${fieldName}' in filter expression`, 400);
           }
           if (allowedFields && !allowedFields.has(baseField)) {
             return '';
           }
           columnExpr = dialect.jsonExtractTextSql(`${prefix}${dialect.quoteIdentifier(baseField)}`, subPath.join('.'));
         } else {
-          // Validate field name to prevent SQL injection
-          if (!/^[a-zA-Z0-9_]+$/.test(fieldName)) {
-            return '';
+          // Validate field name to prevent SQL injection and invalid identifiers (e.g. 1=1)
+          if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(fieldName)) {
+            throw new AppError(`Invalid field name '${fieldName}' in filter expression`, 400);
           }
 
           if (allowedFields && !allowedFields.has(fieldName) && !['id', 'created', 'updated'].includes(fieldName)) {
@@ -217,21 +234,53 @@ export class QueryFilterParser {
       }
     }
 
-    return '';
+    throw new AppError(`Invalid comparison in filter expression: "${str}"`, 400);
   }
 
   private static extractLiteralValue(valStr: string): any {
     const trimmed = valStr.trim();
-    if (
-      (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-      (trimmed.startsWith("'") && trimmed.endsWith("'"))
-    ) {
-      return FilterCodec.decode(trimmed);
+    if (!trimmed) {
+      throw new AppError('Missing value in comparison in filter expression', 400);
     }
+
+    if (trimmed.startsWith('"') || trimmed.startsWith("'")) {
+      const quoteChar = trimmed[0];
+      let closingIdx = -1;
+      for (let i = 1; i < trimmed.length; i++) {
+        if (trimmed[i] === quoteChar && !this.isCharEscaped(trimmed, i)) {
+          closingIdx = i;
+          break;
+        }
+      }
+
+      if (closingIdx === -1) {
+        throw new AppError(`Unclosed string literal in filter expression: ${trimmed}`, 400);
+      }
+
+      const tail = trimmed.slice(closingIdx + 1).trim();
+      if (tail.length > 0) {
+        throw new AppError(`Unexpected trailing tokens '${tail}' after literal in filter expression`, 400);
+      }
+
+      return FilterCodec.decode(trimmed.slice(0, closingIdx + 1));
+    }
+
     if (trimmed.toLowerCase() === 'true') return true;
     if (trimmed.toLowerCase() === 'false') return false;
     if (trimmed.toLowerCase() === 'null') return null;
-    if (!isNaN(Number(trimmed)) && trimmed !== '') return Number(trimmed);
+
+    if (!isNaN(Number(trimmed)) && !/^\s*$/.test(trimmed)) {
+      return Number(trimmed);
+    }
+
+    // Check if user provided SQL-style logical operators or unquoted identifiers
+    if (/\b(AND|OR)\b/i.test(trimmed)) {
+      throw new AppError(
+        `Invalid filter syntax: unexpected '${trimmed}'. Use '&&' or '||' for logical operations and quote string literals.`,
+        400
+      );
+    }
+
     return trimmed;
   }
 
@@ -274,7 +323,7 @@ export class QueryFilterParser {
       current += char;
     }
 
-    if (current) parts.push(current);
+    parts.push(current);
     return parts;
   }
 
