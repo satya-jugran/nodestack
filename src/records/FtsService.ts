@@ -136,14 +136,31 @@ export class FtsService {
     return this.getFtsDriver().getFtsIndexColumns(collectionName);
   }
 
-  public async syncCollection(col: CollectionModel): Promise<any> {
+  private isAsyncDriver(): boolean {
+    return Boolean(this.db.dialect && this.db.dialect.name !== 'sqlite');
+  }
+
+  public syncCollection(col: CollectionModel): void;
+  public syncCollection(col: CollectionModel): Promise<void>;
+  public syncCollection(col: CollectionModel): any {
     const key = (col.name || '').toLowerCase().trim();
-    const existingLock = this.rebuildLocks.get(key);
-    if (existingLock) {
-      await existingLock;
+    if (!this.isAsyncDriver()) {
+      // Preserve synchronous exception propagation for synchronous drivers (e.g. SQLite)
+      // so that provisioning failures trigger transaction rollback in SchemaService.
+      this.rebuildLocks.delete(key);
+      return this.getFtsDriver().syncCollection(col);
     }
 
     const task = (async () => {
+      const existingLock = this.rebuildLocks.get(key);
+      if (existingLock) {
+        try {
+          await existingLock;
+        } catch {
+          // ignore previous lock failure
+        }
+      }
+
       try {
         return await Promise.resolve(this.getFtsDriver().syncCollection(col));
       } finally {

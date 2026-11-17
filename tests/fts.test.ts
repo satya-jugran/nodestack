@@ -293,6 +293,31 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       syncSpy.mockRestore();
     });
 
+    it('should propagate synchronous driver exceptions from getFtsDriver().syncCollection and rollback transaction', () => {
+      const driver = app.fts.getFtsDriver();
+      const driverSpy = vi.spyOn(driver, 'syncCollection').mockImplementationOnce(() => {
+        throw new Error('Simulated synchronous driver FTS table creation failure');
+      });
+
+      expect(() => {
+        app.schema.createCollection({
+          name: 'driver_sync_failure_test',
+          schema: [{ id: 'f1', name: 'content', type: 'text' }],
+        });
+      }).toThrow(/Simulated synchronous driver FTS table creation failure/);
+
+      // Verify base table was rolled back and does NOT exist
+      const tableCheck = app.db.get(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'driver_sync_failure_test'"
+      );
+      expect(tableCheck).toBeUndefined();
+
+      // Verify _collections row was rolled back and does NOT exist
+      expect(app.schema.getCollection('driver_sync_failure_test')).toBeUndefined();
+
+      driverSpy.mockRestore();
+    });
+
     it('should reject schema updates that add reserved search metadata names', () => {
       const col = app.schema.createCollection({
         name: 'valid_articles',
