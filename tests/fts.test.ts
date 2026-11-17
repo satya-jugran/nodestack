@@ -852,7 +852,8 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       ];
 
       // All should resolve cleanly
-      await expect(Promise.all(rebuildPromises)).resolves.not.toThrow();
+      const results = await Promise.all(rebuildPromises);
+      expect(results).toHaveLength(5);
 
       // Verify search still functions correctly
       const searchRes = await app.records.getList('articles', { search: 'concurrent' });
