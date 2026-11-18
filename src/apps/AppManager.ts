@@ -508,7 +508,7 @@ export class AppManager {
 
     const cached = this.appCache.get(target.slug) || this.appCache.get(target.id);
     if (cached) {
-      cached.close();
+      await cached.closeAsync();
       this.appCache.delete(target.slug);
       this.appCache.delete(target.id);
     }
@@ -540,23 +540,6 @@ export class AppManager {
     if (this.customDriver) {
       try {
         await this.customDriver.close();
-      } catch {}
-    }
-    this.appCache.clear();
-    this.registry.close();
-  }
-
-  public closeAll(): void {
-    const closed = new Set<AppScope>();
-    for (const scope of this.appCache.values()) {
-      if (!closed.has(scope)) {
-        scope.close();
-        closed.add(scope);
-      }
-    }
-    if (this.customDriver) {
-      try {
-        void this.customDriver.close();
       } catch {}
     }
     this.appCache.clear();

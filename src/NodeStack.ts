@@ -608,22 +608,8 @@ export class NodeStack {
     }
   }
 
-  public close(): void {
-    try {
-      void this.server.close();
-    } catch {}
-    try {
-      void this.queue.dispose();
-    } catch {}
-    try {
-      this.realtime.dispose();
-    } catch {}
-    try {
-      this.apps.closeAll();
-    } catch {}
-    try {
-      void this.container.dispose();
-    } catch {}
+  public async close(): Promise<void> {
+    await this.stop();
   }
 
   private printStartupBanner(address: string): void {

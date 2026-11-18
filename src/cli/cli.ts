@@ -159,7 +159,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
         console.error(chalk.red(`\n✗ Failed to create superuser: ${err.message}\n`));
         process.exit(1);
       } finally {
-        app.close();
+        await app.close();
       }
     });
 
@@ -199,7 +199,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
         console.error(chalk.red(`\n✗ Failed to update superuser password: ${err.message}\n`));
         process.exit(1);
       } finally {
-        app.close();
+        await app.close();
       }
     });
 
@@ -228,7 +228,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
         console.error(chalk.red(`✗ Failed to generate types: ${err.message}`));
         process.exit(1);
       } finally {
-        app.close();
+        await app.close();
       }
     });
 
@@ -259,7 +259,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
         console.error(chalk.red(`✗ Failed to generate OpenAPI specification: ${err.message}`));
         process.exit(1);
       } finally {
-        app.close();
+        await app.close();
       }
     });
 
@@ -285,7 +285,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
         console.error(chalk.red(`✗ Failed to generate mock data: ${err.message}`));
         process.exit(1);
       } finally {
-        app.close();
+        await app.close();
       }
     });
 
@@ -323,7 +323,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
         console.error(chalk.red(`\n✗ Failed to import JSON: ${err.message}\n`));
         process.exit(1);
       } finally {
-        app.close();
+        await app.close();
       }
     });
 
@@ -380,7 +380,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
         console.error(chalk.red(`\n✗ Error: ${err.message}\n`));
         process.exit(1);
       } finally {
-        app.close();
+        await app.close();
       }
     });
 
@@ -432,7 +432,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
         console.error(chalk.red(`\n✗ Error: ${err.message}\n`));
         process.exit(1);
       } finally {
-        app.close();
+        await app.close();
       }
     });
 
@@ -499,7 +499,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
         console.error(chalk.red(`\n✗ Snapshots error: ${err.message}\n`));
         process.exit(1);
       } finally {
-        app.close();
+        await app.close();
       }
     });
 
@@ -758,7 +758,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
         console.error(chalk.red(`\n✗ Database error: ${err.message}\n`));
         process.exit(1);
       } finally {
-        app.close();
+        await app.close();
       }
     });
 

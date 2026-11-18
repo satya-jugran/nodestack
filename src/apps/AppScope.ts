@@ -427,16 +427,6 @@ export class AppScope {
 
   public async closeAsync(): Promise<void> {
     if (this._isClosed) return;
-    try {
-      await this.queue.dispose();
-    } catch {
-      // ignore
-    }
-    this.close();
-  }
-
-  public close(): void {
-    if (this._isClosed) return;
     this._isClosed = true;
 
     // 0. Notify onClose handlers
@@ -451,7 +441,7 @@ export class AppScope {
 
     // 0.5 Dispose QueueService
     try {
-      void this.queue.dispose();
+      await this.queue.dispose();
     } catch {
       // ignore
     }
@@ -492,7 +482,7 @@ export class AppScope {
     // 4. Checkpoint and close database driver
     try {
       this.db.checkpoint();
-      this.db.close();
+      await this.db.close();
     } catch {
       // ignore
     }
