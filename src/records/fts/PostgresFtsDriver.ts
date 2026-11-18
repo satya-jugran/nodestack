@@ -13,6 +13,16 @@ import {
 export class PostgresFtsDriver implements IFtsDriver {
   constructor(private db: DatabaseService) {}
 
+  private resolveLanguage(lang?: string): string {
+    if (lang && typeof lang === 'string') {
+      const clean = lang.trim().toLowerCase();
+      if (/^[a-z_]{2,20}$/.test(clean)) {
+        return clean;
+      }
+    }
+    return 'english';
+  }
+
   public async hasFtsIndex(collectionName: string): Promise<boolean> {
     const tableName = getFtsTableName(collectionName);
     const row = await this.db.get<{ table_name: string }>(
@@ -37,6 +47,69 @@ export class PostgresFtsDriver implements IFtsDriver {
     }
   }
 
+  public async getFtsIndexLanguage(collectionName: string): Promise<string | null> {
+    const ftsTable = getFtsTableName(collectionName);
+    const syncFnName = `${ftsTable}_sync`;
+    try {
+      // 1. Try checking table comment first if stored
+      const commentRow = await this.db.get<{ comment: string }>(
+        `SELECT obj_description(c.oid, 'pg_class') as comment
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = current_schema() AND c.relname = ?`,
+        ftsTable
+      );
+      if (commentRow?.comment && commentRow.comment.startsWith('ftsLanguage:')) {
+        return this.resolveLanguage(commentRow.comment.slice('ftsLanguage:'.length));
+      }
+
+      // 2. Inspect trigger function definition in pg_proc
+      const procRow = await this.db.get<{ prosrc: string }>(
+        `SELECT p.prosrc
+         FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = current_schema() AND p.proname = ?`,
+        syncFnName
+      );
+      if (procRow?.prosrc) {
+        const match = procRow.prosrc.match(/to_tsvector\(\s*'([a-z_]+)'/i);
+        if (match && match[1]) {
+          return this.resolveLanguage(match[1]);
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  public async resolveCollectionLanguage(collectionName: string): Promise<string> {
+    // 1. Inspect existing FTS index / trigger function definition (preserves configured or legacy 'simple' language)
+    const indexLang = await this.getFtsIndexLanguage(collectionName);
+    if (indexLang) {
+      return indexLang;
+    }
+
+    // 2. Query configured collection options from _collections table
+    try {
+      const row = await this.db.get<{ options: string | Record<string, any> }>(
+        'SELECT options FROM _collections WHERE name = ?',
+        collectionName
+      );
+      if (row?.options) {
+        const opts = typeof row.options === 'string' ? JSON.parse(row.options) : row.options;
+        if (opts?.ftsLanguage) {
+          return this.resolveLanguage(opts.ftsLanguage);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // 3. Fallback default
+    return 'english';
+  }
+
   public async syncCollection(col: CollectionModel): Promise<void> {
     const ftsFields = getFtsFields(col);
     const ftsTable = getFtsTableName(col.name);
@@ -51,27 +124,40 @@ export class PostgresFtsDriver implements IFtsDriver {
     const fieldNames = ftsFields.map((f) => f.name);
     const existingColumns = await this.getFtsIndexColumns(col.name);
     const hasIndex = await this.hasFtsIndex(col.name);
+    const targetLang = this.resolveLanguage(col.options?.ftsLanguage);
+    const existingLang = hasIndex ? await this.getFtsIndexLanguage(col.name) : null;
 
     const columnsMatch =
       hasIndex &&
       existingColumns.length === fieldNames.length &&
       existingColumns.every((colName, idx) => colName.toLowerCase() === fieldNames[idx].toLowerCase());
 
-    if (columnsMatch) {
-      await this.reconcile(col.name, ftsTable, fieldNames);
+    const languageMatches = hasIndex && existingLang === targetLang;
+
+    if (columnsMatch && languageMatches) {
+      await this.reconcile(col.name, ftsTable, fieldNames, targetLang);
       return;
     }
 
     await this.db.transaction(async () => {
       await this.dropCollectionFts(col.name);
-      await this.createFtsTableAndTriggers(col.name, ftsTable, fieldNames);
+      await this.createFtsTableAndTriggers(col.name, ftsTable, fieldNames, targetLang);
     });
   }
 
-  public async reconcile(collectionName: string, ftsTable?: string, fieldNames?: string[]): Promise<{ drifted: boolean; repaired: boolean }> {
+  public async reconcile(
+    collectionName: string,
+    ftsTable?: string,
+    fieldNames?: string[],
+    lang?: string
+  ): Promise<{ drifted: boolean; repaired: boolean }> {
     const table = ftsTable || getFtsTableName(collectionName);
     const cols = fieldNames || (await this.getFtsIndexColumns(collectionName));
     if (!cols || cols.length === 0) return { drifted: false, repaired: false };
+
+    const effectiveLang = lang
+      ? this.resolveLanguage(lang)
+      : await this.resolveCollectionLanguage(collectionName);
 
     try {
       const baseCountRow = await this.db.get<{ count: string | number }>(`SELECT COUNT(*) as count FROM "${collectionName}"`);
@@ -80,7 +166,7 @@ export class PostgresFtsDriver implements IFtsDriver {
       const ftsCount = Number(ftsCountRow?.count || 0);
 
       if (baseCount !== ftsCount) {
-        await this.rebuildIndex(collectionName);
+        await this.rebuildIndex(collectionName, effectiveLang);
         return { drifted: true, repaired: true };
       }
 
@@ -92,7 +178,7 @@ export class PostgresFtsDriver implements IFtsDriver {
         );
 
         if (mismatch) {
-          await this.rebuildIndex(collectionName);
+          await this.rebuildIndex(collectionName, effectiveLang);
           return { drifted: true, repaired: true };
         }
       }
@@ -113,7 +199,7 @@ export class PostgresFtsDriver implements IFtsDriver {
     }
   }
 
-  public async rebuildIndex(collectionName: string): Promise<void> {
+  public async rebuildIndex(collectionName: string, lang?: string): Promise<void> {
     const ftsTable = getFtsTableName(collectionName);
     const existingColumns = await this.getFtsIndexColumns(collectionName);
     if (existingColumns.length === 0) return;
@@ -123,12 +209,17 @@ export class PostgresFtsDriver implements IFtsDriver {
       .map((c) => `coalesce("${c}", '')`)
       .join(" || ' ' || ");
 
+    const targetLang = lang
+      ? this.resolveLanguage(lang)
+      : await this.resolveCollectionLanguage(collectionName);
+
     await this.db.transaction(async () => {
       await this.db.exec(`DELETE FROM "${ftsTable}";`);
       await this.db.exec(`
         INSERT INTO "${ftsTable}" (id, search_vector, ${quotedCols})
-        SELECT id, to_tsvector('simple', ${vectorExpr}), ${quotedCols} FROM "${collectionName}";
+        SELECT id, to_tsvector('${targetLang}', ${vectorExpr}), ${quotedCols} FROM "${collectionName}";
       `);
+      await this.db.exec(`COMMENT ON TABLE "${ftsTable}" IS 'ftsLanguage:${targetLang}';`);
     });
   }
 
@@ -158,11 +249,13 @@ export class PostgresFtsDriver implements IFtsDriver {
   public buildSearchPredicate(
     ftsTable: string,
     ftsFields: SchemaField[],
-    searchTerm: string
+    searchTerm: string,
+    options?: FtsQueryOptions
   ): { clause: string; params: any[] } {
+    const lang = this.resolveLanguage(options?.ftsLanguage);
     const tableRef = ftsTable === 'fts' || ftsTable.startsWith('_fts_') ? 'fts' : this.db.dialect.quoteIdentifier(ftsTable);
     return {
-      clause: `${tableRef}.search_vector @@ plainto_tsquery('simple', ?)`,
+      clause: `${tableRef}.search_vector @@ plainto_tsquery('${lang}', ?)`,
       params: [searchTerm],
     };
   }
@@ -170,8 +263,10 @@ export class PostgresFtsDriver implements IFtsDriver {
   private async createFtsTableAndTriggers(
     collectionName: string,
     ftsTable: string,
-    fieldNames: string[]
+    fieldNames: string[],
+    lang?: string
   ): Promise<void> {
+    const safeLang = this.resolveLanguage(lang);
     const quotedCols = fieldNames.map((c) => `"${c}" TEXT`).join(', ');
     const vectorExpr = fieldNames
       .map((c) => `coalesce("${c}", '')`)
@@ -185,12 +280,13 @@ export class PostgresFtsDriver implements IFtsDriver {
           ${quotedCols}
         );
         CREATE INDEX IF NOT EXISTS "idx_${ftsTable}_vec" ON "${ftsTable}" USING GIN(search_vector);
+        COMMENT ON TABLE "${ftsTable}" IS 'ftsLanguage:${safeLang}';
       `);
 
       const colNames = fieldNames.map((c) => `"${c}"`).join(', ');
       await this.db.exec(`
         INSERT INTO "${ftsTable}" (id, search_vector, ${colNames})
-        SELECT id, to_tsvector('simple', ${vectorExpr}), ${colNames} FROM "${collectionName}";
+        SELECT id, to_tsvector('${safeLang}', ${vectorExpr}), ${colNames} FROM "${collectionName}";
       `);
 
       // Trigger function
@@ -204,11 +300,11 @@ export class PostgresFtsDriver implements IFtsDriver {
           ELSIF (TG_OP = 'UPDATE') THEN
             DELETE FROM "${ftsTable}" WHERE id = OLD.id;
             INSERT INTO "${ftsTable}" (id, search_vector, ${colNames})
-            VALUES (NEW.id, to_tsvector('simple', ${fieldNames.map((c) => `coalesce(NEW."${c}", '')`).join(" || ' ' || ")}), ${fieldNames.map((c) => `NEW."${c}"`).join(', ')});
+            VALUES (NEW.id, to_tsvector('${safeLang}', ${fieldNames.map((c) => `coalesce(NEW."${c}", '')`).join(" || ' ' || ")}), ${fieldNames.map((c) => `NEW."${c}"`).join(', ')});
             RETURN NEW;
           ELSIF (TG_OP = 'INSERT') THEN
             INSERT INTO "${ftsTable}" (id, search_vector, ${colNames})
-            VALUES (NEW.id, to_tsvector('simple', ${fieldNames.map((c) => `coalesce(NEW."${c}", '')`).join(" || ' ' || ")}), ${fieldNames.map((c) => `NEW."${c}"`).join(', ')});
+            VALUES (NEW.id, to_tsvector('${safeLang}', ${fieldNames.map((c) => `coalesce(NEW."${c}", '')`).join(" || ' ' || ")}), ${fieldNames.map((c) => `NEW."${c}"`).join(', ')});
             RETURN NEW;
           END IF;
           RETURN NULL;

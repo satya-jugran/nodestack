@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
-import { loadEnvFile } from './EnvLoader';
+import { loadEnvFile, getBoolEnv } from './EnvLoader';
 import { loadOrCreateSecret } from '../crypto/secret';
 
 export type CorsOrigin =
@@ -137,11 +137,12 @@ export class ConfigService {
           : 7;
 
     // Chaos simulation feature flag (enabled by default in dev, gated in production)
-    const envChaos = process.env.NODESTACK_CHAOS_ENABLED || process.env.NODESTACK_ENABLE_CHAOS;
     if (options.chaosEnabled !== undefined) {
       this.chaosEnabled = options.chaosEnabled;
-    } else if (envChaos !== undefined) {
-      this.chaosEnabled = envChaos === 'true' || envChaos === '1';
+    } else if (process.env.NODESTACK_CHAOS_ENABLED !== undefined) {
+      this.chaosEnabled = getBoolEnv('NODESTACK_CHAOS_ENABLED');
+    } else if (process.env.NODESTACK_ENABLE_CHAOS !== undefined) {
+      this.chaosEnabled = getBoolEnv('NODESTACK_ENABLE_CHAOS');
     } else {
       this.chaosEnabled = this.dev && process.env.NODE_ENV !== 'production';
     }

@@ -4,15 +4,18 @@ import { AppError } from '../../core/errors/AppError';
 
 export class MicrosoftProvider extends BaseOAuthProvider {
   constructor(config: Partial<OAuthProviderConfig> & { clientId: string; clientSecret: string }) {
+    const defaultScopes = ['openid', 'profile', 'email', 'User.Read'];
+    const mergedScopes = Array.from(new Set([...defaultScopes, ...(config.scopes || [])]));
     super({
       name: 'microsoft',
       displayName: 'Microsoft',
       authUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
       tokenUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
       userinfoUrl: 'https://graph.microsoft.com/v1.0/me',
-      scopes: ['openid', 'profile', 'email', 'User.Read'],
       ...config,
+      scopes: mergedScopes,
     });
+    this.defaultScopes = defaultScopes;
   }
 
   public override buildAuthUrl(

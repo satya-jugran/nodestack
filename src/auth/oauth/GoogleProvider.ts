@@ -4,15 +4,18 @@ import { AppError } from '../../core/errors/AppError';
 
 export class GoogleProvider extends BaseOAuthProvider {
   constructor(config: Partial<OAuthProviderConfig> & { clientId: string; clientSecret: string }) {
+    const defaultScopes = ['openid', 'email', 'profile'];
+    const mergedScopes = Array.from(new Set([...defaultScopes, ...(config.scopes || [])]));
     super({
       name: 'google',
       displayName: 'Google',
       authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
       tokenUrl: 'https://oauth2.googleapis.com/token',
       userinfoUrl: 'https://openidconnect.googleapis.com/v1/userinfo',
-      scopes: ['openid', 'email', 'profile'],
       ...config,
+      scopes: mergedScopes,
     });
+    this.defaultScopes = defaultScopes;
   }
 
   public override buildAuthUrl(

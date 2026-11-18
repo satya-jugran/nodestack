@@ -174,4 +174,54 @@ describe('Multi-Select & Single-Select Relation Expansion', () => {
     expect(cleanRecord.expand).toBeDefined();
     expect(cleanRecord.expand.tags.map((t: any) => t.id)).toEqual([tag1.id, tag2.id]);
   });
+
+  it('should strictly reject non-ID types (objects, booleans, null items) in relation fields', async () => {
+    // 1. Reject object payload { author: { id: '...' } }
+    await expect(
+      app.records.create('articles', {
+        title: 'Object relation item',
+        author: { id: 'usr_123' },
+      })
+    ).rejects.toThrow(/Relation field 'author' must contain valid record ID strings, received object/);
+
+    // 2. Reject boolean payload { author: true }
+    await expect(
+      app.records.create('articles', {
+        title: 'Boolean relation item',
+        author: true,
+      })
+    ).rejects.toThrow(/Relation field 'author' must contain valid record ID strings, received boolean/);
+
+    // 3. Reject array containing an object [{ id: '...' }]
+    await expect(
+      app.records.create('articles', {
+        title: 'Array with object relation item',
+        tags: [{ id: 'tag_123' }],
+      })
+    ).rejects.toThrow(/Relation field 'tags' must contain valid record ID strings, received object/);
+
+    // 4. Reject array containing null
+    await expect(
+      app.records.create('articles', {
+        title: 'Array with null relation item',
+        tags: ['tag_123', null],
+      })
+    ).rejects.toThrow(/Relation field 'tags' must contain valid record ID strings, received null/);
+
+    // 5. Reject array with empty string ID
+    await expect(
+      app.records.create('articles', {
+        title: 'Array with empty relation item',
+        tags: ['tag_123', '   '],
+      })
+    ).rejects.toThrow(/Relation field 'tags' cannot contain empty record IDs/);
+
+    // 6. Reject invalid characters in record ID
+    await expect(
+      app.records.create('articles', {
+        title: 'Array with invalid characters',
+        tags: ['tag_123$!@'],
+      })
+    ).rejects.toThrow(/Record ID must only contain alphanumeric characters/);
+  });
 });

@@ -822,4 +822,93 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       expect(err.message).toContain('missing required scope');
     });
   });
+
+  describe('6. Per-User Quota Enforcement Under Concurrency', () => {
+    it('should strictly enforce maxApiKeysPerUser and reject concurrent creation beyond limit', async () => {
+      // Set a strict custom limit of 3 keys for this test
+      (app.apiKeys as any).config.maxApiKeysPerUser = 3;
+      const testUserId = 'user_quota_test_123';
+
+      // Concurrently launch 6 creation requests for the same user
+      const results = await Promise.allSettled(
+        Array.from({ length: 6 }).map((_, i) =>
+          Promise.resolve().then(() =>
+            app.apiKeys.createKey({
+              name: `Concurrent Key ${i}`,
+              createdBy: testUserId,
+            })
+          )
+        )
+      );
+
+      const fulfilled = results.filter((r) => r.status === 'fulfilled');
+      const rejected = results.filter((r) => r.status === 'rejected');
+
+      // Exactly 3 must succeed, exactly 3 must be rejected
+      expect(fulfilled.length).toBe(3);
+      expect(rejected.length).toBe(3);
+
+      for (const rej of rejected) {
+        if (rej.status === 'rejected') {
+          expect(rej.reason.message).toMatch(/API key quota exceeded/);
+        }
+      }
+
+      // Verify the database has exactly 3 keys for this user
+      const userKeys = app.apiKeys.listKeys({ status: 'active', createdBy: testUserId });
+      expect(userKeys.length).toBe(3);
+    });
+
+    it('should validate integer pagination and reject NaN, non-integers, and negative numbers with 400', async () => {
+      // 1. Non-integer string "abc" for limit
+      const resLimitAbc = await fetch(`${serverUrl}/api/api-keys?limit=abc`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(resLimitAbc.status).toBe(400);
+      const dataLimitAbc = await resLimitAbc.json();
+      expect(dataLimitAbc.message).toContain("Query parameter 'limit' must be an integer");
+
+      // 2. Fractional number "1.5" for limit
+      const resLimitFraction = await fetch(`${serverUrl}/api/api-keys?limit=1.5`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(resLimitFraction.status).toBe(400);
+      const dataLimitFraction = await resLimitFraction.json();
+      expect(dataLimitFraction.message).toContain("Query parameter 'limit' must be an integer");
+
+      // 3. Zero or negative limit
+      const resLimitZero = await fetch(`${serverUrl}/api/api-keys?limit=0`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(resLimitZero.status).toBe(400);
+
+      // 4. Non-integer offset
+      const resOffsetInvalid = await fetch(`${serverUrl}/api/api-keys?offset=abc`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(resOffsetInvalid.status).toBe(400);
+
+      // 5. Negative offset
+      const resOffsetNegative = await fetch(`${serverUrl}/api/api-keys?offset=-5`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(resOffsetNegative.status).toBe(400);
+
+      // 6. Invalid status
+      const resStatusInvalid = await fetch(`${serverUrl}/api/api-keys?status=destroyed`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(resStatusInvalid.status).toBe(400);
+
+      // 7. Valid integer limit and offset succeeds
+      const resValid = await fetch(`${serverUrl}/api/api-keys?limit=5&offset=0`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(resValid.status).toBe(200);
+
+      // 8. Service-level robustness against NaN or fractional inputs
+      const serviceResult = app.apiKeys.listKeys({ limit: NaN as any, offset: 1.8 as any });
+      expect(Array.isArray(serviceResult)).toBe(true);
+    });
+  });
 });

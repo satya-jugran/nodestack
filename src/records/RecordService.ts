@@ -13,6 +13,7 @@ import { AppError, ConflictError, ForbiddenError, NotFoundError, ValidationError
 import { CollectionModel } from '../schema/models/Collection';
 import { SchemaField } from '../schema/models/Field';
 import { hasScope } from '../auth/ApiKeyService';
+import { validatePasswordStrength } from '../auth/AuthService';
 import { RecordValidator } from './RecordValidator';
 import { RecordSanitizer } from './RecordSanitizer';
 
@@ -67,6 +68,18 @@ export interface ImportResult {
 }
 
 export class RecordService {
+  private static lastTimestampMs = 0;
+
+  /**
+   * Generates a monotonic ISO timestamp ensuring non-decreasing timestamps
+   * and preventing clock skew regressions.
+   */
+  public static getMonotonicIsoTimestamp(): string {
+    const nowMs = Math.max(Date.now(), RecordService.lastTimestampMs);
+    RecordService.lastTimestampMs = nowMs;
+    return new Date(nowMs).toISOString();
+  }
+
   private ruleEngine: RuleEngine;
   private eventBus: EventBus;
   private realtimeService?: RealtimeService;
@@ -153,7 +166,8 @@ export class RecordService {
       const { clause: matchClause, params: matchParams } = this.ftsService.buildSearchPredicate(
         ftsTable,
         ftsFields,
-        searchTerm
+        searchTerm,
+        { ftsLanguage: col.options?.ftsLanguage }
       );
 
       const whereConditions: string[] = [matchClause];
@@ -372,7 +386,7 @@ export class RecordService {
       }
     }
     const id = safeId || `r_${crypto.randomBytes(6).toString('hex')}`;
-    const now = new Date().toISOString();
+    const now = RecordService.getMonotonicIsoTimestamp();
 
     // Prepare fields
     const recordToInsert: Record<string, any> = {
@@ -386,9 +400,10 @@ export class RecordService {
       if (!processedData.email) {
         throw new ValidationError('Email is required for auth records');
       }
-      if (!processedData.password || processedData.password.length < 8) {
-        throw new ValidationError('Password must be at least 8 characters long');
+      if (!processedData.password) {
+        throw new ValidationError('Password is required for auth records');
       }
+      validatePasswordStrength(processedData.password);
 
       // Check unique email
       const existing = await this.db.get<any>(
@@ -529,7 +544,11 @@ export class RecordService {
       httpContext
     );
 
-    const now = new Date().toISOString();
+    let now = RecordService.getMonotonicIsoTimestamp();
+    if (current.created && current.created > now) {
+      // Guard against clock skew: updated must not precede created
+      now = current.created;
+    }
     const updates: Record<string, any> = {
       updated: now,
     };
@@ -537,9 +556,7 @@ export class RecordService {
     // Auth fields update
     if (col.type === 'auth') {
       if (processedData.password) {
-        if (processedData.password.length < 8) {
-          throw new ValidationError('Password must be at least 8 characters long');
-        }
+        validatePasswordStrength(processedData.password);
         updates.passwordHash = await bcrypt.hash(processedData.password, 10);
         updates.tokenKey = crypto.randomBytes(16).toString('hex');
       }
@@ -716,7 +733,8 @@ export class RecordService {
         const { clause: matchClause, params: matchParams } = this.ftsService.buildSearchPredicate(
           ftsTable,
           ftsFields,
-          searchTerm
+          searchTerm,
+          { ftsLanguage: col.options?.ftsLanguage }
         );
         const whereConditions: string[] = [matchClause];
         const queryParams: any[] = [...matchParams];

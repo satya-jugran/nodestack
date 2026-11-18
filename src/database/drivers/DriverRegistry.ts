@@ -247,7 +247,39 @@ export class DriverRegistry {
     return Array.from(DriverRegistry.factories.keys());
   }
 
+  public static validateConfig(config: DatabaseConfig): void {
+    if (!config || typeof config !== 'object') {
+      throw new Error('Database configuration must be a valid object');
+    }
+    const provider = (config.provider || 'sqlite').toLowerCase();
+    if (provider === 'postgres') {
+      const hasConnStr = Boolean(config.connectionString && config.connectionString.trim());
+      const hasHostAndDb = Boolean(config.host && config.host.trim() && config.database && config.database.trim());
+      if (!hasConnStr && !hasHostAndDb) {
+        throw new Error(
+          "Invalid PostgreSQL configuration: either 'connectionString' or both 'host' and 'database' must be provided."
+        );
+      }
+    } else if (provider === 'mssql') {
+      const hasConnStr = Boolean(config.connectionString && config.connectionString.trim());
+      const hasHostAndDb = Boolean(config.host && config.host.trim() && config.database && config.database.trim());
+      if (!hasConnStr && !hasHostAndDb) {
+        throw new Error(
+          "Invalid MSSQL configuration: either 'connectionString' or both 'host' and 'database' must be provided."
+        );
+      }
+    } else if (provider === 'sqlite') {
+      if (config.connectionString !== undefined && config.connectionString.trim() === '') {
+        throw new Error("Invalid SQLite configuration: 'connectionString' cannot be an empty string.");
+      }
+      if (config.dbPath !== undefined && config.dbPath.trim() === '') {
+        throw new Error("Invalid SQLite configuration: 'dbPath' cannot be an empty string.");
+      }
+    }
+  }
+
   public static async createDriver(config: DatabaseConfig): Promise<IDatabaseDriver> {
+    DriverRegistry.validateConfig(config);
     const provider = (config.provider || 'sqlite').toLowerCase();
     if (provider === 'sqlite') {
       const isExplicitMemory = config.dbPath === ':memory:' || config.connectionString === ':memory:';

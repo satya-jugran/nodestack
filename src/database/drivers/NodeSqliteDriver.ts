@@ -36,7 +36,21 @@ export class NodeSqliteDriver implements IDatabaseDriver {
 
     // Enable WAL mode, foreign keys, and sensible timeouts
     try {
-      this.db.exec('PRAGMA journal_mode = WAL;');
+      if (filePath && filePath !== ':memory:') {
+        try {
+          const row = this.db.prepare('PRAGMA journal_mode = WAL;').get() as { journal_mode?: string } | undefined;
+          const activeMode = String(row?.journal_mode || '').toLowerCase();
+          if (activeMode && activeMode !== 'wal') {
+            console.warn(
+              `[NodeSqliteDriver] WARNING: Requested WAL journal mode, but SQLite database '${filePath}' is operating in '${activeMode}' mode. Concurrency will be reduced.`
+            );
+          }
+        } catch {
+          this.db.exec('PRAGMA journal_mode = WAL;');
+        }
+      } else {
+        this.db.exec('PRAGMA journal_mode = WAL;');
+      }
       this.db.exec('PRAGMA foreign_keys = ON;');
       this.db.exec('PRAGMA busy_timeout = 5000;');
     } catch {

@@ -50,6 +50,13 @@ export interface UpdateApiKeyDto {
   status?: 'active' | 'revoked';
 }
 
+export interface ListKeysOptions {
+  limit?: number;
+  offset?: number;
+  status?: string;
+  createdBy?: string;
+}
+
 /**
  * Checks if a given AuthClaims object has permissions for a resource and action.
  */
@@ -86,6 +93,8 @@ export function hasScope(
 }
 
 export class ApiKeyService {
+  public static readonly DEFAULT_MAX_API_KEYS_PER_USER = 50;
+
   // In-memory quick lookup cache (keyPrefix -> CachedKey) with 10s TTL
   private keyCache: Map<string, { key: ApiKeyModel; expiresAt: number }> = new Map();
   private pendingUsageUpdates: Map<string, { lastUsedAt: string; lastUsedIp: string; count: number }> = new Map();
@@ -93,6 +102,7 @@ export class ApiKeyService {
   private usageFlushTimer?: NodeJS.Timeout;
   private realtimeService?: RealtimeService;
   private keyRevokedListeners: Array<(filter: RealtimeIdentityFilter) => void> = [];
+  private userQuotaLocks: Map<string, Promise<void>> = new Map();
 
   constructor(
     private db: DatabaseService,
@@ -167,6 +177,7 @@ export class ApiKeyService {
 
   /**
    * Generates a new API Key with full secret returned only once.
+   * Enforces per-user quota check and insertion atomically within a single transaction boundary.
    */
   public createKey(dto: CreateApiKeyDto): any {
     const name = (dto.name || '').trim();
@@ -174,6 +185,78 @@ export class ApiKeyService {
       throw new AppError('API key name is required', 400);
     }
 
+    const maxKeys = (this.config as any)?.maxApiKeysPerUser || ApiKeyService.DEFAULT_MAX_API_KEYS_PER_USER;
+
+    const executeInTransaction = () => {
+      if (dto.createdBy) {
+        const countRow = this.db.get<{ count: number }>(
+          "SELECT COUNT(*) as count FROM _api_keys WHERE createdBy = ? AND status != 'revoked'",
+          dto.createdBy
+        );
+        const verifyCount = (r: any) => {
+          const currentCount = Number(r?.count || 0);
+          if (currentCount >= maxKeys) {
+            throw new AppError(
+              `API key quota exceeded: maximum of ${maxKeys} active keys allowed per user`,
+              400
+            );
+          }
+        };
+        if (countRow && typeof (countRow as any).then === 'function') {
+          return (countRow as any).then((r: any) => {
+            verifyCount(r);
+            return this.insertKeyRecord(dto, name);
+          });
+        }
+        verifyCount(countRow);
+      }
+      return this.insertKeyRecord(dto, name);
+    };
+
+    if (this.db.dialect.name === 'sqlite') {
+      return this.db.transaction(() => executeInTransaction());
+    }
+
+    return this.serializeUserCreation(dto.createdBy, async () => {
+      return this.db.transaction(async () => {
+        if (this.db.dialect.name === 'postgres' && dto.createdBy) {
+          try {
+            await this.db.get("SELECT pg_advisory_xact_lock(hashtext('api_key_quota_' || ?))", dto.createdBy);
+          } catch {}
+        }
+        return await executeInTransaction();
+      });
+    });
+  }
+
+  private async serializeUserCreation<T>(userId: string | undefined, fn: () => Promise<T> | T): Promise<T> {
+    if (!userId) {
+      return fn();
+    }
+
+    while (this.userQuotaLocks.has(userId)) {
+      try {
+        await this.userQuotaLocks.get(userId);
+      } catch {}
+    }
+
+    let release!: () => void;
+    const lockPromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.userQuotaLocks.set(userId, lockPromise);
+
+    try {
+      return await fn();
+    } finally {
+      if (this.userQuotaLocks.get(userId) === lockPromise) {
+        this.userQuotaLocks.delete(userId);
+      }
+      release();
+    }
+  }
+
+  private insertKeyRecord(dto: CreateApiKeyDto, name: string): any {
     const env = (dto.env || (this.config.dev ? 'test' : 'live')).replace(/[^a-z0-9]/gi, '').toLowerCase() || 'live';
     const keyId = crypto.randomBytes(3).toString('hex'); // 6 chars
     const secretEntropy = crypto.randomBytes(24).toString('hex'); // 48 chars
@@ -607,8 +690,34 @@ export class ApiKeyService {
     }
   }
 
-  public listKeys(): any {
-    const rows = this.db.all<any>('SELECT * FROM _api_keys ORDER BY created DESC');
+  public listKeys(options?: ListKeysOptions): any {
+    const rawLimit = options?.limit !== undefined && Number.isFinite(Number(options.limit))
+      ? Math.trunc(Number(options.limit))
+      : 100;
+    const limit = Math.max(1, Math.min(500, rawLimit));
+
+    const rawOffset = options?.offset !== undefined && Number.isFinite(Number(options.offset))
+      ? Math.trunc(Number(options.offset))
+      : 0;
+    const offset = Math.max(0, rawOffset);
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (options?.status) {
+      conditions.push('status = ?');
+      params.push(options.status);
+    }
+    if (options?.createdBy) {
+      conditions.push('createdBy = ?');
+      params.push(options.createdBy);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const sql = `SELECT * FROM _api_keys ${whereClause} ORDER BY created DESC LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
+
+    const rows = this.db.all<any>(sql, ...params);
     const processRows = (r: any[]) =>
       (r || []).map((item) => {
         const { secretHash: _, ...safe } = this.mapRow(item);

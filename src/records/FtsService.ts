@@ -186,7 +186,7 @@ export class FtsService {
     return this.getFtsDriver().dropCollectionFts(collectionName);
   }
 
-  public async rebuildIndex(collectionName: string): Promise<any> {
+  public async rebuildIndex(collectionName: string, lang?: string): Promise<any> {
     const key = (collectionName || '').toLowerCase().trim();
     const existingLock = this.rebuildLocks.get(key);
     if (existingLock) {
@@ -195,7 +195,7 @@ export class FtsService {
 
     const task = (async () => {
       try {
-        return await Promise.resolve(this.getFtsDriver().rebuildIndex(collectionName));
+        return await Promise.resolve(this.getFtsDriver().rebuildIndex(collectionName, lang));
       } finally {
         this.rebuildLocks.delete(key);
       }
@@ -205,7 +205,7 @@ export class FtsService {
     return task;
   }
 
-  public async reconcile(collectionName: string): Promise<any> {
+  public async reconcile(collectionName: string, lang?: string): Promise<any> {
     const key = (collectionName || '').toLowerCase().trim();
     const existingLock = this.rebuildLocks.get(key);
     if (existingLock) {
@@ -216,9 +216,9 @@ export class FtsService {
       try {
         const driver = this.getFtsDriver() as any;
         if (typeof driver.reconcile === 'function') {
-          return await Promise.resolve(driver.reconcile(collectionName));
+          return await Promise.resolve(driver.reconcile(collectionName, undefined, undefined, lang));
         }
-        return await Promise.resolve(this.rebuildIndex(collectionName));
+        return await Promise.resolve(this.rebuildIndex(collectionName, lang));
       } finally {
         this.rebuildLocks.delete(key);
       }
@@ -243,9 +243,10 @@ export class FtsService {
   public buildSearchPredicate(
     ftsTable: string,
     ftsFields: SchemaField[],
-    searchTerm: string
+    searchTerm: string,
+    options?: FtsQueryOptions
   ): { clause: string; params: any[] } {
-    return this.getFtsDriver().buildSearchPredicate(ftsTable, ftsFields, searchTerm);
+    return this.getFtsDriver().buildSearchPredicate(ftsTable, ftsFields, searchTerm, options);
   }
 
   public attachSnippetsAndScore(rows: any[], ftsFields: SchemaField[]): void {

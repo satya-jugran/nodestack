@@ -12,15 +12,18 @@ export class GitHubProvider extends BaseOAuthProvider {
   private emailsUrl: string;
 
   constructor(config: GitHubProviderConfig) {
+    const defaultScopes = ['read:user', 'user:email'];
+    const mergedScopes = Array.from(new Set([...defaultScopes, ...(config.scopes || [])]));
     super({
       name: 'github',
       displayName: 'GitHub',
       authUrl: 'https://github.com/login/oauth/authorize',
       tokenUrl: 'https://github.com/login/oauth/access_token',
       userinfoUrl: 'https://api.github.com/user',
-      scopes: ['read:user', 'user:email'],
       ...config,
+      scopes: mergedScopes,
     });
+    this.defaultScopes = defaultScopes;
     this.emailsUrl = config.emailsUrl || 'https://api.github.com/user/emails';
   }
 

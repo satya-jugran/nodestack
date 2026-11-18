@@ -68,7 +68,8 @@ export class AppScope {
     this.app = app;
     this.config = config;
     this.db = db;
-    this.maintenanceGate = new MaintenanceGate();
+    const lockFile = path.join(config.dataDir, `.maintenance_${app.slug || 'default'}.lock`);
+    this.maintenanceGate = new MaintenanceGate({ lockFilePath: lockFile });
     this.eventBus = new EventBus();
 
     this.fts = new FtsService(this.db);

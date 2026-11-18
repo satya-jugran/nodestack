@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { ApiKeyService, CreateApiKeyDto, UpdateApiKeyDto } from '../../auth/ApiKeyService';
+import { AppError } from '../../core/errors/AppError';
 
 export class ApiKeyController extends BaseController {
   constructor(private apiKeyService: ApiKeyService) {
@@ -13,7 +14,43 @@ export class ApiKeyController extends BaseController {
 
   public async list(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const service = this.getService(req);
-    const keys = await service.listKeys();
+    const query = (req.query as any) || {};
+
+    let limit: number | undefined;
+    if (query.limit !== undefined && query.limit !== '') {
+      const raw = typeof query.limit === 'string' ? query.limit.trim() : query.limit;
+      if (typeof raw === 'string' && !/^\+?\d+$/.test(raw)) {
+        throw new AppError("Query parameter 'limit' must be an integer", 400);
+      }
+      const num = Number(raw);
+      if (!Number.isInteger(num) || num < 1) {
+        throw new AppError("Query parameter 'limit' must be a positive integer", 400);
+      }
+      limit = num;
+    }
+
+    let offset: number | undefined;
+    if (query.offset !== undefined && query.offset !== '') {
+      const raw = typeof query.offset === 'string' ? query.offset.trim() : query.offset;
+      if (typeof raw === 'string' && !/^\+?\d+$/.test(raw)) {
+        throw new AppError("Query parameter 'offset' must be an integer", 400);
+      }
+      const num = Number(raw);
+      if (!Number.isInteger(num) || num < 0) {
+        throw new AppError("Query parameter 'offset' must be a non-negative integer", 400);
+      }
+      offset = num;
+    }
+
+    if (query.status && !['active', 'revoked', 'expired'].includes(query.status)) {
+      throw new AppError("Query parameter 'status' must be one of: active, revoked, expired", 400);
+    }
+
+    const keys = await service.listKeys({
+      limit,
+      offset,
+      status: query.status,
+    });
     this.ok(reply, keys);
   }
 

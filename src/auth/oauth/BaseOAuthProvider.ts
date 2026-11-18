@@ -69,6 +69,7 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
   protected tokenUrl: string;
   protected userinfoUrl: string;
   protected scopes: string[];
+  protected defaultScopes: string[] = [];
   protected defaultRedirectUri?: string;
 
   protected stateStore: Map<string, OAuthStateSession> = new Map();

@@ -41,6 +41,32 @@ export class SqliteFts5Driver implements IFtsDriver {
     }
   }
 
+  private resolveTokenizer(options?: Record<string, any>): string {
+    const rawTokenizer = options?.ftsTokenizer || (options?.ftsLanguage && options.ftsLanguage !== 'english' ? 'unicode61' : 'porter unicode61');
+    return String(rawTokenizer).replace(/[^a-zA-Z0-9_\s]/g, '').trim() || 'porter unicode61';
+  }
+
+  public getFtsTokenizer(collectionName: string): any {
+    const tableName = getFtsTableName(collectionName);
+    try {
+      const row = this.db.get<{ sql: string }>(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+        tableName
+      );
+      const extract = (rawSql?: string) => {
+        if (!rawSql) return null;
+        const match = rawSql.match(/tokenize\s*=\s*['"]?([^'",\)]+?)['"]?(?:\s*[,)]|$)/i);
+        return match ? match[1].trim() : null;
+      };
+      if (row && typeof (row as any).then === 'function') {
+        return (row as any).then((r: any) => extract(r?.sql));
+      }
+      return extract(row?.sql);
+    } catch {
+      return null;
+    }
+  }
+
   public syncCollection(col: CollectionModel): any {
     const ftsFields = getFtsFields(col);
     const ftsTable = getFtsTableName(col.name);
@@ -56,12 +82,17 @@ export class SqliteFts5Driver implements IFtsDriver {
     const existingColumns = this.getFtsIndexColumns(col.name);
 
     const hasIndex = this.hasFtsIndex(col.name);
+    const targetTokenizer = this.resolveTokenizer(col.options);
+    const existingTokenizer = hasIndex ? this.getFtsTokenizer(col.name) : null;
+
     const columnsMatch =
       hasIndex &&
       existingColumns.length === fieldNames.length &&
       existingColumns.every((colName: string, idx: number) => colName.toLowerCase() === fieldNames[idx].toLowerCase());
 
-    if (columnsMatch) {
+    const tokenizerMatches = hasIndex && existingTokenizer === targetTokenizer;
+
+    if (columnsMatch && tokenizerMatches) {
       this.createTriggers(col.name, ftsTable, fieldNames);
       this.reconcile(col.name, ftsTable, fieldNames);
       return;
@@ -69,7 +100,7 @@ export class SqliteFts5Driver implements IFtsDriver {
 
     this.db.transaction(() => {
       this.dropCollectionFts(col.name);
-      this.createFtsTableAndTriggers(col.name, ftsTable, fieldNames);
+      this.createFtsTableAndTriggers(col.name, ftsTable, fieldNames, col.options);
     });
   }
 
@@ -168,7 +199,8 @@ export class SqliteFts5Driver implements IFtsDriver {
   public buildSearchPredicate(
     ftsTable: string,
     ftsFields: SchemaField[],
-    searchTerm: string
+    searchTerm: string,
+    _options?: FtsQueryOptions
   ): { clause: string; params: any[] } {
     return {
       clause: `${this.db.dialect.quoteIdentifier(ftsTable)} MATCH ?`,
@@ -179,16 +211,18 @@ export class SqliteFts5Driver implements IFtsDriver {
   private createFtsTableAndTriggers(
     collectionName: string,
     ftsTable: string,
-    fieldNames: string[]
+    fieldNames: string[],
+    options?: Record<string, any>
   ): void {
     const quotedCols = fieldNames.map((c) => `"${c}"`).join(', ');
+    const safeTokenizer = this.resolveTokenizer(options);
 
     this.db.transaction(() => {
       this.db.exec(`
         CREATE VIRTUAL TABLE IF NOT EXISTS "${ftsTable}" USING fts5(
           id UNINDEXED,
           ${quotedCols},
-          tokenize = 'porter unicode61'
+          tokenize = '${safeTokenizer}'
         );
       `);
 

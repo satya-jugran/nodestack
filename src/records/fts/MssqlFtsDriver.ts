@@ -160,7 +160,8 @@ export class MssqlFtsDriver implements IFtsDriver {
   public buildSearchPredicate(
     ftsTable: string,
     ftsFields: SchemaField[],
-    searchTerm: string
+    searchTerm: string,
+    _options?: FtsQueryOptions
   ): { clause: string; params: any[] } {
     if (!ftsFields || ftsFields.length === 0) {
       return { clause: '1=0', params: [] };
