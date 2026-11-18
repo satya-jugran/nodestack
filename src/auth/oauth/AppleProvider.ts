@@ -10,15 +10,25 @@ export interface AppleProviderConfig extends Partial<OAuthProviderConfig> {
   jwksUrl?: string;
   expectedIssuer?: string;
   customKeys?: Array<{ kid: string; [key: string]: any }>;
+  responseMode?: 'form_post' | 'query';
 }
 
 export class AppleProvider extends BaseOAuthProvider {
   private jwksUrl: string;
   private expectedIssuer: string;
   private customKeys?: Array<{ kid: string; [key: string]: any }>;
+  private responseMode?: 'form_post' | 'query';
   private jwksCache: { keys: any[]; expiresAt: number } | null = null;
 
   constructor(config: AppleProviderConfig) {
+    const effectiveScopes = config.scopes !== undefined ? config.scopes : ['name', 'email'];
+    if (config.responseMode === 'query' && effectiveScopes && effectiveScopes.length > 0) {
+      throw new AppError(
+        "Invalid Apple OAuth configuration: Apple does not support responseMode 'query' when scopes ('name', 'email') are requested. Apple requires 'form_post'.",
+        400
+      );
+    }
+
     super({
       name: 'apple',
       displayName: 'Apple',
@@ -32,6 +42,7 @@ export class AppleProvider extends BaseOAuthProvider {
     this.jwksUrl = config.jwksUrl || 'https://appleid.apple.com/auth/keys';
     this.expectedIssuer = config.expectedIssuer || 'https://appleid.apple.com';
     this.customKeys = config.customKeys;
+    this.responseMode = config.responseMode;
   }
 
   public override buildAuthUrl(
@@ -41,7 +52,13 @@ export class AppleProvider extends BaseOAuthProvider {
     scopes?: string[]
   ): string {
     const url = super.buildAuthUrl(state, codeChallenge, redirectUri, scopes);
-    return `${url}&response_mode=query`;
+    const effectiveScopes = scopes !== undefined ? scopes : this.scopes;
+    const hasScopes = Boolean(effectiveScopes && effectiveScopes.length > 0);
+    // Apple strictly requires response_mode=form_post when scopes ('name', 'email') are requested.
+    // Specifying response_mode=query when requesting scopes returns an error from Apple:
+    // 'invalid_request: response_mode=query is not supported when scope is requested'
+    const mode = hasScopes ? 'form_post' : (this.responseMode || 'query');
+    return `${url}&response_mode=${mode}`;
   }
 
   protected override async fetchUserProfile(_accessToken: string, tokenData?: any): Promise<OAuthProfile> {
@@ -108,13 +125,36 @@ export class AppleProvider extends BaseOAuthProvider {
     const email = (payload.email || '').toLowerCase().trim();
     const isEmailVerified = payload.email_verified === true || payload.email_verified === 'true';
 
+    // Apple only sends user name in initial form_post payload: tokenData.user
+    let userName: string | undefined = undefined;
+    if (tokenData?.user) {
+      try {
+        const u = typeof tokenData.user === 'string' ? JSON.parse(tokenData.user) : tokenData.user;
+        if (typeof u?.name === 'string') {
+          userName = u.name.trim();
+        } else if (u?.name && typeof u.name === 'object') {
+          const parts = [u.name.firstName, u.name.middleName, u.name.lastName].filter(Boolean);
+          if (parts.length > 0) userName = parts.join(' ');
+        }
+      } catch {}
+    }
+
+    const rawUser: Record<string, any> = { ...payload };
+    if (tokenData?.user) {
+      try {
+        rawUser.user = typeof tokenData.user === 'string' ? JSON.parse(tokenData.user) : tokenData.user;
+      } catch {
+        rawUser.user = tokenData.user;
+      }
+    }
+
     return {
       id: String(payload.sub),
       email,
-      name: undefined,
+      name: userName,
       avatarUrl: undefined,
       isEmailVerified,
-      rawUser: payload,
+      rawUser,
     };
   }
 

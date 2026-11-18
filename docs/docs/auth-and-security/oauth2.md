@@ -108,22 +108,39 @@ You can let `nodestack-client` handle the exchange seamlessly in a popup window:
 ```typescript
 // In your SPA component:
 const authData = await client.collection('users').authWithOAuth2({
-  provider: 'google',
+  provider: 'google', // or 'apple', 'github', 'discord', etc.
   urlCallback: (url) => window.open(url, '_blank', 'width=500,height=650'),
-  redirectUrl: 'http://localhost:3000/callback',
+  redirectUrl: 'http://localhost:8090/api/oauth2-redirect', // Built-in NodeStack callback endpoint
 });
 ```
 
-And on your callback page (`/callback`), notify the opener:
+#### Callback Handling
+
+**Option 1: Built-in NodeStack Callback (Zero-Config — Recommended)**
+NodeStack provides built-in endpoints (`/api/oauth2-redirect` or `/api/oauth2/callback`) that automatically accept both standard GET query parameters (Google, GitHub, Discord) and Apple's HTTP POST `form_post` submissions. The server renders the popup postMessage handshake and closes the window automatically.
+
+**Option 2: Custom Callback Page (`/callback`)**
+If you host your own callback page or server route:
+* Standard OAuth providers (Google, GitHub, Discord, Microsoft) submit credentials via **HTTP GET query parameters** (`?code=...&state=...`).
+* Apple strictly requires **`response_mode=form_post`** when requesting scopes (`name`, `email`), submitting credentials via **HTTP POST body** (`application/x-www-form-urlencoded`).
+
+For custom frontend/server callback routes, notify `window.opener`:
 ```html
 <script>
+  // Read parameters from URL query string (GET) or server-rendered POST payload (Apple form_post)
   const params = new URLSearchParams(window.location.search);
+  const code = params.get('code') || /* server-injected POST body */ undefined;
+  const state = params.get('state') || /* server-injected POST body */ undefined;
+  const error = params.get('error') || params.get('error_description');
+  const user = /* server-injected POST body for Apple form_post */ undefined;
+
   if (window.opener) {
     window.opener.postMessage({
       type: 'nodestack_oauth_callback',
-      code: params.get('code'),
-      state: params.get('state'),
-      error: params.get('error') || params.get('error_description'),
+      code: code,
+      state: state,
+      error: error,
+      user: user, // Apple sends user payload ({ name: { firstName, lastName } }) in form_post
     }, window.location.origin);
   }
 </script>

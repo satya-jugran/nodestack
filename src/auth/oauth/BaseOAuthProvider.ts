@@ -188,7 +188,8 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
     redirectUri?: string,
     cookieState?: string,
     appId?: string,
-    collectionName?: string
+    collectionName?: string,
+    extraData?: any
   ): Promise<OAuthExchangeResult> {
     let code: string | undefined;
     let callbackState: string | undefined;
@@ -197,6 +198,7 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
     let expectedCookieState: string | undefined = cookieState;
     let expectedAppId: string | undefined = appId;
     let expectedCollectionName: string | undefined = collectionName;
+    let callbackExtraData: any = extraData;
 
     if (typeof optionsOrCode === 'string') {
       code = optionsOrCode;
@@ -212,6 +214,15 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
         opts.params?.collection ||
         opts.params?.collectionName ||
         collectionName;
+
+      const rawUser = opts.user || opts.body?.user || opts.query?.user;
+      if (rawUser !== undefined || opts.extraData !== undefined || opts.body?.extraData !== undefined) {
+        callbackExtraData = {
+          ...(opts.extraData || opts.body?.extraData || {}),
+          ...(rawUser !== undefined ? { user: rawUser } : {}),
+          ...(callbackExtraData || {}),
+        };
+      }
 
       if (opts.query || opts.body || opts.headers) {
         // Request-like object (e.g. Fastify or Express request)
@@ -347,13 +358,14 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
     this.consumeStateSession(callbackState);
 
     // 10. Safely exchange the authorization code for tokens and user profile
-    return this.exchangeCode(code, finalVerifier || '', effectiveRedirectUri || session.redirectUri);
+    return this.exchangeCode(code, finalVerifier || '', effectiveRedirectUri || session.redirectUri, callbackExtraData);
   }
 
   public async exchangeCode(
     code: string,
     codeVerifier: string,
-    redirectUri?: string
+    redirectUri?: string,
+    extraData?: any
   ): Promise<OAuthExchangeResult> {
     const uri = redirectUri || this.defaultRedirectUri || '';
     const bodyParams = new URLSearchParams({
@@ -384,6 +396,21 @@ export abstract class BaseOAuthProvider implements IOAuthProvider {
     const accessToken = tokenData.access_token || tokenData.accessToken;
     if (!accessToken) {
       throw new AppError(`No access token returned by ${this.displayName}`, 400);
+    }
+
+    if (extraData) {
+      if (typeof extraData === 'object') {
+        if (extraData.user !== undefined) {
+          tokenData.user = extraData.user;
+        } else if (extraData.name !== undefined) {
+          tokenData.user = extraData;
+        }
+        if (tokenData.extraData === undefined) {
+          tokenData.extraData = extraData;
+        }
+      } else if (typeof extraData === 'string') {
+        tokenData.user = extraData;
+      }
     }
 
     const profile = await this.fetchUserProfile(accessToken, tokenData);

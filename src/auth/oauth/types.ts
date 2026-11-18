@@ -34,7 +34,7 @@ export interface IOAuthProvider {
   readonly displayName: string;
   readonly enabled?: boolean;
   buildAuthUrl(state: string, codeChallenge: string, redirectUri?: string, scopes?: string[]): string;
-  exchangeCode(code: string, codeVerifier: string, redirectUri?: string): Promise<OAuthExchangeResult>;
+  exchangeCode(code: string, codeVerifier: string, redirectUri?: string, extraData?: any): Promise<OAuthExchangeResult>;
   getAuthorizationUrl?(
     optionsOrRedirectUri?: string | GetAuthorizationUrlOptions,
     options?: GetAuthorizationUrlOptions
@@ -46,7 +46,8 @@ export interface IOAuthProvider {
     redirectUri?: string,
     cookieState?: string,
     appId?: string,
-    collectionName?: string
+    collectionName?: string,
+    extraData?: any
   ): Promise<OAuthExchangeResult>;
 }
 
@@ -109,6 +110,8 @@ export interface HandleCallbackOptions {
   body?: any;
   headers?: any;
   req?: any;
+  user?: any;
+  extraData?: any;
 }
 
 export interface OAuthStateSession {

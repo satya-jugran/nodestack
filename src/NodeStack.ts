@@ -537,21 +537,79 @@ export class NodeStack {
   }
 
   public async stop(): Promise<void> {
-    await this.pluginManager.dispose();
-    await this.queue.dispose();
-    this.realtime.dispose();
-    await this.server.close();
-    await this.apps.closeAllAsync();
-    await this.container.dispose();
+    const errors: any[] = [];
+
+    // Phase 1: Stop ingress — close HTTP server so new connections/requests are rejected
+    try {
+      await this.server.close();
+    } catch (err: any) {
+      errors.push(err);
+    }
+
+    // Phase 2: Drain in-flight requests across all loaded scopes
+    const gates = new Set<MaintenanceGate>();
+    if (this.maintenanceGate) gates.add(this.maintenanceGate);
+    if (this.apps?.getLoadedScopes) {
+      for (const scope of this.apps.getLoadedScopes()) {
+        if (scope.maintenanceGate) {
+          gates.add(scope.maintenanceGate);
+        }
+      }
+    }
+
+    for (const gate of gates) {
+      gate.gate();
+    }
+
+    try {
+      await Promise.all(Array.from(gates).map((g) => g.drain(3000)));
+    } catch (err: any) {
+      const activeCount = Array.from(gates).reduce((acc, g) => acc + g.getActiveRequestsCount(), 0);
+      const msg = `In-flight request drain timed out after 3000ms with ${activeCount} active request(s) remaining.`;
+      console.warn(`[NodeStack] Warning: ${msg}`, err?.message || err);
+      errors.push(new Error(msg));
+    }
+
+    // Phase 3: Drain & dispose QueueService across all app scopes
+    try {
+      await this.queue.dispose();
+    } catch (err: any) {
+      errors.push(err);
+    }
+
+    // Phase 4: Dispose Realtime & PluginManager
+    try {
+      this.realtime.dispose();
+    } catch (err: any) {
+      errors.push(err);
+    }
+
+    try {
+      await this.pluginManager.dispose();
+    } catch (err: any) {
+      errors.push(err);
+    }
+
+    // Phase 5: Guaranteed cleanup of database connections and dependency container
+    try {
+      await this.apps.closeAllAsync();
+    } catch (err: any) {
+      errors.push(err);
+    } finally {
+      try {
+        await this.container.dispose();
+      } catch (err: any) {
+        errors.push(err);
+      }
+    }
+
+    if (errors.length > 0) {
+      console.warn(`[NodeStack] Shutdown completed with ${errors.length} warning(s):`, errors.map((e) => e?.message || e));
+    }
   }
 
-  public close(): void {
-    try {
-      void this.queue.dispose();
-      this.apps.closeAll();
-    } catch {
-      // ignore
-    }
+  public async close(): Promise<void> {
+    await this.stop();
   }
 
   private printStartupBanner(address: string): void {

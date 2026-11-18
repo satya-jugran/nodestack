@@ -96,4 +96,49 @@ describe('MaintenanceGate', () => {
     release();
     await expect(first).resolves.toBe('first');
   });
+
+  it('should notify drain listeners immediately when requests finish while isGated is false', async () => {
+    const gate = new MaintenanceGate({ drainTimeoutMs: 2000 });
+    expect(gate.isMaintenanceActive()).toBe(false);
+
+    await gate.trackRequestStart('standalone-req');
+    expect(gate.getActiveRequestsCount()).toBe(1);
+
+    const startTime = Date.now();
+    const drainPromise = gate.drain(2000);
+
+    setTimeout(() => {
+      gate.trackRequestEnd('standalone-req');
+    }, 25);
+
+    await expect(drainPromise).resolves.toBeUndefined();
+    const elapsed = Date.now() - startTime;
+    // Should resolve immediately upon request completion rather than waiting for 2000ms timeout
+    expect(elapsed).toBeLessThan(500);
+    expect(gate.getActiveRequestsCount()).toBe(0);
+  });
+
+  it('should support explicit gate() and ungate() methods', async () => {
+    const gate = new MaintenanceGate();
+    expect(gate.isMaintenanceActive()).toBe(false);
+
+    gate.gate();
+    expect(gate.isMaintenanceActive()).toBe(true);
+
+    gate.ungate();
+    expect(gate.isMaintenanceActive()).toBe(false);
+  });
+
+  it('should reject drain with ServiceUnavailableError when requests fail to finish before timeout', async () => {
+    const gate = new MaintenanceGate();
+    await gate.trackRequestStart('lingering-req');
+    expect(gate.getActiveRequestsCount()).toBe(1);
+
+    await expect(gate.drain(60)).rejects.toThrow(
+      /Timed out after 60ms waiting for 1 in-flight request\(s\) to drain/
+    );
+
+    gate.trackRequestEnd('lingering-req');
+    expect(gate.getActiveRequestsCount()).toBe(0);
+  });
 });

@@ -1,5 +1,31 @@
 import { CollectionModel } from '../schema/models/Collection';
 
+const SENSITIVE_AUTH_FIELDS = new Set([
+  'passwordHash',
+  'password_hash',
+  'tokenKey',
+  'token_key',
+  'password',
+  'resetToken',
+  'reset_token',
+  'verificationToken',
+  'verification_token',
+  'totpSecret',
+  'totp_secret',
+  'twoFactorSecret',
+  'two_factor_secret',
+  'backupCodes',
+  'backup_codes',
+  'recoveryCodes',
+  'recovery_codes',
+  'securityAnswers',
+  'security_answers',
+  'internalNotes',
+  'internal_notes',
+  'failedLoginAttempts',
+  'failed_login_attempts',
+]);
+
 export class RecordSanitizer {
   public static sanitize(
     raw: Record<string, any>,
@@ -22,14 +48,17 @@ export class RecordSanitizer {
             // keep as string
           }
         }
+        if ((field as any).hidden || (field as any).private || field.options?.private || field.options?.hidden) {
+          delete clean[field.name];
+        }
       }
     }
 
-    // Hide auth internal fields
+    // Hide auth internal and sensitive fields
     if (col.type === 'auth') {
-      delete clean.passwordHash;
-      delete clean.tokenKey;
-      delete clean.password;
+      for (const field of SENSITIVE_AUTH_FIELDS) {
+        delete clean[field];
+      }
       clean.verified = Boolean(clean.verified);
       clean.emailVisibility = Boolean(clean.emailVisibility);
 

@@ -283,5 +283,56 @@ describe('AuthMiddleware - Token Validation & Immediate 401 Rejection', () => {
       const body = await res.json();
       expect(Array.isArray(body.items)).toBe(true);
     });
+
+    it('should sanitize sensitive internal fields from admin and auth record responses', async () => {
+      // 1. Check admin login record output
+      const adminAuth = await app.auth.authenticateAdmin('admin@nodestack.test', 'AdminPassword123!');
+      expect(adminAuth.record).toBeDefined();
+      expect(adminAuth.record.id).toBeDefined();
+      expect(adminAuth.record.email).toBe('admin@nodestack.test');
+      expect((adminAuth.record as any).passwordHash).toBeUndefined();
+      expect((adminAuth.record as any).tokenKey).toBeUndefined();
+
+      // 2. Check sanitizeAuthRecord strips future sensitive columns
+      const rawUserRecord = {
+        id: 'usr_sensitive_test',
+        email: 'user@nodestack.test',
+        passwordHash: '$2a$10$abcdef',
+        tokenKey: 'secret_token_key',
+        resetToken: 'secret_reset_token',
+        totpSecret: 'JBSWY3DPEHPK3PXP',
+        backupCodes: '["code1", "code2"]',
+        internalNotes: 'VIP high-risk account',
+        failedLoginAttempts: 3,
+        name: 'Safe User',
+      };
+
+      const sanitized = app.auth.sanitizeAuthRecord(rawUserRecord);
+      expect(sanitized.id).toBe('usr_sensitive_test');
+      expect(sanitized.email).toBe('user@nodestack.test');
+      expect(sanitized.name).toBe('Safe User');
+      expect((sanitized as any).passwordHash).toBeUndefined();
+      expect((sanitized as any).tokenKey).toBeUndefined();
+      expect((sanitized as any).resetToken).toBeUndefined();
+      expect((sanitized as any).totpSecret).toBeUndefined();
+      expect((sanitized as any).backupCodes).toBeUndefined();
+      expect((sanitized as any).internalNotes).toBeUndefined();
+      expect((sanitized as any).failedLoginAttempts).toBeUndefined();
+
+      // 3. Check isOwner flag on sanitizeAuthRecord
+      const privateRecord = {
+        id: 'usr_priv_test',
+        email: 'secret@nodestack.test',
+        emailVisibility: false,
+        passwordHash: 'hash123',
+      };
+      const ownerSanitized = app.auth.sanitizeAuthRecord(privateRecord, undefined, true);
+      expect(ownerSanitized.email).toBe('secret@nodestack.test'); // Owner retains email
+      expect((ownerSanitized as any).passwordHash).toBeUndefined();
+
+      const nonOwnerSanitized = app.auth.sanitizeAuthRecord(privateRecord, undefined, false);
+      expect(nonOwnerSanitized.email).toBeUndefined(); // Non-owner has email masked
+      expect((nonOwnerSanitized as any).passwordHash).toBeUndefined();
+    });
   });
 });

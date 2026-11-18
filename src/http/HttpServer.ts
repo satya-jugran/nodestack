@@ -215,6 +215,19 @@ export class HttpServer {
         done(null, body);
       }
     );
+
+    this.app.addContentTypeParser(
+      'application/x-www-form-urlencoded',
+      { parseAs: 'string' },
+      (_req, body: string, done) => {
+        try {
+          const parsed = Object.fromEntries(new URLSearchParams(body));
+          done(null, parsed);
+        } catch (err: any) {
+          done(err, undefined);
+        }
+      }
+    );
   }
 
   private setupCors(): void {
@@ -445,8 +458,8 @@ export class HttpServer {
 
       // Resolve application scope
       if (this.appResolutionMiddleware) {
-        await this.appResolutionMiddleware.resolve()(req, reply);
-        if (reply.sent) return;
+        const res = await this.appResolutionMiddleware.resolve()(req, reply);
+        if (reply.sent || res !== undefined) return res;
       }
 
       // Coordinate reset with request/database locking maintenance gate
@@ -1061,6 +1074,65 @@ export class HttpServer {
     app.delete('/api/collections/:collection/records/:id/external-auths/:provider', (req: any, reply) =>
       this.authController.unlinkExternalAuth(req, reply)
     );
+
+    // 2.4 Built-in OAuth2 Callback Endpoints (Handles both GET query params and Apple POST form_post)
+    const handleOAuthCallback = (req: FastifyRequest, reply: FastifyReply) => {
+      const data = {
+        ...(typeof req.query === 'object' && req.query !== null ? req.query : {}),
+        ...(typeof req.body === 'object' && req.body !== null ? req.body : {}),
+      } as any;
+
+      const code = data.code || null;
+      const state = data.state || null;
+      const error = data.error || data.error_description || null;
+      let user = data.user || null;
+      if (typeof user === 'string') {
+        try {
+          user = JSON.parse(user);
+        } catch {
+          // Keep raw string if not JSON
+        }
+      }
+
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>OAuth Callback</title>
+</head>
+<body>
+  <script>
+    (function() {
+      var payload = {
+        type: 'nodestack_oauth_callback',
+        code: ${JSON.stringify(code)},
+        state: ${JSON.stringify(state)},
+        error: ${JSON.stringify(error)},
+        user: ${JSON.stringify(user)}
+      };
+      if (window.opener) {
+        window.opener.postMessage(payload, '*');
+        window.close();
+      } else {
+        document.body.innerText = 'Authentication complete. You can close this window.';
+      }
+    })();
+  </script>
+  <p>Authenticating, please wait...</p>
+</body>
+</html>`;
+
+      return reply.type('text/html').send(html);
+    };
+
+    app.get('/api/oauth2-redirect', handleOAuthCallback);
+    app.post('/api/oauth2-redirect', handleOAuthCallback);
+    app.get('/api/oauth2/callback', handleOAuthCallback);
+    app.post('/api/oauth2/callback', handleOAuthCallback);
+    app.get('/api/apps/:appId/oauth2-redirect', handleOAuthCallback);
+    app.post('/api/apps/:appId/oauth2-redirect', handleOAuthCallback);
+    app.get('/api/apps/:appId/oauth2/callback', handleOAuthCallback);
+    app.post('/api/apps/:appId/oauth2/callback', handleOAuthCallback);
 
     // 2.5 API Keys & Machine-to-Machine (M2M) Endpoints (Super-admin only)
     app.get('/api/api-keys', { preHandler: requireAdmin }, (req, reply) =>

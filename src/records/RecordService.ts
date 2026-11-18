@@ -362,6 +362,15 @@ export class RecordService {
     );
 
     const safeId = RecordValidator.validateRecordId(processedData.id);
+    if (safeId) {
+      const existing = await this.db.get<any>(
+        `SELECT id FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('id')} = ?`,
+        safeId
+      );
+      if (existing) {
+        throw new ConflictError(`Record with ID '${safeId}' already exists in '${col.name}'`);
+      }
+    }
     const id = safeId || `r_${crypto.randomBytes(6).toString('hex')}`;
     const now = new Date().toISOString();
 
@@ -414,14 +423,52 @@ export class RecordService {
     try {
       await this.db.run(sql, ...values);
     } catch (err: any) {
-      if (
-        err instanceof ConflictError ||
-        err?.message?.includes('UNIQUE constraint failed') ||
-        err?.message?.includes('duplicate key') ||
+      if (err instanceof ConflictError) {
+        throw err;
+      }
+      const errMsg = err?.message || String(err);
+      const isUniqueOrPkViolation =
+        errMsg.includes('UNIQUE constraint failed') ||
+        errMsg.includes('PRIMARY KEY constraint failed') ||
+        errMsg.includes('PRIMARY KEY must be unique') ||
+        errMsg.includes('duplicate key') ||
+        errMsg.includes('ER_DUP_ENTRY') ||
         err?.code === '23505' ||
+        err?.code === 'ER_DUP_ENTRY' ||
+        err?.errno === 1062 ||
         err?.number === 2627 ||
-        err?.number === 2601
-      ) {
+        err?.number === 2601 ||
+        /unique|primary key|duplicate/i.test(errMsg);
+
+      if (isUniqueOrPkViolation) {
+        if (safeId) {
+          // Check driver constraint metadata across SQLite, MySQL, and PostgreSQL
+          const isIdConstraint =
+            errMsg.includes(safeId) ||
+            /primary key|\.PRIMARY\b|_pkey\b/i.test(errMsg) ||
+            errMsg.includes(`${col.name}.id`) ||
+            err?.constraint === `${col.name}_pkey` ||
+            (typeof err?.constraint === 'string' && /(_pkey|primary)$/i.test(err.constraint)) ||
+            (typeof err?.detail === 'string' && (err.detail.includes('(id)=') || err.detail.includes(safeId))) ||
+            err?.column === 'id';
+
+          if (isIdConstraint) {
+            throw new ConflictError(`Record with ID '${safeId}' already exists in '${col.name}'`);
+          }
+
+          // In concurrent insert race conditions, re-check the ID in the database before falling back
+          try {
+            const existingAfter = await this.db.get<any>(
+              `SELECT id FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('id')} = ?`,
+              safeId
+            );
+            if (existingAfter) {
+              throw new ConflictError(`Record with ID '${safeId}' already exists in '${col.name}'`);
+            }
+          } catch (checkErr) {
+            if (checkErr instanceof ConflictError) throw checkErr;
+          }
+        }
         throw new ConflictError(
           col.type === 'auth' && recordToInsert.email
             ? `Email '${recordToInsert.email}' is already registered`

@@ -15,11 +15,13 @@ import { ConfigService } from '../core/config/ConfigService';
 import { FunctionService, FunctionConcurrencyLimitError } from '../functions/FunctionService';
 import { DatabaseService } from '../database/DatabaseService';
 import { AppError } from '../core/errors/AppError';
+import { EventBus } from '../core/events/EventBus';
 
 export interface QueueServiceOptions {
   reclaimIntervalMs?: number;
   cleanupIntervalMs?: number;
   workerId?: string;
+  eventBus?: EventBus;
 }
 
 /**
@@ -52,6 +54,7 @@ export class QueueService {
   private cleanupTimer: NodeJS.Timeout | null = null;
   private reclaimIntervalMs: number;
   private cleanupIntervalMs: number;
+  private eventBus?: EventBus;
 
   public get inFlightJobCount(): number {
     return this.inFlightJobs.size;
@@ -67,7 +70,12 @@ export class QueueService {
     this.workerId = options.workerId || `worker_${crypto.randomBytes(4).toString('hex')}`;
     this.reclaimIntervalMs = options.reclaimIntervalMs ?? 15000;
     this.cleanupIntervalMs = options.cleanupIntervalMs ?? 24 * 60 * 60 * 1000;
+    this.eventBus = options.eventBus;
     this.initSync();
+  }
+
+  public setEventBus(bus: EventBus): void {
+    this.eventBus = bus;
   }
 
   private initSync(): void {
@@ -550,6 +558,16 @@ export class QueueService {
         }
       }
     } else if (res.deadLettered && job) {
+      console.warn(`[QueueService] Job '${messageId}' in queue '${job.queue}' transitioned to dead_letter after ${res.attempts} attempt(s) (error: ${error})`);
+      try {
+        this.eventBus?.emit('queue:dead_letter', {
+          messageId,
+          queue: job.queue,
+          error,
+          attempts: res.attempts,
+          job,
+        });
+      } catch {}
       const cfg = await this.driver.getQueue(job.queue);
       if (cfg?.deadLetterQueue) {
         this.wakeWorker(cfg.deadLetterQueue);

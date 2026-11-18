@@ -927,7 +927,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       expect(storeItems.items.length).toBe(1);
       expect(storeItems.items[0].title).toBe('Store Item');
 
-      stack.apps.closeAll();
+      await stack.apps.closeAllAsync();
       customDefaultDriver.close();
     });
 
@@ -958,7 +958,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       expect(microScope.db.getDriver()).toBe(factoryDrivers['micro']);
       expect(microScope.db.getDriver()).not.toBe(stack.defaultApp.db.getDriver());
 
-      stack.apps.closeAll();
+      await stack.apps.closeAllAsync();
       for (const d of Object.values(factoryDrivers)) {
         try {
           d.close();

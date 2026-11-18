@@ -169,7 +169,17 @@ export class AuthController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const { collection } = req.params;
-    const { provider, code, codeVerifier, redirectUrl, redirectUri, createData, state } = (req.body as any) || {};
+    const {
+      provider,
+      code,
+      codeVerifier,
+      redirectUrl,
+      redirectUri,
+      createData,
+      state,
+      user,
+      extraData,
+    } = (req.body as any) || {};
 
     if (!provider || !code || !codeVerifier || !state) {
       throw new AppError('provider, code, codeVerifier, and state are required for OAuth2 authentication', 400);
@@ -199,6 +209,7 @@ export class AuthController extends BaseController {
 
     const auth = this.getAuth(req);
     const files = this.getFiles(req);
+    const effectiveExtraData = extraData || (user !== undefined ? { user } : undefined);
     const result = await auth.authenticateOAuth2(
       collection,
       provider,
@@ -209,7 +220,8 @@ export class AuthController extends BaseController {
       files,
       req.auth,
       state,
-      req
+      req,
+      effectiveExtraData
     );
 
     this.ok(reply, result);

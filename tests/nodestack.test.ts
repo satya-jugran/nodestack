@@ -243,4 +243,28 @@ describe('NodeStack End-to-End System Tests', () => {
     expect(res2.headers['content-type']).toContain('image/svg+xml');
     expect(res2.payload).toContain('<svg');
   });
+
+  it('should gracefully handle asynchronous close() without unhandled rejections', async () => {
+    const dummyDir = path.resolve(__dirname, '../.test_nodestack_close_data');
+    const dummyApp = new NodeStack({
+      dataDir: dummyDir,
+      port: 8192,
+    });
+
+    (dummyApp as any).container = {
+      dispose: () => Promise.reject(new Error('Simulated container dispose rejection')),
+    };
+    (dummyApp as any).server = {
+      close: () => Promise.reject(new Error('Simulated server close rejection')),
+    };
+    (dummyApp as any).queue = {
+      dispose: () => Promise.reject(new Error('Simulated queue dispose rejection')),
+    };
+
+    await expect(dummyApp.close()).resolves.toBeUndefined();
+
+    if (fs.existsSync(dummyDir)) {
+      fs.rmSync(dummyDir, { recursive: true, force: true });
+    }
+  });
 });
