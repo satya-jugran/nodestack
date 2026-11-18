@@ -445,7 +445,7 @@ export class FlowEngine {
     state: FlowState,
     context: FlowStateContext
   ): Promise<StateExecutionResult> {
-    const retryPolicies = (state as any).retry as FlowRetryPolicy[] | undefined;
+    const retryPolicies = state.retry;
     let attempt = 0;
 
     while (true) {
@@ -520,7 +520,7 @@ export class FlowEngine {
     error: any,
     currentPayload: any
   ): { nextState: string; payload: any } | null {
-    const catchPolicies = (state as any).catch as FlowCatchPolicy[] | undefined;
+    const catchPolicies = state.catch;
     if (!catchPolicies || catchPolicies.length === 0) {
       return null;
     }

@@ -381,6 +381,58 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       );
     });
 
+    it('should consider states reachable via catch next transitions as reachable', () => {
+      const flowWithCatch: any = {
+        startAt: 'TaskStep',
+        states: {
+          TaskStep: {
+            type: 'Task',
+            function: 'processOrder',
+            next: 'CompleteStep',
+            catch: [
+              {
+                errorEquals: ['PaymentFailed'],
+                next: 'HandlePaymentError',
+              },
+            ],
+          },
+          CompleteStep: {
+            type: 'Pass',
+            end: true,
+          },
+          HandlePaymentError: {
+            type: 'Pass',
+            end: true,
+          },
+        },
+      };
+
+      expect(() => FlowValidator.validate(flowWithCatch)).not.toThrow();
+    });
+
+    it('should reject non-existent catch next target state', () => {
+      const invalidCatchTargetDef: any = {
+        startAt: 'TaskStep',
+        states: {
+          TaskStep: {
+            type: 'Task',
+            function: 'processOrder',
+            end: true,
+            catch: [
+              {
+                errorEquals: ['States.ALL'],
+                next: 'NonExistentRecoveryStep',
+              },
+            ],
+          },
+        },
+      };
+
+      expect(() => FlowValidator.validate(invalidCatchTargetDef)).toThrowError(
+        /'next' target 'NonExistentRecoveryStep' does not exist in states/
+      );
+    });
+
     it('should reject flow definition with no reachable terminal states', () => {
       const cyclicalDef: any = {
         startAt: 'StepA',

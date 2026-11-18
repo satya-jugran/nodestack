@@ -1,4 +1,4 @@
-import { FlowDefinition, FlowState, ChoiceRule, FlowTriggerType } from './types';
+import { FlowDefinition, FlowState, ChoiceRule, FlowTriggerType, FlowCatchPolicy } from './types';
 import { AppError } from '../core/errors/AppError';
 import { FlowPathMapper } from './utils/FlowPathMapper';
 
@@ -61,6 +61,13 @@ export class FlowValidator {
       if (st.type === 'Loop') {
         if (st.target && typeof st.target === 'string') {
           targets.push(st.target);
+        }
+      }
+      if (Array.isArray(st.catch)) {
+        for (const c of st.catch) {
+          if (c?.next && typeof c.next === 'string') {
+            targets.push(c.next);
+          }
         }
       }
 
@@ -199,6 +206,23 @@ export class FlowValidator {
       if (state.end) {
         throw new AppError(`${prefix}State '${name}' cannot specify both 'next' and 'end: true'`, 400);
       }
+    }
+
+    if (Array.isArray(state.catch)) {
+      state.catch.forEach((policy: FlowCatchPolicy, idx: number) => {
+        if (!policy || typeof policy !== 'object') {
+          throw new AppError(`${prefix}State '${name}': catch rule #${idx + 1} must be an object`, 400);
+        }
+        if (!policy.next || typeof policy.next !== 'string' || !allKeys.includes(policy.next)) {
+          throw new AppError(
+            `${prefix}State '${name}': catch rule #${idx + 1} 'next' target '${policy?.next || ''}' does not exist in states`,
+            400
+          );
+        }
+        if (policy.resultPath) {
+          this.validatePath(name, `catch rule #${idx + 1} resultPath`, policy.resultPath, contextPath);
+        }
+      });
     }
 
     switch (state.type) {

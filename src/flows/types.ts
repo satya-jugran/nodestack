@@ -39,6 +39,8 @@ export interface BaseState {
   outputPath?: string;
   next?: string;
   end?: boolean;
+  retry?: FlowRetryPolicy[];
+  catch?: FlowCatchPolicy[];
 }
 
 export interface TaskState extends BaseState {
@@ -46,8 +48,6 @@ export interface TaskState extends BaseState {
   function: string;
   elevated?: boolean;
   serviceRole?: boolean;
-  retry?: FlowRetryPolicy[];
-  catch?: FlowCatchPolicy[];
 }
 
 export interface ChoiceState extends BaseState {
