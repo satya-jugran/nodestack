@@ -822,4 +822,41 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       expect(err.message).toContain('missing required scope');
     });
   });
+
+  describe('6. Per-User Quota Enforcement Under Concurrency', () => {
+    it('should strictly enforce maxApiKeysPerUser and reject concurrent creation beyond limit', async () => {
+      // Set a strict custom limit of 3 keys for this test
+      (app.apiKeys as any).config.maxApiKeysPerUser = 3;
+      const testUserId = 'user_quota_test_123';
+
+      // Concurrently launch 6 creation requests for the same user
+      const results = await Promise.allSettled(
+        Array.from({ length: 6 }).map((_, i) =>
+          Promise.resolve().then(() =>
+            app.apiKeys.createKey({
+              name: `Concurrent Key ${i}`,
+              createdBy: testUserId,
+            })
+          )
+        )
+      );
+
+      const fulfilled = results.filter((r) => r.status === 'fulfilled');
+      const rejected = results.filter((r) => r.status === 'rejected');
+
+      // Exactly 3 must succeed, exactly 3 must be rejected
+      expect(fulfilled.length).toBe(3);
+      expect(rejected.length).toBe(3);
+
+      for (const rej of rejected) {
+        if (rej.status === 'rejected') {
+          expect(rej.reason.message).toMatch(/API key quota exceeded/);
+        }
+      }
+
+      // Verify the database has exactly 3 keys for this user
+      const userKeys = app.apiKeys.listKeys({ status: 'active', createdBy: testUserId });
+      expect(userKeys.length).toBe(3);
+    });
+  });
 });
