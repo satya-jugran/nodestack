@@ -249,5 +249,19 @@ describe('MaintenanceGate', () => {
       await expect(gate.executeExclusive(async () => 'conflict')).rejects.toThrow(ConflictError);
       expect(fs.existsSync(lockFilePath)).toBe(true);
     });
+
+    it('should acquire lock atomically using wx exclusive open and reject concurrent acquire', () => {
+      const gate1 = new MaintenanceGate({ lockFilePath });
+      const gate2 = new MaintenanceGate({ lockFilePath });
+
+      gate1.acquireFileLock();
+      expect(fs.existsSync(lockFilePath)).toBe(true);
+
+      // Second gate attempts atomic acquisition on existing lock held by current process -> throws ConflictError
+      expect(() => gate2.acquireFileLock()).toThrow(ConflictError);
+
+      gate1.releaseFileLock();
+      expect(fs.existsSync(lockFilePath)).toBe(false);
+    });
   });
 });

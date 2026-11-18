@@ -98,17 +98,8 @@ export class MaintenanceGate {
         }
       }
 
-      // If owned by current process:
+      // If owned by current process, the owner is alive:
       if (pid === process.pid) {
-        if (!this.isExecutingExclusive) {
-          // Orphaned remnant from prior execution in this process
-          try {
-            fs.unlinkSync(this.lockFilePath);
-            return true;
-          } catch {
-            return false;
-          }
-        }
         return false;
       }
 
@@ -240,6 +231,78 @@ export class MaintenanceGate {
   }
 
   /**
+   * Atomically acquires the file lock using exclusive open ('wx').
+   * If the file already exists (EEXIST), checks if the holding process is dead.
+   * If dead, reclaims the lock and retries once.
+   * If alive (or retry also fails with EEXIST), throws ConflictError.
+   */
+  public acquireFileLock(): void {
+    if (!this.lockFilePath) return;
+
+    const dir = path.dirname(this.lockFilePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    // Attempt to reclaim if an existing lock belongs to a dead owner first
+    this.reclaimLockIfDeadOwner();
+
+    const payload = JSON.stringify({ pid: process.pid, timestamp: new Date().toISOString() });
+
+    try {
+      this.writeLockAtomic(payload);
+    } catch (err: any) {
+      if (err && err.code === 'EEXIST') {
+        // Atomic collision: another process created the lock first.
+        const isFree = this.reclaimLockIfDeadOwner();
+        if (isFree) {
+          try {
+            this.writeLockAtomic(payload);
+            return;
+          } catch (retryErr: any) {
+            if (retryErr && retryErr.code === 'EEXIST') {
+              throw new ConflictError('A demo reset or maintenance operation is already in progress.');
+            }
+            throw retryErr;
+          }
+        }
+        throw new ConflictError('A demo reset or maintenance operation is already in progress.');
+      }
+      throw err;
+    }
+  }
+
+  private writeLockAtomic(payload: string): void {
+    if (!this.lockFilePath) return;
+    const fd = fs.openSync(this.lockFilePath, 'wx');
+    try {
+      fs.writeFileSync(fd, payload, 'utf8');
+    } finally {
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    }
+  }
+
+  public releaseFileLock(): void {
+    if (!this.lockFilePath) return;
+    try {
+      if (fs.existsSync(this.lockFilePath)) {
+        const content = fs.readFileSync(this.lockFilePath, 'utf8');
+        let meta: any;
+        try {
+          meta = JSON.parse(content);
+        } catch {}
+        if (!meta || meta.pid === process.pid || !this.isProcessAlive(meta.pid)) {
+          fs.unlinkSync(this.lockFilePath);
+        }
+      }
+    } catch {
+      // non-fatal
+    }
+  }
+
+  /**
    * Coordinates exclusive execution (e.g., demo reset):
    * 1. Gates the server (holds new incoming requests in queue).
    * 2. Waits for all current in-flight requests to drain to 0.
@@ -251,28 +314,14 @@ export class MaintenanceGate {
       throw new ConflictError('A demo reset or maintenance operation is already in progress.');
     }
 
+    let acquiredFileLock = false;
     if (this.lockFilePath) {
-      const isFree = this.reclaimLockIfDeadOwner();
-      if (!isFree) {
-        throw new ConflictError('A demo reset or maintenance operation is already in progress.');
-      }
+      this.acquireFileLock();
+      acquiredFileLock = true;
     }
 
     this.isExecutingExclusive = true;
     this.isGated = true;
-
-    if (this.lockFilePath) {
-      try {
-        const dir = path.dirname(this.lockFilePath);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(
-          this.lockFilePath,
-          JSON.stringify({ pid: process.pid, timestamp: new Date().toISOString() })
-        );
-      } catch {
-        // non-fatal
-      }
-    }
 
     try {
       // 1. Wait for existing in-flight requests to complete
@@ -284,21 +333,8 @@ export class MaintenanceGate {
       // 3. Guaranteed unlock, lockfile release, and queue flush
       this.isGated = false;
       this.isExecutingExclusive = false;
-      if (this.lockFilePath) {
-        try {
-          if (fs.existsSync(this.lockFilePath)) {
-            const content = fs.readFileSync(this.lockFilePath, 'utf8');
-            let meta: any;
-            try {
-              meta = JSON.parse(content);
-            } catch {}
-            if (!meta || meta.pid === process.pid || !this.isProcessAlive(meta.pid)) {
-              fs.unlinkSync(this.lockFilePath);
-            }
-          }
-        } catch {
-          // non-fatal
-        }
+      if (acquiredFileLock && this.lockFilePath) {
+        this.releaseFileLock();
       }
       this.flushWaitingQueue();
     }
@@ -359,20 +395,7 @@ export class MaintenanceGate {
   public reset(): void {
     this.isGated = false;
     this.isExecutingExclusive = false;
-    if (this.lockFilePath) {
-      try {
-        if (fs.existsSync(this.lockFilePath)) {
-          const content = fs.readFileSync(this.lockFilePath, 'utf8');
-          let meta: any;
-          try {
-            meta = JSON.parse(content);
-          } catch {}
-          if (!meta || meta.pid === process.pid || !this.isProcessAlive(meta.pid)) {
-            fs.unlinkSync(this.lockFilePath);
-          }
-        }
-      } catch {}
-    }
+    this.releaseFileLock();
     this.activeRequests.clear();
     this.flushWaitingQueue();
     this.notifyDrain();
