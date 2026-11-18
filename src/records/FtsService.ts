@@ -186,7 +186,7 @@ export class FtsService {
     return this.getFtsDriver().dropCollectionFts(collectionName);
   }
 
-  public async rebuildIndex(collectionName: string): Promise<any> {
+  public async rebuildIndex(collectionName: string, lang?: string): Promise<any> {
     const key = (collectionName || '').toLowerCase().trim();
     const existingLock = this.rebuildLocks.get(key);
     if (existingLock) {
@@ -195,7 +195,7 @@ export class FtsService {
 
     const task = (async () => {
       try {
-        return await Promise.resolve(this.getFtsDriver().rebuildIndex(collectionName));
+        return await Promise.resolve(this.getFtsDriver().rebuildIndex(collectionName, lang));
       } finally {
         this.rebuildLocks.delete(key);
       }

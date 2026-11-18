@@ -26,9 +26,11 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
     try {
       await app.stop();
     } catch {}
-    if (fs.existsSync(testDataDir)) {
-      fs.rmSync(testDataDir, { recursive: true, force: true });
-    }
+    try {
+      if (fs.existsSync(testDataDir)) {
+        fs.rmSync(testDataDir, { recursive: true, force: true, maxRetries: 5 });
+      }
+    } catch {}
   });
 
   describe('1. FTS5 Virtual Table & Trigger Lifecycle', () => {
@@ -202,6 +204,35 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       // Verify records are accessible via the new FTS table
       const matches = app.db.all('SELECT * FROM _fts_published_posts WHERE _fts_published_posts MATCH ?', ['"Draft"']);
       expect(matches.length).toBe(1);
+    });
+
+    it('should recreate FTS table and triggers when collection ftsLanguage or ftsTokenizer option changes', async () => {
+      const col = app.schema.createCollection({
+        name: 'multilingual_posts',
+        listRule: '',
+        createRule: '',
+        updateRule: '',
+        deleteRule: '',
+        viewRule: '',
+        options: { ftsLanguage: 'english' },
+        schema: [{ id: 'f1', name: 'title', type: 'text' }],
+      });
+
+      const tableSqlBefore = app.db.get<{ sql: string }>(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '_fts_multilingual_posts'"
+      );
+      expect(tableSqlBefore?.sql).toContain("tokenize = 'porter unicode61'");
+
+      // Update collection with new ftsLanguage (e.g. french -> unicode61 tokenizer)
+      app.schema.updateCollection(col.id, {
+        options: { ftsLanguage: 'french' },
+      });
+
+      const tableSqlAfter = app.db.get<{ sql: string }>(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '_fts_multilingual_posts'"
+      );
+      expect(tableSqlAfter?.sql).toContain("tokenize = 'unicode61'");
+      expect(tableSqlAfter?.sql).not.toContain('porter');
     });
 
     it('should reject collection creation when schema uses reserved search metadata names', () => {

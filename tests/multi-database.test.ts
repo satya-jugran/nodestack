@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ConfigService } from '../src/core/config/ConfigService';
@@ -1989,6 +1989,115 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(snippetSelect).toContain('SUBSTRING(coalesce(fts."title", \'\'), 1, 50) AS "__fts_snippet"');
       expect(snippetSelect).toContain('SUBSTRING(coalesce(fts."title", \'\'), 1, 50) AS "__fts_snippet_title"');
       expect(snippetSelect).toContain('SUBSTRING(coalesce(fts."content", \'\'), 1, 50) AS "__fts_snippet_content"');
+    });
+
+    it('should detect language changes in Postgres FTS and recreate index and triggers', async () => {
+      const executedSql: string[] = [];
+      let currentComment: string | null = 'ftsLanguage:english';
+      let currentProsrc: string | null = "to_tsvector('english', coalesce(NEW.\"title\", ''))";
+
+      const fakeDb: any = {
+        dialect: new PostgresDialect(),
+        get: vi.fn(async (sql: string) => {
+          if (sql.includes('information_schema.tables')) {
+            return { table_name: '_fts_articles' };
+          }
+          if (sql.includes('obj_description')) {
+            return currentComment ? { comment: currentComment } : null;
+          }
+          if (sql.includes('pg_proc')) {
+            return currentProsrc ? { prosrc: currentProsrc } : null;
+          }
+          return null;
+        }),
+        all: vi.fn(async (sql: string) => {
+          if (sql.includes('information_schema.columns')) {
+            return [{ column_name: 'title' }, { column_name: 'content' }];
+          }
+          return [];
+        }),
+        exec: vi.fn(async (sql: string) => {
+          executedSql.push(sql);
+        }),
+        transaction: vi.fn(async (callback: any) => {
+          return await callback();
+        }),
+      };
+
+      const pgFts = new PostgresFtsDriver(fakeDb as any);
+
+      // Verify language detection from comment
+      expect(await pgFts.getFtsIndexLanguage('articles')).toBe('english');
+
+      // Verify language detection fallback to pg_proc if comment absent
+      currentComment = null;
+      currentProsrc = "VALUES (NEW.id, to_tsvector('german', coalesce(NEW.\"title\", '')))";
+      expect(await pgFts.getFtsIndexLanguage('articles')).toBe('german');
+
+      // Sync collection with same columns but new language ('spanish')
+      const col: any = {
+        name: 'articles',
+        options: { ftsLanguage: 'spanish' },
+        schema: [
+          { id: 'f1', name: 'title', type: 'text' },
+          { id: 'f2', name: 'content', type: 'text' },
+        ],
+      };
+
+      await pgFts.syncCollection(col);
+
+      // Should have dropped old FTS table/triggers and recreated with spanish
+      expect(executedSql.some((s) => s.includes('DROP TABLE IF EXISTS "_fts_articles" CASCADE'))).toBe(true);
+      expect(executedSql.some((s) => s.includes("COMMENT ON TABLE \"_fts_articles\" IS 'ftsLanguage:spanish'"))).toBe(true);
+      expect(executedSql.some((s) => s.includes("to_tsvector('spanish'"))).toBe(true);
+    });
+
+    it('should reconcile when Postgres FTS columns and language match, without dropping tables', async () => {
+      const executedSql: string[] = [];
+      const fakeDb: any = {
+        dialect: new PostgresDialect(),
+        get: vi.fn(async (sql: string) => {
+          if (sql.includes('information_schema.tables')) {
+            return { table_name: '_fts_articles' };
+          }
+          if (sql.includes('obj_description')) {
+            return { comment: 'ftsLanguage:spanish' };
+          }
+          if (sql.includes('SELECT COUNT(*) as count FROM "articles"')) {
+            return { count: 10 };
+          }
+          if (sql.includes('SELECT COUNT(*) as count FROM "_fts_articles"')) {
+            return { count: 10 };
+          }
+          if (sql.includes('SELECT 1 as mismatch')) {
+            return null; // no mismatch
+          }
+          return null;
+        }),
+        all: vi.fn(async (sql: string) => {
+          if (sql.includes('information_schema.columns')) {
+            return [{ column_name: 'title' }];
+          }
+          return [];
+        }),
+        exec: vi.fn(async (sql: string) => {
+          executedSql.push(sql);
+        }),
+        transaction: vi.fn(async (cb: any) => cb()),
+      };
+
+      const pgFts = new PostgresFtsDriver(fakeDb as any);
+      const col: any = {
+        name: 'articles',
+        options: { ftsLanguage: 'spanish' },
+        schema: [{ id: 'f1', name: 'title', type: 'text' }],
+      };
+
+      await pgFts.syncCollection(col);
+
+      // Drop/recreate should NOT have run
+      expect(executedSql.some((s) => s.includes('DROP TABLE IF EXISTS'))).toBe(false);
+      expect(executedSql.some((s) => s.includes('CREATE TABLE IF NOT EXISTS'))).toBe(false);
     });
 
     it('Round 2 Item 9: should reject auth-reserved camelCase fields passwordHash, tokenKey, emailVisibility in auth collections', () => {
