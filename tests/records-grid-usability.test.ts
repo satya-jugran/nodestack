@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
@@ -856,6 +856,65 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
           email: 'duplicate@example.com',
         })
       ).rejects.toThrow(/Record with ID 'custom_member_123' already exists in 'members'/);
+    });
+
+    it('should map PostgreSQL 23505 _pkey constraint error to ID-specific ConflictError', async () => {
+      const originalRun = app.db.run.bind(app.db);
+      const pgError: any = new Error('duplicate key value violates unique constraint "members_pkey"');
+      pgError.code = '23505';
+      pgError.constraint = 'members_pkey';
+      pgError.detail = 'Key (id)=(custom_pg_race) already exists.';
+
+      vi.spyOn(app.db, 'run').mockImplementation(async (sql: string, ...params: any[]) => {
+        if (typeof sql === 'string' && sql.startsWith('INSERT INTO') && sql.includes('members')) {
+          throw pgError;
+        }
+        return originalRun(sql, ...params);
+      });
+
+      try {
+        await expect(
+          app.records.create('members', {
+            id: 'custom_pg_race',
+            title: 'PG Member',
+            email: 'pg_member@example.com',
+          })
+        ).rejects.toThrow(/Record with ID 'custom_pg_race' already exists in 'members'/);
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
+    it('should re-check ID in DB after insert error to resolve concurrent duplicate ID race', async () => {
+      const originalRun = app.db.run.bind(app.db);
+      const genericRaceError: any = new Error('duplicate key value violates unique constraint');
+      genericRaceError.code = '23505';
+
+      // Insert the winner's record into DB so the loser's re-check finds it
+      await app.records.create('members', {
+        id: 'concurrent_race_id',
+        title: 'Winner Member',
+        email: 'winner@example.com',
+      });
+
+      vi.spyOn(app.db, 'run').mockImplementation(async (sql: string, ...params: any[]) => {
+        if (typeof sql === 'string' && sql.startsWith('INSERT INTO') && sql.includes('members')) {
+          throw genericRaceError;
+        }
+        return originalRun(sql, ...params);
+      });
+
+      try {
+        await expect(
+          app.records.create('members', {
+            id: 'concurrent_race_id',
+            title: 'Loser Member',
+            email: 'loser@example.com',
+          })
+        ).rejects.toThrow(/Record with ID 'concurrent_race_id' already exists in 'members'/);
+      } finally {
+        vi.restoreAllMocks();
+      }
     });
   });
 });

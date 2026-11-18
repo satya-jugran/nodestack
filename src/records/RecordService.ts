@@ -423,9 +423,11 @@ export class RecordService {
     try {
       await this.db.run(sql, ...values);
     } catch (err: any) {
+      if (err instanceof ConflictError) {
+        throw err;
+      }
       const errMsg = err?.message || String(err);
       const isUniqueOrPkViolation =
-        err instanceof ConflictError ||
         errMsg.includes('UNIQUE constraint failed') ||
         errMsg.includes('PRIMARY KEY constraint failed') ||
         errMsg.includes('PRIMARY KEY must be unique') ||
@@ -439,8 +441,33 @@ export class RecordService {
         /unique|primary key|duplicate/i.test(errMsg);
 
       if (isUniqueOrPkViolation) {
-        if (safeId && (errMsg.includes(safeId) || /primary key/i.test(errMsg) || errMsg.includes(`${col.name}.id`))) {
-          throw new ConflictError(`Record with ID '${safeId}' already exists in '${col.name}'`);
+        if (safeId) {
+          // Check driver constraint metadata across SQLite, MySQL, and PostgreSQL
+          const isIdConstraint =
+            errMsg.includes(safeId) ||
+            /primary key|\.PRIMARY\b|_pkey\b/i.test(errMsg) ||
+            errMsg.includes(`${col.name}.id`) ||
+            err?.constraint === `${col.name}_pkey` ||
+            (typeof err?.constraint === 'string' && /(_pkey|primary)$/i.test(err.constraint)) ||
+            (typeof err?.detail === 'string' && (err.detail.includes('(id)=') || err.detail.includes(safeId))) ||
+            err?.column === 'id';
+
+          if (isIdConstraint) {
+            throw new ConflictError(`Record with ID '${safeId}' already exists in '${col.name}'`);
+          }
+
+          // In concurrent insert race conditions, re-check the ID in the database before falling back
+          try {
+            const existingAfter = await this.db.get<any>(
+              `SELECT id FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('id')} = ?`,
+              safeId
+            );
+            if (existingAfter) {
+              throw new ConflictError(`Record with ID '${safeId}' already exists in '${col.name}'`);
+            }
+          } catch (checkErr) {
+            if (checkErr instanceof ConflictError) throw checkErr;
+          }
         }
         throw new ConflictError(
           col.type === 'auth' && recordToInsert.email
