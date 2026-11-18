@@ -2838,4 +2838,40 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(mismatchBody.message).toMatch(/OAuth state mismatch|session cookie does not match/i);
     });
   });
+
+  describe('12. Built-in OAuth Callback & Redirect Endpoints (/api/oauth2-redirect & /api/oauth2/callback)', () => {
+    it('should handle GET query parameters on /api/oauth2-redirect and render postMessage HTML', async () => {
+      const res = await fetch(`${serverUrl}/api/oauth2-redirect?code=sample_get_code&state=sample_get_state`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/html');
+      const html = await res.text();
+      expect(html).toContain('nodestack_oauth_callback');
+      expect(html).toContain('code: "sample_get_code"');
+      expect(html).toContain('state: "sample_get_state"');
+      expect(html).toContain('window.opener.postMessage');
+    });
+
+    it('should handle POST x-www-form-urlencoded body (Apple form_post) on /api/oauth2-redirect and render postMessage HTML', async () => {
+      const res = await fetch(`${serverUrl}/api/oauth2-redirect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'code=apple_post_code_123&state=apple_post_state_456',
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/html');
+      const html = await res.text();
+      expect(html).toContain('nodestack_oauth_callback');
+      expect(html).toContain('code: "apple_post_code_123"');
+      expect(html).toContain('state: "apple_post_state_456"');
+      expect(html).toContain('window.opener.postMessage');
+    });
+
+    it('should handle OAuth errors in query or body and forward them via postMessage HTML', async () => {
+      const res = await fetch(`${serverUrl}/api/oauth2/callback?error=access_denied&error_description=User+cancelled`);
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain('nodestack_oauth_callback');
+      expect(html).toContain('error: "access_denied"');
+    });
+  });
 });
