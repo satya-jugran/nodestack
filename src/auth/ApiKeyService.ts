@@ -691,8 +691,16 @@ export class ApiKeyService {
   }
 
   public listKeys(options?: ListKeysOptions): any {
-    const limit = Math.max(1, Math.min(500, options?.limit ?? 100));
-    const offset = Math.max(0, options?.offset ?? 0);
+    const rawLimit = options?.limit !== undefined && Number.isFinite(Number(options.limit))
+      ? Math.trunc(Number(options.limit))
+      : 100;
+    const limit = Math.max(1, Math.min(500, rawLimit));
+
+    const rawOffset = options?.offset !== undefined && Number.isFinite(Number(options.offset))
+      ? Math.trunc(Number(options.offset))
+      : 0;
+    const offset = Math.max(0, rawOffset);
+
     const conditions: string[] = [];
     const params: any[] = [];
 
