@@ -318,6 +318,21 @@ describe('AuthMiddleware - Token Validation & Immediate 401 Rejection', () => {
       expect((sanitized as any).backupCodes).toBeUndefined();
       expect((sanitized as any).internalNotes).toBeUndefined();
       expect((sanitized as any).failedLoginAttempts).toBeUndefined();
+
+      // 3. Check isOwner flag on sanitizeAuthRecord
+      const privateRecord = {
+        id: 'usr_priv_test',
+        email: 'secret@nodestack.test',
+        emailVisibility: false,
+        passwordHash: 'hash123',
+      };
+      const ownerSanitized = app.auth.sanitizeAuthRecord(privateRecord, undefined, true);
+      expect(ownerSanitized.email).toBe('secret@nodestack.test'); // Owner retains email
+      expect((ownerSanitized as any).passwordHash).toBeUndefined();
+
+      const nonOwnerSanitized = app.auth.sanitizeAuthRecord(privateRecord, undefined, false);
+      expect(nonOwnerSanitized.email).toBeUndefined(); // Non-owner has email masked
+      expect((nonOwnerSanitized as any).passwordHash).toBeUndefined();
     });
   });
 });

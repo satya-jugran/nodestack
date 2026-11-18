@@ -624,11 +624,15 @@ export class AuthService {
     };
   }
 
-  public sanitizeAuthRecord(record: Record<string, any>, col?: CollectionModel): Record<string, any> {
+  public sanitizeAuthRecord(
+    record: Record<string, any>,
+    col?: CollectionModel,
+    isOwner = true
+  ): Record<string, any> {
     const rawVerified = record.verified;
     let clean: Record<string, any>;
     if (col) {
-      clean = RecordSanitizer.sanitize(record, col, undefined, true);
+      clean = RecordSanitizer.sanitize(record, col, undefined, isOwner);
     } else {
       clean = { ...record };
       const sensitive = [
@@ -661,6 +665,9 @@ export class AuthService {
       }
       if (clean.verified !== undefined) clean.verified = Boolean(clean.verified);
       if (clean.emailVisibility !== undefined) clean.emailVisibility = Boolean(clean.emailVisibility);
+      if (!isOwner && !clean.emailVisibility) {
+        delete clean.email;
+      }
     }
     if (typeof rawVerified === 'number') {
       clean.verified = rawVerified;
@@ -1363,11 +1370,10 @@ export class AuthService {
         );
       }
 
-      // 7. Broadcast realtime event
+      // 7. Broadcast realtime event (pass raw record so RealtimeService sanitizes per client based on subscriber identity)
       const effectiveRealtime = this.realtimeService || (httpContext as any)?.appScope?.realtime;
       if (effectiveRealtime) {
-        const publicRecord = this.sanitizeAuthRecord(insertRecord, col);
-        effectiveRealtime.broadcast('create', col.name, publicRecord);
+        effectiveRealtime.broadcast('create', col.name, insertRecord);
       }
     }
 
