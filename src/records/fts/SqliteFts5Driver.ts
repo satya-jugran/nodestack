@@ -55,7 +55,7 @@ export class SqliteFts5Driver implements IFtsDriver {
       );
       const extract = (rawSql?: string) => {
         if (!rawSql) return null;
-        const match = rawSql.match(/tokenize\s*=\s*'([^']+)'/i);
+        const match = rawSql.match(/tokenize\s*=\s*['"]?([^'",\)]+?)['"]?(?:\s*[,)]|$)/i);
         return match ? match[1].trim() : null;
       };
       if (row && typeof (row as any).then === 'function') {

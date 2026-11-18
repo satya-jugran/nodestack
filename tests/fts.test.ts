@@ -218,6 +218,11 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
         schema: [{ id: 'f1', name: 'title', type: 'text' }],
       });
 
+      // Insert record to ensure existing rows survive recreation
+      await app.records.create('multilingual_posts', {
+        title: 'Internationalization and Tokenizers',
+      });
+
       const tableSqlBefore = app.db.get<{ sql: string }>(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '_fts_multilingual_posts'"
       );
@@ -233,6 +238,23 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       );
       expect(tableSqlAfter?.sql).toContain("tokenize = 'unicode61'");
       expect(tableSqlAfter?.sql).not.toContain('porter');
+
+      // Verify records are re-indexed and searchable after recreation
+      const results1 = await app.records.getList('multilingual_posts', { search: 'Tokenizers' });
+      expect(results1.items.length).toBe(1);
+
+      // Now update explicit ftsTokenizer option (e.g. ascii)
+      app.schema.updateCollection(col.id, {
+        options: { ftsTokenizer: 'ascii' },
+      });
+
+      const tableSqlAscii = app.db.get<{ sql: string }>(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '_fts_multilingual_posts'"
+      );
+      expect(tableSqlAscii?.sql).toContain("tokenize = 'ascii'");
+
+      const results2 = await app.records.getList('multilingual_posts', { search: 'Internationalization' });
+      expect(results2.items.length).toBe(1);
     });
 
     it('should reject collection creation when schema uses reserved search metadata names', () => {
