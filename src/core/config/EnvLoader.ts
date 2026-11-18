@@ -51,3 +51,40 @@ export function loadEnvFile(explicitPath?: string): boolean {
     return false;
   }
 }
+
+/**
+ * Safely parses a boolean environment variable.
+ * Recognizes 'true', '1', 'yes', 'on' as true; 'false', '0', 'no', 'off' as false.
+ * Returns defaultValue if unset, empty, or unparseable.
+ */
+export function getBoolEnv(key: string, defaultValue = false): boolean {
+  const raw = process.env[key];
+  if (raw === undefined || raw === null) return defaultValue;
+  const val = String(raw).trim().toLowerCase();
+  if (val === '') return defaultValue;
+  if (val === 'true' || val === '1' || val === 'yes' || val === 'on') return true;
+  if (val === 'false' || val === '0' || val === 'no' || val === 'off') return false;
+  return defaultValue;
+}
+
+/**
+ * Safely parses an integer environment variable.
+ */
+export function getIntEnv(key: string, defaultValue?: number): number | undefined {
+  const raw = process.env[key];
+  if (raw === undefined || raw === null) return defaultValue;
+  const val = String(raw).trim();
+  if (!val) return defaultValue;
+  const parsed = parseInt(val, 10);
+  return isNaN(parsed) ? defaultValue : parsed;
+}
+
+/**
+ * Safely gets a trimmed non-empty string environment variable.
+ */
+export function getStringEnv(key: string, defaultValue?: string): string | undefined {
+  const raw = process.env[key];
+  if (raw === undefined || raw === null) return defaultValue;
+  const val = String(raw).trim();
+  return val.length > 0 ? val : defaultValue;
+}

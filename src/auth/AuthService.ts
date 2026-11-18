@@ -56,6 +56,42 @@ export interface OAuthAuthResult extends AuthResult {
   };
 }
 
+export const COMMON_WEAK_PASSWORDS = new Set([
+  'password',
+  '12345678',
+  '123456789',
+  '1234567890',
+  'qwertyuiop',
+  'asdfghjkl',
+  'adminadmin',
+  'letmein123',
+  'welcome123',
+  'iloveyou1',
+]);
+
+/**
+ * Validates password strength, length bounds, and common weak passwords.
+ */
+export function validatePasswordStrength(password: string): void {
+  if (!password || typeof password !== 'string' || password.length < 8) {
+    throw new AppError('Password must be at least 8 characters long', 400);
+  }
+  if (password.length > 128) {
+    throw new AppError('Password must not exceed 128 characters', 400);
+  }
+  if (COMMON_WEAK_PASSWORDS.has(password.toLowerCase())) {
+    throw new AppError('Password is too common and easily guessed. Please choose a stronger password.', 400);
+  }
+  if (/^(.)\1+$/.test(password)) {
+    throw new AppError('Password cannot be composed of a single repeated character', 400);
+  }
+  const hasLetter = /[a-zA-Z]/.test(password);
+  const hasNumberOrSymbol = /[0-9!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/.test(password);
+  if (!hasLetter || !hasNumberOrSymbol) {
+    throw new AppError('Password must contain both letters and at least one number or special character', 400);
+  }
+}
+
 export class AuthService {
   private oauthRegistry: OAuthProviderRegistry;
   private ruleEngine: RuleEngine;
@@ -418,9 +454,7 @@ export class AuthService {
     if (!cleanEmail || !cleanEmail.includes('@')) {
       throw new AppError('Valid email is required', 400);
     }
-    if (!password || password.length < 8) {
-      throw new AppError('Password must be at least 8 characters long', 400);
-    }
+    validatePasswordStrength(password);
 
     if (await this.hasAdmins()) {
       throw new AppError('Initial admin setup is already complete', 400);
@@ -495,9 +529,7 @@ export class AuthService {
     if (!cleanEmail || !cleanEmail.includes('@')) {
       throw new AppError('Valid email is required', 400);
     }
-    if (!password || password.length < 8) {
-      throw new AppError('Password must be at least 8 characters long', 400);
-    }
+    validatePasswordStrength(password);
 
     return this.withRegistrationLock(`_admins:${cleanEmail}`, async () => {
       if (this.registry && this.isControlPlane) {
@@ -694,9 +726,7 @@ export class AuthService {
     if (!admin) {
       throw new NotFoundError(`Admin with email '${cleanEmail}' not found`);
     }
-    if (!newPassword || newPassword.length < 8) {
-      throw new AppError('Password must be at least 8 characters long', 400);
-    }
+    validatePasswordStrength(newPassword);
     const passwordHash = await this.hashPassword(newPassword);
     const tokenKey = crypto.randomBytes(16).toString('hex');
     const now = new Date().toISOString();

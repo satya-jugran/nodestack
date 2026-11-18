@@ -4,15 +4,18 @@ import { AppError } from '../../core/errors/AppError';
 
 export class DiscordProvider extends BaseOAuthProvider {
   constructor(config: Partial<OAuthProviderConfig> & { clientId: string; clientSecret: string }) {
+    const defaultScopes = ['identify', 'email'];
+    const mergedScopes = Array.from(new Set([...defaultScopes, ...(config.scopes || [])]));
     super({
       name: 'discord',
       displayName: 'Discord',
       authUrl: 'https://discord.com/api/oauth2/authorize',
       tokenUrl: 'https://discord.com/api/oauth2/token',
       userinfoUrl: 'https://discord.com/api/users/@me',
-      scopes: ['identify', 'email'],
       ...config,
+      scopes: mergedScopes,
     });
+    this.defaultScopes = defaultScopes;
   }
 
   public override buildAuthUrl(

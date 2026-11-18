@@ -243,9 +243,10 @@ export class FtsService {
   public buildSearchPredicate(
     ftsTable: string,
     ftsFields: SchemaField[],
-    searchTerm: string
+    searchTerm: string,
+    options?: FtsQueryOptions
   ): { clause: string; params: any[] } {
-    return this.getFtsDriver().buildSearchPredicate(ftsTable, ftsFields, searchTerm);
+    return this.getFtsDriver().buildSearchPredicate(ftsTable, ftsFields, searchTerm, options);
   }
 
   public attachSnippetsAndScore(rows: any[], ftsFields: SchemaField[]): void {

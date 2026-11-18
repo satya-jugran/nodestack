@@ -5,6 +5,7 @@ export interface FtsQueryOptions {
   snippetTag?: string;
   snippetLength?: number;
   snippetEllipsis?: string;
+  ftsLanguage?: string;
 }
 
 export interface IFtsDriver {
@@ -21,6 +22,7 @@ export interface IFtsDriver {
   buildSearchPredicate(
     ftsTable: string,
     ftsFields: SchemaField[],
-    searchTerm: string
+    searchTerm: string,
+    options?: FtsQueryOptions
   ): { clause: string; params: any[] };
 }

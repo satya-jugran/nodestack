@@ -2,6 +2,8 @@ import { SchemaField } from '../schema/models/Field';
 import { ValidationError } from '../core/errors/AppError';
 
 export class RecordValidator {
+  public static readonly DEFAULT_MAX_TEXT_LENGTH = 1048576; // 1MB safe ceiling
+
   public static validateField(field: SchemaField, value: any): void {
     if (field.required && (value === undefined || value === null || value === '')) {
       throw new ValidationError(`Field '${field.name}' is required`);
@@ -9,6 +11,21 @@ export class RecordValidator {
 
     if (value === undefined || value === null || value === '') {
       return;
+    }
+
+    // Boolean validation
+    if (field.type === 'bool') {
+      const isBoolType =
+        typeof value === 'boolean' ||
+        value === 1 ||
+        value === 0 ||
+        value === 'true' ||
+        value === 'false' ||
+        value === '1' ||
+        value === '0';
+      if (!isBoolType) {
+        throw new ValidationError(`Field '${field.name}' must be a valid boolean`);
+      }
     }
 
     // Number validation
@@ -27,12 +44,16 @@ export class RecordValidator {
 
     // Text / string validation (length constraints and pattern)
     if (field.type === 'text') {
+      if (typeof value === 'object' && !(value instanceof Date) && !(value instanceof Buffer)) {
+        throw new ValidationError(`Field '${field.name}' must be a string, received object`);
+      }
       const strVal = String(value);
       if (field.options?.min !== undefined && strVal.length < field.options.min) {
         throw new ValidationError(`Field '${field.name}' must be at least ${field.options.min} characters`);
       }
-      if (field.options?.max !== undefined && strVal.length > field.options.max) {
-        throw new ValidationError(`Field '${field.name}' must be at most ${field.options.max} characters`);
+      const maxLen = field.options?.max !== undefined ? field.options.max : RecordValidator.DEFAULT_MAX_TEXT_LENGTH;
+      if (strVal.length > maxLen) {
+        throw new ValidationError(`Field '${field.name}' must be at most ${maxLen} characters`);
       }
       if (field.options?.pattern) {
         try {
@@ -43,6 +64,14 @@ export class RecordValidator {
         } catch (e: any) {
           if (e instanceof ValidationError) throw e;
         }
+      }
+    }
+
+    // Date validation
+    if (field.type === 'date') {
+      const parsedTime = Date.parse(String(value));
+      if (isNaN(parsedTime)) {
+        throw new ValidationError(`Field '${field.name}' must be a valid date or timestamp`);
       }
     }
 
@@ -79,6 +108,32 @@ export class RecordValidator {
         throw new ValidationError(`Field '${field.name}' must be valid JSON`);
       }
     }
+
+    // Relation validation
+    if (field.type === 'relation') {
+      let items: any[] = [];
+      if (Array.isArray(value)) {
+        items = value;
+      } else if (typeof value === 'string' && value.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(value);
+          if (Array.isArray(parsed)) {
+            items = parsed;
+          } else {
+            items = [value];
+          }
+        } catch {
+          items = [value];
+        }
+      } else if (value !== undefined && value !== null) {
+        items = [value];
+      }
+      for (const item of items) {
+        if (typeof item === 'string' || typeof item === 'number') {
+          RecordValidator.validateRecordId(item);
+        }
+      }
+    }
   }
 
   /**
@@ -105,9 +160,17 @@ export class RecordValidator {
         return typeof value === 'string' ? value : JSON.stringify(value);
       case 'email':
         return String(value).trim().toLowerCase();
+      case 'date':
+        return value instanceof Date ? value.toISOString() : String(value);
       case 'relation':
         return Array.isArray(value) ? JSON.stringify(value) : String(value);
       default:
+        if (value instanceof Date) {
+          return value.toISOString();
+        }
+        if (typeof value === 'object' && value !== null && !(value instanceof Buffer)) {
+          return JSON.stringify(value);
+        }
         return String(value);
     }
   }

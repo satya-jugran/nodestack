@@ -318,31 +318,31 @@ export class ChaosMiddleware {
       return undefined;
     };
 
-    // Raw values: query overrides header overrides config (unless protected path)
+    // Raw values: query overrides header overrides config (unless protected path or disallowed)
     const rawDelay =
       getQueryVal('mock_delay', 'mockDelay', 'mock-delay', 'delay') ??
       getHeaderVal('x-mock-delay', 'mock-delay', 'x-delay') ??
-      (!isProtected ? this.config.mockDelay : undefined);
+      (!isProtected && allowRequestParams ? this.config.mockDelay : undefined);
 
     const rawJitter =
       getQueryVal('mock_jitter', 'mockJitter', 'mock-jitter') ??
       getHeaderVal('x-mock-jitter', 'mock-jitter') ??
-      (!isProtected ? this.config.mockJitter : undefined);
+      (!isProtected && allowRequestParams ? this.config.mockJitter : undefined);
 
     const rawError =
       getQueryVal('mock_error', 'mockError', 'mock-error') ??
       getHeaderVal('x-mock-error', 'mock-error') ??
-      (!isProtected ? this.config.mockError : undefined);
+      (!isProtected && allowRequestParams ? this.config.mockError : undefined);
 
     const rawFailRate =
       getQueryVal('mock_fail_rate', 'mockFailRate', 'mock-fail-rate', 'mock_failure_rate', 'mockFailureRate') ??
       getHeaderVal('x-mock-fail-rate', 'mock-fail-rate', 'x-mock-failure-rate', 'mock-failure-rate') ??
-      (!isProtected ? this.config.mockFailRate : undefined);
+      (!isProtected && allowRequestParams ? this.config.mockFailRate : undefined);
 
     const rawErrorMessage =
       getQueryVal('mock_error_message', 'mockErrorMessage', 'mock-error-message') ??
       getHeaderVal('x-mock-error-message', 'mock-error-message') ??
-      (!isProtected ? this.config.mockErrorMessage : undefined);
+      (!isProtected && allowRequestParams ? this.config.mockErrorMessage : undefined);
 
     // If nothing is configured or requested on this request, skip
     if (

@@ -11,7 +11,7 @@ export {
   CorsConfigOptions,
   CorsOrigin,
 } from './core/config/ConfigService';
-export { loadEnvFile } from './core/config/EnvLoader';
+export { loadEnvFile, getBoolEnv, getIntEnv, getStringEnv } from './core/config/EnvLoader';
 export { EventBus } from './core/events/EventBus';
 export * from './core/events/types';
 export * from './core/errors/AppError';

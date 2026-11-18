@@ -13,7 +13,12 @@ export class ApiKeyController extends BaseController {
 
   public async list(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const service = this.getService(req);
-    const keys = await service.listKeys();
+    const query = (req.query as any) || {};
+    const keys = await service.listKeys({
+      limit: query.limit !== undefined ? Number(query.limit) : undefined,
+      offset: query.offset !== undefined ? Number(query.offset) : undefined,
+      status: query.status,
+    });
     this.ok(reply, keys);
   }
 

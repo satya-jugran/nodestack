@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { ConflictError, ServiceUnavailableError } from '../errors/AppError';
 
 export interface MaintenanceGateOptions {
@@ -5,6 +7,8 @@ export interface MaintenanceGateOptions {
   drainTimeoutMs?: number;
   /** Maximum time (ms) a request can wait in queue before timing out with 503. Default: 10000ms */
   requestQueueTimeoutMs?: number;
+  /** Optional file lock path for multi-process / restart-safe cross-instance coordination */
+  lockFilePath?: string;
 }
 
 /**
@@ -28,14 +32,54 @@ export class MaintenanceGate {
     timer: NodeJS.Timeout;
   }> = [];
   private drainResolvers: Array<() => void> = [];
+  private lockFilePath?: string;
 
-  constructor(private options: MaintenanceGateOptions = {}) {}
+  constructor(private options: MaintenanceGateOptions = {}) {
+    this.lockFilePath = options.lockFilePath;
+    this.checkStaleLock();
+  }
+
+  public setLockFilePath(filePath: string): void {
+    this.lockFilePath = filePath;
+    this.checkStaleLock();
+  }
+
+  private checkStaleLock(): void {
+    if (!this.lockFilePath) return;
+    try {
+      if (fs.existsSync(this.lockFilePath)) {
+        const content = fs.readFileSync(this.lockFilePath, 'utf8');
+        const meta = JSON.parse(content);
+        const ageMs = Date.now() - new Date(meta.timestamp).getTime();
+        if (ageMs > 60000) {
+          try {
+            fs.unlinkSync(this.lockFilePath);
+          } catch {}
+        }
+      }
+    } catch {
+      try {
+        fs.unlinkSync(this.lockFilePath);
+      } catch {}
+    }
+  }
 
   /**
    * Returns whether maintenance mode / gate is currently active.
    */
   public isMaintenanceActive(): boolean {
-    return this.isGated;
+    if (this.isGated) return true;
+    if (this.lockFilePath) {
+      try {
+        if (fs.existsSync(this.lockFilePath)) {
+          this.checkStaleLock();
+          return fs.existsSync(this.lockFilePath);
+        }
+      } catch {
+        return false;
+      }
+    }
+    return false;
   }
 
   /**
@@ -69,7 +113,7 @@ export class MaintenanceGate {
       return;
     }
 
-    if (this.isGated) {
+    if (this.isMaintenanceActive()) {
       // Hold incoming request in queue until exclusive maintenance completes
       await new Promise<void>((resolve, reject) => {
         const timeoutMs = this.options.requestQueueTimeoutMs ?? 10000;
@@ -134,12 +178,28 @@ export class MaintenanceGate {
    * 4. Unlocks the gate and releases all queued requests in FIFO order.
    */
   public async executeExclusive<T>(action: () => Promise<T> | T): Promise<T> {
-    if (this.isExecutingExclusive) {
-      throw new ConflictError('A demo reset or maintenance operation is already in progress.');
+    if (this.isExecutingExclusive || (this.lockFilePath && fs.existsSync(this.lockFilePath))) {
+      this.checkStaleLock();
+      if (this.isExecutingExclusive || (this.lockFilePath && fs.existsSync(this.lockFilePath))) {
+        throw new ConflictError('A demo reset or maintenance operation is already in progress.');
+      }
     }
 
     this.isExecutingExclusive = true;
     this.isGated = true;
+
+    if (this.lockFilePath) {
+      try {
+        const dir = path.dirname(this.lockFilePath);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(
+          this.lockFilePath,
+          JSON.stringify({ pid: process.pid, timestamp: new Date().toISOString() })
+        );
+      } catch {
+        // non-fatal
+      }
+    }
 
     try {
       // 1. Wait for existing in-flight requests to complete
@@ -148,9 +208,18 @@ export class MaintenanceGate {
       // 2. Perform exclusive action safely (zero active requests)
       return await action();
     } finally {
-      // 3. Guaranteed unlock and queue flush
+      // 3. Guaranteed unlock, lockfile release, and queue flush
       this.isGated = false;
       this.isExecutingExclusive = false;
+      if (this.lockFilePath) {
+        try {
+          if (fs.existsSync(this.lockFilePath)) {
+            fs.unlinkSync(this.lockFilePath);
+          }
+        } catch {
+          // non-fatal
+        }
+      }
       this.flushWaitingQueue();
     }
   }
@@ -210,6 +279,13 @@ export class MaintenanceGate {
   public reset(): void {
     this.isGated = false;
     this.isExecutingExclusive = false;
+    if (this.lockFilePath) {
+      try {
+        if (fs.existsSync(this.lockFilePath)) {
+          fs.unlinkSync(this.lockFilePath);
+        }
+      } catch {}
+    }
     this.activeRequests.clear();
     this.flushWaitingQueue();
     this.notifyDrain();

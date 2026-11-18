@@ -13,6 +13,16 @@ import {
 export class PostgresFtsDriver implements IFtsDriver {
   constructor(private db: DatabaseService) {}
 
+  private resolveLanguage(lang?: string): string {
+    if (lang && typeof lang === 'string') {
+      const clean = lang.trim().toLowerCase();
+      if (/^[a-z_]{2,20}$/.test(clean)) {
+        return clean;
+      }
+    }
+    return 'english';
+  }
+
   public async hasFtsIndex(collectionName: string): Promise<boolean> {
     const tableName = getFtsTableName(collectionName);
     const row = await this.db.get<{ table_name: string }>(
@@ -64,7 +74,7 @@ export class PostgresFtsDriver implements IFtsDriver {
 
     await this.db.transaction(async () => {
       await this.dropCollectionFts(col.name);
-      await this.createFtsTableAndTriggers(col.name, ftsTable, fieldNames);
+      await this.createFtsTableAndTriggers(col.name, ftsTable, fieldNames, col.options?.ftsLanguage);
     });
   }
 
@@ -113,7 +123,7 @@ export class PostgresFtsDriver implements IFtsDriver {
     }
   }
 
-  public async rebuildIndex(collectionName: string): Promise<void> {
+  public async rebuildIndex(collectionName: string, lang = 'english'): Promise<void> {
     const ftsTable = getFtsTableName(collectionName);
     const existingColumns = await this.getFtsIndexColumns(collectionName);
     if (existingColumns.length === 0) return;
@@ -123,11 +133,12 @@ export class PostgresFtsDriver implements IFtsDriver {
       .map((c) => `coalesce("${c}", '')`)
       .join(" || ' ' || ");
 
+    const safeLang = this.resolveLanguage(lang);
     await this.db.transaction(async () => {
       await this.db.exec(`DELETE FROM "${ftsTable}";`);
       await this.db.exec(`
         INSERT INTO "${ftsTable}" (id, search_vector, ${quotedCols})
-        SELECT id, to_tsvector('simple', ${vectorExpr}), ${quotedCols} FROM "${collectionName}";
+        SELECT id, to_tsvector('${safeLang}', ${vectorExpr}), ${quotedCols} FROM "${collectionName}";
       `);
     });
   }
@@ -158,11 +169,13 @@ export class PostgresFtsDriver implements IFtsDriver {
   public buildSearchPredicate(
     ftsTable: string,
     ftsFields: SchemaField[],
-    searchTerm: string
+    searchTerm: string,
+    options?: FtsQueryOptions
   ): { clause: string; params: any[] } {
+    const lang = this.resolveLanguage(options?.ftsLanguage);
     const tableRef = ftsTable === 'fts' || ftsTable.startsWith('_fts_') ? 'fts' : this.db.dialect.quoteIdentifier(ftsTable);
     return {
-      clause: `${tableRef}.search_vector @@ plainto_tsquery('simple', ?)`,
+      clause: `${tableRef}.search_vector @@ plainto_tsquery('${lang}', ?)`,
       params: [searchTerm],
     };
   }
@@ -170,8 +183,10 @@ export class PostgresFtsDriver implements IFtsDriver {
   private async createFtsTableAndTriggers(
     collectionName: string,
     ftsTable: string,
-    fieldNames: string[]
+    fieldNames: string[],
+    lang?: string
   ): Promise<void> {
+    const safeLang = this.resolveLanguage(lang);
     const quotedCols = fieldNames.map((c) => `"${c}" TEXT`).join(', ');
     const vectorExpr = fieldNames
       .map((c) => `coalesce("${c}", '')`)
@@ -190,7 +205,7 @@ export class PostgresFtsDriver implements IFtsDriver {
       const colNames = fieldNames.map((c) => `"${c}"`).join(', ');
       await this.db.exec(`
         INSERT INTO "${ftsTable}" (id, search_vector, ${colNames})
-        SELECT id, to_tsvector('simple', ${vectorExpr}), ${colNames} FROM "${collectionName}";
+        SELECT id, to_tsvector('${safeLang}', ${vectorExpr}), ${colNames} FROM "${collectionName}";
       `);
 
       // Trigger function
@@ -204,11 +219,11 @@ export class PostgresFtsDriver implements IFtsDriver {
           ELSIF (TG_OP = 'UPDATE') THEN
             DELETE FROM "${ftsTable}" WHERE id = OLD.id;
             INSERT INTO "${ftsTable}" (id, search_vector, ${colNames})
-            VALUES (NEW.id, to_tsvector('simple', ${fieldNames.map((c) => `coalesce(NEW."${c}", '')`).join(" || ' ' || ")}), ${fieldNames.map((c) => `NEW."${c}"`).join(', ')});
+            VALUES (NEW.id, to_tsvector('${safeLang}', ${fieldNames.map((c) => `coalesce(NEW."${c}", '')`).join(" || ' ' || ")}), ${fieldNames.map((c) => `NEW."${c}"`).join(', ')});
             RETURN NEW;
           ELSIF (TG_OP = 'INSERT') THEN
             INSERT INTO "${ftsTable}" (id, search_vector, ${colNames})
-            VALUES (NEW.id, to_tsvector('simple', ${fieldNames.map((c) => `coalesce(NEW."${c}", '')`).join(" || ' ' || ")}), ${fieldNames.map((c) => `NEW."${c}"`).join(', ')});
+            VALUES (NEW.id, to_tsvector('${safeLang}', ${fieldNames.map((c) => `coalesce(NEW."${c}", '')`).join(" || ' ' || ")}), ${fieldNames.map((c) => `NEW."${c}"`).join(', ')});
             RETURN NEW;
           END IF;
           RETURN NULL;

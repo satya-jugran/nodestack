@@ -553,10 +553,13 @@ describe('Latency & Chaos Simulation (For Testing Frontend States)', () => {
       expect(app.chaos.isProtectedPath('/api/collections/posts/records')).toBe(false);
 
       // 2. HTTP restore injection check: mock_error=500 and mock_delay must not disrupt snapshot restore
+      await app.auth.createInitialAdmin('admin@chaos.test', 'AdminPassword123!');
+      const auth = await app.auth.authenticateAdmin('admin@chaos.test', 'AdminPassword123!');
       const snap = await app.snapshots.createSnapshot({ name: 'Chaos Protected Snapshot' });
       const res = await app.server.inject({
         method: 'POST',
         url: `/api/snapshots/${snap.id}/restore?mock_error=500&mock_delay=2000`,
+        headers: { authorization: `Bearer ${auth.token}` },
       });
 
       expect(res.statusCode).toBe(200);

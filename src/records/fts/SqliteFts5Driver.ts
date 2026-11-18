@@ -69,7 +69,7 @@ export class SqliteFts5Driver implements IFtsDriver {
 
     this.db.transaction(() => {
       this.dropCollectionFts(col.name);
-      this.createFtsTableAndTriggers(col.name, ftsTable, fieldNames);
+      this.createFtsTableAndTriggers(col.name, ftsTable, fieldNames, col.options);
     });
   }
 
@@ -168,7 +168,8 @@ export class SqliteFts5Driver implements IFtsDriver {
   public buildSearchPredicate(
     ftsTable: string,
     ftsFields: SchemaField[],
-    searchTerm: string
+    searchTerm: string,
+    _options?: FtsQueryOptions
   ): { clause: string; params: any[] } {
     return {
       clause: `${this.db.dialect.quoteIdentifier(ftsTable)} MATCH ?`,
@@ -179,16 +180,19 @@ export class SqliteFts5Driver implements IFtsDriver {
   private createFtsTableAndTriggers(
     collectionName: string,
     ftsTable: string,
-    fieldNames: string[]
+    fieldNames: string[],
+    options?: Record<string, any>
   ): void {
     const quotedCols = fieldNames.map((c) => `"${c}"`).join(', ');
+    const rawTokenizer = options?.ftsTokenizer || (options?.ftsLanguage && options.ftsLanguage !== 'english' ? 'unicode61' : 'porter unicode61');
+    const safeTokenizer = String(rawTokenizer).replace(/[^a-zA-Z0-9_\s]/g, '') || 'porter unicode61';
 
     this.db.transaction(() => {
       this.db.exec(`
         CREATE VIRTUAL TABLE IF NOT EXISTS "${ftsTable}" USING fts5(
           id UNINDEXED,
           ${quotedCols},
-          tokenize = 'porter unicode61'
+          tokenize = '${safeTokenizer}'
         );
       `);
 
