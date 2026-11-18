@@ -36,32 +36,101 @@ export class MaintenanceGate {
 
   constructor(private options: MaintenanceGateOptions = {}) {
     this.lockFilePath = options.lockFilePath;
-    this.checkStaleLock();
+    this.reclaimLockIfDeadOwner();
   }
 
   public setLockFilePath(filePath: string): void {
     this.lockFilePath = filePath;
-    this.checkStaleLock();
+    this.reclaimLockIfDeadOwner();
   }
 
-  private checkStaleLock(): void {
-    if (!this.lockFilePath) return;
+  /**
+   * Checks whether a process with the given PID is currently alive on the system.
+   */
+  public isProcessAlive(pid: number): boolean {
+    if (!pid || typeof pid !== 'number' || pid <= 0) {
+      return false;
+    }
     try {
-      if (fs.existsSync(this.lockFilePath)) {
-        const content = fs.readFileSync(this.lockFilePath, 'utf8');
-        const meta = JSON.parse(content);
-        const ageMs = Date.now() - new Date(meta.timestamp).getTime();
-        if (ageMs > 60000) {
-          try {
-            fs.unlinkSync(this.lockFilePath);
-          } catch {}
+      process.kill(pid, 0);
+      return true;
+    } catch (err: any) {
+      if (err && err.code === 'EPERM') {
+        return true;
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Inspects the lockfile and reclaims it only if the owner process is dead or if unparseable.
+   * If the owner process is still alive (or currently executing exclusive in this process),
+   * the lock is preserved regardless of how long it has been held.
+   *
+   * @returns true if no lock exists or a dead lock was reclaimed; false if held by an active live owner.
+   */
+  public reclaimLockIfDeadOwner(): boolean {
+    if (!this.lockFilePath) return true;
+    try {
+      if (!fs.existsSync(this.lockFilePath)) {
+        return true;
+      }
+      const content = fs.readFileSync(this.lockFilePath, 'utf8');
+      let meta: any;
+      try {
+        meta = JSON.parse(content);
+      } catch {
+        try {
+          fs.unlinkSync(this.lockFilePath);
+          return true;
+        } catch {
+          return false;
         }
       }
+
+      const pid = meta?.pid;
+      if (!pid || typeof pid !== 'number' || pid <= 0) {
+        try {
+          fs.unlinkSync(this.lockFilePath);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      // If owned by current process:
+      if (pid === process.pid) {
+        if (!this.isExecutingExclusive) {
+          // Orphaned remnant from prior execution in this process
+          try {
+            fs.unlinkSync(this.lockFilePath);
+            return true;
+          } catch {
+            return false;
+          }
+        }
+        return false;
+      }
+
+      // If owned by another process, only reclaim if the owner is dead
+      if (!this.isProcessAlive(pid)) {
+        try {
+          fs.unlinkSync(this.lockFilePath);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      // Owner process is alive: lock is actively held
+      return false;
     } catch {
-      try {
-        fs.unlinkSync(this.lockFilePath);
-      } catch {}
+      return !fs.existsSync(this.lockFilePath);
     }
+  }
+
+  public checkStaleLock(): void {
+    this.reclaimLockIfDeadOwner();
   }
 
   /**
@@ -72,8 +141,8 @@ export class MaintenanceGate {
     if (this.lockFilePath) {
       try {
         if (fs.existsSync(this.lockFilePath)) {
-          this.checkStaleLock();
-          return fs.existsSync(this.lockFilePath);
+          const isFree = this.reclaimLockIfDeadOwner();
+          return !isFree;
         }
       } catch {
         return false;
@@ -178,9 +247,13 @@ export class MaintenanceGate {
    * 4. Unlocks the gate and releases all queued requests in FIFO order.
    */
   public async executeExclusive<T>(action: () => Promise<T> | T): Promise<T> {
-    if (this.isExecutingExclusive || (this.lockFilePath && fs.existsSync(this.lockFilePath))) {
-      this.checkStaleLock();
-      if (this.isExecutingExclusive || (this.lockFilePath && fs.existsSync(this.lockFilePath))) {
+    if (this.isExecutingExclusive) {
+      throw new ConflictError('A demo reset or maintenance operation is already in progress.');
+    }
+
+    if (this.lockFilePath) {
+      const isFree = this.reclaimLockIfDeadOwner();
+      if (!isFree) {
         throw new ConflictError('A demo reset or maintenance operation is already in progress.');
       }
     }
@@ -214,7 +287,14 @@ export class MaintenanceGate {
       if (this.lockFilePath) {
         try {
           if (fs.existsSync(this.lockFilePath)) {
-            fs.unlinkSync(this.lockFilePath);
+            const content = fs.readFileSync(this.lockFilePath, 'utf8');
+            let meta: any;
+            try {
+              meta = JSON.parse(content);
+            } catch {}
+            if (!meta || meta.pid === process.pid || !this.isProcessAlive(meta.pid)) {
+              fs.unlinkSync(this.lockFilePath);
+            }
           }
         } catch {
           // non-fatal
@@ -282,7 +362,14 @@ export class MaintenanceGate {
     if (this.lockFilePath) {
       try {
         if (fs.existsSync(this.lockFilePath)) {
-          fs.unlinkSync(this.lockFilePath);
+          const content = fs.readFileSync(this.lockFilePath, 'utf8');
+          let meta: any;
+          try {
+            meta = JSON.parse(content);
+          } catch {}
+          if (!meta || meta.pid === process.pid || !this.isProcessAlive(meta.pid)) {
+            fs.unlinkSync(this.lockFilePath);
+          }
         }
       } catch {}
     }

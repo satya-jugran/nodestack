@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { MaintenanceGate } from '../src/core/maintenance/MaintenanceGate';
 import { ConflictError, ServiceUnavailableError } from '../src/core/errors/AppError';
 
@@ -140,5 +142,112 @@ describe('MaintenanceGate', () => {
 
     gate.trackRequestEnd('lingering-req');
     expect(gate.getActiveRequestsCount()).toBe(0);
+  });
+
+  describe('Ownership & Liveness File Lock Coordination', () => {
+    const lockDir = path.resolve(__dirname, '../.test_maintenance_lock');
+    const lockFilePath = path.join(lockDir, 'maintenance.lock');
+
+    afterEach(() => {
+      if (fs.existsSync(lockDir)) {
+        fs.rmSync(lockDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should correctly report liveness using isProcessAlive', () => {
+      const gate = new MaintenanceGate();
+      // Current process PID is alive
+      expect(gate.isProcessAlive(process.pid)).toBe(true);
+      // Non-positive or invalid PIDs are not alive
+      expect(gate.isProcessAlive(0)).toBe(false);
+      expect(gate.isProcessAlive(-1)).toBe(false);
+      // Non-existent PID
+      expect(gate.isProcessAlive(9999999)).toBe(false);
+    });
+
+    it('should PRESERVE lock held by a live process even if older than 60 seconds (prevents premature reclamation)', () => {
+      fs.mkdirSync(lockDir, { recursive: true });
+      // Simulate lock held by another live process created 5 minutes ago
+      const fiveMinutesAgo = new Date(Date.now() - 300000).toISOString();
+      fs.writeFileSync(
+        lockFilePath,
+        JSON.stringify({ pid: 1, timestamp: fiveMinutesAgo }) // PID 1 or another live process
+      );
+
+      const gate = new MaintenanceGate();
+      // Stub isProcessAlive to return true for this owner
+      vi.spyOn(gate, 'isProcessAlive').mockImplementation((pid) => pid === 1);
+      gate.setLockFilePath(lockFilePath);
+
+      // Lock must NOT be reclaimed because owner is alive!
+      expect(gate.isMaintenanceActive()).toBe(true);
+      expect(fs.existsSync(lockFilePath)).toBe(true);
+
+      // Reclaim attempt must preserve it and report active lock held
+      const isFree = gate.reclaimLockIfDeadOwner();
+      expect(isFree).toBe(false);
+      expect(fs.existsSync(lockFilePath)).toBe(true);
+    });
+
+    it('should RECLAIM lock when owner process is dead', () => {
+      fs.mkdirSync(lockDir, { recursive: true });
+      const deadPid = 9999999;
+      fs.writeFileSync(
+        lockFilePath,
+        JSON.stringify({ pid: deadPid, timestamp: new Date().toISOString() })
+      );
+
+      const gate = new MaintenanceGate();
+      vi.spyOn(gate, 'isProcessAlive').mockReturnValue(false);
+      gate.setLockFilePath(lockFilePath);
+
+      // Dead owner -> lock must be reclaimed
+      expect(gate.isMaintenanceActive()).toBe(false);
+      expect(fs.existsSync(lockFilePath)).toBe(false);
+    });
+
+    it('should RECLAIM corrupt or invalid lock file without throwing', () => {
+      fs.mkdirSync(lockDir, { recursive: true });
+      fs.writeFileSync(lockFilePath, 'not-valid-json{{{');
+
+      const gate = new MaintenanceGate({ lockFilePath });
+      expect(gate.isMaintenanceActive()).toBe(false);
+      expect(fs.existsSync(lockFilePath)).toBe(false);
+    });
+
+    it('should create and release lock file atomically during executeExclusive', async () => {
+      const gate = new MaintenanceGate({ lockFilePath });
+
+      let lockExistedDuringAction = false;
+      let recordedPid: number | undefined;
+
+      await gate.executeExclusive(async () => {
+        lockExistedDuringAction = fs.existsSync(lockFilePath);
+        if (lockExistedDuringAction) {
+          const content = JSON.parse(fs.readFileSync(lockFilePath, 'utf8'));
+          recordedPid = content.pid;
+        }
+      });
+
+      expect(lockExistedDuringAction).toBe(true);
+      expect(recordedPid).toBe(process.pid);
+      // Cleaned up after completion
+      expect(fs.existsSync(lockFilePath)).toBe(false);
+    });
+
+    it('should reject executeExclusive if another live process holds the lock', async () => {
+      fs.mkdirSync(lockDir, { recursive: true });
+      fs.writeFileSync(
+        lockFilePath,
+        JSON.stringify({ pid: 88888, timestamp: new Date().toISOString() })
+      );
+
+      const gate = new MaintenanceGate();
+      vi.spyOn(gate, 'isProcessAlive').mockImplementation((pid) => pid === 88888);
+      gate.setLockFilePath(lockFilePath);
+
+      await expect(gate.executeExclusive(async () => 'conflict')).rejects.toThrow(ConflictError);
+      expect(fs.existsSync(lockFilePath)).toBe(true);
+    });
   });
 });
