@@ -546,10 +546,29 @@ export class NodeStack {
       errors.push(err);
     }
 
-    // Phase 2: Drain in-flight requests if maintenance gate is active
+    // Phase 2: Drain in-flight requests across all loaded scopes
+    const gates = new Set<MaintenanceGate>();
+    if (this.maintenanceGate) gates.add(this.maintenanceGate);
+    if (this.apps?.getLoadedScopes) {
+      for (const scope of this.apps.getLoadedScopes()) {
+        if (scope.maintenanceGate) {
+          gates.add(scope.maintenanceGate);
+        }
+      }
+    }
+
+    for (const gate of gates) {
+      gate.gate();
+    }
+
     try {
-      await this.maintenanceGate?.drain(3000);
-    } catch {}
+      await Promise.all(Array.from(gates).map((g) => g.drain(3000)));
+    } catch (err: any) {
+      const activeCount = Array.from(gates).reduce((acc, g) => acc + g.getActiveRequestsCount(), 0);
+      const msg = `In-flight request drain timed out after 3000ms with ${activeCount} active request(s) remaining.`;
+      console.warn(`[NodeStack] Warning: ${msg}`, err?.message || err);
+      errors.push(new Error(msg));
+    }
 
     // Phase 3: Drain & dispose QueueService across all app scopes
     try {

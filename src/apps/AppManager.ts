@@ -525,6 +525,10 @@ export class AppManager {
     }
   }
 
+  public getLoadedScopes(): AppScope[] {
+    return Array.from(new Set(this.appCache.values()));
+  }
+
   public async closeAllAsync(): Promise<void> {
     const closed = new Set<AppScope>();
     for (const scope of this.appCache.values()) {

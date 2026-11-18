@@ -100,13 +100,30 @@ export class MaintenanceGate {
   /**
    * Tracks request completion. Removes requestId from active requests
    * and notifies drain listeners when all in-flight requests have finished.
+   * Notifies independently of isGated so standalone/shutdown drain callers
+   * receive immediate completion notifications.
    */
   public trackRequestEnd(requestId: string): void {
     if (this.activeRequests.delete(requestId)) {
-      if (this.isGated && this.activeRequests.size === 0) {
+      if (this.activeRequests.size === 0) {
         this.notifyDrain();
       }
     }
+  }
+
+  /**
+   * Explicitly activates the gate to hold incoming requests in queue.
+   */
+  public gate(): void {
+    this.isGated = true;
+  }
+
+  /**
+   * Deactivates the gate and releases all queued requests in FIFO order.
+   */
+  public ungate(): void {
+    this.isGated = false;
+    this.flushWaitingQueue();
   }
 
   /**
