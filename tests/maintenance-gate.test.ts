@@ -263,5 +263,28 @@ describe('MaintenanceGate', () => {
       gate1.releaseFileLock();
       expect(fs.existsSync(lockFilePath)).toBe(false);
     });
+
+    it('should NOT unlink shared lock file on reset() if this instance does not own the lock token', () => {
+      const ownerGate = new MaintenanceGate({ lockFilePath });
+      const nonOwnerGate = new MaintenanceGate({ lockFilePath });
+
+      ownerGate.acquireFileLock();
+      expect(fs.existsSync(lockFilePath)).toBe(true);
+      const ownerToken = ownerGate.getCurrentLockToken();
+      expect(ownerToken).toBeDefined();
+
+      // nonOwnerGate calls reset() (e.g. during application shutdown/dispose in another process or scope)
+      nonOwnerGate.reset();
+
+      // Lock file must STILL exist because nonOwnerGate does not own the lock token!
+      expect(fs.existsSync(lockFilePath)).toBe(true);
+
+      const content = JSON.parse(fs.readFileSync(lockFilePath, 'utf8'));
+      expect(content.token).toBe(ownerToken);
+
+      // When the actual owner releases or resets, the lock file is removed
+      ownerGate.reset();
+      expect(fs.existsSync(lockFilePath)).toBe(false);
+    });
   });
 });

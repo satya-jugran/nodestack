@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { ConflictError, ServiceUnavailableError } from '../errors/AppError';
 
 export interface MaintenanceGateOptions {
@@ -33,6 +34,7 @@ export class MaintenanceGate {
   }> = [];
   private drainResolvers: Array<() => void> = [];
   private lockFilePath?: string;
+  private currentLockToken?: string;
 
   constructor(private options: MaintenanceGateOptions = {}) {
     this.lockFilePath = options.lockFilePath;
@@ -231,7 +233,15 @@ export class MaintenanceGate {
   }
 
   /**
+   * Returns the current instance-specific lock token if this instance holds the lock.
+   */
+  public getCurrentLockToken(): string | undefined {
+    return this.currentLockToken;
+  }
+
+  /**
    * Atomically acquires the file lock using exclusive open ('wx').
+   * Stores an instance-specific owner token in the lock file.
    * If the file already exists (EEXIST), checks if the holding process is dead.
    * If dead, reclaims the lock and retries once.
    * If alive (or retry also fails with EEXIST), throws ConflictError.
@@ -247,10 +257,16 @@ export class MaintenanceGate {
     // Attempt to reclaim if an existing lock belongs to a dead owner first
     this.reclaimLockIfDeadOwner();
 
-    const payload = JSON.stringify({ pid: process.pid, timestamp: new Date().toISOString() });
+    const token = crypto.randomUUID();
+    const payload = JSON.stringify({
+      pid: process.pid,
+      token,
+      timestamp: new Date().toISOString(),
+    });
 
     try {
       this.writeLockAtomic(payload);
+      this.currentLockToken = token;
     } catch (err: any) {
       if (err && err.code === 'EEXIST') {
         // Atomic collision: another process created the lock first.
@@ -258,6 +274,7 @@ export class MaintenanceGate {
         if (isFree) {
           try {
             this.writeLockAtomic(payload);
+            this.currentLockToken = token;
             return;
           } catch (retryErr: any) {
             if (retryErr && retryErr.code === 'EEXIST') {
@@ -284,8 +301,16 @@ export class MaintenanceGate {
     }
   }
 
+  /**
+   * Releases the file lock ONLY if this specific MaintenanceGate instance created it.
+   * Verifies the instance owner token matches the token stored in the file on disk.
+   */
   public releaseFileLock(): void {
-    if (!this.lockFilePath) return;
+    if (!this.lockFilePath || !this.currentLockToken) return;
+
+    const tokenToRelease = this.currentLockToken;
+    this.currentLockToken = undefined;
+
     try {
       if (fs.existsSync(this.lockFilePath)) {
         const content = fs.readFileSync(this.lockFilePath, 'utf8');
@@ -293,7 +318,7 @@ export class MaintenanceGate {
         try {
           meta = JSON.parse(content);
         } catch {}
-        if (!meta || meta.pid === process.pid || !this.isProcessAlive(meta.pid)) {
+        if (meta && meta.token === tokenToRelease) {
           fs.unlinkSync(this.lockFilePath);
         }
       }
