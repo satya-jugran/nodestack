@@ -83,6 +83,33 @@ export class PostgresFtsDriver implements IFtsDriver {
     }
   }
 
+  public async resolveCollectionLanguage(collectionName: string): Promise<string> {
+    // 1. Inspect existing FTS index / trigger function definition (preserves configured or legacy 'simple' language)
+    const indexLang = await this.getFtsIndexLanguage(collectionName);
+    if (indexLang) {
+      return indexLang;
+    }
+
+    // 2. Query configured collection options from _collections table
+    try {
+      const row = await this.db.get<{ options: string | Record<string, any> }>(
+        'SELECT options FROM _collections WHERE name = ?',
+        collectionName
+      );
+      if (row?.options) {
+        const opts = typeof row.options === 'string' ? JSON.parse(row.options) : row.options;
+        if (opts?.ftsLanguage) {
+          return this.resolveLanguage(opts.ftsLanguage);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // 3. Fallback default
+    return 'english';
+  }
+
   public async syncCollection(col: CollectionModel): Promise<void> {
     const ftsFields = getFtsFields(col);
     const ftsTable = getFtsTableName(col.name);
@@ -128,6 +155,10 @@ export class PostgresFtsDriver implements IFtsDriver {
     const cols = fieldNames || (await this.getFtsIndexColumns(collectionName));
     if (!cols || cols.length === 0) return { drifted: false, repaired: false };
 
+    const effectiveLang = lang
+      ? this.resolveLanguage(lang)
+      : await this.resolveCollectionLanguage(collectionName);
+
     try {
       const baseCountRow = await this.db.get<{ count: string | number }>(`SELECT COUNT(*) as count FROM "${collectionName}"`);
       const ftsCountRow = await this.db.get<{ count: string | number }>(`SELECT COUNT(*) as count FROM "${table}"`);
@@ -135,7 +166,7 @@ export class PostgresFtsDriver implements IFtsDriver {
       const ftsCount = Number(ftsCountRow?.count || 0);
 
       if (baseCount !== ftsCount) {
-        await this.rebuildIndex(collectionName, lang);
+        await this.rebuildIndex(collectionName, effectiveLang);
         return { drifted: true, repaired: true };
       }
 
@@ -147,7 +178,7 @@ export class PostgresFtsDriver implements IFtsDriver {
         );
 
         if (mismatch) {
-          await this.rebuildIndex(collectionName, lang);
+          await this.rebuildIndex(collectionName, effectiveLang);
           return { drifted: true, repaired: true };
         }
       }
@@ -180,7 +211,7 @@ export class PostgresFtsDriver implements IFtsDriver {
 
     const targetLang = lang
       ? this.resolveLanguage(lang)
-      : (await this.getFtsIndexLanguage(collectionName)) || 'english';
+      : await this.resolveCollectionLanguage(collectionName);
 
     await this.db.transaction(async () => {
       await this.db.exec(`DELETE FROM "${ftsTable}";`);

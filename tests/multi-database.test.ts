@@ -2100,6 +2100,97 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(executedSql.some((s) => s.includes('CREATE TABLE IF NOT EXISTS'))).toBe(false);
     });
 
+    it('should carry configured language through reconcile drift repair without defaulting to english', async () => {
+      const executedSql: string[] = [];
+      const fakeDb: any = {
+        dialect: new PostgresDialect(),
+        get: vi.fn(async (sql: string) => {
+          if (sql.includes('information_schema.tables')) {
+            return { table_name: '_fts_articles' };
+          }
+          if (sql.includes('obj_description')) {
+            return { comment: 'ftsLanguage:spanish' };
+          }
+          if (sql.includes('SELECT COUNT(*) as count FROM "articles"')) {
+            return { count: 12 }; // drift!
+          }
+          if (sql.includes('SELECT COUNT(*) as count FROM "_fts_articles"')) {
+            return { count: 10 };
+          }
+          return null;
+        }),
+        all: vi.fn(async (sql: string) => {
+          if (sql.includes('information_schema.columns')) {
+            return [{ column_name: 'title' }];
+          }
+          return [];
+        }),
+        exec: vi.fn(async (sql: string) => {
+          executedSql.push(sql);
+        }),
+        transaction: vi.fn(async (cb: any) => cb()),
+      };
+
+      const pgFts = new PostgresFtsDriver(fakeDb as any);
+
+      // Call reconcile directly without passing lang
+      const res = await pgFts.reconcile('articles');
+      expect(res.drifted).toBe(true);
+      expect(res.repaired).toBe(true);
+
+      // Rebuild should have used spanish, NOT defaulted to english
+      expect(executedSql.some((s) => s.includes("to_tsvector('spanish'"))).toBe(true);
+      expect(executedSql.some((s) => s.includes("to_tsvector('english'"))).toBe(false);
+      expect(executedSql.some((s) => s.includes("COMMENT ON TABLE \"_fts_articles\" IS 'ftsLanguage:spanish'"))).toBe(true);
+    });
+
+    it('should carry legacy simple language through reconcile drift repair on legacy Postgres indexes', async () => {
+      const executedSql: string[] = [];
+      const fakeDb: any = {
+        dialect: new PostgresDialect(),
+        get: vi.fn(async (sql: string) => {
+          if (sql.includes('information_schema.tables')) {
+            return { table_name: '_fts_posts' };
+          }
+          if (sql.includes('obj_description')) {
+            return null; // legacy index has no table comment
+          }
+          if (sql.includes('pg_proc')) {
+            // legacy function definition used 'simple'
+            return { prosrc: "VALUES (NEW.id, to_tsvector('simple', coalesce(NEW.\"title\", '')))" };
+          }
+          if (sql.includes('SELECT COUNT(*) as count FROM "posts"')) {
+            return { count: 5 }; // drift!
+          }
+          if (sql.includes('SELECT COUNT(*) as count FROM "_fts_posts"')) {
+            return { count: 3 };
+          }
+          return null;
+        }),
+        all: vi.fn(async (sql: string) => {
+          if (sql.includes('information_schema.columns')) {
+            return [{ column_name: 'title' }];
+          }
+          return [];
+        }),
+        exec: vi.fn(async (sql: string) => {
+          executedSql.push(sql);
+        }),
+        transaction: vi.fn(async (cb: any) => cb()),
+      };
+
+      const pgFts = new PostgresFtsDriver(fakeDb as any);
+
+      // Call reconcile directly without passing lang
+      const res = await pgFts.reconcile('posts');
+      expect(res.drifted).toBe(true);
+      expect(res.repaired).toBe(true);
+
+      // Rebuild should have used legacy 'simple', NOT defaulted to english
+      expect(executedSql.some((s) => s.includes("to_tsvector('simple'"))).toBe(true);
+      expect(executedSql.some((s) => s.includes("to_tsvector('english'"))).toBe(false);
+    });
+
     it('Round 2 Item 9: should reject auth-reserved camelCase fields passwordHash, tokenKey, emailVisibility in auth collections', () => {
       const fakeDb: any = {
         dialect: new NodeSqliteDriver(':memory:').dialect,
