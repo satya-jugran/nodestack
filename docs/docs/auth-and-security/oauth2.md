@@ -132,6 +132,7 @@ For custom frontend/server callback routes, notify `window.opener`:
   const code = params.get('code') || /* server-injected POST body */ undefined;
   const state = params.get('state') || /* server-injected POST body */ undefined;
   const error = params.get('error') || params.get('error_description');
+  const user = /* server-injected POST body for Apple form_post */ undefined;
 
   if (window.opener) {
     window.opener.postMessage({
@@ -139,6 +140,7 @@ For custom frontend/server callback routes, notify `window.opener`:
       code: code,
       state: state,
       error: error,
+      user: user, // Apple sends user payload ({ name: { firstName, lastName } }) in form_post
     }, window.location.origin);
   }
 </script>

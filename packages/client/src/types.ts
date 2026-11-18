@@ -129,6 +129,8 @@ export interface OAuth2AuthOptions {
   createData?: Record<string, any>;
   urlCallback?: (url: string) => Window | null | void;
   popup?: Window | null;
+  user?: any;
+  extraData?: any;
 }
 
 export interface RecordOAuthResponse<T = RecordModel> extends RecordAuthResponse<T> {

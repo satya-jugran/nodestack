@@ -1158,7 +1158,8 @@ export class AuthService {
     fileStorageService?: FileStorageService,
     callerAuth?: any,
     state?: string,
-    httpContext?: any
+    httpContext?: any,
+    extraData?: any
   ): Promise<OAuthAuthResult> {
     const col = await this.schemaService.getCollectionOrThrow(collectionName);
     if (col.type !== 'auth') {
@@ -1186,9 +1187,15 @@ export class AuthService {
     );
 
     const effectiveRedirectUri = redirectUri || session.redirectUri;
+    const effectiveExtraData =
+      extraData ||
+      (httpContext?.body?.extraData ? httpContext.body.extraData : undefined) ||
+      (httpContext?.body?.user !== undefined ? { user: httpContext.body.user } : undefined) ||
+      (createData?.extraData ? createData.extraData : undefined) ||
+      (createData?.user !== undefined ? { user: createData.user } : undefined);
 
     // 1. Exchange authorization code and code_verifier with provider
-    const exchange = await provider.exchangeCode(code, codeVerifier, effectiveRedirectUri);
+    const exchange = await provider.exchangeCode(code, codeVerifier, effectiveRedirectUri, effectiveExtraData);
     const { id: providerUserId, email: rawEmail, name, avatarUrl, isEmailVerified, rawUser } = exchange.profile;
     const cleanEmail = (rawEmail || '').toLowerCase().trim();
 
@@ -1301,9 +1308,11 @@ export class AuthService {
       if (createData && typeof createData === 'object') {
         const reservedFields = new Set(['id', 'passwordHash', 'tokenKey', 'created', 'updated']);
         for (const [key, val] of Object.entries(createData)) {
-          if (!reservedFields.has(key)) {
-            insertRecord[key] = val;
+          if (reservedFields.has(key)) continue;
+          if ((key === 'user' || key === 'extraData') && !col.schema.some((f) => f.name === key)) {
+            continue;
           }
+          insertRecord[key] = val;
         }
       }
 

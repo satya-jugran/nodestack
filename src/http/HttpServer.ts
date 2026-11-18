@@ -1085,6 +1085,14 @@ export class HttpServer {
       const code = data.code || null;
       const state = data.state || null;
       const error = data.error || data.error_description || null;
+      let user = data.user || null;
+      if (typeof user === 'string') {
+        try {
+          user = JSON.parse(user);
+        } catch {
+          // Keep raw string if not JSON
+        }
+      }
 
       const html = `<!DOCTYPE html>
 <html>
@@ -1099,7 +1107,8 @@ export class HttpServer {
         type: 'nodestack_oauth_callback',
         code: ${JSON.stringify(code)},
         state: ${JSON.stringify(state)},
-        error: ${JSON.stringify(error)}
+        error: ${JSON.stringify(error)},
+        user: ${JSON.stringify(user)}
       };
       if (window.opener) {
         window.opener.postMessage(payload, '*');

@@ -130,11 +130,22 @@ export class AppleProvider extends BaseOAuthProvider {
     if (tokenData?.user) {
       try {
         const u = typeof tokenData.user === 'string' ? JSON.parse(tokenData.user) : tokenData.user;
-        if (u?.name) {
-          const parts = [u.name.firstName, u.name.lastName].filter(Boolean);
+        if (typeof u?.name === 'string') {
+          userName = u.name.trim();
+        } else if (u?.name && typeof u.name === 'object') {
+          const parts = [u.name.firstName, u.name.middleName, u.name.lastName].filter(Boolean);
           if (parts.length > 0) userName = parts.join(' ');
         }
       } catch {}
+    }
+
+    const rawUser: Record<string, any> = { ...payload };
+    if (tokenData?.user) {
+      try {
+        rawUser.user = typeof tokenData.user === 'string' ? JSON.parse(tokenData.user) : tokenData.user;
+      } catch {
+        rawUser.user = tokenData.user;
+      }
     }
 
     return {
@@ -143,7 +154,7 @@ export class AppleProvider extends BaseOAuthProvider {
       name: userName,
       avatarUrl: undefined,
       isEmailVerified,
-      rawUser: payload,
+      rawUser,
     };
   }
 

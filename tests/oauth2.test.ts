@@ -1348,6 +1348,112 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(profile.email).toBe('named@apple.com');
       expect(profile.name).toBe('Jane Doe');
     });
+
+    it('should propagate extraData.user into exchangeCode and extract name in AppleProvider', async () => {
+      const appleProvider = new AppleProvider({
+        clientId,
+        clientSecret,
+        customKeys: [jwk],
+      });
+
+      const validToken = jwt.sign(
+        {
+          iss: 'https://appleid.apple.com',
+          aud: clientId,
+          sub: 'apple_user_extra_data',
+          email: 'extradata@apple.com',
+          email_verified: 'true',
+        },
+        privateKey,
+        {
+          algorithm: 'RS256',
+          keyid: testKid,
+        }
+      );
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        return {
+          ok: true,
+          json: async () => ({
+            access_token: 'mock_apple_token',
+            id_token: validToken,
+            token_type: 'Bearer',
+            expires_in: 3600,
+          }),
+        } as any;
+      });
+
+      try {
+        const exchange = await appleProvider.exchangeCode(
+          'test_apple_code',
+          'test_verifier',
+          'https://example.com/cb',
+          { user: { name: { firstName: 'Johnny', lastName: 'Appleseed' } } }
+        );
+
+        expect(exchange.profile.id).toBe('apple_user_extra_data');
+        expect(exchange.profile.email).toBe('extradata@apple.com');
+        expect(exchange.profile.name).toBe('Johnny Appleseed');
+        expect(exchange.profile.rawUser.user).toEqual({ name: { firstName: 'Johnny', lastName: 'Appleseed' } });
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('should propagate form_post user body through handleCallback to AppleProvider profile', async () => {
+      const appleProvider = new AppleProvider({
+        clientId,
+        clientSecret,
+        customKeys: [jwk],
+      });
+
+      const validToken = jwt.sign(
+        {
+          iss: 'https://appleid.apple.com',
+          aud: clientId,
+          sub: 'apple_user_callback_body',
+          email: 'callbackbody@apple.com',
+          email_verified: 'true',
+        },
+        privateKey,
+        {
+          algorithm: 'RS256',
+          keyid: testKid,
+        }
+      );
+
+      const authUrl = appleProvider.getAuthorizationUrl('https://example.com/cb');
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        return {
+          ok: true,
+          json: async () => ({
+            access_token: 'mock_apple_token',
+            id_token: validToken,
+            token_type: 'Bearer',
+            expires_in: 3600,
+          }),
+        } as any;
+      });
+
+      try {
+        const exchange = await appleProvider.handleCallback({
+          body: {
+            code: 'test_callback_code',
+            state: authUrl.state,
+            codeVerifier: authUrl.codeVerifier,
+            redirectUri: 'https://example.com/cb',
+            user: JSON.stringify({ name: { firstName: 'Ada', lastName: 'Lovelace' } }),
+          },
+        });
+
+        expect(exchange.profile.id).toBe('apple_user_callback_body');
+        expect(exchange.profile.email).toBe('callbackbody@apple.com');
+        expect(exchange.profile.name).toBe('Ada Lovelace');
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
   });
 
   describe('7. GitHub Provider Email Verification Metadata Resolution', () => {
@@ -2911,6 +3017,101 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       const html = await res.text();
       expect(html).toContain('nodestack_oauth_callback');
       expect(html).toContain('error: "access_denied"');
+    });
+
+    it('should include parsed user payload in rendered postMessage HTML when Apple sends user in form_post', async () => {
+      const appleUser = JSON.stringify({ name: { firstName: 'Tim', lastName: 'Cook' }, email: 'tcook@apple.com' });
+      const res = await fetch(`${serverUrl}/api/oauth2-redirect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `code=apple_code_with_user&state=apple_state_with_user&user=${encodeURIComponent(appleUser)}`,
+      });
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain('nodestack_oauth_callback');
+      expect(html).toContain('code: "apple_code_with_user"');
+      expect(html).toContain('state: "apple_state_with_user"');
+      expect(html).toContain('"firstName":"Tim"');
+      expect(html).toContain('"lastName":"Cook"');
+    });
+
+    it('should provision user with name when Apple callback user payload is propagated through authenticateOAuth2', async () => {
+      const { generateKeyPairSync } = await import('crypto');
+      const { privateKey: e2ePrivKey, publicKey: e2ePubKey } = generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+      });
+      const e2eJwk = e2ePubKey.export({ format: 'jwk' }) as any;
+      const e2eKid = 'e2e_apple_kid';
+      e2eJwk.kid = e2eKid;
+      e2eJwk.use = 'sig';
+      e2eJwk.alg = 'RS256';
+
+      const appleProvider = new AppleProvider({
+        clientId: 'e2e.apple.client',
+        clientSecret: 'e2e_apple_secret',
+        customKeys: [e2eJwk],
+      });
+      app.auth.getOAuthRegistry().register(appleProvider, { allowOverwrite: true });
+
+      const validToken = jwt.sign(
+        {
+          iss: 'https://appleid.apple.com',
+          aud: 'e2e.apple.client',
+          sub: 'apple_sub_e2e_name',
+          email: 'e2e_apple@apple.com',
+          email_verified: 'true',
+        },
+        e2ePrivKey,
+        {
+          algorithm: 'RS256',
+          keyid: e2eKid,
+        }
+      );
+
+      const testState = 'e2e_apple_state_123';
+      const testVerifier = 'e2e_apple_verifier_123';
+      app.auth.getOAuthRegistry().registerSession({
+        state: testState,
+        codeVerifier: testVerifier,
+        provider: 'apple',
+        collection: 'users',
+        redirectUri: 'https://example.com/oauth2-redirect',
+      });
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        return {
+          ok: true,
+          json: async () => ({
+            access_token: 'mock_apple_token',
+            id_token: validToken,
+            token_type: 'Bearer',
+            expires_in: 3600,
+          }),
+        } as any;
+      });
+
+      try {
+        const result = await app.auth.authenticateOAuth2(
+          'users',
+          'apple',
+          'test_apple_e2e_code',
+          testVerifier,
+          'https://example.com/oauth2-redirect',
+          undefined,
+          undefined,
+          undefined,
+          testState,
+          undefined,
+          { user: { name: { firstName: 'Steve', lastName: 'Jobs' } } }
+        );
+
+        expect(result.token).toBeDefined();
+        expect(result.record).toBeDefined();
+        expect(result.record.email).toBe('e2e_apple@apple.com');
+        expect(result.record.name).toBe('Steve Jobs');
+      } finally {
+        fetchSpy.mockRestore();
+      }
     });
   });
 });

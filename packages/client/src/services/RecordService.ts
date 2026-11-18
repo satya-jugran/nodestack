@@ -341,6 +341,8 @@ export class RecordService<T = RecordModel> extends BaseService {
                 redirectUrl: options.redirectUrl,
                 createData: options.createData,
                 state: expectedState,
+                user: event.data.user || options.user,
+                extraData: event.data.extraData || options.extraData,
               });
               resolve(res);
             } catch (err) {
@@ -379,6 +381,8 @@ export class RecordService<T = RecordModel> extends BaseService {
           state: options.state,
           redirectUrl: options.redirectUrl,
           createData: options.createData,
+          user: options.user,
+          extraData: options.extraData,
         },
       }
     );
