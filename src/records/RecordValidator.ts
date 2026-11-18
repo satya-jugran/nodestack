@@ -125,13 +125,23 @@ export class RecordValidator {
         } catch {
           items = [value];
         }
-      } else if (value !== undefined && value !== null) {
+      } else if (value !== undefined && value !== null && value !== '') {
         items = [value];
       }
+
       for (const item of items) {
-        if (typeof item === 'string' || typeof item === 'number') {
-          RecordValidator.validateRecordId(item);
+        if (item === null || item === undefined || (typeof item !== 'string' && typeof item !== 'number')) {
+          const receivedType = item === null ? 'null' : typeof item;
+          throw new ValidationError(
+            `Relation field '${field.name}' must contain valid record ID strings, received ${receivedType}`
+          );
         }
+        if (typeof item === 'string' && item.trim() === '') {
+          throw new ValidationError(
+            `Relation field '${field.name}' cannot contain empty record IDs`
+          );
+        }
+        RecordValidator.validateRecordId(item);
       }
     }
   }
