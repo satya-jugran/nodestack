@@ -1278,6 +1278,45 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(authUrl).toContain('scope=name+email');
     });
 
+    it('should reject construction when responseMode: query is configured with default or non-empty scopes', () => {
+      expect(() => {
+        new AppleProvider({
+          clientId,
+          clientSecret,
+          responseMode: 'query',
+        });
+      }).toThrow(/Invalid Apple OAuth configuration: Apple does not support responseMode 'query'/);
+
+      expect(() => {
+        new AppleProvider({
+          clientId,
+          clientSecret,
+          scopes: ['email'],
+          responseMode: 'query',
+        });
+      }).toThrow(/Invalid Apple OAuth configuration: Apple does not support responseMode 'query'/);
+    });
+
+    it('should allow responseMode: query when scopes are explicitly empty', () => {
+      const appleNoScopes = new AppleProvider({
+        clientId,
+        clientSecret,
+        scopes: [],
+        responseMode: 'query',
+      });
+      const authUrl = appleNoScopes.buildAuthUrl('test_state', 'test_challenge', 'https://example.com/cb');
+      expect(authUrl).toContain('response_mode=query');
+    });
+
+    it('should always enforce response_mode=form_post if effective scopes are non-empty', () => {
+      const appleProvider = new AppleProvider({
+        clientId,
+        clientSecret,
+      });
+      const authUrl = appleProvider.buildAuthUrl('test_state', 'test_challenge', 'https://example.com/cb', ['name']);
+      expect(authUrl).toContain('response_mode=form_post');
+    });
+
     it('should extract user name from tokenData.user payload in Apple form_post', async () => {
       const appleProvider = new AppleProvider({
         clientId,

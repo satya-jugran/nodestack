@@ -21,6 +21,14 @@ export class AppleProvider extends BaseOAuthProvider {
   private jwksCache: { keys: any[]; expiresAt: number } | null = null;
 
   constructor(config: AppleProviderConfig) {
+    const effectiveScopes = config.scopes !== undefined ? config.scopes : ['name', 'email'];
+    if (config.responseMode === 'query' && effectiveScopes && effectiveScopes.length > 0) {
+      throw new AppError(
+        "Invalid Apple OAuth configuration: Apple does not support responseMode 'query' when scopes ('name', 'email') are requested. Apple requires 'form_post'.",
+        400
+      );
+    }
+
     super({
       name: 'apple',
       displayName: 'Apple',
@@ -44,11 +52,12 @@ export class AppleProvider extends BaseOAuthProvider {
     scopes?: string[]
   ): string {
     const url = super.buildAuthUrl(state, codeChallenge, redirectUri, scopes);
-    const effectiveScopes = scopes || this.scopes;
+    const effectiveScopes = scopes !== undefined ? scopes : this.scopes;
+    const hasScopes = Boolean(effectiveScopes && effectiveScopes.length > 0);
     // Apple strictly requires response_mode=form_post when scopes ('name', 'email') are requested.
     // Specifying response_mode=query when requesting scopes returns an error from Apple:
     // 'invalid_request: response_mode=query is not supported when scope is requested'
-    const mode = this.responseMode || (effectiveScopes && effectiveScopes.length > 0 ? 'form_post' : 'query');
+    const mode = hasScopes ? 'form_post' : (this.responseMode || 'query');
     return `${url}&response_mode=${mode}`;
   }
 
