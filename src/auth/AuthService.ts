@@ -11,6 +11,8 @@ import { AuthMethodProviderInfo, ExternalAuthModel, OAuthProfile } from './oauth
 import { FileStorageService } from '../files/FileStorageService';
 import { RuleEngine } from '../rules/RuleEngine';
 import { RecordValidator } from '../records/RecordValidator';
+import { RecordSanitizer } from '../records/RecordSanitizer';
+import { CollectionModel } from '../schema/models/Collection';
 import { EventBus } from '../core/events/EventBus';
 import { RealtimeService, RealtimeIdentityFilter } from '../realtime/RealtimeService';
 import { SsrfGuard } from '../functions/security/SsrfGuard';
@@ -603,12 +605,67 @@ export class AuthService {
     };
 
     const token = this.generateToken(claims, '14d');
-    const { passwordHash, tokenKey, ...adminSafe } = admin;
+    const adminSafe = this.sanitizeAdminRecord(admin);
 
     return {
       token,
       record: adminSafe,
     };
+  }
+
+  public sanitizeAdminRecord(admin: Record<string, any>): Record<string, any> {
+    return {
+      id: admin.id,
+      email: admin.email,
+      avatar: admin.avatar || null,
+      created: admin.created,
+      updated: admin.updated,
+      verified: admin.verified !== undefined ? Boolean(admin.verified) : true,
+    };
+  }
+
+  public sanitizeAuthRecord(record: Record<string, any>, col?: CollectionModel): Record<string, any> {
+    const rawVerified = record.verified;
+    let clean: Record<string, any>;
+    if (col) {
+      clean = RecordSanitizer.sanitize(record, col, undefined, true);
+    } else {
+      clean = { ...record };
+      const sensitive = [
+        'passwordHash',
+        'password_hash',
+        'tokenKey',
+        'token_key',
+        'password',
+        'resetToken',
+        'reset_token',
+        'verificationToken',
+        'verification_token',
+        'totpSecret',
+        'totp_secret',
+        'twoFactorSecret',
+        'two_factor_secret',
+        'backupCodes',
+        'backup_codes',
+        'recoveryCodes',
+        'recovery_codes',
+        'securityAnswers',
+        'security_answers',
+        'internalNotes',
+        'internal_notes',
+        'failedLoginAttempts',
+        'failed_login_attempts',
+      ];
+      for (const key of sensitive) {
+        delete clean[key];
+      }
+      if (clean.verified !== undefined) clean.verified = Boolean(clean.verified);
+      if (clean.emailVisibility !== undefined) clean.emailVisibility = Boolean(clean.emailVisibility);
+    }
+    if (typeof rawVerified === 'number') {
+      clean.verified = rawVerified;
+    }
+    return clean;
   }
 
   public async getAdminById(id: string): Promise<Record<string, any> | undefined> {
@@ -619,8 +676,7 @@ export class AuthService {
       admin = await this.db.get<any>('SELECT * FROM _admins WHERE id = ?', id);
     }
     if (!admin) return undefined;
-    const { passwordHash, tokenKey, ...adminSafe } = admin;
-    return adminSafe;
+    return this.sanitizeAdminRecord(admin);
   }
 
   public async updateAdminPassword(email: string, newPassword: string): Promise<void> {
@@ -818,7 +874,7 @@ export class AuthService {
     };
 
     const token = this.generateToken(claims, '7d');
-    const { passwordHash, tokenKey, ...recordSafe } = record;
+    const recordSafe = this.sanitizeAuthRecord(record, col);
 
     return {
       token,
@@ -1054,7 +1110,7 @@ export class AuthService {
       if (!record) {
         throw new NotFoundError(`Record '${claims.id}' not found in '${col.name}'`);
       }
-      const { passwordHash, tokenKey, ...safeRecord } = record || {};
+      const safeRecord = this.sanitizeAuthRecord(record || {}, col);
 
       try {
         this.eventBus?.emit('email:verified', {
@@ -1310,7 +1366,7 @@ export class AuthService {
       // 7. Broadcast realtime event
       const effectiveRealtime = this.realtimeService || (httpContext as any)?.appScope?.realtime;
       if (effectiveRealtime) {
-        const { passwordHash: _, tokenKey: __, ...publicRecord } = insertRecord;
+        const publicRecord = this.sanitizeAuthRecord(insertRecord, col);
         effectiveRealtime.broadcast('create', col.name, publicRecord);
       }
     }
@@ -1329,7 +1385,7 @@ export class AuthService {
     };
 
     const token = this.generateToken(claims, '7d');
-    const { passwordHash: _, tokenKey: __, ...recordSafe } = targetRecord;
+    const recordSafe = this.sanitizeAuthRecord(targetRecord, col);
 
     return {
       token,

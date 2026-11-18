@@ -839,6 +839,24 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
       expect(rowFocusCount).toBe(1);
       expect(drawerTriggerElement).toBeNull();
     });
+
+    it('should throw ConflictError (409) when creating record with existing user-supplied ID', async () => {
+      // 1. Create record with custom safe ID
+      await app.records.create('members', {
+        id: 'custom_member_123',
+        title: 'Original Member',
+        email: 'original@example.com',
+      });
+
+      // 2. Attempt to create another record with the same custom ID
+      await expect(
+        app.records.create('members', {
+          id: 'custom_member_123',
+          title: 'Duplicate Member',
+          email: 'duplicate@example.com',
+        })
+      ).rejects.toThrow(/Record with ID 'custom_member_123' already exists in 'members'/);
+    });
   });
 });
 

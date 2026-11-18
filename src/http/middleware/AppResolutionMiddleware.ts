@@ -7,7 +7,7 @@ export class AppResolutionMiddleware {
   constructor(private appManager: AppManager) {}
 
   public resolve() {
-    return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    return async (req: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | void> => {
       // If already resolved, skip
       if ((req as any).appScope) {
         return;
@@ -90,14 +90,13 @@ export class AppResolutionMiddleware {
         }
 
         if (err instanceof NotFoundError) {
-          reply.status(404).send({
+          return reply.status(404).send({
             statusCode: 404,
             error: 'Not Found',
             message: `Application '${targetApp}' not found`,
           });
-          return;
         }
-        reply.status(500).send({
+        return reply.status(500).send({
           statusCode: 500,
           error: 'Internal Server Error',
           message: err.message,

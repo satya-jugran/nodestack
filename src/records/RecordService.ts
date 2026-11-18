@@ -362,6 +362,15 @@ export class RecordService {
     );
 
     const safeId = RecordValidator.validateRecordId(processedData.id);
+    if (safeId) {
+      const existing = await this.db.get<any>(
+        `SELECT id FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('id')} = ?`,
+        safeId
+      );
+      if (existing) {
+        throw new ConflictError(`Record with ID '${safeId}' already exists in '${col.name}'`);
+      }
+    }
     const id = safeId || `r_${crypto.randomBytes(6).toString('hex')}`;
     const now = new Date().toISOString();
 
@@ -414,14 +423,25 @@ export class RecordService {
     try {
       await this.db.run(sql, ...values);
     } catch (err: any) {
-      if (
+      const errMsg = err?.message || String(err);
+      const isUniqueOrPkViolation =
         err instanceof ConflictError ||
-        err?.message?.includes('UNIQUE constraint failed') ||
-        err?.message?.includes('duplicate key') ||
+        errMsg.includes('UNIQUE constraint failed') ||
+        errMsg.includes('PRIMARY KEY constraint failed') ||
+        errMsg.includes('PRIMARY KEY must be unique') ||
+        errMsg.includes('duplicate key') ||
+        errMsg.includes('ER_DUP_ENTRY') ||
         err?.code === '23505' ||
+        err?.code === 'ER_DUP_ENTRY' ||
+        err?.errno === 1062 ||
         err?.number === 2627 ||
-        err?.number === 2601
-      ) {
+        err?.number === 2601 ||
+        /unique|primary key|duplicate/i.test(errMsg);
+
+      if (isUniqueOrPkViolation) {
+        if (safeId && (errMsg.includes(safeId) || /primary key/i.test(errMsg) || errMsg.includes(`${col.name}.id`))) {
+          throw new ConflictError(`Record with ID '${safeId}' already exists in '${col.name}'`);
+        }
         throw new ConflictError(
           col.type === 'auth' && recordToInsert.email
             ? `Email '${recordToInsert.email}' is already registered`

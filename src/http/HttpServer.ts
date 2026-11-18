@@ -445,8 +445,8 @@ export class HttpServer {
 
       // Resolve application scope
       if (this.appResolutionMiddleware) {
-        await this.appResolutionMiddleware.resolve()(req, reply);
-        if (reply.sent) return;
+        const res = await this.appResolutionMiddleware.resolve()(req, reply);
+        if (reply.sent || res !== undefined) return res;
       }
 
       // Coordinate reset with request/database locking maintenance gate

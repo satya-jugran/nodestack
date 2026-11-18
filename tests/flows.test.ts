@@ -347,6 +347,54 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       );
     });
 
+    it('should reject choice rule with multiple conflicting comparison operators', () => {
+      const invalidDef: any = {
+        startAt: 'ChoiceStep',
+        states: {
+          ChoiceStep: {
+            type: 'Choice',
+            choices: [
+              { variable: '$.status', stringEquals: 'active', numericEquals: 1, next: 'NextStep' },
+            ],
+          },
+          NextStep: { type: 'Pass', end: true },
+        },
+      };
+
+      expect(() => FlowValidator.validate(invalidDef)).toThrowError(
+        /cannot specify multiple comparison operators/
+      );
+    });
+
+    it('should reject flow definition with unreachable states', () => {
+      const unreachableDef: any = {
+        startAt: 'Step1',
+        states: {
+          Step1: { type: 'Pass', next: 'Step2' },
+          Step2: { type: 'Pass', end: true },
+          OrphanStep: { type: 'Pass', end: true },
+        },
+      };
+
+      expect(() => FlowValidator.validate(unreachableDef)).toThrowError(
+        /contains unreachable state\(s\): 'OrphanStep'/
+      );
+    });
+
+    it('should reject flow definition with no reachable terminal states', () => {
+      const cyclicalDef: any = {
+        startAt: 'StepA',
+        states: {
+          StepA: { type: 'Pass', next: 'StepB' },
+          StepB: { type: 'Pass', next: 'StepA' },
+        },
+      };
+
+      expect(() => FlowValidator.validate(cyclicalDef)).toThrowError(
+        /must contain at least one reachable terminal state/
+      );
+    });
+
     it('should validate nested logical rules (and, or, not) and reject malformed nested rules', () => {
       // 1. Empty 'and' array rejected
       const emptyAndDef: any = {

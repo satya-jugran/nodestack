@@ -23,6 +23,74 @@ export class FlowValidator {
     for (const [stateName, state] of Object.entries(def.states)) {
       this.validateState(stateName, state, stateKeys, contextPath);
     }
+
+    this.validateReachabilityAndTerminal(def, stateKeys, contextPath);
+  }
+
+  public static validateReachabilityAndTerminal(
+    def: FlowDefinition,
+    stateKeys: string[],
+    contextPath: string = ''
+  ): void {
+    const prefix = contextPath ? `${contextPath}: ` : '';
+    const reachable = new Set<string>();
+    const queue: string[] = [def.startAt];
+    reachable.add(def.startAt);
+
+    while (queue.length > 0) {
+      const currentName = queue.shift()!;
+      const st = def.states[currentName];
+      if (!st) continue;
+
+      const targets: string[] = [];
+      if (st.next && typeof st.next === 'string') {
+        targets.push(st.next);
+      }
+      if (st.type === 'Choice') {
+        if (Array.isArray(st.choices)) {
+          for (const c of st.choices) {
+            if (c?.next && typeof c.next === 'string') {
+              targets.push(c.next);
+            }
+          }
+        }
+        if (st.default && typeof st.default === 'string') {
+          targets.push(st.default);
+        }
+      }
+      if (st.type === 'Loop') {
+        if (st.target && typeof st.target === 'string') {
+          targets.push(st.target);
+        }
+      }
+
+      for (const t of targets) {
+        if (def.states[t] && !reachable.has(t)) {
+          reachable.add(t);
+          queue.push(t);
+        }
+      }
+    }
+
+    const unreachable = stateKeys.filter((k) => !reachable.has(k));
+    if (unreachable.length > 0) {
+      throw new AppError(
+        `${prefix}Flow definition contains unreachable state(s): ${unreachable.map((s) => `'${s}'`).join(', ')}`,
+        400
+      );
+    }
+
+    const hasTerminal = Array.from(reachable).some((s) => {
+      const st = def.states[s];
+      return Boolean(st && (st.end === true || st.type === 'Succeed' || st.type === 'Fail'));
+    });
+
+    if (!hasTerminal) {
+      throw new AppError(
+        `${prefix}Flow definition must contain at least one reachable terminal state ('end: true', 'Succeed', or 'Fail')`,
+        400
+      );
+    }
   }
 
   public static validateConcurrency(maxConcurrentExecutions?: any): void {
@@ -293,7 +361,15 @@ export class FlowValidator {
       'isPresent',
     ];
 
-    const hasComparisonOp = comparisonOps.some((op) => (rule as any)[op] !== undefined);
+    const presentOps = comparisonOps.filter((op) => (rule as any)[op] !== undefined);
+    if (presentOps.length > 1) {
+      throw new AppError(
+        `${prefix}State '${stateName}': ${pathPrefix} cannot specify multiple comparison operators (${presentOps.join(', ')}). Use 'and' or 'or' for multiple conditions.`,
+        400
+      );
+    }
+
+    const hasComparisonOp = presentOps.length > 0;
     const hasLogicalOp = rule.and !== undefined || rule.or !== undefined || rule.not !== undefined;
 
     if (!hasComparisonOp && !hasLogicalOp) {

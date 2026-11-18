@@ -10,12 +10,14 @@ export interface AppleProviderConfig extends Partial<OAuthProviderConfig> {
   jwksUrl?: string;
   expectedIssuer?: string;
   customKeys?: Array<{ kid: string; [key: string]: any }>;
+  responseMode?: 'form_post' | 'query';
 }
 
 export class AppleProvider extends BaseOAuthProvider {
   private jwksUrl: string;
   private expectedIssuer: string;
   private customKeys?: Array<{ kid: string; [key: string]: any }>;
+  private responseMode?: 'form_post' | 'query';
   private jwksCache: { keys: any[]; expiresAt: number } | null = null;
 
   constructor(config: AppleProviderConfig) {
@@ -32,6 +34,7 @@ export class AppleProvider extends BaseOAuthProvider {
     this.jwksUrl = config.jwksUrl || 'https://appleid.apple.com/auth/keys';
     this.expectedIssuer = config.expectedIssuer || 'https://appleid.apple.com';
     this.customKeys = config.customKeys;
+    this.responseMode = config.responseMode;
   }
 
   public override buildAuthUrl(
@@ -41,7 +44,12 @@ export class AppleProvider extends BaseOAuthProvider {
     scopes?: string[]
   ): string {
     const url = super.buildAuthUrl(state, codeChallenge, redirectUri, scopes);
-    return `${url}&response_mode=query`;
+    const effectiveScopes = scopes || this.scopes;
+    // Apple strictly requires response_mode=form_post when scopes ('name', 'email') are requested.
+    // Specifying response_mode=query when requesting scopes returns an error from Apple:
+    // 'invalid_request: response_mode=query is not supported when scope is requested'
+    const mode = this.responseMode || (effectiveScopes && effectiveScopes.length > 0 ? 'form_post' : 'query');
+    return `${url}&response_mode=${mode}`;
   }
 
   protected override async fetchUserProfile(_accessToken: string, tokenData?: any): Promise<OAuthProfile> {
@@ -108,10 +116,22 @@ export class AppleProvider extends BaseOAuthProvider {
     const email = (payload.email || '').toLowerCase().trim();
     const isEmailVerified = payload.email_verified === true || payload.email_verified === 'true';
 
+    // Apple only sends user name in initial form_post payload: tokenData.user
+    let userName: string | undefined = undefined;
+    if (tokenData?.user) {
+      try {
+        const u = typeof tokenData.user === 'string' ? JSON.parse(tokenData.user) : tokenData.user;
+        if (u?.name) {
+          const parts = [u.name.firstName, u.name.lastName].filter(Boolean);
+          if (parts.length > 0) userName = parts.join(' ');
+        }
+      } catch {}
+    }
+
     return {
       id: String(payload.sub),
       email,
-      name: undefined,
+      name: userName,
       avatarUrl: undefined,
       isEmailVerified,
       rawUser: payload,

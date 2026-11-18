@@ -1265,6 +1265,50 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
         (appleProvider as any).fetchUserProfile('mock_access_token', { id_token: missingSubToken })
       ).rejects.toThrow(/missing sub claim/);
     });
+
+    it('should generate authorization URL with response_mode=form_post when scopes are requested', () => {
+      const appleProvider = new AppleProvider({
+        clientId,
+        clientSecret,
+        customKeys: [jwk],
+      });
+
+      const authUrl = appleProvider.buildAuthUrl('test_state', 'test_challenge', 'https://example.com/cb');
+      expect(authUrl).toContain('response_mode=form_post');
+      expect(authUrl).toContain('scope=name+email');
+    });
+
+    it('should extract user name from tokenData.user payload in Apple form_post', async () => {
+      const appleProvider = new AppleProvider({
+        clientId,
+        clientSecret,
+        customKeys: [jwk],
+      });
+
+      const validToken = jwt.sign(
+        {
+          iss: 'https://appleid.apple.com',
+          aud: clientId,
+          sub: 'apple_user_with_name',
+          email: 'named@apple.com',
+          email_verified: 'true',
+        },
+        privateKey,
+        {
+          algorithm: 'RS256',
+          keyid: testKid,
+        }
+      );
+
+      const profile = await (appleProvider as any).fetchUserProfile('mock_access_token', {
+        id_token: validToken,
+        user: JSON.stringify({ name: { firstName: 'Jane', lastName: 'Doe' } }),
+      });
+
+      expect(profile.id).toBe('apple_user_with_name');
+      expect(profile.email).toBe('named@apple.com');
+      expect(profile.name).toBe('Jane Doe');
+    });
   });
 
   describe('7. GitHub Provider Email Verification Metadata Resolution', () => {

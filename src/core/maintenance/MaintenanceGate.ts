@@ -138,12 +138,12 @@ export class MaintenanceGate {
     }
   }
 
-  private async drainInFlightRequests(): Promise<void> {
+  public async drain(timeoutMs?: number): Promise<void> {
     if (this.activeRequests.size === 0) {
       return;
     }
 
-    const drainTimeoutMs = this.options.drainTimeoutMs ?? 5000;
+    const drainTimeoutMs = timeoutMs ?? this.options.drainTimeoutMs ?? 5000;
 
     await new Promise<void>((resolve, reject) => {
       let timer: NodeJS.Timeout | null = null;
@@ -160,13 +160,17 @@ export class MaintenanceGate {
         }
         reject(
           new ServiceUnavailableError(
-            `Timed out after ${drainTimeoutMs}ms waiting for ${this.activeRequests.size} in-flight request(s) to drain. Exclusive maintenance operation aborted.`
+            `Timed out after ${drainTimeoutMs}ms waiting for ${this.activeRequests.size} in-flight request(s) to drain.`
           )
         );
       }, drainTimeoutMs);
 
       this.drainResolvers.push(onDrain);
     });
+  }
+
+  private async drainInFlightRequests(): Promise<void> {
+    return this.drain();
   }
 
   private notifyDrain(): void {

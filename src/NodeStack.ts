@@ -537,21 +537,74 @@ export class NodeStack {
   }
 
   public async stop(): Promise<void> {
-    await this.pluginManager.dispose();
-    await this.queue.dispose();
-    this.realtime.dispose();
-    await this.server.close();
-    await this.apps.closeAllAsync();
-    await this.container.dispose();
+    const errors: any[] = [];
+
+    // Phase 1: Stop ingress — close HTTP server so new connections/requests are rejected
+    try {
+      await this.server.close();
+    } catch (err: any) {
+      errors.push(err);
+    }
+
+    // Phase 2: Drain in-flight requests if maintenance gate is active
+    try {
+      await this.maintenanceGate?.drain(3000);
+    } catch {}
+
+    // Phase 3: Drain & dispose QueueService across all app scopes
+    try {
+      await this.queue.dispose();
+    } catch (err: any) {
+      errors.push(err);
+    }
+
+    // Phase 4: Dispose Realtime & PluginManager
+    try {
+      this.realtime.dispose();
+    } catch (err: any) {
+      errors.push(err);
+    }
+
+    try {
+      await this.pluginManager.dispose();
+    } catch (err: any) {
+      errors.push(err);
+    }
+
+    // Phase 5: Guaranteed cleanup of database connections and dependency container
+    try {
+      await this.apps.closeAllAsync();
+    } catch (err: any) {
+      errors.push(err);
+    } finally {
+      try {
+        await this.container.dispose();
+      } catch (err: any) {
+        errors.push(err);
+      }
+    }
+
+    if (errors.length > 0) {
+      console.warn(`[NodeStack] Shutdown completed with ${errors.length} warning(s):`, errors.map((e) => e?.message || e));
+    }
   }
 
   public close(): void {
     try {
+      void this.server.close();
+    } catch {}
+    try {
       void this.queue.dispose();
+    } catch {}
+    try {
+      this.realtime.dispose();
+    } catch {}
+    try {
       this.apps.closeAll();
-    } catch {
-      // ignore
-    }
+    } catch {}
+    try {
+      void this.container.dispose();
+    } catch {}
   }
 
   private printStartupBanner(address: string): void {

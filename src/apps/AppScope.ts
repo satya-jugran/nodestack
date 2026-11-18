@@ -178,7 +178,8 @@ export class AppScope {
       new SqliteQueueDriver(this.db),
       this.config,
       this.functions,
-      this.db
+      this.db,
+      { eventBus: this.eventBus }
     );
     this.functions.setQueueService(this.queue);
     this.flows = new FlowService(
