@@ -1,5 +1,5 @@
 import { SchemaField } from '../schema/models/Field';
-import { ValidationError } from '../core/errors/AppError';
+import { ForbiddenError, ValidationError } from '../core/errors/AppError';
 
 export class RecordValidator {
   public static readonly DEFAULT_MAX_TEXT_LENGTH = 1048576; // 1MB safe ceiling
@@ -182,6 +182,60 @@ export class RecordValidator {
           return JSON.stringify(value);
         }
         return String(value);
+    }
+  }
+
+  /**
+   * Ensures non-admin callers cannot set protected (`adminOnly`) fields during creation
+   * to any value other than the field's normalized default value.
+   */
+  public static assertProtectedFieldsOnCreate(
+    schema: SchemaField[],
+    data: Record<string, any> | undefined,
+    isAdmin: boolean
+  ): void {
+    if (isAdmin || !data || !Array.isArray(schema)) {
+      return;
+    }
+
+    for (const field of schema) {
+      if (!field.adminOnly) continue;
+      if (!Object.prototype.hasOwnProperty.call(data, field.name) || data[field.name] === undefined) {
+        continue;
+      }
+
+      const incoming = RecordValidator.normalizeFieldValue(field, data[field.name]);
+      const expectedDefault = RecordValidator.normalizeFieldValue(field, undefined);
+      if (incoming !== expectedDefault) {
+        throw new ForbiddenError(`Field '${field.name}' is protected and can only be set by an administrator`);
+      }
+    }
+  }
+
+  /**
+   * Ensures non-admin callers cannot modify protected (`adminOnly`) fields during updates.
+   */
+  public static assertProtectedFieldsOnUpdate(
+    schema: SchemaField[],
+    current: Record<string, any>,
+    data: Record<string, any> | undefined,
+    isAdmin: boolean
+  ): void {
+    if (isAdmin || !data || !Array.isArray(schema)) {
+      return;
+    }
+
+    for (const field of schema) {
+      if (!field.adminOnly) continue;
+      if (!Object.prototype.hasOwnProperty.call(data, field.name) || data[field.name] === undefined) {
+        continue;
+      }
+
+      const incoming = RecordValidator.normalizeFieldValue(field, data[field.name]);
+      const existing = RecordValidator.normalizeFieldValue(field, current[field.name]);
+      if (incoming !== existing) {
+        throw new ForbiddenError(`Field '${field.name}' is protected and can only be modified by an administrator`);
+      }
     }
   }
 

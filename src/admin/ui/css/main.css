@@ -2001,6 +2001,28 @@ html.light {
     }
 
     /* Hub Cards & Overview Grids */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      box-sizing: border-box;
+    }
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .stat-card:hover {
+      border-color: var(--border-default);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
     .hub-hero-banner {
       background: var(--bg-card);
       border: 1px solid var(--border-subtle);
@@ -2493,4 +2515,16 @@ html.light .btn-danger:not(.btn-solid):not(#btn-confirm-delete-function):not(#bt
   background-color: #fecaca;
   border-color: #f87171;
   color: #991b1b;
+}
+
+.visually-hidden:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
 }

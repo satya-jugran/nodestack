@@ -7,6 +7,8 @@ export interface FlowConfig {
   description?: string;
   enabled: boolean;
   triggerType: string;
+  authPolicy?: 'public' | 'auth' | 'apiKey' | 'admin' | 'custom' | string;
+  invokeRule?: string | null;
   eventTrigger?: string | null;
   definition: any;
   created: string;

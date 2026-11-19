@@ -34,7 +34,27 @@ export interface AuthClaims {
   appSlug?: string;
   exp?: number;
   iat?: number;
+  [key: string]: any;
 }
+
+const RESERVED_AUTH_CLAIM_KEYS = new Set([
+  'id',
+  'email',
+  'collection',
+  'tokenKey',
+  'isAdmin',
+  'isSuperAdmin',
+  'isTenantScoped',
+  'isApiKey',
+  'apiKeyId',
+  'apiKeyName',
+  'scopes',
+  'allowedIps',
+  'appId',
+  'appSlug',
+  'exp',
+  'iat',
+]);
 
 export interface AuthServiceOptions {
   appId?: string;
@@ -98,7 +118,7 @@ export class AuthService {
   private eventBus?: EventBus;
   private realtimeService?: RealtimeService;
   private sessionRevokedListeners: Array<(filter: RealtimeIdentityFilter) => void> = [];
-  private tokenKeyCache = new Map<string, { tokenKey: string; expiresAt: number }>();
+  private tokenKeyCache = new Map<string, { tokenKey: string; profile?: Record<string, any>; expiresAt: number }>();
   private readonly tokenKeyCacheTtlMs = 30000; // 30 seconds TTL
   private readonly maxTokenKeyCacheSize = 5000;
   private registrationLocks = new Map<string, Promise<void>>();
@@ -181,7 +201,9 @@ export class AuthService {
     }
   }
 
-  public getCachedTokenKey(cacheKey: string): string | null {
+  private getCachedAuthEntry(
+    cacheKey: string
+  ): { tokenKey: string; profile?: Record<string, any>; expiresAt: number } | null {
     const entry = this.tokenKeyCache.get(cacheKey);
     if (!entry) return null;
     if (Date.now() > entry.expiresAt) {
@@ -191,10 +213,10 @@ export class AuthService {
     // Re-insert entry to move to the most-recently-used end in Map iteration order
     this.tokenKeyCache.delete(cacheKey);
     this.tokenKeyCache.set(cacheKey, entry);
-    return entry.tokenKey;
+    return entry;
   }
 
-  public setCachedTokenKey(cacheKey: string, tokenKey: string): void {
+  private setCachedAuthEntry(cacheKey: string, tokenKey: string, profile?: Record<string, any>): void {
     this.tokenKeyCache.delete(cacheKey);
     if (this.tokenKeyCache.size >= this.maxTokenKeyCacheSize) {
       const firstKey = this.tokenKeyCache.keys().next().value;
@@ -202,8 +224,31 @@ export class AuthService {
     }
     this.tokenKeyCache.set(cacheKey, {
       tokenKey,
+      profile,
       expiresAt: Date.now() + this.tokenKeyCacheTtlMs,
     });
+  }
+
+  private mergeHydratedProfile(decoded: AuthClaims, profile?: Record<string, any>): AuthClaims {
+    if (!profile) {
+      return decoded;
+    }
+    const merged: AuthClaims = { ...decoded };
+    for (const [key, val] of Object.entries(profile)) {
+      if (!RESERVED_AUTH_CLAIM_KEYS.has(key)) {
+        merged[key] = val;
+      }
+    }
+    return merged;
+  }
+
+  public getCachedTokenKey(cacheKey: string): string | null {
+    const entry = this.getCachedAuthEntry(cacheKey);
+    return entry ? entry.tokenKey : null;
+  }
+
+  public setCachedTokenKey(cacheKey: string, tokenKey: string): void {
+    this.setCachedAuthEntry(cacheKey, tokenKey);
   }
 
   public invalidateTokenCache(collection?: string, idOrEmail?: string): void {
@@ -395,17 +440,19 @@ export class AuthService {
         }
 
         const cacheKey = `${col.name}:${decoded.id}`;
-        const cached = this.getCachedTokenKey(cacheKey);
-        if (cached !== null) {
-          if (cached !== decoded.tokenKey) {
+        const cachedEntry = this.getCachedAuthEntry(cacheKey);
+        if (cachedEntry !== null) {
+          if (cachedEntry.tokenKey !== decoded.tokenKey) {
             throw new UnauthorizedError('Authentication token has been revoked or expired');
           }
-          return decoded;
+          if (cachedEntry.profile) {
+            return this.mergeHydratedProfile(decoded, cachedEntry.profile);
+          }
         }
 
         const qTable = this.db.dialect.quoteIdentifier(col.name);
         const recordRaw = this.db.get<any>(
-          `SELECT tokenKey FROM ${qTable} WHERE id = ?`,
+          `SELECT * FROM ${qTable} WHERE id = ?`,
           decoded.id
         );
 
@@ -413,8 +460,9 @@ export class AuthService {
           if (!record || !record.tokenKey || record.tokenKey !== decoded.tokenKey) {
             throw new UnauthorizedError('Authentication token has been revoked or expired');
           }
-          this.setCachedTokenKey(cacheKey, record.tokenKey);
-          return decoded;
+          const profile = this.sanitizeAuthRecord(record, col);
+          this.setCachedAuthEntry(cacheKey, record.tokenKey, profile);
+          return this.mergeHydratedProfile(decoded, profile);
         };
 
         if (recordRaw && typeof (recordRaw as any).then === 'function') {
@@ -1336,6 +1384,7 @@ export class AuthService {
       }
 
       if (createData && typeof createData === 'object') {
+        RecordValidator.assertProtectedFieldsOnCreate(col.schema, createData, Boolean(callerAuth?.isAdmin));
         const reservedFields = new Set(['id', 'passwordHash', 'tokenKey', 'created', 'updated']);
         for (const [key, val] of Object.entries(createData)) {
           if (reservedFields.has(key)) continue;
@@ -1360,7 +1409,8 @@ export class AuthService {
       // 2. Enforce collection schema validation semantics before insertion
       for (const field of col.schema) {
         const val = insertRecord[field.name];
-        RecordValidator.validateField(field, val);
+        const effectiveVal = val === undefined && field.defaultValue !== undefined ? field.defaultValue : val;
+        RecordValidator.validateField(field, effectiveVal);
         insertRecord[field.name] = RecordValidator.normalizeFieldValue(field, val);
       }
 

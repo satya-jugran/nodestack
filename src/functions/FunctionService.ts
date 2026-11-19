@@ -20,14 +20,14 @@ import {
   FunctionAuthPolicy,
 } from './types';
 
-export const ALLOWED_AUTH_POLICIES: readonly FunctionAuthPolicy[] = ['public', 'auth', 'admin', 'apiKey'] as const;
+export const ALLOWED_AUTH_POLICIES: readonly FunctionAuthPolicy[] = ['public', 'auth', 'admin', 'apiKey', 'custom'] as const;
 import { AppError, NotFoundError, ForbiddenError, UnauthorizedError, ValidationError, ConflictError } from '../core/errors/AppError';
 import { FlowValidator } from '../flows/FlowValidator';
 import type { FlowService } from '../flows/FlowService';
 import type { QueueService } from '../queue/QueueService';
 import type { AuthService, AuthClaims } from '../auth/AuthService';
 import type { ApiKeyService } from '../auth/ApiKeyService';
-import { hasScope } from '../auth/ApiKeyService';
+import { hasFunctionScope, hasQueueScope } from '../auth/ApiKeyService';
 
 export class FunctionConcurrencyLimitError extends AppError {
   constructor(message = 'Serverless function concurrency limit reached. Please retry shortly.') {
@@ -91,6 +91,13 @@ export class FunctionService {
     return this.maxRecursionDepth;
   }
 
+  private getRuleEngine(): RuleEngine {
+    if (!this.ruleEngine) {
+      this.ruleEngine = new RuleEngine();
+    }
+    return this.ruleEngine;
+  }
+
   public getRunner(): SandboxedRunner {
     return this.runner;
   }
@@ -108,6 +115,7 @@ export class FunctionService {
         code ${textType} NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
         authPolicy VARCHAR(50) NOT NULL DEFAULT 'public',
+        invokeRule ${textType},
         methods VARCHAR(100) NOT NULL DEFAULT 'GET,POST',
         eventTrigger VARCHAR(255),
         timeoutMs INTEGER NOT NULL DEFAULT 1000,
@@ -118,7 +126,23 @@ export class FunctionService {
         created VARCHAR(50) NOT NULL,
         updated VARCHAR(50) NOT NULL
       `);
-      void this.db.exec(ddlFunctions).catch(() => {});
+      const ddlResult = this.db.exec(ddlFunctions);
+      const ensureInvokeRuleColumn = () => {
+        try {
+          const colSql = this.db.dialect.name === 'postgres'
+            ? `ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "invokeRule" ${textType}`
+            : this.db.dialect.addColumnSql('_functions', `invokeRule ${textType}`);
+          const colRes = this.db.exec(colSql);
+          if (colRes && typeof (colRes as any).then === 'function') {
+            void (colRes as Promise<any>).catch(() => {});
+          }
+        } catch {}
+      };
+      if (ddlResult && typeof (ddlResult as any).then === 'function') {
+        void (ddlResult as Promise<any>).then(ensureInvokeRuleColumn).catch(() => {});
+      } else {
+        ensureInvokeRuleColumn();
+      }
 
       const ddlLogs = this.db.dialect.createTableIfNotExists('_function_logs', `
         id VARCHAR(255) PRIMARY KEY,
@@ -219,12 +243,14 @@ export class FunctionService {
     const allowedDomains = JSON.stringify(dto.allowedDomains || []);
     const env = JSON.stringify(dto.env || {});
 
+    const invokeRule = dto.invokeRule !== undefined ? dto.invokeRule : null;
+
     const res = this.db.run(`
       INSERT INTO _functions (
-        id, name, description, code, enabled, authPolicy, methods,
+        id, name, description, code, enabled, authPolicy, invokeRule, methods,
         eventTrigger, timeoutMs, memoryLimitMb, allowedDomains,
         elevated, env, created, updated
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
       id,
       cleanName,
@@ -232,6 +258,7 @@ export class FunctionService {
       dto.code || 'export default async function(core, context) {\n  return { status: 200, body: { message: "Hello from " + context.app.slug } };\n}',
       dto.enabled === false ? 0 : 1,
       dto.authPolicy || 'public',
+      invokeRule,
       methods,
       dto.eventTrigger || null,
       dto.timeoutMs || 1000,
@@ -300,6 +327,7 @@ export class FunctionService {
     const code = dto.code !== undefined ? dto.code : current.code;
     const enabled = dto.enabled !== undefined ? (dto.enabled ? 1 : 0) : (current.enabled ? 1 : 0);
     const authPolicy = dto.authPolicy || current.authPolicy;
+    const invokeRule = dto.invokeRule !== undefined ? dto.invokeRule : (current.invokeRule ?? null);
     const methods = dto.methods ? dto.methods.join(',') : current.methods.join(',');
     const eventTrigger = dto.eventTrigger !== undefined ? dto.eventTrigger : current.eventTrigger;
     const timeoutMs = dto.timeoutMs !== undefined ? dto.timeoutMs : current.timeoutMs;
@@ -311,7 +339,7 @@ export class FunctionService {
 
     const res = this.db.run(`
       UPDATE _functions SET
-        name = ?, description = ?, code = ?, enabled = ?, authPolicy = ?,
+        name = ?, description = ?, code = ?, enabled = ?, authPolicy = ?, invokeRule = ?,
         methods = ?, eventTrigger = ?, timeoutMs = ?, memoryLimitMb = ?,
         allowedDomains = ?, elevated = ?, env = ?, updated = ?
       WHERE id = ?
@@ -321,6 +349,7 @@ export class FunctionService {
       code,
       enabled,
       authPolicy,
+      invokeRule,
       methods,
       eventTrigger,
       timeoutMs,
@@ -561,7 +590,11 @@ export class FunctionService {
   // Execution & Testing
   // ==========================================
 
-  public verifyAuthPolicy(fn: FunctionConfig, auth?: any): void {
+  public verifyAuthPolicy(
+    fn: FunctionConfig,
+    auth?: any,
+    requestCtx?: { query?: Record<string, any>; data?: any }
+  ): void {
     switch (fn.authPolicy) {
       case 'admin':
         if (!auth?.isAdmin) {
@@ -569,38 +602,45 @@ export class FunctionService {
         }
         break;
       case 'auth':
-        if (!auth || (!auth.id && !auth.isAdmin)) {
+        if (auth?.isAdmin) {
+          break;
+        }
+        if (!auth || !auth.id) {
           throw new UnauthorizedError(`Authentication token required to invoke function '${fn.name}'`);
+        }
+        if (auth.isApiKey && !hasFunctionScope(auth, fn.name)) {
+          throw new ForbiddenError(
+            `API Key missing required scope for function invocation (e.g. 'functions:invoke', 'functions:execute', or 'functions:${fn.name}')`
+          );
         }
         break;
       case 'apiKey':
         if (!auth?.isApiKey && !auth?.isAdmin) {
           throw new UnauthorizedError(`Valid API Key required to invoke function '${fn.name}'`);
         }
-        if (!auth?.isAdmin) {
-          const hasFnScope =
-            hasScope(auth, 'functions', 'execute') ||
-            hasScope(auth, 'functions', 'invoke') ||
-            hasScope(auth, 'functions', fn.name) ||
-            hasScope(auth, fn.name, 'invoke') ||
-            hasScope(auth, fn.name, 'execute') ||
-            hasScope(auth, 'functions', '*') ||
-            (Array.isArray(auth.scopes) && (
-              auth.scopes.includes('*') ||
-              auth.scopes.includes('admin:*') ||
-              auth.scopes.includes('functions') ||
-              auth.scopes.includes('functions:*') ||
-              auth.scopes.includes('functions:invoke') ||
-              auth.scopes.includes('functions:execute') ||
-              auth.scopes.includes(`functions:${fn.name}`) ||
-              auth.scopes.includes(`${fn.name}:invoke`) ||
-              auth.scopes.includes(`${fn.name}:execute`)
-            ));
-          if (!hasFnScope) {
-            throw new ForbiddenError(
-              `API Key missing required scope for function invocation (e.g. 'functions:invoke', 'functions:execute', or 'functions:*')`
-            );
+        if (!auth?.isAdmin && !hasFunctionScope(auth, fn.name)) {
+          throw new ForbiddenError(
+            `API Key missing required scope for function invocation (e.g. 'functions:invoke', 'functions:execute', or 'functions:*')`
+          );
+        }
+        break;
+      case 'custom':
+        if (auth?.isAdmin) {
+          break;
+        }
+        if (auth?.isApiKey) {
+          if (hasFunctionScope(auth, fn.name)) {
+            break;
           }
+          throw new ForbiddenError(
+            `API Key missing required scope for function invocation (e.g. 'functions:invoke', 'functions:execute', or 'functions:${fn.name}')`
+          );
+        }
+        if (!fn.invokeRule || !fn.invokeRule.trim()) {
+          throw new ForbiddenError(`Function '${fn.name}' requires a valid custom invokeRule`);
+        }
+        if (!this.getRuleEngine().evaluate(fn.invokeRule, { auth, query: requestCtx?.query, data: requestCtx?.data })) {
+          throw new ForbiddenError(`You do not satisfy the access rule to invoke function '${fn.name}'`);
         }
         break;
       case 'public':
@@ -706,6 +746,9 @@ export class FunctionService {
       throw new ForbiddenError(
         `Superuser authorization required to execute targetFunction '${fn.name}' for queue '${message.queue}'`
       );
+    }
+    if (fn.authPolicy === 'custom' && !fn.elevated && !actor?.isAdmin) {
+      this.verifyAuthPolicy(fn, actor, { data: message.payload });
     }
 
     if (this.activeExecutions >= this.maxConcurrent) {
@@ -904,7 +947,17 @@ export class FunctionService {
       effectiveAuth = mockRequest.auth;
       effectiveActor = mockRequest.auth;
     } else {
-      effectiveAuth = actor ? { id: actor.id, role: actor.isAdmin ? 'admin' : (actor.isApiKey ? 'apiKey' : 'user'), email: actor.email } : null;
+      if (actor) {
+        const { tokenKey: _tk, ...actorRest } = actor;
+        effectiveAuth = {
+          ...actorRest,
+          id: actor.id,
+          email: actor.email,
+          role: actor.isAdmin ? 'admin' : (actor.isApiKey ? 'apiKey' : (actor.role || 'user')),
+        };
+      } else {
+        effectiveAuth = null;
+      }
       effectiveActor = actor;
     }
 
@@ -920,7 +973,7 @@ export class FunctionService {
 
     if (fn.authPolicy && fn.authPolicy !== 'public') {
       try {
-        this.verifyAuthPolicy(fn, effectiveActor);
+        this.verifyAuthPolicy(fn, effectiveActor, { query: requestCtx.query, data: requestCtx.body });
       } catch (err: any) {
         return {
           status: 'error',
@@ -1314,11 +1367,7 @@ export class FunctionService {
           throw new Error('Cannot enqueue messages into reserved _system:* queues from user functions');
         }
         if (effectiveAuth?.isApiKey && !effectiveAuth?.isAdmin) {
-          const canSend =
-            hasScope(effectiveAuth, 'queues', 'send') ||
-            hasScope(effectiveAuth, 'queues', 'write') ||
-            hasScope(effectiveAuth, 'queues', '*');
-          if (!canSend) {
+          if (!hasQueueScope(effectiveAuth, queueName, 'send')) {
             throw new ForbiddenError(`API Key missing required scope to enqueue messages to '${queueName}'`);
           }
         }
@@ -1333,6 +1382,11 @@ export class FunctionService {
         }
         if (queueName.trim().startsWith('_system:')) {
           throw new Error('Cannot claim messages from reserved _system:* queues from user functions');
+        }
+        if (effectiveAuth?.isApiKey && !effectiveAuth?.isAdmin) {
+          if (!hasQueueScope(effectiveAuth, queueName, 'read')) {
+            throw new ForbiddenError(`API Key missing required scope to claim messages from '${queueName}'`);
+          }
         }
         const visibility = options?.visibilityTimeoutSeconds ?? 30;
         const limit = Math.max(1, Math.min(options?.limit ?? 1, 50));
@@ -1470,6 +1524,7 @@ export class FunctionService {
       code: row.code,
       enabled: Boolean(row.enabled),
       authPolicy: row.authPolicy || 'public',
+      invokeRule: row.invokeRule ?? null,
       methods: row.methods ? row.methods.split(',').map((m: string) => m.trim()) : ['GET', 'POST'],
       eventTrigger: row.eventTrigger || null,
       timeoutMs: row.timeoutMs || 1000,

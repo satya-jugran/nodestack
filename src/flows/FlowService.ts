@@ -10,6 +10,7 @@ import {
   FlowConfig,
   FlowDefinition,
   FlowState,
+  FlowAuthPolicy,
   CreateFlowDto,
   UpdateFlowDto,
   FlowExecution,
@@ -20,7 +21,11 @@ import {
 } from './types';
 import { FlowValidator } from './FlowValidator';
 import { ChoiceEvaluator } from './runtime/ChoiceEvaluator';
-import { AppError, NotFoundError, ConflictError } from '../core/errors/AppError';
+import { AppError, NotFoundError, ConflictError, ForbiddenError, UnauthorizedError, ValidationError } from '../core/errors/AppError';
+import { RuleEngine } from '../rules/RuleEngine';
+import { hasFlowScope } from '../auth/ApiKeyService';
+
+export const ALLOWED_FLOW_AUTH_POLICIES: readonly FlowAuthPolicy[] = ['public', 'auth', 'admin', 'apiKey', 'custom'] as const;
 
 export interface FlowServiceOptions {
   engine?: FlowEngine;
@@ -37,6 +42,7 @@ interface ExecutionWaiter {
 
 export class FlowService {
   private engine: FlowEngine;
+  private ruleEngine: RuleEngine;
   private recoveryStrategy: 'abort' | 'resume';
   private queueService?: QueueService;
   private activeAbortControllers = new Map<string, AbortController>();
@@ -61,6 +67,7 @@ export class FlowService {
     options: FlowServiceOptions = {}
   ) {
     this.engine = options.engine || new FlowEngine();
+    this.ruleEngine = new RuleEngine();
     this.recoveryStrategy = options.recoveryStrategy || (process.env.FLOW_RECOVERY_STRATEGY as any) || 'abort';
     this.queueService = options.queueService;
     this.initTables();
@@ -108,13 +115,41 @@ export class FlowService {
         description ${textType} DEFAULT '',
         enabled INTEGER NOT NULL DEFAULT 1,
         triggerType VARCHAR(50) NOT NULL DEFAULT 'http',
+        authPolicy VARCHAR(50) NOT NULL DEFAULT 'public',
+        invokeRule ${textType},
         eventTrigger VARCHAR(255),
         maxConcurrentExecutions INTEGER DEFAULT NULL,
         definition ${textType} NOT NULL,
         created VARCHAR(50) NOT NULL,
         updated VARCHAR(50) NOT NULL
       `);
-      void this.db.exec(ddlFlows).catch(() => {});
+      const ddlFlowsRes = this.db.exec(ddlFlows);
+      const ensureFlowColumns = () => {
+        const columnsToEnsure = [
+          {
+            pg: `ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "authPolicy" VARCHAR(50) NOT NULL DEFAULT 'public'`,
+            generic: this.db.dialect.addColumnSql('_flows', `authPolicy VARCHAR(50) NOT NULL DEFAULT 'public'`),
+          },
+          {
+            pg: `ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "invokeRule" ${textType}`,
+            generic: this.db.dialect.addColumnSql('_flows', `invokeRule ${textType}`),
+          },
+        ];
+        for (const colDef of columnsToEnsure) {
+          try {
+            const sql = this.db.dialect.name === 'postgres' ? colDef.pg : colDef.generic;
+            const res = this.db.exec(sql);
+            if (res && typeof (res as any).then === 'function') {
+              void (res as Promise<any>).catch(() => {});
+            }
+          } catch {}
+        }
+      };
+      if (ddlFlowsRes && typeof (ddlFlowsRes as any).then === 'function') {
+        void (ddlFlowsRes as Promise<any>).then(ensureFlowColumns).catch(() => {});
+      } else {
+        ensureFlowColumns();
+      }
 
       const ddlExecs = this.db.dialect.createTableIfNotExists('_flow_executions', `
         id VARCHAR(255) PRIMARY KEY,
@@ -435,7 +470,7 @@ export class FlowService {
 
       // Asynchronous event trigger (single-path through executeFlow with wait: false)
       const eventActor = actor || (flow.eventTrigger ? { id: `event:${flow.eventTrigger}` } : { id: 'system:event' });
-      this.executeFlow(flow.id, eventPayload, eventActor, { wait: false }).catch((err) => {
+      this.executeFlow(flow.id, eventPayload, eventActor, { wait: false, trusted: true }).catch((err) => {
         console.error(`[FlowService] Event trigger failed for flow '${flow.name}':`, err);
       });
     }
@@ -531,6 +566,12 @@ export class FlowService {
       throw new AppError('Flow name is required', 400);
     }
 
+    if (dto.authPolicy !== undefined && !ALLOWED_FLOW_AUTH_POLICIES.includes(dto.authPolicy)) {
+      throw new ValidationError(
+        `Invalid auth policy '${dto.authPolicy}'. Allowed policies are: ${ALLOWED_FLOW_AUTH_POLICIES.join(', ')}`
+      );
+    }
+
     if (!dto.definition) {
       throw new AppError('Flow definition is required', 400);
     }
@@ -566,6 +607,8 @@ export class FlowService {
     const now = new Date().toISOString();
     const enabled = dto.enabled !== undefined ? (dto.enabled ? 1 : 0) : 1;
     const description = dto.description || '';
+    const authPolicy = dto.authPolicy || 'public';
+    const invokeRule = dto.invokeRule !== undefined ? dto.invokeRule : null;
     const maxConcurrentExecutions =
       dto.maxConcurrentExecutions !== undefined && dto.maxConcurrentExecutions !== null
         ? dto.maxConcurrentExecutions
@@ -573,9 +616,9 @@ export class FlowService {
     const definition = JSON.stringify(dto.definition);
 
     const res = this.db.run(`
-      INSERT INTO _flows (id, name, description, enabled, triggerType, eventTrigger, maxConcurrentExecutions, definition, created, updated)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, id, trimmedName, description, enabled, triggerType, eventTrigger, maxConcurrentExecutions, definition, now, now);
+      INSERT INTO _flows (id, name, description, enabled, triggerType, authPolicy, invokeRule, eventTrigger, maxConcurrentExecutions, definition, created, updated)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, id, trimmedName, description, enabled, triggerType, authPolicy, invokeRule, eventTrigger, maxConcurrentExecutions, definition, now, now);
 
     if (res instanceof Promise) {
       return res.then(async () => {
@@ -591,6 +634,12 @@ export class FlowService {
   }
 
   public updateFlow(id: string, dto: UpdateFlowDto, actor?: any): any {
+    if (dto.authPolicy !== undefined && !ALLOWED_FLOW_AUTH_POLICIES.includes(dto.authPolicy)) {
+      throw new ValidationError(
+        `Invalid auth policy '${dto.authPolicy}'. Allowed policies are: ${ALLOWED_FLOW_AUTH_POLICIES.join(', ')}`
+      );
+    }
+
     if (dto.definition !== undefined) {
       FlowValidator.validate(dto.definition);
     }
@@ -648,6 +697,8 @@ export class FlowService {
 
     const description = dto.description !== undefined ? dto.description : current.description;
     const enabled = dto.enabled !== undefined ? (dto.enabled ? 1 : 0) : (current.enabled ? 1 : 0);
+    const authPolicy = dto.authPolicy !== undefined ? dto.authPolicy : (current.authPolicy || 'public');
+    const invokeRule = dto.invokeRule !== undefined ? dto.invokeRule : (current.invokeRule ?? null);
     const maxConcurrentExecutions =
       dto.maxConcurrentExecutions !== undefined
         ? dto.maxConcurrentExecutions
@@ -657,9 +708,9 @@ export class FlowService {
 
     const res = this.db.run(`
       UPDATE _flows SET
-        name = ?, description = ?, enabled = ?, triggerType = ?, eventTrigger = ?, maxConcurrentExecutions = ?, definition = ?, updated = ?
+        name = ?, description = ?, enabled = ?, triggerType = ?, authPolicy = ?, invokeRule = ?, eventTrigger = ?, maxConcurrentExecutions = ?, definition = ?, updated = ?
       WHERE id = ?
-    `, name, description, enabled, triggerType, eventTrigger, maxConcurrentExecutions, definition, now, id);
+    `, name, description, enabled, triggerType, authPolicy, invokeRule, eventTrigger, maxConcurrentExecutions, definition, now, id);
 
     if (res instanceof Promise) {
       return res.then(async () => {
@@ -737,6 +788,71 @@ export class FlowService {
   }
 
   // ==========================================
+  // HTTP Flow Authorization Policy
+  // ==========================================
+
+  public verifyHttpAuthPolicy(
+    flow: FlowConfig,
+    auth?: any,
+    requestCtx?: { query?: Record<string, any>; data?: any }
+  ): void {
+    const policy = flow.authPolicy || 'public';
+    switch (policy) {
+      case 'public':
+        break;
+      case 'admin':
+        if (!auth?.isAdmin) {
+          throw new ForbiddenError(`Superuser authorization required to execute flow '${flow.name}'`);
+        }
+        break;
+      case 'auth':
+        if (auth?.isAdmin) {
+          break;
+        }
+        if (!auth || !auth.id) {
+          throw new UnauthorizedError(`Authentication token required to execute flow '${flow.name}'`);
+        }
+        if (auth.isApiKey && !hasFlowScope(auth, flow.name)) {
+          throw new ForbiddenError(
+            `API Key missing required scope for flow execution (e.g. 'flows:execute', 'flows:invoke', or 'flows:${flow.name}')`
+          );
+        }
+        break;
+      case 'apiKey':
+        if (!auth?.isApiKey && !auth?.isAdmin) {
+          throw new UnauthorizedError(`Valid API Key required to execute flow '${flow.name}'`);
+        }
+        if (!auth?.isAdmin && !hasFlowScope(auth, flow.name)) {
+          throw new ForbiddenError(
+            `API Key missing required scope for flow execution (e.g. 'flows:execute', 'flows:invoke', or 'flows:*')`
+          );
+        }
+        break;
+      case 'custom':
+        if (auth?.isAdmin) {
+          break;
+        }
+        if (auth?.isApiKey) {
+          if (hasFlowScope(auth, flow.name)) {
+            break;
+          }
+          throw new ForbiddenError(
+            `API Key missing required scope for flow execution (e.g. 'flows:execute', 'flows:invoke', or 'flows:${flow.name}')`
+          );
+        }
+        if (!flow.invokeRule || !flow.invokeRule.trim()) {
+          throw new ForbiddenError(`Flow '${flow.name}' requires a valid custom invokeRule`);
+        }
+        if (!this.ruleEngine.evaluate(flow.invokeRule, { auth, query: requestCtx?.query, data: requestCtx?.data })) {
+          throw new ForbiddenError(`You do not satisfy the access rule to execute flow '${flow.name}'`);
+        }
+        break;
+      default:
+        throw new ForbiddenError(`Unsupported auth policy '${policy}'`);
+    }
+  }
+
+  // ==========================================
   // Execution, Concurrency Admission & Checkpointing
   // ==========================================
 
@@ -753,6 +869,14 @@ export class FlowService {
 
     if (!flow.enabled) {
       throw new AppError(`Flow '${flow.name}' is currently disabled`, 403);
+    }
+
+    // Enforce authorization policy at the service boundary unless explicitly running in trusted internal mode
+    if (!options.trusted && flow.triggerType === 'http') {
+      this.verifyHttpAuthPolicy(flow, actor, {
+        query: options.query || {},
+        data: input,
+      });
     }
 
     const executionId = options.executionId || FlowService.generateExecutionId();
@@ -773,16 +897,22 @@ export class FlowService {
       }
     }
 
-    const authContext = typeof actor === 'object' && actor !== null
-      ? {
-          id: actor.id || actor.email || null,
-          email: actor.email,
-          isAdmin: Boolean(actor.isAdmin),
-          isApiKey: Boolean(actor.isApiKey),
-          role: actor.role,
-          collection: actor.collection,
-        }
-      : (typeof actor === 'string' ? { id: actor } : null);
+    let authContext: any = null;
+    if (typeof actor === 'object' && actor !== null) {
+      const { tokenKey: _tk, exp: _exp, iat: _iat, ...actorRest } = actor;
+      authContext = {
+        ...actorRest,
+        id: actor.id || actor.email || null,
+        email: actor.email,
+        isAdmin: Boolean(actor.isAdmin),
+        isApiKey: Boolean(actor.isApiKey),
+        scopes: Array.isArray(actor.scopes) ? actor.scopes : undefined,
+        role: actor.role,
+        collection: actor.collection,
+      };
+    } else if (typeof actor === 'string') {
+      authContext = { id: actor };
+    }
 
     const now = new Date().toISOString();
     const initialCheckpoint: FlowCheckpoint = {
@@ -2070,6 +2200,8 @@ export class FlowService {
       description: row.description || '',
       enabled: row.enabled === 1,
       triggerType: row.triggerType,
+      authPolicy: (row.authPolicy as FlowAuthPolicy) || 'public',
+      invokeRule: row.invokeRule ?? null,
       eventTrigger: row.eventTrigger,
       maxConcurrentExecutions:
         row.maxConcurrentExecutions !== null && row.maxConcurrentExecutions !== undefined

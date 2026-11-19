@@ -1,4 +1,5 @@
 export type FlowTriggerType = 'http' | 'event' | 'manual';
+export type FlowAuthPolicy = 'public' | 'auth' | 'admin' | 'apiKey' | 'custom';
 export type FlowExecutionStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled' | 'aborted';
 export type FlowStateType = 'Task' | 'Choice' | 'Map' | 'Loop' | 'Parallel' | 'Pass' | 'Wait' | 'Succeed' | 'Fail';
 
@@ -131,6 +132,8 @@ export interface FlowConfig {
   description?: string;
   enabled: boolean;
   triggerType: FlowTriggerType;
+  authPolicy?: FlowAuthPolicy;
+  invokeRule?: string | null;
   eventTrigger?: string | null;
   maxConcurrentExecutions?: number | null;
   definition: FlowDefinition;
@@ -225,4 +228,13 @@ export interface FlowExecutionOptions {
   maxRecursionDepth?: number;
   executionId?: string;
   recoveryStrategy?: 'abort' | 'resume';
+  /**
+   * If true, marks this execution as a trusted internal execution (e.g. event triggers, system tasks)
+   * which bypasses external HTTP authPolicy checks. Defaults to false.
+   */
+  trusted?: boolean;
+  /**
+   * Optional query parameters for RuleEngine evaluation.
+   */
+  query?: Record<string, any>;
 }

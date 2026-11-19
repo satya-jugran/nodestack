@@ -3,6 +3,7 @@ import { BaseController } from './BaseController';
 import { AppError } from '../../core/errors/AppError';
 import { FlowService } from '../../flows/FlowService';
 import { CreateFlowDto, UpdateFlowDto, FlowAsyncDispatchResponse } from '../../flows/types';
+import { hasFlowScope } from '../../auth/ApiKeyService';
 
 export class FlowController extends BaseController {
   constructor(private flowService?: FlowService) {
@@ -118,15 +119,29 @@ export class FlowController extends BaseController {
       return;
     }
 
-    // If triggerType is not 'http', require admin credentials
+    // Enforce trigger / HTTP auth policy
+    const auth = (req as any).auth;
     if (flow.triggerType !== 'http') {
-      const auth = (req as any).auth;
       if (!auth || !auth.isAdmin) {
         this.error(
           reply,
           `Flow '${flow.name}' has triggerType '${flow.triggerType}' and requires admin credentials to execute directly`,
           403
         );
+        return;
+      }
+    } else {
+      try {
+        service.verifyHttpAuthPolicy(flow, auth, {
+          query: (req.query as Record<string, any>) || {},
+          data: req.body ?? {},
+        });
+      } catch (err: any) {
+        if (err instanceof AppError) {
+          this.error(reply, err.message, err.statusCode);
+          return;
+        }
+        this.error(reply, err.message || 'Authorization failed', 403);
         return;
       }
     }
@@ -142,6 +157,7 @@ export class FlowController extends BaseController {
           wait: true,
           timeoutMs: typeof timeoutMs === 'number' && !isNaN(timeoutMs) ? timeoutMs : undefined,
           executionId: (req.body as any)?.executionId,
+          query: (req.query as Record<string, any>) || {},
         });
         this.ok(reply, execution);
       } else {
@@ -154,6 +170,7 @@ export class FlowController extends BaseController {
         const dispatched = await service.executeFlow(flow.id, req.body || {}, (req as any).auth, {
           wait: false,
           executionId,
+          query: (req.query as Record<string, any>) || {},
         });
 
         const dispatchStatus: 'queued' | 'running' =
@@ -218,11 +235,31 @@ export class FlowController extends BaseController {
     }
 
     const flow = await service.getFlowById(execution.flowId);
-    if (flow && flow.triggerType !== 'http') {
-      const auth = (req as any).auth;
+    const auth = (req as any).auth;
+    if (!flow) {
+      if (!auth || !auth.isAdmin) {
+        this.error(reply, 'Flow execution not found or access denied', 404);
+        return;
+      }
+    } else if (flow.triggerType !== 'http') {
       if (!auth || !auth.isAdmin) {
         this.error(reply, `Flow execution for '${execution.flowName}' requires admin credentials`, 403);
         return;
+      }
+    } else if (flow.triggerType === 'http' && flow.authPolicy && flow.authPolicy !== 'public') {
+      if (!auth?.isAdmin) {
+        if (!auth || !auth.id) {
+          this.error(reply, `Authentication required to view execution for '${execution.flowName}'`, 401);
+          return;
+        }
+        if (auth.isApiKey && !hasFlowScope(auth, flow.name)) {
+          this.error(reply, `API Key missing required scope for '${flow.name}'`, 403);
+          return;
+        }
+        if (execution.actorId !== auth.id) {
+          this.error(reply, `You are not allowed to view execution '${execution.id}'`, 403);
+          return;
+        }
       }
     }
 

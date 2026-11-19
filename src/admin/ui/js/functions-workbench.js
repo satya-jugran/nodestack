@@ -393,7 +393,8 @@ async function openFunctionEditor(idOrName = 'new', pushState = true, initialTab
       description: '',
       code: STARTER_RECIPES.starter,
       enabled: true,
-      authPolicy: 'public',
+      authPolicy: 'admin',
+      invokeRule: null,
       methods: ['GET', 'POST'],
       eventTrigger: '',
       timeoutMs: 1000,
@@ -515,6 +516,17 @@ function copyFunctionEndpoint(path) {
   }
 }
 
+function formatAuthPolicyBadge(policy) {
+  const p = policy || 'public';
+  if (p === 'custom') {
+    return '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">CUSTOM RULE</span>';
+  }
+  if (p === 'admin') {
+    return '<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;">ADMIN</span>';
+  }
+  return `<span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6;">${escapeHtml(p.toUpperCase())}</span>`;
+}
+
 function updateEditorHeaderBadges(fn) {
   const container = document.getElementById('editor-header-badges');
   if (!container) return;
@@ -522,9 +534,7 @@ function updateEditorHeaderBadges(fn) {
     <span class="badge" style="background: ${fn.enabled !== false ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-card-hover)'}; color: ${fn.enabled !== false ? '#10b981' : 'var(--text-muted)'};">
       ${fn.enabled !== false ? '● Active' : '○ Disabled'}
     </span>
-    <span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6;">
-      ${escapeHtml((fn.authPolicy || 'public').toUpperCase())}
-    </span>
+    ${formatAuthPolicyBadge(fn.authPolicy)}
     ${fn.elevated ? '<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;" title="Runs with elevated permissions bypassing rules">Elevated</span>' : ''}
   `;
 }
@@ -560,9 +570,7 @@ function renderWorkbenchHeader(fn, isNew, invokePath) {
                 <span class="badge" style="background: ${fn.enabled !== false ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-card-hover)'}; color: ${fn.enabled !== false ? '#10b981' : 'var(--text-muted)'};">
                   ${fn.enabled !== false ? '● Active' : '○ Disabled'}
                 </span>
-                <span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6;">
-                  ${escapeHtml((fn.authPolicy || 'public').toUpperCase())}
-                </span>
+                ${formatAuthPolicyBadge(fn.authPolicy)}
                 ${fn.elevated ? '<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;" title="Runs with elevated permissions bypassing rules">Elevated</span>' : ''}
               </div>
             </div>
@@ -693,7 +701,26 @@ function renderWorkbenchCodePane(fn) {
   `;
 }
 
+function handleFunctionAuthPolicyChange(policy) {
+  if (functionsState.activeFunctionForEdit) {
+    functionsState.activeFunctionForEdit.authPolicy = policy;
+  }
+  const container = document.getElementById('fn-custom-rule-container');
+  if (container) {
+    container.style.display = policy === 'custom' ? 'block' : 'none';
+    if (policy === 'custom' && typeof renderStandaloneRuleEditor === 'function') {
+      if (typeof initStandaloneRule === 'function' && (!state.standaloneRules || !state.standaloneRules.fn_invoke)) {
+        initStandaloneRule('fn_invoke', functionsState.activeFunctionForEdit?.invokeRule || '@request.auth.id != ""');
+      }
+      container.innerHTML = renderStandaloneRuleEditor('fn_invoke');
+    }
+  }
+}
+
 function renderWorkbenchConfigPane(fn, isNew, allowedDomainsString, envString) {
+  if (typeof initStandaloneRule === 'function') {
+    initStandaloneRule('fn_invoke', fn.invokeRule || '@request.auth.id != ""');
+  }
   return `
     <div id="fn-editor-pane-config" class="fn-editor-pane" style="display: ${functionsState.editorTab === 'config' ? 'grid' : 'none'}; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start;">
       <!-- Column 1: General & Triggers -->
@@ -753,13 +780,17 @@ function renderWorkbenchConfigPane(fn, isNew, allowedDomainsString, envString) {
             Security & Guardrails
           </div>
           <div>
-            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px;">Authorization Policy</label>
-            <select id="fn-editor-auth" class="input" style="width: 100%;">
-              <option value="public" ${fn.authPolicy === 'public' ? 'selected' : ''}>Public (No Token Required)</option>
-              <option value="auth" ${fn.authPolicy === 'auth' ? 'selected' : ''}>User Token (Requires Bearer JWT)</option>
+            <label for="fn-editor-auth" style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px;">Authorization Policy</label>
+            <select id="fn-editor-auth" class="input" style="width: 100%;" onchange="handleFunctionAuthPolicyChange(this.value)">
               <option value="admin" ${fn.authPolicy === 'admin' ? 'selected' : ''}>Admin Only (Requires Admin Token)</option>
-              <option value="apiKey" ${fn.authPolicy === 'apiKey' ? 'selected' : ''}>API Key (Requires nsk_live_...)</option>
+              <option value="auth" ${fn.authPolicy === 'auth' ? 'selected' : ''}>User Token (Bearer JWT or Scoped API Key)</option>
+              <option value="apiKey" ${fn.authPolicy === 'apiKey' ? 'selected' : ''}>API Key (Requires nsk_live_... with function scope)</option>
+              <option value="custom" ${fn.authPolicy === 'custom' ? 'selected' : ''}>Custom Rule (@request.auth.* or Scoped API Key)</option>
+              <option value="public" ${fn.authPolicy === 'public' ? 'selected' : ''}>Public (No Token Required)</option>
             </select>
+            <div id="fn-custom-rule-container" style="display: ${fn.authPolicy === 'custom' ? 'block' : 'none'}; margin-top: 8px;">
+              ${typeof renderStandaloneRuleEditor === 'function' ? renderStandaloneRuleEditor('fn_invoke') : ''}
+            </div>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
@@ -919,7 +950,10 @@ async function saveFunctionEditor() {
 
     const code = codeEl ? codeEl.value : fn.code;
     const description = descEl ? descEl.value.trim() : (fn.description || '');
-    const authPolicy = authEl ? authEl.value : (fn.authPolicy || 'public');
+    const authPolicy = authEl ? authEl.value : (fn.authPolicy || 'admin');
+    const invokeRule = authPolicy === 'custom'
+      ? (typeof getStandaloneRuleValue === 'function' ? getStandaloneRuleValue('fn_invoke') : (fn.invokeRule || null))
+      : null;
     const eventTrigger = hookEl ? hookEl.value.trim() : (fn.eventTrigger || '');
     const timeoutMs = timeoutEl ? (parseInt(timeoutEl.value, 10) || 1000) : fn.timeoutMs;
     const memoryLimitMb = memoryEl ? (parseInt(memoryEl.value, 10) || 32) : fn.memoryLimitMb;
@@ -945,6 +979,7 @@ async function saveFunctionEditor() {
     const payload = {
       description,
       authPolicy,
+      invokeRule,
       methods,
       eventTrigger: eventTrigger || null,
       timeoutMs,
@@ -1085,6 +1120,7 @@ if (typeof window !== 'undefined') {
   window.syncEditorFunctionName = syncEditorFunctionName;
   window.copyFunctionEndpoint = copyFunctionEndpoint;
   window.updateEditorHeaderBadges = updateEditorHeaderBadges;
+  window.handleFunctionAuthPolicyChange = handleFunctionAuthPolicyChange;
   window.renderWorkbenchHeader = renderWorkbenchHeader;
   window.renderWorkbenchTabs = renderWorkbenchTabs;
   window.renderWorkbenchCodePane = renderWorkbenchCodePane;

@@ -192,6 +192,7 @@ export class SystemMigrations {
         code ${txt} NOT NULL,
         enabled ${num} NOT NULL DEFAULT 1,
         authPolicy ${txt} NOT NULL DEFAULT 'public',
+        invokeRule ${txt},
         methods ${txt} NOT NULL DEFAULT 'GET,POST',
         eventTrigger ${txt},
         timeoutMs ${num} NOT NULL DEFAULT 1000,
@@ -224,6 +225,8 @@ export class SystemMigrations {
         description ${txt} DEFAULT '',
         enabled ${num} NOT NULL DEFAULT 1,
         triggerType ${txt} NOT NULL DEFAULT 'http',
+        authPolicy ${txt} NOT NULL DEFAULT 'public',
+        invokeRule ${txt},
         eventTrigger ${txt},
         maxConcurrentExecutions ${num},
         definition ${txt} NOT NULL,
@@ -310,6 +313,9 @@ export class SystemMigrations {
           d.exec(sql);
         }
         try { d.exec(`ALTER TABLE _admins ADD COLUMN verified ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`); } catch {}
+        try { d.exec(`ALTER TABLE _functions ADD COLUMN invokeRule ${txt}`); } catch {}
+        try { d.exec(`ALTER TABLE _flows ADD COLUMN authPolicy ${txt} NOT NULL DEFAULT 'public'`); } catch {}
+        try { d.exec(`ALTER TABLE _flows ADD COLUMN invokeRule ${txt}`); } catch {}
         const usersExists = d.prepare('SELECT id FROM _collections WHERE name = ?').get('users');
         if (!usersExists) {
           d.prepare(insertUserSql).run(
@@ -332,12 +338,11 @@ export class SystemMigrations {
         }
       });
     } else {
-      return driver.transaction(async (txDriver) => {
+      return Promise.resolve(driver.transaction(async (txDriver) => {
         const d = txDriver || driver;
         for (const sql of statements) {
           await d.exec(sql);
         }
-        try { await d.exec(`ALTER TABLE _admins ADD COLUMN verified ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`); } catch {}
         const usersExists = await d.prepare('SELECT id FROM _collections WHERE name = ?').get('users');
         if (!usersExists) {
           await d.prepare(insertUserSql).run(
@@ -357,6 +362,18 @@ export class SystemMigrations {
             now
           );
           await d.exec(createUsersTableSql);
+        }
+      })).then(async () => {
+        if (dialect.name === 'postgres') {
+          try { await driver.exec(`ALTER TABLE "_admins" ADD COLUMN IF NOT EXISTS "verified" ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`); } catch {}
+          try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "invokeRule" ${txt}`); } catch {}
+          try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "authPolicy" ${txt} NOT NULL DEFAULT 'public'`); } catch {}
+          try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "invokeRule" ${txt}`); } catch {}
+        } else {
+          try { await driver.exec(dialect.addColumnSql('_admins', `verified ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`)); } catch {}
+          try { await driver.exec(dialect.addColumnSql('_functions', `invokeRule ${txt}`)); } catch {}
+          try { await driver.exec(dialect.addColumnSql('_flows', `authPolicy ${txt} NOT NULL DEFAULT 'public'`)); } catch {}
+          try { await driver.exec(dialect.addColumnSql('_flows', `invokeRule ${txt}`)); } catch {}
         }
       });
     }

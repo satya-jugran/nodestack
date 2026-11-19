@@ -12,6 +12,7 @@ import { AppService } from './services/AppService';
 import { FunctionService } from './services/FunctionService';
 import { FlowService } from './services/FlowService';
 import { QueueService } from './services/QueueService';
+import { ApiKeyService } from './services/ApiKeyService';
 import type {
   ClientOptions,
   SendOptions,
@@ -29,6 +30,7 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
   public readonly files: FileService;
   public readonly realtime: RealtimeService;
   public readonly admins: AdminService;
+  public readonly apiKeys: ApiKeyService;
   public readonly collections: CollectionService;
   public readonly snapshots: SnapshotService;
   public readonly webhooks: WebhookService;
@@ -57,6 +59,7 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
     this.files = new FileService(this);
     this.realtime = new RealtimeService(this, options.EventSource);
     this.admins = new AdminService(this);
+    this.apiKeys = new ApiKeyService(this);
     this.collections = new CollectionService(this);
     this.snapshots = new SnapshotService(this);
     this.webhooks = new WebhookService(this);

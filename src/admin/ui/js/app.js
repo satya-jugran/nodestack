@@ -193,6 +193,8 @@ async function parseUrlAndNavigate(initial = false) {
     }
   } else if (root === 'analytics') {
     await selectNav('analytics', false);
+  } else if (root === 'api-keys') {
+    await selectNav('api-keys', false);
   } else if (root === 'snapshots') {
     await selectNav('snapshots', false);
   } else if (root === 'logs') {
@@ -231,6 +233,8 @@ function initRouter() {
     if (typeof closeFlowExecutionDrawer === 'function') closeFlowExecutionDrawer();
     if (typeof closeQueueModal === 'function') closeQueueModal();
     if (typeof closeQueueDrawer === 'function') closeQueueDrawer();
+    if (typeof closeApiKeyDrawer === 'function') closeApiKeyDrawer();
+    if (typeof closeApiKeySecretModal === 'function') closeApiKeySecretModal();
     if (typeof closeCommandPalette === 'function') closeCommandPalette();
 
     await parseUrlAndNavigate(false);
@@ -239,7 +243,7 @@ function initRouter() {
 
 
 function showPageView(viewName) {
-  const views = ['home', 'collections', 'plugins', 'webhooks', 'functions', 'flows', 'queues', 'analytics', 'snapshots', 'database', 'logs'];
+  const views = ['home', 'collections', 'plugins', 'webhooks', 'functions', 'flows', 'queues', 'api-keys', 'analytics', 'snapshots', 'database', 'logs'];
   for (const v of views) {
     const el = document.getElementById('page-view-' + v);
     if (el) {
@@ -253,7 +257,7 @@ function showPageView(viewName) {
 }
 
 function clearSidebarNavActive() {
-  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-functions', 'nav-flows', 'nav-queues', 'nav-analytics', 'nav-snapshots', 'nav-database', 'nav-logs'];
+  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-functions', 'nav-flows', 'nav-queues', 'nav-api-keys', 'nav-analytics', 'nav-snapshots', 'nav-database', 'nav-logs'];
   for (const id of navIds) {
     document.getElementById(id)?.classList.remove('active');
   }
@@ -289,6 +293,8 @@ async function selectNav(nav, pushState = true) {
     if (typeof closeFlowExecutionDrawer === 'function') closeFlowExecutionDrawer();
     if (typeof closeQueueModal === 'function') closeQueueModal();
     if (typeof closeQueueDrawer === 'function') closeQueueDrawer();
+    if (typeof closeApiKeyDrawer === 'function') closeApiKeyDrawer();
+    if (typeof closeApiKeySecretModal === 'function') closeApiKeySecretModal();
     if (typeof closeCommandPalette === 'function') closeCommandPalette();
   }
 
@@ -408,6 +414,18 @@ async function selectNav(nav, pushState = true) {
     document.getElementById('view-title').style.display = 'none';
     document.getElementById('view-actions').innerHTML = '';
     if (typeof renderQueuesView === 'function') renderQueuesView();
+  } else if (nav === 'api-keys') {
+    state.activeCollection = null;
+    if (typeof renderCollectionsList === 'function') renderCollectionsList();
+    showPageView('api-keys');
+    document.getElementById('collection-tabs').style.display = 'none';
+    document.getElementById('view-badge').style.display = 'none';
+    document.getElementById('nav-api-keys')?.classList.add('active');
+    document.getElementById('view-title').textContent = 'API Keys';
+    document.getElementById('view-title').style.display = 'none';
+    document.getElementById('view-actions').innerHTML = '';
+    if (typeof renderApiKeysView === 'function') renderApiKeysView();
+    if (typeof loadApiKeys === 'function') loadApiKeys();
   } else if (nav === 'analytics') {
     state.activeCollection = null;
     if (typeof renderCollectionsList === 'function') renderCollectionsList();
@@ -503,6 +521,8 @@ async function selectNav(nav, pushState = true) {
       updateUrl('/_/flows');
     } else if (nav === 'queues') {
       updateUrl('/_/queues');
+    } else if (nav === 'api-keys') {
+      updateUrl('/_/api-keys');
     } else if (nav === 'analytics') {
       updateUrl('/_/analytics');
     } else if (nav === 'snapshots') {
@@ -566,6 +586,9 @@ window.addEventListener('keydown', (e) => {
       if (typeof closeQueueDrawer === 'function') {
         closeQueueDrawer();
       }
+      if (typeof closeApiKeyDrawer === 'function') {
+        closeApiKeyDrawer();
+      }
       return;
     }
     const modalRoot = document.getElementById('modal-root');
@@ -583,6 +606,9 @@ window.addEventListener('keydown', (e) => {
       }
       if (typeof closeQueueModal === 'function') {
         closeQueueModal();
+      }
+      if (typeof closeApiKeySecretModal === 'function') {
+        closeApiKeySecretModal();
       }
       return;
     }

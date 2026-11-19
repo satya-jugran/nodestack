@@ -49,6 +49,13 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.webhook-stat-card:hover {
+  border-color: var(--border-default, #475569);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .webhook-stat-label {
@@ -107,6 +114,7 @@
   background: var(--bg-card, #1e293b);
   border: 1px solid var(--border-subtle, #334155);
   border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;

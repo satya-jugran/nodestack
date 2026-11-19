@@ -203,6 +203,191 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
       }
     });
 
+  // Command: api-keys (list, create, rotate, revoke, restore, delete)
+  const apiKeysCmd = program
+    .command('api-keys')
+    .alias('apikey')
+    .description('Manage scoped Machine-to-Machine (M2M) API keys');
+
+  const withApiKeysScope = async (
+    options: { dir?: string; app?: string },
+    fn: (apiKeys: NodeStack['apiKeys']) => Promise<void>
+  ) => {
+    const app = new NodeStack({ dataDir: options.dir || './nodestack_data' });
+    try {
+      await app.loadActiveDatabaseDriver();
+      const scope = await app.apps.getAsync((options.app || 'default').trim() || 'default');
+      await fn(scope.apiKeys);
+    } catch (err: any) {
+      console.error(chalk.red(`\n✗ API Key error: ${err.message}\n`));
+      process.exit(1);
+    } finally {
+      await app.close();
+    }
+  };
+
+  apiKeysCmd
+    .command('list')
+    .alias('ls')
+    .description('List configured API keys (redacted)')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('-a, --app <slug>', 'Target application slug (default: "default")', 'default')
+    .option('--status <status>', 'Filter by status (active, revoked, expired)')
+    .option('--json', 'Output JSON', false)
+    .action(async (options) => {
+      await withApiKeysScope(options, async (apiKeys) => {
+        if (options.status && !['active', 'revoked', 'expired'].includes(options.status)) {
+          throw new Error("Invalid --status. Expected one of: active, revoked, expired");
+        }
+        const keys = await apiKeys.listKeys({ status: options.status });
+        if (options.json) {
+          console.log(JSON.stringify(keys, null, 2));
+          return;
+        }
+        if (!keys.length) {
+          console.log(chalk.yellow('\nℹ No API keys found.\n'));
+          console.log(chalk.dim('  Create one with: npx nodestack api-keys create <name> --scopes "*:read"\n'));
+          return;
+        }
+        console.log(chalk.bold.cyan(`\n  🔑 API Keys (${keys.length}):\n`));
+        for (const k of keys) {
+          const statusColor = k.status === 'active' ? chalk.green(`[${k.status}]`) : chalk.red(`[${k.status}]`);
+          const scopesLabel = k.scopes && k.scopes.length ? k.scopes.join(', ') : '(none)';
+          console.log(`  • ${chalk.bold.white(k.name)} ${statusColor} ${chalk.gray(`(${k.id})`)}`);
+          console.log(`    Prefix: ${chalk.cyan(k.redactedKey)} | Role: ${chalk.yellow(k.role)} | Scopes: ${scopesLabel}`);
+          if (k.expiresAt) {
+            console.log(`    Expires: ${chalk.gray(k.expiresAt)}`);
+          }
+          console.log('');
+        }
+      });
+    });
+
+  apiKeysCmd
+    .command('create <name>')
+    .description('Create a new scoped API key (secretKey is printed once)')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('-a, --app <slug>', 'Target application slug (default: "default")', 'default')
+    .option('-r, --role <role>', 'Key role (service, admin, custom)', 'service')
+    .option('-s, --scopes <scopes>', 'Comma-separated scopes (e.g. "*:read,functions:my-fn")')
+    .option('--description <text>', 'Optional description')
+    .option('--ips <ips>', 'Comma-separated allowed IPv4/IPv6 addresses')
+    .option('--expires-in-days <days>', 'Expiration window in days')
+    .option('--json', 'Output JSON', false)
+    .action(async (name, options) => {
+      await withApiKeysScope(options, async (apiKeys) => {
+        const role = (options.role || 'service').trim();
+        if (!['service', 'admin', 'custom'].includes(role)) {
+          throw new Error("Invalid --role. Expected one of: service, admin, custom");
+        }
+        const scopes = options.scopes
+          ? String(options.scopes).split(',').map((s) => s.trim()).filter(Boolean)
+          : [];
+        const allowedIps = options.ips
+          ? String(options.ips).split(',').map((s) => s.trim()).filter(Boolean)
+          : [];
+        let expiresInDays: number | undefined;
+        if (options.expiresInDays !== undefined) {
+          const parsed = Number(options.expiresInDays);
+          if (!Number.isInteger(parsed) || parsed < 1) {
+            throw new Error('--expires-in-days must be a positive integer');
+          }
+          expiresInDays = parsed;
+        }
+
+        const result = await apiKeys.createKey({
+          name,
+          description: options.description,
+          role: role as any,
+          scopes,
+          allowedIps,
+          expiresInDays,
+        });
+
+        if (options.json) {
+          console.log(JSON.stringify(result, null, 2));
+          return;
+        }
+        console.log(chalk.green(`\n✓ API key '${result.apiKey.name}' created (${result.apiKey.id})\n`));
+        console.log(`  • Role:    ${chalk.yellow(result.apiKey.role)}`);
+        console.log(`  • Scopes:  ${result.apiKey.scopes.length ? result.apiKey.scopes.join(', ') : '(none)'}`);
+        console.log(`  • Secret:  ${chalk.bold.white(result.secretKey)}`);
+        console.log(chalk.yellow('\n  ⚠ Save this secret key now — it cannot be retrieved again.\n'));
+      });
+    });
+
+  apiKeysCmd
+    .command('rotate <id>')
+    .description('Rotate an API key secret and invalidate the previous secret')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('-a, --app <slug>', 'Target application slug (default: "default")', 'default')
+    .option('--json', 'Output JSON', false)
+    .action(async (id, options) => {
+      await withApiKeysScope(options, async (apiKeys) => {
+        const result = await apiKeys.rotateKey(id);
+        if (options.json) {
+          console.log(JSON.stringify(result, null, 2));
+          return;
+        }
+        console.log(chalk.green(`\n✓ Rotated API key '${result.apiKey.name}' (${result.apiKey.id})\n`));
+        console.log(`  • New Secret: ${chalk.bold.white(result.secretKey)}`);
+        console.log(chalk.yellow('\n  ⚠ Save this secret key now — the previous secret is invalidated.\n'));
+      });
+    });
+
+  apiKeysCmd
+    .command('revoke <id>')
+    .description('Revoke an active API key')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('-a, --app <slug>', 'Target application slug (default: "default")', 'default')
+    .option('--json', 'Output JSON', false)
+    .action(async (id, options) => {
+      await withApiKeysScope(options, async (apiKeys) => {
+        await apiKeys.revokeKey(id);
+        const updated = await apiKeys.getKey(id);
+        if (options.json) {
+          console.log(JSON.stringify(updated, null, 2));
+          return;
+        }
+        console.log(chalk.yellow(`\n✓ Revoked API key '${updated.name}' (${updated.id}).\n`));
+      });
+    });
+
+  apiKeysCmd
+    .command('restore <id>')
+    .description('Restore a previously revoked API key')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('-a, --app <slug>', 'Target application slug (default: "default")', 'default')
+    .option('--json', 'Output JSON', false)
+    .action(async (id, options) => {
+      await withApiKeysScope(options, async (apiKeys) => {
+        const updated = await apiKeys.updateKey(id, { status: 'active' });
+        if (options.json) {
+          console.log(JSON.stringify(updated, null, 2));
+          return;
+        }
+        console.log(chalk.green(`\n✓ Restored API key '${updated.name}' (${updated.id}).\n`));
+      });
+    });
+
+  apiKeysCmd
+    .command('delete <id>')
+    .alias('rm')
+    .description('Permanently delete an API key')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('-a, --app <slug>', 'Target application slug (default: "default")', 'default')
+    .option('--json', 'Output JSON', false)
+    .action(async (id, options) => {
+      await withApiKeysScope(options, async (apiKeys) => {
+        await apiKeys.deleteKey(id);
+        if (options.json) {
+          console.log(JSON.stringify({ id, deleted: true }, null, 2));
+          return;
+        }
+        console.log(chalk.yellow(`\n✓ Deleted API key '${id}'.\n`));
+      });
+    });
+
   // Command: typegen
   program
     .command('typegen')

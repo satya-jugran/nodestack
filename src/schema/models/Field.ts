@@ -30,6 +30,7 @@ export interface SchemaField {
   type: FieldType;
   required?: boolean;
   unique?: boolean;
+  adminOnly?: boolean;
   defaultValue?: any;
   options?: FieldOptions;
   fts?: boolean;
