@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>NodeStack Architecture Infographic (Compact Portrait)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap');
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: #ebf1fa;
+      font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      color: #0f172a;
+      width: 1240px;
+      height: 1140px;
+      overflow: hidden;
+      margin: 0 auto;
+      position: relative;
+    }
+
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .navy-pill {
+      background: #1e293b;
+      color: #ffffff;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 11px;
+      padding: 5px 12px;
+      box-shadow: 0 3px 10px rgba(15, 23, 42, 0.2);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      position: relative;
+      z-index: 20;
+    }
+
+    .navy-pill::after {
+      content: '';
+      position: absolute;
+      width: 0;
+      height: 0;
+    }
+
+    .pill-tail-top::after {
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-bottom: 6px solid #1e293b;
+    }
+
+    .pill-tail-bottom::after {
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-top: 6px solid #1e293b;
+    }
+
+    .pill-tail-left::after {
+      right: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      border-top: 6px solid transparent;
+      border-bottom: 6px solid transparent;
+      border-right: 6px solid #1e293b;
+    }
+
+    .pill-tail-right::after {
+      left: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      border-top: 6px solid transparent;
+      border-bottom: 6px solid transparent;
+      border-left: 6px solid #1e293b;
+    }
+
+    .white-cluster {
+      background: #ffffff;
+      border: 1px solid #d4e2f5;
+      border-radius: 20px;
+      box-shadow: 0 4px 18px -2px rgba(30, 58, 138, 0.06);
+    }
+
+    .dashed-line {
+      stroke: #475569;
+      stroke-width: 1.5;
+      stroke-dasharray: 4 4;
+      fill: none;
+    }
+  </style>
+</head>
+<body class="p-8 flex flex-col justify-between">
+
+  <!-- ============================================================== -->
+  <!-- 1. TOP HEADER BANNER -->
+  <!-- ============================================================== -->
+  <div class="pb-3 border-b border-[#cbdcf5] mb-2 text-center flex flex-col items-center">
+    <div class="flex items-center justify-center gap-2.5">
+      <h1 class="text-2xl font-extrabold text-[#0f172a] tracking-tight">
+        NodeStack
+      </h1>
+      <span class="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+        v2.6.0
+      </span>
+    </div>
+    <p class="text-xs text-slate-500 font-medium mt-1">
+      One lightweight Node.js runtime combining databases, API engines, auth, queues, and serverless workflows.
+    </p>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- 2. MAIN INFOGRAPHIC WORKSPACE (1176 x 950) -->
+  <!-- ============================================================== -->
+  <div class="relative w-full h-[950px]">
+
+    <!-- ------------------------------------------------------------ -->
+    <!-- SVG BACKGROUND: ORGANIC CLOUD LANDSCAPE & PRECISE DASHED LINES -->
+    <!-- ------------------------------------------------------------ -->
+    <svg class="absolute inset-0 w-full h-full pointer-events-none z-0" viewBox="0 0 1176 950">
+      <defs>
+        <!-- Gradients for Organic Island -->
+        <linearGradient id="cloudGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#e3f0fd" stop-opacity="0.95" />
+          <stop offset="50%" stop-color="#d4e6fa" stop-opacity="0.9" />
+          <stop offset="100%" stop-color="#cae0f8" stop-opacity="0.85" />
+        </linearGradient>
+        <linearGradient id="hillGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#bfd8f8" />
+          <stop offset="100%" stop-color="#a2c5f2" />
+        </linearGradient>
+        <linearGradient id="deepHillGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#87b3ea" />
+          <stop offset="100%" stop-color="#659cdd" />
+        </linearGradient>
+      </defs>
+
+      <!-- Organic Island Shape Centered at X: 588, Y: 465 (Width: 560, Height: 540) -->
+      <path d="M 330 465 
+               C 310 320, 400 205, 520 210 
+               C 580 190, 680 185, 750 210 
+               C 840 205, 870 320, 850 465 
+               C 875 610, 840 720, 750 725 
+               C 670 740, 588 735, 520 730 
+               C 420 740, 340 720, 325 610 
+               C 310 540, 320 490, 330 465 Z" 
+            fill="url(#cloudGrad)" />
+
+      <!-- Inner Hill Contours Behind the 3 Nodes (Japanese Editorial Style) -->
+      <path d="M 390 625 
+               C 460 535, 520 500, 588 515 
+               C 656 500, 716 535, 786 625 Z" 
+            fill="url(#hillGrad)" opacity="0.65" />
+      <path d="M 450 625 
+               C 500 560, 550 545, 588 560 
+               C 626 545, 676 560, 726 625 Z" 
+            fill="url(#deepHillGrad)" opacity="0.45" />
+
+      <!-- Precise Dashed Leader Lines -->
+      <!-- Line 1: North (From Top Cluster bottom X: 588, Y: 150 -> Top Island Pill X: 588, Y: 216) -->
+      <path d="M 588 150 L 588 216" class="dashed-line" />
+
+      <!-- Line 2: West (From Left Card X: 280, Y: 465 -> Left Island Pill tail X: 345, Y: 465) -->
+      <path d="M 280 465 L 345 465" class="dashed-line" />
+
+      <!-- Line 3: East (From Right Island Pill tail X: 831, Y: 465 -> Right Card X: 896, Y: 465) -->
+      <path d="M 831 465 L 896 465" class="dashed-line" />
+
+      <!-- Line 4: South (From Bottom Island Pill tail X: 588, Y: 706 -> Top of Bottom Card X: 588, Y: 780) -->
+      <path d="M 588 706 L 588 780" class="dashed-line" />
+    </svg>
+
+    <!-- ------------------------------------------------------------ -->
+    <!-- 3. TOP CLUSTER: DEVELOPER INTERFACES & CLIENT FRONTENDS -->
+    <!-- (2 Rows x 3 Columns) -->
+    <!-- ------------------------------------------------------------ -->
+    <div class="white-cluster absolute top-0 left-0 right-0 p-4 z-10">
+      <div class="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-100">
+        <div class="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+          Developer Touchpoints &amp; Client Ecosystem
+        </div>
+        <div class="text-[10px] font-mono font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+          6 Core Interfaces
+        </div>
+      </div>
+
+      <!-- Row 1: Dev Interfaces -->
+      <div class="grid grid-cols-3 gap-6 mb-2 pb-2 border-b border-slate-100">
+        
+        <!-- Item 1: Web Admin -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full border-2 border-blue-500 bg-white flex items-center justify-center text-blue-600 shadow-xs shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <div>
+            <div class="text-xs font-bold text-slate-900 leading-tight">Web Admin Console</div>
+            <div class="text-[10px] text-slate-500 font-medium">Embedded at <code>localhost:8090/_/</code></div>
+          </div>
+        </div>
+
+        <!-- Item 2: Scalar & OpenAPI -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full border-2 border-purple-500 bg-white flex items-center justify-center text-purple-600 shadow-xs shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+          </div>
+          <div>
+            <div class="text-xs font-bold text-slate-900 leading-tight">Interactive Scalar &amp; OpenAPI Docs</div>
+            <div class="text-[10px] text-slate-500 font-medium">Zero-config live testing at <code>/_/docs</code></div>
+          </div>
+        </div>
+
+        <!-- Item 3: Live TypeScript Typegen -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full border-2 border-cyan-500 bg-white flex items-center justify-center text-cyan-600 shadow-xs shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+            </svg>
+          </div>
+          <div>
+            <div class="text-xs font-bold text-slate-900 leading-tight">Live TypeScript Type Generation</div>
+            <div class="text-[10px] text-slate-500 font-medium">Auto-generated dynamic <code>types.d.ts</code></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Row 2: Downstream Clients & CLI -->
+      <div class="grid grid-cols-3 gap-6">
+
+        <!-- Item 4: Zero-Install CLI -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full border-2 border-emerald-500 bg-white flex items-center justify-center text-emerald-600 shadow-xs shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </div>
+          <div>
+            <div class="text-xs font-bold text-slate-900 leading-tight">Zero-Install Runtime CLI</div>
+            <div class="text-[10px] text-slate-500 font-medium">Instant launch: <code>npx @nodestackapp/server</code></div>
+          </div>
+        </div>
+
+        <!-- Item 5: React & Next.js -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full border-2 border-blue-500 bg-white flex items-center justify-center text-blue-600 shadow-xs shrink-0 font-bold text-xs">
+            React
+          </div>
+          <div>
+            <div class="text-xs font-bold text-slate-900 leading-tight">Next.js &amp; React 19 Bindings</div>
+            <div class="text-[10px] text-slate-500 font-medium">Server Actions &amp; Client Hooks</div>
+          </div>
+        </div>
+
+        <!-- Item 6: Vue, Svelte & Edge -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full border-2 border-indigo-500 bg-white flex items-center justify-center text-indigo-600 shadow-xs shrink-0 font-bold text-xs">
+            Vue
+          </div>
+          <div>
+            <div class="text-xs font-bold text-slate-900 leading-tight">Vue, Nuxt, SvelteKit &amp; Edge</div>
+            <div class="text-[10px] text-slate-500 font-medium">Reactive state &amp; real-time SSE stream</div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- ------------------------------------------------------------ -->
+    <!-- 4. CENTRAL LEVEL: LEFT CARD | ISLAND | RIGHT CARD -->
+    <!-- (Left & Right cards reduced to 276px, vertically centered at Y: 465) -->
+    <!-- ------------------------------------------------------------ -->
+
+    <!-- ==================== LEFT CARD: SECURITY & ACCESS ==================== -->
+    <div class="white-cluster absolute left-0 top-[327px] w-[280px] h-[276px] p-3.5 flex flex-col justify-between z-10">
+      <div>
+        <div class="flex items-center justify-between pb-1.5 mb-2.5 border-b border-slate-100">
+          <div class="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+            Security &amp; Sandboxing (v2.6.0)
+          </div>
+          <span class="text-[9px] font-mono font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">
+            PoLP
+          </span>
+        </div>
+
+        <div class="space-y-2">
+          <!-- Item 1: Unified RBAC -->
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-full border-2 border-rose-500 bg-white flex items-center justify-center text-rose-600 shadow-xs shrink-0">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-900 leading-tight">Unified RBAC Engine</div>
+              <div class="text-[10px] text-slate-500 font-medium leading-tight">Single matrix across DB, REST &amp; Admin</div>
+            </div>
+          </div>
+
+          <!-- Item 2: API Key Simulator -->
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-full border-2 border-amber-500 bg-white flex items-center justify-center text-amber-600 shadow-xs shrink-0">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              </svg>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-900 leading-tight">API Key Simulator</div>
+              <div class="text-[10px] text-slate-500 font-medium leading-tight">Interactive permission dry-run &amp; audit</div>
+            </div>
+          </div>
+
+          <!-- Item 3: Plugin Sandboxing -->
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-full border-2 border-purple-500 bg-white flex items-center justify-center text-purple-600 shadow-xs shrink-0 font-bold text-[10px]">
+              PoLP
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-900 leading-tight">Plugin Sandboxing</div>
+              <div class="text-[10px] text-slate-500 font-medium leading-tight">Least-privilege DI capability container</div>
+            </div>
+          </div>
+
+          <!-- Item 4: Tenant Routing -->
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-full border-2 border-rose-500 bg-white flex items-center justify-center text-rose-600 shadow-xs shrink-0 font-bold text-[10px]">
+              T:ID
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-900 leading-tight">Multi-Tenant Router</div>
+              <div class="text-[10px] text-slate-500 font-medium leading-tight">Zero-leak schema separation per tenant</div>
+            </div>
+          </div>
+
+          <!-- Item 5: Audit Forensics -->
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-full border-2 border-cyan-500 bg-white flex items-center justify-center text-cyan-600 shadow-xs shrink-0">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-900 leading-tight">Audit &amp; Event Trail</div>
+              <div class="text-[10px] text-slate-500 font-medium leading-tight">Immutable tamper-evident security logs</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-2 mt-2 border-t border-slate-100 text-[9px] font-mono text-slate-400 text-center font-medium">
+        Zero Trust Process Sandbox
+      </div>
+    </div>
+
+    <!-- ==================== CENTER ISLAND: MASTER NODESTACK & 3 ENGINE NODES ==================== -->
+    <!-- Island Top Anchor: Developer APIs (North) -->
+    <div class="absolute left-1/2 -translate-x-1/2 top-[230px] -translate-y-1/2 z-10">
+      <div class="navy-pill pill-tail-top shadow-sm">
+        <svg class="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+        </svg>
+        <span>Developer APIs &amp; Stream</span>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MASTER NODESTACK HERO: HIGH VISIBILITY CORE                     -->
+    <!-- ============================================================== -->
+    <div class="absolute left-1/2 top-[320px] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-20">
+      <div class="relative flex flex-col items-center">
+        <!-- Radial Pulse Glow -->
+        <div class="absolute -inset-3.5 bg-blue-500/25 rounded-3xl blur-md -z-10"></div>
+
+        <!-- Master Navy Hero Box -->
+        <div class="bg-[#0f172a] text-white rounded-2xl px-8 py-3.5 shadow-2xl border-2 border-white flex flex-col items-center text-center">
+          
+          <div class="flex items-center gap-3.5">
+            <!-- NodeStack Stylized Cube/Stack Mark -->
+            <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-sm">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+            </div>
+            
+            <!-- BOLD PROMINENT NODESTACK TITLE -->
+            <span class="text-3xl font-black tracking-tight text-white font-sans">
+              NodeStack
+            </span>
+
+            <!-- v2.6.0 Tag -->
+            <span class="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-500/30 text-blue-300 border border-blue-400/40">
+              v2.6.0
+            </span>
+          </div>
+
+          <!-- Clear Architectural Subtitle -->
+          <div class="text-[11px] font-semibold text-slate-300 tracking-wide mt-1">
+            Runtime Core
+          </div>
+        </div>
+
+        <!-- Operational Status Bar (PID • RAM • WAL • Zero Docker) -->
+        <div class="mt-2.5 bg-white/95 border border-blue-200/90 rounded-full px-4 py-1.5 font-mono text-[10px] text-slate-700 font-semibold shadow-xs flex items-center gap-2">
+          <span class="flex items-center gap-1.5 text-blue-700 font-bold">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            PID: 8090
+          </span>
+          <span class="text-slate-300">•</span>
+          <span class="text-slate-800 font-bold">~40–80 MB</span>
+          <span class="text-slate-300">•</span>
+          <span class="text-indigo-700 font-bold">node:sqlite WAL</span>
+          <span class="text-slate-300">•</span>
+          <span class="text-emerald-700 font-bold">Zero Docker</span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Island Anchor West: Security (Exact vertical center Y: 465, tail pointing left to Left Card) -->
+    <div class="absolute left-[415px] top-[465px] -translate-x-1/2 -translate-y-1/2 z-10">
+      <div class="navy-pill pill-tail-left shadow-sm">
+        <svg class="w-3.5 h-3.5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+        <span>Security (v2.6.0)</span>
+      </div>
+    </div>
+
+    <!-- Island Anchor East: Compute (Exact vertical center Y: 465, tail pointing right to Right Card) -->
+    <div class="absolute left-[761px] top-[465px] -translate-x-1/2 -translate-y-1/2 z-10">
+      <div class="navy-pill pill-tail-right shadow-sm">
+        <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+        <span>Compute &amp; Flows</span>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- 3 ENGINE CIRCULAR NODES: SQLite WAL ⇄ Event Loop ⇄ SSE Stream -->
+    <!-- ============================================================== -->
+    <div class="absolute left-1/2 -translate-x-1/2 top-[575px] -translate-y-1/2 z-10 flex items-center justify-center gap-7">
+      
+      <!-- Circle 1: SQLite WAL -->
+      <div class="flex flex-col items-center">
+        <div class="w-12 h-12 rounded-full border-2 border-blue-500 bg-white flex items-center justify-center text-blue-600 shadow-md">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+          </svg>
+        </div>
+        <span class="text-[11px] font-mono font-bold text-slate-800 mt-1.5">SQLite WAL</span>
+      </div>
+
+      <!-- Arrow 1 -->
+      <span class="text-blue-500 text-base font-bold select-none">⇄</span>
+
+      <!-- Circle 2: Event Loop -->
+      <div class="flex flex-col items-center">
+        <div class="w-12 h-12 rounded-full border-2 border-cyan-500 bg-white flex items-center justify-center text-cyan-600 shadow-md">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        </div>
+        <span class="text-[11px] font-mono font-bold text-slate-800 mt-1.5">Event Loop</span>
+      </div>
+
+      <!-- Arrow 2 -->
+      <span class="text-blue-500 text-base font-bold select-none">⇄</span>
+
+      <!-- Circle 3: SSE Stream -->
+      <div class="flex flex-col items-center">
+        <div class="w-12 h-12 rounded-full border-2 border-emerald-500 bg-white flex items-center justify-center text-emerald-600 shadow-md">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+          </svg>
+        </div>
+        <span class="text-[11px] font-mono font-bold text-slate-800 mt-1.5">SSE Stream</span>
+      </div>
+
+    </div>
+
+    <!-- Island Bottom Anchor: Multi-Database Substrate (South) -->
+    <div class="absolute left-1/2 -translate-x-1/2 top-[690px] -translate-y-1/2 z-10">
+      <div class="navy-pill pill-tail-bottom shadow-sm">
+        <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+        </svg>
+        <span>Database &amp; Async Queue Substrate</span>
+      </div>
+    </div>
+
+    <!-- ==================== RIGHT CARD: COMPUTE & WORKFLOWS ==================== -->
+    <div class="white-cluster absolute right-0 top-[327px] w-[280px] h-[276px] p-3.5 flex flex-col justify-between z-10">
+      <div>
+        <div class="flex items-center justify-between pb-1.5 mb-2.5 border-b border-slate-100">
+          <div class="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+            Compute &amp; Workflows
+          </div>
+          <span class="text-[9px] font-mono font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+            Serverless &amp; DAG
+          </span>
+        </div>
+
+        <div class="space-y-2">
+          <!-- Item 1: QuickJS -->
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-full border-2 border-amber-500 bg-white flex items-center justify-center text-amber-600 shadow-xs shrink-0 font-bold text-[10px]">
+              JS
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-900 leading-tight">QuickJS-Wasm Serverless</div>
+              <div class="text-[10px] text-slate-500 font-medium leading-tight">&lt; 1ms cold start isolated execution</div>
+            </div>
+          </div>
+
+          <!-- Item 2: Function Flows -->
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-full border-2 border-indigo-500 bg-white flex items-center justify-center text-indigo-600 shadow-xs shrink-0 font-bold text-[10px]">
+              DAG
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-900 leading-tight">Function Flows</div>
+              <div class="text-[10px] text-slate-500 font-medium leading-tight">Visual 9-state machine DAG &amp; retry</div>
+            </div>
+          </div>
+
+          <!-- Item 3: Embedded Queue -->
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-full border-2 border-emerald-500 bg-white flex items-center justify-center text-emerald-600 shadow-xs shrink-0 font-bold text-[10px]">
+              FIFO
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-900 leading-tight">SQLite Message Queues</div>
+              <div class="text-[10px] text-slate-500 font-medium leading-tight">Zero Redis, leased FIFO workers, and DLQ</div>
+            </div>
+          </div>
+
+          <!-- Item 4: Scheduled Cron -->
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-full border-2 border-cyan-500 bg-white flex items-center justify-center text-cyan-600 shadow-xs shrink-0">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-900 leading-tight">Sub-Second Cron Jobs</div>
+              <div class="text-[10px] text-slate-500 font-medium leading-tight">Precision recurring background workers</div>
+            </div>
+          </div>
+
+          <!-- Item 5: Web IDE -->
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-full border-2 border-amber-500 bg-white flex items-center justify-center text-amber-600 shadow-xs shrink-0">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+              </svg>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-900 leading-tight">In-Browser Web IDE</div>
+              <div class="text-[10px] text-slate-500 font-medium leading-tight">Monaco code editor with live syntax dry-run</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-2 mt-2 border-t border-slate-100 text-[9px] font-mono text-slate-400 text-center font-medium">
+        Embedded Event Substrate
+      </div>
+    </div>
+
+    <!-- ------------------------------------------------------------ -->
+    <!-- 5. LOWER CLUSTER: MULTI-DATABASE & STORAGE SUBSTRATE -->
+    <!-- (2 Rows x 3 Columns) -->
+    <!-- ------------------------------------------------------------ -->
+    <div class="white-cluster absolute top-[780px] left-0 right-0 p-4 z-10">
+      <div class="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-100">
+        <div class="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+          Storage Substrate &amp; Multi-Database Engine
+        </div>
+        <div class="text-[10px] font-mono font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full">
+          SQLite ⇄ Postgres ⇄ SQL Server
+        </div>
+      </div>
+
+      <!-- Row 1: Relational Engines -->
+      <div class="grid grid-cols-3 gap-6 mb-2 pb-2 border-b border-slate-100">
+
+        <!-- Item 1: SQLite WAL -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full border-2 border-blue-500 bg-white flex items-center justify-center text-blue-600 shadow-xs shrink-0 font-bold text-xs">
+            SQL
+          </div>
+          <div>
+            <div class="text-xs font-bold text-slate-900 leading-tight">SQLite (node:sqlite WAL Mode)</div>
+            <div class="text-[10px] text-slate-500 font-medium">Default zero-config local storage, sub-ms queries</div>
+          </div>
+        </div>
+
+        <!-- Item 2: Postgres -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full border-2 border-indigo-500 bg-white flex items-center justify-center text-indigo-600 shadow-xs shrink-0 font-bold text-xs">
+            PG
+          </div>
+          <div>
+            <div class="text-xs font-bold text-slate-900 leading-tight">PostgreSQL Replication</div>
+            <div class="text-[10px] text-slate-500 font-medium">Zero-downtime live schema &amp; data migration</div>
+          </div>
+        </div>
+
+        <!-- Item 3: SQL Server -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full border-2 border-cyan-500 bg-white flex items-center justify-center text-cyan-600 shadow-xs shrink-0 font-bold text-xs">
+            MS
+          </div>
+          <div>
+            <div class="text-xs font-bold text-slate-900 leading-tight">SQL Server (MSSQL Enterprise)</div>
+            <div class="text-[10px] text-slate-500 font-medium">Enterprise database driver with full ACID safety</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Row 2: Search & Storage Services -->
+      <div class="grid grid-cols-3 gap-6">
+
+        <!-- Item 4: FTS5 BM25 -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full border-2 border-teal-500 bg-white flex items-center justify-center text-teal-600 shadow-xs shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+          <div>
+            <div class="text-xs font-bold text-slate-900 leading-tight">SQLite FTS5 (BM25 Search)</div>
+            <div class="text-[10px] text-slate-500 font-medium">Instant full-text ranking, zero Elasticsearch overhead</div>
+          </div>
+        </div>
+
+        <!-- Item 5: Snapshots -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full border-2 border-amber-500 bg-white flex items-center justify-center text-amber-600 shadow-xs shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+          </div>
+          <div>
+            <div class="text-xs font-bold text-slate-900 leading-tight">Atomic Snapshot Checkpoints</div>
+            <div class="text-[10px] text-slate-500 font-medium">Point-in-time recovery &amp; automatic schema rollback</div>
+          </div>
+        </div>
+
+        <!-- Item 6: Multi-Tenant Storage -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full border-2 border-emerald-500 bg-white flex items-center justify-center text-emerald-600 shadow-xs shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 00-9.78 2.096A4.001 4.001 0 003 15z" />
+            </svg>
+          </div>
+          <div>
+            <div class="text-xs font-bold text-slate-900 leading-tight">Multi-Tenant File Storage</div>
+            <div class="text-[10px] text-slate-500 font-medium">Per-tenant local disk storage &amp; S3 bucket uploads</div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- 6. EDITORIAL BOTTOM LEGEND -->
+  <!-- ============================================================== -->
+  <div class="pt-2.5 border-t border-[#cbdcf5] flex items-center justify-between text-xs font-semibold text-slate-600">
+    
+    <div class="flex items-center gap-5">
+      <span class="text-slate-400 font-bold uppercase text-[10px] font-mono tracking-wider">ECOSYSTEM PILLARS:</span>
+      <div class="flex items-center gap-1.5">
+        <span class="w-3.5 h-3.5 rounded-full border-2 border-blue-500 bg-white"></span>
+        <span>Core Runtime</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-3.5 h-3.5 rounded-full border-2 border-rose-500 bg-white"></span>
+        <span>Unified Security</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-3.5 h-3.5 rounded-full border-2 border-amber-500 bg-white"></span>
+        <span>Compute &amp; Flows</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-3.5 h-3.5 rounded-full border-2 border-emerald-500 bg-white"></span>
+        <span>Async Queues</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-3.5 h-3.5 rounded-full border-2 border-teal-500 bg-white"></span>
+        <span>Storage Substrate</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-3.5 h-3.5 rounded-full border-2 border-purple-500 bg-white"></span>
+        <span>Developer Touchpoints</span>
+      </div>
+    </div>
+
+    <div class="text-[11px] font-mono text-slate-500">
+      *: Replaces 5+ Docker containers with a single Node.js runtime process (~40–80 MB)
+    </div>
+  </div>
+
+</body>
+</html>

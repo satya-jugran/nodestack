@@ -37,6 +37,10 @@ Building modern web and mobile apps often requires managing external database se
 
 NodeStack delivers an instant, complete backend stack in a **single Node.js process**:
 
+<p align="center">
+  <img width="850" alt="NodeStack Single-Process Architecture & Solution Map" src="./assets/nodestack-infographic.png" />
+</p>
+
 * **Zero-Compilation Embedded SQLite & Multi-Database Engine**: Powered natively by Node.js (`node:sqlite`) with first-class multi-database support for PostgreSQL and Microsoft SQL Server, zero-downtime migrations, and storage analytics.
 * **Unified RBAC Engine & API Key Tester (v2.6.0)**: Granular role-based and scope-based authorization across collections, records, flows, and serverless functions with automatic wildcard stripping on role downgrades, atomic quota enforcement, and built-in interactive permission testing tools in Admin UI, CLI, and client SDK.
 * **Hardened Plugin Sandboxing (PoLP) (v2.6.0)**: Principle of Least Privilege plugin DI containers, safe service token allowlists, tenant configuration isolation, and fault-tolerant EventBus error boundaries.

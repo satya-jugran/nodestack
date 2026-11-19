@@ -47,7 +47,11 @@ NodeStack packages this entire backend architecture into a **single Node.js proc
 
 ---
 
-️ Architecture Overview
+## 🏛️ Architecture Overview
+
+<p align="center">
+  <img width="850" alt="NodeStack Single-Process Architecture & Solution Map" src="/img/nodestack-infographic.png" />
+</p>
 
 NodeStack is structured into clear architectural layers:
 
