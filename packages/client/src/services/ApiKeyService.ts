@@ -5,6 +5,8 @@ import type {
   UpdateApiKeyOptions,
   ApiKeyListOptions,
   ApiKeySecretResult,
+  SimulateApiKeyOptions,
+  SimulateApiKeyResult,
 } from '../types';
 
 /**
@@ -87,5 +89,18 @@ export class ApiKeyService extends BaseService {
       method: 'DELETE',
     });
     return true;
+  }
+
+  /**
+   * Simulates/tests an API key's authorization against Collections, Functions, Flows, or Queues.
+   */
+  public async simulate(options: SimulateApiKeyOptions): Promise<SimulateApiKeyResult> {
+    const endpoint = options.keyId
+      ? `/api/api-keys/${encodeURIComponent(options.keyId)}/simulate`
+      : '/api/api-keys/simulate';
+    return this.send<SimulateApiKeyResult>(endpoint, {
+      method: 'POST',
+      body: options,
+    });
   }
 }

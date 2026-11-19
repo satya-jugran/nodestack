@@ -199,6 +199,35 @@ export interface ApiKeySecretResult {
   secretKey: string;
 }
 
+export interface SimulateApiKeyOptions {
+  keyId?: string;
+  role?: 'admin' | 'service' | 'custom';
+  scopes?: string[];
+  allowedIps?: string[];
+  subsystem: 'collections' | 'functions' | 'flows' | 'queues';
+  resource: string;
+  action: string;
+  clientIp?: string;
+  appSlug?: string;
+}
+
+export interface SimulateApiKeyResult {
+  allowed: boolean;
+  status: number;
+  reason: string;
+  matchedScope: string | null;
+  requiredScope: string;
+  subsystem: string;
+  resource: string;
+  action: string;
+  ipCheck: {
+    enforced: boolean;
+    clientIp?: string;
+    allowed: boolean;
+  };
+  curlExample: string;
+}
+
 export interface AppModel extends BaseSystemFields {
   name: string;
   slug: string;

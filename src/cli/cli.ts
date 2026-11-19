@@ -388,6 +388,48 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
       });
     });
 
+  apiKeysCmd
+    .command('test <id>')
+    .alias('simulate')
+    .description('Test/simulate an API key against a target subsystem (collections, functions, flows, queues)')
+    .requiredOption('-s, --subsystem <subsystem>', 'Target subsystem: collections, functions, flows, queues')
+    .requiredOption('-r, --resource <resource>', 'Target resource name (e.g. orders, my-fn, send-email, email-jobs)')
+    .requiredOption('-x, --action <action>', 'Action (e.g. list, view, create, update, delete, invoke, execute, send, read, claim)')
+    .option('--ip <ip>', 'Simulated client IP (e.g. 192.168.1.1)')
+    .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
+    .option('-a, --app <slug>', 'Target application slug (default: "default")', 'default')
+    .option('--json', 'Output JSON', false)
+    .action(async (id, options) => {
+      await withApiKeysScope(options, async (apiKeys) => {
+        const result = await apiKeys.simulate({
+          keyId: id,
+          subsystem: options.subsystem as any,
+          resource: options.resource,
+          action: options.action,
+          clientIp: options.ip,
+          appSlug: options.app,
+        });
+        if (options.json) {
+          console.log(JSON.stringify(result, null, 2));
+          return;
+        }
+        if (result.allowed) {
+          console.log(chalk.green(`\n✔ ACCESS GRANTED (HTTP 200)`));
+          console.log(`  Target:     ${chalk.bold(result.subsystem)} / ${chalk.bold(result.resource)} (${result.action})`);
+          console.log(`  Matched:    ${chalk.cyan(result.matchedScope || 'Admin Wildcard')}`);
+          console.log(`  Reason:     ${result.reason}`);
+          if (result.curlExample) {
+            console.log(chalk.dim(`\n  cURL Request:\n  ${result.curlExample.replace(/\n/g, '\n  ')}\n`));
+          }
+        } else {
+          console.log(chalk.red(`\n✖ ACCESS DENIED (HTTP 403)`));
+          console.log(`  Target:     ${chalk.bold(result.subsystem)} / ${chalk.bold(result.resource)} (${result.action})`);
+          console.log(`  Required:   ${chalk.yellow(result.requiredScope)}`);
+          console.log(`  Reason:     ${chalk.red(result.reason)}\n`);
+        }
+      });
+    });
+
   // Command: typegen
   program
     .command('typegen')
