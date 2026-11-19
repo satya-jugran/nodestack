@@ -388,6 +388,12 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
         scopes: ['flows:mod-approval-flow'],
       });
 
+      const anotherScopedFlowKey = app.apiKeys.createKey({
+        name: 'Another Flow Key',
+        role: 'service',
+        scopes: ['flows:mod-approval-flow'],
+      });
+
       // Flow checks: anon (403), regular user (403), moderator (202 + poll 200), wrong user poll (403), scoped key (202 + poll 200), wrong key (403)
       const flowAnon = await fetch(`${serverUrl}/api/flows/mod-approval-flow/execute`, {
         method: 'POST',
@@ -437,6 +443,24 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
         headers: { Authorization: `ApiKey ${scopedFlowKey.secretKey}` },
       });
       expect(pollKey.status).toBe(200);
+
+      // Another scoped key (with same flow scope) CANNOT poll this execution (actor isolation)
+      const pollAnotherKey = await fetch(`${serverUrl}/api/flows/executions/${keyExec.executionId}`, {
+        headers: { Authorization: `ApiKey ${anotherScopedFlowKey.secretKey}` },
+      });
+      expect(pollAnotherKey.status).toBe(403);
+
+      // Scoped key CANNOT poll an execution created by a different actor (Moderator)
+      const pollModExecByKey = await fetch(`${serverUrl}/api/flows/executions/${modExec.executionId}`, {
+        headers: { Authorization: `ApiKey ${scopedFlowKey.secretKey}` },
+      });
+      expect(pollModExecByKey.status).toBe(403);
+
+      // Moderator CANNOT poll an execution created by an API key
+      const pollKeyExecByMod = await fetch(`${serverUrl}/api/flows/executions/${keyExec.executionId}`, {
+        headers: { Authorization: `Bearer ${modToken}` },
+      });
+      expect(pollKeyExecByMod.status).toBe(403);
 
       const flowKeyDenied = await fetch(`${serverUrl}/api/flows/mod-approval-flow/execute`, {
         method: 'POST',

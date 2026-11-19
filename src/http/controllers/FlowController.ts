@@ -236,16 +236,24 @@ export class FlowController extends BaseController {
 
     const flow = await service.getFlowById(execution.flowId);
     const auth = (req as any).auth;
-    if (flow && flow.triggerType !== 'http') {
+    if (!flow) {
+      if (!auth || !auth.isAdmin) {
+        this.error(reply, 'Flow execution not found or access denied', 404);
+        return;
+      }
+    } else if (flow.triggerType !== 'http') {
       if (!auth || !auth.isAdmin) {
         this.error(reply, `Flow execution for '${execution.flowName}' requires admin credentials`, 403);
         return;
       }
-    } else if (flow && flow.triggerType === 'http' && flow.authPolicy && flow.authPolicy !== 'public') {
-      const canAccessByApiKey = Boolean(auth?.isApiKey && hasFlowScope(auth, flow.name));
-      if (!auth?.isAdmin && !canAccessByApiKey) {
+    } else if (flow.triggerType === 'http' && flow.authPolicy && flow.authPolicy !== 'public') {
+      if (!auth?.isAdmin) {
         if (!auth || !auth.id) {
           this.error(reply, `Authentication required to view execution for '${execution.flowName}'`, 401);
+          return;
+        }
+        if (auth.isApiKey && !hasFlowScope(auth, flow.name)) {
+          this.error(reply, `API Key missing required scope for '${flow.name}'`, 403);
           return;
         }
         if (execution.actorId !== auth.id) {
