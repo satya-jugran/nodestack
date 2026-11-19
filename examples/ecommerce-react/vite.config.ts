@@ -6,5 +6,11 @@ export default defineConfig({
   server: {
     port: 5173,
     open: false,
+    proxy: {
+      '/api': {
+        target: process.env.VITE_NODESTACK_URL || 'http://localhost:8090',
+        changeOrigin: true,
+      },
+    },
   },
 });

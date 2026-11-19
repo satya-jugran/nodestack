@@ -20,7 +20,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
     .description('Starts the NodeStack web server and Admin UI')
     .option('-d, --dir <path>', 'The directory where data and uploads are stored', './nodestack_data')
     .option('-h, --http <address>', 'Server bind address (host:port)', '0.0.0.0:8090')
-    .option('--dev', 'Run in development mode with verbose error traces', false)
+    .option('--dev', 'Run in development mode with verbose error traces')
     .option('--mock-delay <ms>', 'Simulate network latency in milliseconds across API requests (e.g. 1500)')
     .option('--mock-fail-rate <rate>', 'Simulate random network drop rate between 0.0 and 1.0 (e.g. 0.2 for 20%)')
     .option('--mock-error <code>', 'Simulate HTTP error status code for network drops (e.g. 500 or 503)')
