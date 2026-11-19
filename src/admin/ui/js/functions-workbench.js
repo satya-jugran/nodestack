@@ -163,11 +163,18 @@ const CTX_DOCS = [
     snippet: 'const res = await core.network.http.fetch("https://api.example.com/data", { method: "POST" });\nconst data = await res.json();\n'
   },
   {
-    name: 'core.observability.log(...args)',
+    name: 'core.observability.logger.log/warn/error(...args)',
     type: '(...args: any[]) => void',
     cat: 'utils',
     desc: 'Structured execution logging captured in Execution Logs (also console.log)',
-    snippet: 'core.observability.log("Processing execution step", { step: 1, time: Date.now() });\n'
+    snippet: 'const logger = core.observability.logger;\nlogger.log("Processing execution step", { step: 1, time: Date.now() });\n'
+  },
+  {
+    name: 'core.observability.metric(name, value, tags)',
+    type: '(name: string, value: number, tags?: Record<string, string>) => void',
+    cat: 'utils',
+    desc: 'Publish telemetry metric with dimensional tags',
+    snippet: 'core.observability.metric("checkout_completed", 1, { status: "success" });\n'
   },
   {
     name: 'context.env',

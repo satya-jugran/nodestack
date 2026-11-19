@@ -58,7 +58,11 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
         capturedLogs.push(msg.length > 500 ? msg.slice(0, 500) + '...' : msg);
       }
       try {
-        hostServices.observability.log(msg);
+        if (hostServices.observability.logger?.log) {
+          hostServices.observability.logger.log(msg);
+        } else if (typeof hostServices.observability.log === 'function') {
+          hostServices.observability.log(msg);
+        }
       } catch {}
     };
 
@@ -361,6 +365,13 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
           };
           Object.assign(queueBridge, createQueueClient(null));
 
+          var loggerObj = {
+            log: function() { emitLog(Array.prototype.slice.call(arguments)); },
+            info: function() { emitLog(Array.prototype.slice.call(arguments)); },
+            warn: function() { emitLog(Array.prototype.slice.call(arguments)); },
+            error: function() { emitLog(Array.prototype.slice.call(arguments)); }
+          };
+
           globalThis.core = {
             version: '2.5.0',
             sdk: {
@@ -384,10 +395,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
               }
             },
             observability: {
-              log: function() { emitLog(Array.prototype.slice.call(arguments)); },
-              info: function() { emitLog(Array.prototype.slice.call(arguments)); },
-              warn: function() { emitLog(Array.prototype.slice.call(arguments)); },
-              error: function() { emitLog(Array.prototype.slice.call(arguments)); },
+              logger: loggerObj,
               metric: function(name, value, tags) { hostCall('metric', { name: name, value: value, tags: tags }); }
             }
           };
@@ -416,10 +424,10 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
           // JavaScript standard globals delegate to core subsystems
           globalThis.fetch = globalThis.core.network.http.fetch;
           globalThis.console = {
-            log: globalThis.core.observability.log,
-            info: globalThis.core.observability.info,
-            warn: globalThis.core.observability.warn,
-            error: globalThis.core.observability.error
+            log: loggerObj.log,
+            info: loggerObj.info,
+            warn: loggerObj.warn,
+            error: loggerObj.error
           };
         })();
       `;

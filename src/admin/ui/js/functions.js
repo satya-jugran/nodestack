@@ -40,7 +40,8 @@ if (typeof window !== 'undefined') {
 const STARTER_RECIPES = {
   starter: `// Serverless Function Starter
 export default async function(core, context) {
-  core.observability.log("Invoked function in app:", context.app.slug);
+  const logger = core.observability.logger;
+  logger.log("Invoked function in app:", context.app.slug);
   const name = context.request?.body?.name || "World";
   return {
     status: 200,

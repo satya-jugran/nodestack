@@ -117,7 +117,7 @@ function renderWorkbenchTestPane(fn, isNew) {
           </div>
 
           <div>
-            <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: var(--text-muted);">Captured Logs (ctx.log & console.log):</label>
+            <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: var(--text-muted);">Captured Logs (core.observability.logger & console.log):</label>
             <pre id="editor-test-logs" style="background: #0f172a; color: #38bdf8; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 11px; max-height: 120px; overflow-y: auto; margin: 0; white-space: pre-wrap;"></pre>
           </div>
 

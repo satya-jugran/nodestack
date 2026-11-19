@@ -110,9 +110,23 @@ export interface FunctionNetworkBridge {
   }>;
 }
 
-export interface FunctionObservabilityBridge {
+export interface FunctionLogger {
   log(...args: any[]): void;
+  info(...args: any[]): void;
+  warn(...args: any[]): void;
+  error(...args: any[]): void;
+}
+
+export interface FunctionObservabilityBridge {
+  logger?: FunctionLogger;
   metric?(name: string, value: number, tags?: Record<string, string>): void;
+  /**
+   * @deprecated Internal host logging fallback
+   */
+  log?(...args: any[]): void;
+  info?(...args: any[]): void;
+  warn?(...args: any[]): void;
+  error?(...args: any[]): void;
 }
 
 export interface FunctionContextData {

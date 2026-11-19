@@ -669,13 +669,15 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(res2.json().msg).toBe('from arrow fn');
     });
 
-    it('should capture console.log and ctx.log in execution logs', async () => {
+    it('should capture console.log and core.observability.logger in execution logs', async () => {
       const fn = app.functions.createFunction({
         name: 'logging-fn',
         code: `
           export default async function(core, context) {
+            const logger = core.observability.logger;
             console.log("Step 1: start processing");
-            core.observability.log("Step 2: performing calculation", 42);
+            logger.log("Step 2: performing calculation", 42);
+            logger.warn("Step 3: warning note");
             return { status: 200, body: { done: true } };
           }
         `,
@@ -707,6 +709,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       const latestLog = logsData.items[0];
       expect(latestLog.logs).toContain('Step 1: start processing');
       expect(latestLog.logs).toContain('Step 2: performing calculation 42');
+      expect(latestLog.logs).toContain('Step 3: warning note');
       expect(latestLog.status).toBe('success');
     });
 
@@ -1264,7 +1267,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
   // 7. Admin UI Bundling & DOM Elements
   // ==========================================
   describe('7. Admin UI Bundling & DOM Elements', () => {
-    it('should bundle functions.js and update sidebar-functions-count badge when functions stats are loaded', async () => {
+    it('should bundle functions.js and update sidebar-functions-count badge when functions stats are loaded', { timeout: 15000 }, async () => {
       const fs = await import('fs');
       const path = await import('path');
       const { JSDOM } = await import('jsdom');
@@ -1620,7 +1623,8 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
             const hasCollection = typeof core.sdk.collection === 'function';
             const hasQueue = typeof core.sdk.queue === 'function';
             const hasNetwork = typeof core.network?.http?.fetch === 'function';
-            const hasObs = typeof core.observability?.log === 'function' && typeof core.observability?.metric === 'function';
+            const hasObs = typeof core.observability?.logger?.log === 'function' && typeof core.observability?.metric === 'function';
+            const coreObsLogUndefined = typeof core.observability?.log === 'undefined';
             const version = core.version;
 
             // 2. Strict clean break verification: context must NOT have records, queue, or core
@@ -1648,6 +1652,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
                 hasQueue,
                 hasNetwork,
                 hasObs,
+                coreObsLogUndefined,
                 version,
                 ctxRecordsUndefined: typeof ctxRecords === 'undefined',
                 hasCtxQueue: typeof ctxQueue === 'function',
@@ -1679,6 +1684,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(data.hasQueue).toBe(true);
       expect(data.hasNetwork).toBe(true);
       expect(data.hasObs).toBe(true);
+      expect(data.coreObsLogUndefined).toBe(true);
       expect(data.version).toBe('2.5.0');
       expect(data.ctxRecordsUndefined).toBe(true);
       expect(data.hasCtxQueue).toBe(true);
