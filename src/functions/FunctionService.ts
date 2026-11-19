@@ -1384,10 +1384,7 @@ export class FunctionService {
           throw new Error('Cannot claim messages from reserved _system:* queues from user functions');
         }
         if (effectiveAuth?.isApiKey && !effectiveAuth?.isAdmin) {
-          const canClaim =
-            hasQueueScope(effectiveAuth, queueName, 'read') ||
-            hasQueueScope(effectiveAuth, queueName, 'send');
-          if (!canClaim) {
+          if (!hasQueueScope(effectiveAuth, queueName, 'read')) {
             throw new ForbiddenError(`API Key missing required scope to claim messages from '${queueName}'`);
           }
         }

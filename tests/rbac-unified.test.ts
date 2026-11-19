@@ -540,6 +540,59 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
       const fnDeniedBody = await fnDenied.json();
       expect(fnDeniedBody.message).toContain('missing required scope');
     });
+
+    it('enforces that claiming queue messages requires read scope and rejects send-only keys', async () => {
+      app.functions.createFunction({
+        name: 'queue-claim-fn',
+        code: `
+          export default async function(core, ctx) {
+            const queueName = ctx.request.body.queueName;
+            const messages = await core.sdk.queue(queueName).claim();
+            return { status: 200, body: { count: messages.length } };
+          }
+        `,
+        enabled: true,
+        authPolicy: 'apiKey',
+        methods: ['POST'],
+        timeoutMs: 1000,
+        memoryLimitMb: 32,
+        allowedDomains: [],
+        elevated: false,
+        env: {},
+      });
+
+      const sendOnlyKey = app.apiKeys.createKey({
+        name: 'Send Only Key',
+        role: 'service',
+        scopes: ['queues:email-jobs:send', 'functions:queue-claim-fn'],
+      });
+
+      const readKey = app.apiKeys.createKey({
+        name: 'Read Key',
+        role: 'service',
+        scopes: ['queues:email-jobs:read', 'functions:queue-claim-fn'],
+      });
+
+      // send-only key attempting to claim should fail
+      const claimDenied = await fetch(`${serverUrl}/api/functions/queue-claim-fn/invoke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `ApiKey ${sendOnlyKey.secretKey}` },
+        body: JSON.stringify({ queueName: 'email-jobs' }),
+      });
+      expect([403, 500]).toContain(claimDenied.status);
+      const claimDeniedBody = await claimDenied.json();
+      expect(claimDeniedBody.message).toContain('missing required scope to claim messages');
+
+      // read key attempting to claim should succeed
+      const claimAllowed = await fetch(`${serverUrl}/api/functions/queue-claim-fn/invoke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `ApiKey ${readKey.secretKey}` },
+        body: JSON.stringify({ queueName: 'email-jobs' }),
+      });
+      expect(claimAllowed.status).toBe(200);
+      const claimAllowedBody = await claimAllowed.json();
+      expect(claimAllowedBody.count).toBeDefined();
+    });
   });
 
   describe('4. Admin UI JSDOM Verification (API Keys Manager, Secure Defaults, Custom Rules & Protected Fields)', () => {
