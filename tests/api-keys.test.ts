@@ -559,6 +559,39 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       const list = await client.collection('orders').getList(1, 10);
       expect(list.items.length).toBeGreaterThanOrEqual(1);
     });
+
+    it('should strip admin wildcard scopes when downgrading role from admin to service/custom', async () => {
+      // 1. Create an admin key (gets ['*'] automatically)
+      const adminCreated = app.apiKeys.createKey({
+        name: 'Admin Key to Downgrade',
+        role: 'admin',
+        scopes: ['*'],
+      });
+      expect(adminCreated.apiKey.role).toBe('admin');
+      expect(adminCreated.apiKey.scopes).toEqual(['*']);
+
+      // Admin key can access admin-only /api/api-keys endpoint
+      const adminRes = await fetch(`${serverUrl}/api/api-keys`, {
+        headers: { Authorization: `Bearer ${adminCreated.secretKey}` },
+      });
+      expect(adminRes.status).toBe(200);
+
+      // 2. Downgrade role to 'service' without explicitly providing scopes
+      const downgraded = app.apiKeys.updateKey(adminCreated.apiKey.id, {
+        role: 'service',
+      });
+      expect(downgraded.role).toBe('service');
+      // Admin wildcard scopes must have been removed
+      expect(downgraded.scopes).not.toContain('*');
+      expect(downgraded.scopes).not.toContain('admin:*');
+      expect(downgraded.scopes).toEqual([]);
+
+      // 3. Verify downgraded key can NO LONGER access admin-only /api/api-keys endpoint
+      const deniedRes = await fetch(`${serverUrl}/api/api-keys`, {
+        headers: { Authorization: `Bearer ${adminCreated.secretKey}` },
+      });
+      expect(deniedRes.status).toBe(403);
+    });
   });
 
   describe('5. Collection Rules Enforcement for Non-Admin API Keys', () => {

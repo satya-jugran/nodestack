@@ -931,15 +931,33 @@ export class ApiKeyService {
         params.push(dto.description);
       }
       const effectiveRole = dto.role !== undefined ? dto.role : current.role;
+      const isRoleChanging = dto.role !== undefined && dto.role !== current.role;
       if (dto.role !== undefined) {
         updates.push('role = ?');
         params.push(dto.role);
       }
-      if (dto.scopes !== undefined || dto.role === 'admin') {
-        const nextScopes = normalizeApiKeyScopes(
-          dto.scopes !== undefined ? dto.scopes : current.scopes,
-          effectiveRole
-        );
+      if (dto.scopes !== undefined || isRoleChanging || effectiveRole === 'admin') {
+        let baseScopes: string[];
+        if (dto.scopes !== undefined) {
+          baseScopes = dto.scopes;
+          // If the key is non-admin, remove admin wildcard scopes to prevent privilege escalation/leakage
+          if (effectiveRole !== 'admin') {
+            baseScopes = baseScopes.filter((s: string) => {
+              const trimmed = String(s || '').trim().toLowerCase();
+              return trimmed !== '*' && trimmed !== 'admin:*';
+            });
+          }
+        } else if (effectiveRole === 'admin') {
+          baseScopes = ['*'];
+        } else {
+          // Role changed to non-admin without explicit scopes (role downgrade)
+          // Strip any admin wildcard scopes inherited from the admin role
+          baseScopes = (current.scopes || []).filter((s: string) => {
+            const trimmed = String(s || '').trim().toLowerCase();
+            return trimmed !== '*' && trimmed !== 'admin:*';
+          });
+        }
+        const nextScopes = normalizeApiKeyScopes(baseScopes, effectiveRole);
         updates.push('scopes = ?');
         params.push(JSON.stringify(nextScopes));
       }
