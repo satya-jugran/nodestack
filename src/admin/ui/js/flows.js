@@ -262,6 +262,7 @@ function renderFlowsListHtml() {
 
             <div style="display: flex; align-items: center; gap: 0.75rem; margin: 0.75rem 0; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap;">
               <span><strong>Trigger:</strong> <code style="color: var(--accent-primary);">${formatFlowTriggerLabel(flow)}</code></span>
+              ${flow.triggerType === 'http' ? `<span>•</span><span><strong>Auth:</strong> <code style="color: var(--text-heading);">${escapeHtml((flow.authPolicy || 'public').toUpperCase())}</code></span>` : ''}
               <span>•</span>
               <span><strong>Steps:</strong> ${stateCount} states</span>
               <span>•</span>
@@ -539,6 +540,16 @@ function openCreateFlowModal() {
                 <option value="manual">Manual Execution Only</option>
               </select>
             </div>
+            <div class="form-group" id="flow-http-auth-field" style="display: flex;">
+              <label class="form-label" for="new-flow-auth-policy">HTTP Authorization Policy</label>
+              <select id="new-flow-auth-policy" class="form-select">
+                <option value="admin" selected>Admin Only (Requires Admin Token)</option>
+                <option value="auth">User Token (Bearer JWT or Scoped API Key)</option>
+                <option value="apiKey">API Key (Requires flows scope)</option>
+                <option value="custom">Custom Rule (@request.auth.* or Scoped API Key)</option>
+                <option value="public">Public (No Token Required)</option>
+              </select>
+            </div>
             <div class="form-group" id="flow-event-field" style="display: none;">
               <label class="form-label" for="new-flow-event">Target Event Pattern</label>
               <input
@@ -578,6 +589,8 @@ function closeFlowModal() {
 function toggleFlowTriggerInput(val) {
   const field = document.getElementById('flow-event-field');
   if (field) field.style.display = val === 'event' ? 'flex' : 'none';
+  const httpAuthField = document.getElementById('flow-http-auth-field');
+  if (httpAuthField) httpAuthField.style.display = val === 'http' ? 'flex' : 'none';
 }
 
 async function handleCreateFlowSubmit(e) {
@@ -585,6 +598,7 @@ async function handleCreateFlowSubmit(e) {
   const nameInput = document.getElementById('new-flow-name');
   const descInput = document.getElementById('new-flow-desc');
   const triggerInput = document.getElementById('new-flow-trigger');
+  const authInput = document.getElementById('new-flow-auth-policy');
   const eventInput = document.getElementById('new-flow-event');
   const concurrencyInput = document.getElementById('new-flow-concurrency');
 
@@ -592,6 +606,8 @@ async function handleCreateFlowSubmit(e) {
   if (!name) return;
 
   const triggerType = triggerInput ? triggerInput.value : 'http';
+  const authPolicy = triggerType === 'http' && authInput ? authInput.value : 'admin';
+  const invokeRule = triggerType === 'http' && authPolicy === 'custom' ? '@request.auth.id != ""' : null;
   const eventTrigger = triggerType === 'event' && eventInput ? eventInput.value.trim() : null;
   const rawConcurrency = concurrencyInput ? concurrencyInput.value.trim() : '';
   const maxConcurrentExecutions = rawConcurrency !== '' ? parseInt(rawConcurrency, 10) : null;
@@ -601,6 +617,8 @@ async function handleCreateFlowSubmit(e) {
     description: descInput ? descInput.value.trim() : '',
     enabled: true,
     triggerType,
+    authPolicy,
+    invokeRule,
     eventTrigger,
     maxConcurrentExecutions,
     definition: {

@@ -342,8 +342,8 @@ function renderFunctionsTable(functions) {
 
   const rows = functions.map(fn => {
     const isEnabled = fn.enabled !== false;
-    const authBadgeClass = fn.authPolicy === 'public' ? 'badge-success' : (fn.authPolicy === 'admin' ? 'badge-danger' : 'badge-primary');
-    const authLabel = (fn.authPolicy || 'public').toUpperCase();
+    const authBadgeClass = fn.authPolicy === 'public' ? 'badge-success' : (fn.authPolicy === 'admin' ? 'badge-danger' : (fn.authPolicy === 'custom' ? 'badge-warning' : 'badge-primary'));
+    const authLabel = fn.authPolicy === 'custom' ? 'CUSTOM RULE' : (fn.authPolicy || 'public').toUpperCase();
     const invokePath = `${invokePrefix}/${fn.name}/invoke`;
 
     return `

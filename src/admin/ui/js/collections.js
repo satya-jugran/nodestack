@@ -390,6 +390,8 @@ function updateBreadcrumbs() {
     } else {
       crumbs.push({ label: 'Queues', active: true });
     }
+  } else if (state.activeNav === 'api-keys') {
+    crumbs.push({ label: 'API Keys', active: true });
   } else if (state.activeNav === 'home') {
     crumbs.push({ label: 'Overview', active: true });
   } else if (state.activeNav === 'analytics') {

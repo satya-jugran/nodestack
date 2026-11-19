@@ -463,29 +463,59 @@
       }
     }
 
-    function getFieldOptionsHtml(currentField, col) {
+    function getDynamicAuthFieldOptions() {
       const authFields = [
         { val: '@request.auth.id', label: '@request.auth.id (User ID)' },
         { val: '@request.auth.email', label: '@request.auth.email (User Email)' },
+        { val: '@request.auth.collection', label: '@request.auth.collection (Auth Table Name)' },
+        { val: '@request.auth.verified', label: '@request.auth.verified (Email Verified)' },
         { val: '@request.auth.role', label: '@request.auth.role (User Role)' },
         { val: '@request.auth.isAdmin', label: '@request.auth.isAdmin (Admin Flag)' },
       ];
+      const seen = new Set(authFields.map(f => f.val));
 
-      const systemFields = [
+      if (typeof state !== 'undefined' && Array.isArray(state.collections)) {
+        for (const c of state.collections) {
+          if (!c || c.type !== 'auth' || c.system) continue;
+          for (const f of (c.schema || [])) {
+            if (!f || !f.name) continue;
+            const path = `@request.auth.${f.name}`;
+            if (!seen.has(path)) {
+              seen.add(path);
+              authFields.push({
+                val: path,
+                label: `@request.auth.${f.name} (${c.name})`,
+              });
+            }
+          }
+        }
+      }
+      return authFields;
+    }
+
+    function getFieldOptionsHtml(currentField, col, options = {}) {
+      const authFields = getDynamicAuthFieldOptions();
+
+      const systemFields = options.includeRecordFields === false ? [] : [
         { val: 'id', label: 'id (Record ID)' },
         { val: 'created', label: 'created (Created Timestamp)' },
         { val: 'updated', label: 'updated (Updated Timestamp)' },
       ];
 
-      const schemaFields = (col.schema || []).map(f => ({
+      const schemaFields = (col && col.schema ? col.schema : []).map(f => ({
         val: f.name,
         label: `${f.name} (${f.type})`,
       }));
 
-      const dataFields = (col.schema || []).map(f => ({
+      const dataFields = (col && col.schema ? col.schema : []).map(f => ({
         val: `@request.data.${f.name}`,
         label: `@request.data.${f.name} (Submitted payload)`,
       }));
+
+      const requestFields = options.includeRequestExtras ? [
+        { val: '@request.query.role', label: '@request.query.* (Query Param)' },
+        { val: '@request.data.action', label: '@request.data.* (Body Field)' },
+      ] : [];
 
       let isCustom = true;
       const allKnownVals = [
@@ -493,6 +523,7 @@
         ...systemFields.map(x => x.val),
         ...schemaFields.map(x => x.val),
         ...dataFields.map(x => x.val),
+        ...requestFields.map(x => x.val),
       ];
       if (allKnownVals.includes(currentField)) {
         isCustom = false;
@@ -501,23 +532,28 @@
       let html = '';
       html += `<optgroup label="Authentication (@request.auth)">`;
       for (const f of authFields) {
-        html += `<option value="${f.val}" ${currentField === f.val ? 'selected' : ''}>${f.label}</option>`;
+        html += `<option value="${f.val}" ${currentField === f.val ? 'selected' : ''}>${escapeHtml(f.label)}</option>`;
       }
       html += `</optgroup>`;
 
-      html += `<optgroup label="Record Fields">`;
-      for (const f of systemFields) {
-        html += `<option value="${f.val}" ${currentField === f.val ? 'selected' : ''}>${f.label}</option>`;
+      if (systemFields.length > 0 || schemaFields.length > 0) {
+        html += `<optgroup label="Record Fields">`;
+        for (const f of systemFields) {
+          html += `<option value="${f.val}" ${currentField === f.val ? 'selected' : ''}>${escapeHtml(f.label)}</option>`;
+        }
+        for (const f of schemaFields) {
+          html += `<option value="${f.val}" ${currentField === f.val ? 'selected' : ''}>${escapeHtml(f.label)}</option>`;
+        }
+        html += `</optgroup>`;
       }
-      for (const f of schemaFields) {
-        html += `<option value="${f.val}" ${currentField === f.val ? 'selected' : ''}>${f.label}</option>`;
-      }
-      html += `</optgroup>`;
 
-      if (dataFields.length > 0) {
-        html += `<optgroup label="Request Data (@request.data)">`;
+      if (dataFields.length > 0 || requestFields.length > 0) {
+        html += `<optgroup label="Request Data (@request)">`;
         for (const f of dataFields) {
-          html += `<option value="${f.val}" ${currentField === f.val ? 'selected' : ''}>${f.label}</option>`;
+          html += `<option value="${f.val}" ${currentField === f.val ? 'selected' : ''}>${escapeHtml(f.label)}</option>`;
+        }
+        for (const f of requestFields) {
+          html += `<option value="${f.val}" ${currentField === f.val ? 'selected' : ''}>${escapeHtml(f.label)}</option>`;
         }
         html += `</optgroup>`;
       }
@@ -772,4 +808,273 @@
 
       renderAccessRulesSection(state.activeCollection);
       toast(`Rule copied from ${sourceKey.toUpperCase()} to all CRUD actions!`, 'success');
+    }
+
+    // ==========================================
+    // Reusable Standalone Custom Rule Editor (Functions & HTTP Flows)
+    // ==========================================
+
+    function ensureStandaloneRulesStore() {
+      if (!state.standaloneRules) {
+        state.standaloneRules = {};
+      }
+      return state.standaloneRules;
+    }
+
+    function initStandaloneRule(editorId, ruleExpr) {
+      const store = ensureStandaloneRulesStore();
+      const rawStr = (ruleExpr !== null && ruleExpr !== undefined && String(ruleExpr).trim() !== '')
+        ? String(ruleExpr).trim()
+        : '@request.auth.id != ""';
+      const parsed = parseClientRuleExpression(rawStr);
+      store[editorId] = {
+        editorMode: parsed.canBeVisual ? 'visual' : 'raw',
+        join: parsed.join || '&&',
+        clauses: parsed.clauses && parsed.clauses.length > 0
+          ? parsed.clauses
+          : [{ field: '@request.auth.role', operator: '=', value: '"editor"' }],
+        raw: rawStr,
+      };
+      return store[editorId];
+    }
+
+    function getStandaloneRuleValue(editorId) {
+      const store = ensureStandaloneRulesStore();
+      const r = store[editorId];
+      if (!r) return '';
+      if (r.editorMode === 'visual') {
+        return buildRuleFromClausesClient(r.clauses, r.join, []);
+      }
+      return (r.raw || '').trim();
+    }
+
+    function renderStandaloneRuleInnerHtml(editorId) {
+      const store = ensureStandaloneRulesStore();
+      const r = store[editorId] || initStandaloneRule(editorId);
+      const currentVal = getStandaloneRuleValue(editorId);
+      const isVisual = r.editorMode === 'visual';
+      const authSuggestions = getDynamicAuthFieldOptions();
+
+      return `
+        <div class="rule-card" style="padding: 0.75rem; margin: 0;">
+          <div class="rule-card-header" style="margin-bottom: 0.5rem;">
+            <div class="rule-info" style="gap: 6px;">
+              <span class="rule-title" style="font-size: 12px;">Custom Invoke Rule</span>
+              <span class="badge" style="background:var(--accent-warning-subtle); color:var(--accent-warning); font-weight:700; font-size: 10px;">⚙ ABAC</span>
+            </div>
+            <div class="rule-mode-toggle">
+              <button type="button" class="${isVisual ? 'active' : ''}" onclick="setStandaloneRuleMode('${editorId}', 'visual')">✦ Visual</button>
+              <button type="button" class="${!isVisual ? 'active' : ''}" onclick="setStandaloneRuleMode('${editorId}', 'raw')">⌨ Raw</button>
+            </div>
+          </div>
+
+          ${isVisual ? `
+            <div class="rule-visual-editor">
+              ${(r.clauses || []).map((clause, idx) => {
+                const fieldData = getFieldOptionsHtml(clause.field, null, { includeRecordFields: false, includeRequestExtras: true });
+                const datalistId = `standalone-val-${editorId}-${idx}`;
+                return `
+                  ${idx > 0 ? `
+                    <div class="rule-join-bar">
+                      <span>Logic:</span>
+                      <button type="button" class="rule-join-pill" onclick="toggleStandaloneRuleJoin('${editorId}')">
+                        ${r.join === '||' ? 'OR (||)' : 'AND (&&)'}
+                      </button>
+                    </div>
+                  ` : ''}
+                  <div class="rule-condition-row">
+                    <div>
+                      <select class="form-select" aria-label="Condition field ${idx + 1}" style="width:100%;" onchange="onStandaloneFieldSelect('${editorId}', ${idx}, this.value)">
+                        ${fieldData.html}
+                      </select>
+                      ${fieldData.isCustom ? `
+                        <input type="text" class="form-input" style="font-family:var(--font-mono); font-size:12px; margin-top:4px;" value="${escapeHtml(clause.field)}" placeholder="e.g. @request.auth.department" oninput="onStandaloneCustomField('${editorId}', ${idx}, this.value)">
+                      ` : ''}
+                    </div>
+                    <select class="form-select" aria-label="Condition operator ${idx + 1}" onchange="onStandaloneOpChange('${editorId}', ${idx}, this.value)">
+                      <option value="=" ${clause.operator === '=' ? 'selected' : ''}>= (Equals)</option>
+                      <option value="!=" ${clause.operator === '!=' ? 'selected' : ''}>!= (Not equal)</option>
+                      <option value=">" ${clause.operator === '>' ? 'selected' : ''}>> (Greater than)</option>
+                      <option value=">=" ${clause.operator === '>=' ? 'selected' : ''}>>= (Greater or equal)</option>
+                      <option value="<" ${clause.operator === '<' ? 'selected' : ''}>< (Less than)</option>
+                      <option value="<=" ${clause.operator === '<=' ? 'selected' : ''}><= (Less or equal)</option>
+                      <option value="~" ${clause.operator === '~' ? 'selected' : ''}>~ (Contains)</option>
+                    </select>
+                    <div>
+                      <input type="text" class="form-input" aria-label="Condition value ${idx + 1}" style="width:100%; font-family:var(--font-mono); font-size:12px;" list="${datalistId}" value="${escapeHtml(clause.value)}" placeholder='e.g. "editor" or true' oninput="onStandaloneValChange('${editorId}', ${idx}, this.value)">
+                      <datalist id="${datalistId}">
+                        <option value='""'>"" (Empty string)</option>
+                        <option value='"editor"'>"editor"</option>
+                        <option value='"moderator"'>"moderator"</option>
+                        <option value='"users"'>"users"</option>
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                      </datalist>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" style="color:var(--accent-danger); padding:4px 8px;" onclick="removeStandaloneRuleCondition('${editorId}', ${idx})" aria-label="Remove condition ${idx + 1}" title="Remove condition">✕</button>
+                  </div>
+                `;
+              }).join('')}
+
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.35rem; flex-wrap:wrap; gap:0.5rem;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="addStandaloneRuleCondition('${editorId}')">+ Add Condition</button>
+                <div class="rule-preview-box" style="margin-top:0;">
+                  <span>Rule:</span>
+                  <code class="rule-preview-code" id="standalone-preview-${editorId}">${escapeHtml(currentVal || '(empty)')}</code>
+                </div>
+              </div>
+            </div>
+          ` : `
+            <div class="rule-raw-editor">
+              <label for="standalone-raw-${editorId}" class="visually-hidden">Custom invoke rule expression</label>
+              <input type="text" class="rule-raw-input" id="standalone-raw-${editorId}" value="${escapeHtml(r.raw || '')}" placeholder='e.g. @request.auth.role = "moderator"' oninput="onStandaloneRawInput('${editorId}', this.value)">
+              <div class="rule-chips-bar">
+                <span style="font-size:11px; color:var(--text-muted);">Insert:</span>
+                ${authSuggestions.map(s => `<button type="button" class="rule-chip" style="border:none;" onclick="insertStandaloneRuleChip('${editorId}', '${escapeHtml(s.val)}')">${escapeHtml(s.val)}</button>`).join('')}
+                <button type="button" class="rule-chip" style="border:none;" onclick="insertStandaloneRuleChip('${editorId}', ' && ')">&&</button>
+                <button type="button" class="rule-chip" style="border:none;" onclick="insertStandaloneRuleChip('${editorId}', ' || ')">||</button>
+              </div>
+              <div class="rule-preview-box">
+                <span>Rule:</span>
+                <code class="rule-preview-code" id="standalone-preview-${editorId}">${escapeHtml(currentVal || '(empty)')}</code>
+              </div>
+            </div>
+          `}
+        </div>
+      `;
+    }
+
+    function renderStandaloneRuleEditor(editorId) {
+      return `<div id="standalone-rule-editor-${editorId}">${renderStandaloneRuleInnerHtml(editorId)}</div>`;
+    }
+
+    function updateStandaloneRuleDOM(editorId) {
+      const el = document.getElementById(`standalone-rule-editor-${editorId}`);
+      if (el) {
+        el.innerHTML = renderStandaloneRuleInnerHtml(editorId);
+      }
+    }
+
+    function setStandaloneRuleMode(editorId, mode) {
+      const store = ensureStandaloneRulesStore();
+      const r = store[editorId] || initStandaloneRule(editorId);
+      if (mode === 'visual') {
+        const parsed = parseClientRuleExpression(r.raw || '');
+        if (parsed.clauses.length > 0) {
+          r.clauses = parsed.clauses;
+          r.join = parsed.join;
+        }
+      } else {
+        r.raw = getStandaloneRuleValue(editorId);
+      }
+      r.editorMode = mode;
+      updateStandaloneRuleDOM(editorId);
+    }
+
+    function addStandaloneRuleCondition(editorId) {
+      const r = ensureStandaloneRulesStore()[editorId];
+      if (!r) return;
+      r.clauses = r.clauses || [];
+      r.clauses.push({ field: '@request.auth.collection', operator: '=', value: '"users"' });
+      r.raw = buildRuleFromClausesClient(r.clauses, r.join, []);
+      updateStandaloneRuleDOM(editorId);
+    }
+
+    function removeStandaloneRuleCondition(editorId, index) {
+      const r = ensureStandaloneRulesStore()[editorId];
+      if (!r || !r.clauses) return;
+      r.clauses.splice(index, 1);
+      if (r.clauses.length === 0) {
+        r.clauses = [{ field: '@request.auth.id', operator: '!=', value: '""' }];
+      }
+      r.raw = buildRuleFromClausesClient(r.clauses, r.join, []);
+      updateStandaloneRuleDOM(editorId);
+    }
+
+    function onStandaloneFieldSelect(editorId, index, val) {
+      const r = ensureStandaloneRulesStore()[editorId];
+      if (!r || !r.clauses?.[index]) return;
+      r.clauses[index].field = val === '__custom__' ? '' : val;
+      r.raw = buildRuleFromClausesClient(r.clauses, r.join, []);
+      updateStandaloneRuleDOM(editorId);
+    }
+
+    function onStandaloneCustomField(editorId, index, val) {
+      const r = ensureStandaloneRulesStore()[editorId];
+      if (!r || !r.clauses?.[index]) return;
+      r.clauses[index].field = val;
+      r.raw = buildRuleFromClausesClient(r.clauses, r.join, []);
+      const preview = document.getElementById(`standalone-preview-${editorId}`);
+      if (preview) preview.textContent = getStandaloneRuleValue(editorId) || '(empty)';
+    }
+
+    function onStandaloneOpChange(editorId, index, val) {
+      const r = ensureStandaloneRulesStore()[editorId];
+      if (!r || !r.clauses?.[index]) return;
+      r.clauses[index].operator = val;
+      r.raw = buildRuleFromClausesClient(r.clauses, r.join, []);
+      const preview = document.getElementById(`standalone-preview-${editorId}`);
+      if (preview) preview.textContent = getStandaloneRuleValue(editorId) || '(empty)';
+    }
+
+    function onStandaloneValChange(editorId, index, val) {
+      const r = ensureStandaloneRulesStore()[editorId];
+      if (!r || !r.clauses?.[index]) return;
+      r.clauses[index].value = val;
+      r.raw = buildRuleFromClausesClient(r.clauses, r.join, []);
+      const preview = document.getElementById(`standalone-preview-${editorId}`);
+      if (preview) preview.textContent = getStandaloneRuleValue(editorId) || '(empty)';
+    }
+
+    function toggleStandaloneRuleJoin(editorId) {
+      const r = ensureStandaloneRulesStore()[editorId];
+      if (!r) return;
+      r.join = r.join === '||' ? '&&' : '||';
+      r.raw = buildRuleFromClausesClient(r.clauses, r.join, []);
+      updateStandaloneRuleDOM(editorId);
+    }
+
+    function onStandaloneRawInput(editorId, val) {
+      const r = ensureStandaloneRulesStore()[editorId];
+      if (!r) return;
+      r.raw = val;
+      const preview = document.getElementById(`standalone-preview-${editorId}`);
+      if (preview) preview.textContent = val.trim() || '(empty)';
+    }
+
+    function insertStandaloneRuleChip(editorId, snippet) {
+      const r = ensureStandaloneRulesStore()[editorId];
+      if (!r) return;
+      const input = document.getElementById(`standalone-raw-${editorId}`);
+      if (input) {
+        const start = input.selectionStart || 0;
+        const end = input.selectionEnd || 0;
+        const next = input.value.substring(0, start) + snippet + input.value.substring(end);
+        input.value = next;
+        input.focus();
+        input.selectionStart = input.selectionEnd = start + snippet.length;
+        onStandaloneRawInput(editorId, next);
+      } else {
+        const cur = r.raw || '';
+        const next = cur ? `${cur} ${snippet}` : snippet;
+        onStandaloneRawInput(editorId, next);
+        updateStandaloneRuleDOM(editorId);
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.getDynamicAuthFieldOptions = getDynamicAuthFieldOptions;
+      window.initStandaloneRule = initStandaloneRule;
+      window.getStandaloneRuleValue = getStandaloneRuleValue;
+      window.renderStandaloneRuleEditor = renderStandaloneRuleEditor;
+      window.setStandaloneRuleMode = setStandaloneRuleMode;
+      window.addStandaloneRuleCondition = addStandaloneRuleCondition;
+      window.removeStandaloneRuleCondition = removeStandaloneRuleCondition;
+      window.onStandaloneFieldSelect = onStandaloneFieldSelect;
+      window.onStandaloneCustomField = onStandaloneCustomField;
+      window.onStandaloneOpChange = onStandaloneOpChange;
+      window.onStandaloneValChange = onStandaloneValChange;
+      window.toggleStandaloneRuleJoin = toggleStandaloneRuleJoin;
+      window.onStandaloneRawInput = onStandaloneRawInput;
+      window.insertStandaloneRuleChip = insertStandaloneRuleChip;
     }

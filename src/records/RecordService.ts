@@ -367,6 +367,8 @@ export class RecordService {
       throw new ForbiddenError(`You are not allowed to create records in '${collectionName}'`);
     }
 
+    RecordValidator.assertProtectedFieldsOnCreate(col.schema, data, Boolean(auth?.isAdmin));
+
     // Lifecycle hook: onRecordBeforeCreate
     const processedData = await this.eventBus.triggerRecordBeforeCreate(
       col.name,
@@ -425,7 +427,8 @@ export class RecordService {
     // Validate and map schema fields
     for (const field of col.schema) {
       const val = processedData[field.name];
-      this.validateField(field, val);
+      const effectiveVal = val === undefined && field.defaultValue !== undefined ? field.defaultValue : val;
+      this.validateField(field, effectiveVal);
       recordToInsert[field.name] = this.normalizeFieldValue(field, val);
     }
 
@@ -535,6 +538,8 @@ export class RecordService {
     if (!this.ruleEngine.evaluate(col.updateRule, { auth, record: current, data })) {
       throw new ForbiddenError(`You are not allowed to update this record in '${collectionName}'`);
     }
+
+    RecordValidator.assertProtectedFieldsOnUpdate(col.schema, current, data, Boolean(auth?.isAdmin));
 
     // Lifecycle hook: onRecordBeforeUpdate
     const processedData = await this.eventBus.triggerRecordBeforeUpdate(
@@ -947,9 +952,11 @@ export class RecordService {
         }
 
         // Validate and normalize schema fields
+        RecordValidator.assertProtectedFieldsOnCreate(col.schema, data, Boolean(auth?.isAdmin));
         for (const field of col.schema) {
           const val = data[field.name];
-          this.validateField(field, val);
+          const effectiveVal = val === undefined && field.defaultValue !== undefined ? field.defaultValue : val;
+          this.validateField(field, effectiveVal);
           recordToInsert[field.name] = this.normalizeFieldValue(field, val);
         }
 

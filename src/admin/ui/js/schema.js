@@ -124,9 +124,14 @@
           </div>
 
           <div style="border:1px solid var(--border-subtle); border-radius:8px; padding:1.25rem; background:var(--bg-card);">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; gap:0.5rem; flex-wrap:wrap;">
               <h3 style="font-size:14px; font-weight:700;">Fields Schema</h3>
-              <button class="btn btn-secondary btn-sm" onclick="addFieldToSchema()">+ Add Field</button>
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                ${col.type === 'auth' && !(col.schema || []).some(f => f.name === 'role') ? `
+                  <button type="button" id="btn-add-role-field" class="btn btn-secondary btn-sm" onclick="addRoleFieldPreset()" title="Scaffold a Protected select 'role' field (user, editor, moderator)">+ Add Role Field</button>
+                ` : ''}
+                <button type="button" class="btn btn-secondary btn-sm" onclick="addFieldToSchema()">+ Add Field</button>
+              </div>
             </div>
             <div id="schema-fields-container" style="display:flex; flex-direction:column; gap:0.75rem;">
               <!-- Field rows -->
@@ -187,10 +192,13 @@
         let selectConfigHtml = '';
         if (isSelect) {
           const allowedVals = Array.isArray(f.options?.values) ? f.options.values.join(', ') : (f.options?.values || '');
+          const defaultVal = f.defaultValue !== undefined && f.defaultValue !== null ? String(f.defaultValue) : '';
           selectConfigHtml = `
-            <div class="field-target-config field-select-config" style="display:flex; align-items:center; gap:0.35rem; font-size:12px; color:var(--text-muted); flex:2; min-width:180px;">
-              <span style="white-space:nowrap; font-weight:500;">Allowed options:</span>
-              <input type="text" class="form-input field-select-values-input" style="flex:1; min-width:120px; font-size:12px;" value="${escapeHtml(allowedVals)}" placeholder="draft, published" onchange="updateFieldSelectValues(${idx}, this.value)" title="Comma-separated allowed options">
+            <div class="field-target-config field-select-config" style="display:flex; align-items:center; gap:0.45rem; font-size:12px; color:var(--text-muted); flex:2.4; min-width:220px; flex-wrap:wrap;">
+              <span style="white-space:nowrap; font-weight:500;">Options:</span>
+              <input type="text" class="form-input field-select-values-input" style="flex:1.5; min-width:110px; font-size:12px;" value="${escapeHtml(allowedVals)}" placeholder="draft, published" onchange="updateFieldSelectValues(${idx}, this.value)" title="Comma-separated allowed options">
+              <span style="white-space:nowrap; font-weight:500;">Default:</span>
+              <input type="text" class="form-input field-default-value-input" style="flex:0.8; min-width:70px; max-width:110px; font-size:12px;" value="${escapeHtml(defaultVal)}" placeholder="(none)" onchange="updateField(${idx}, 'defaultValue', this.value !== '' ? this.value : undefined)" title="Default value when omitted on create">
             </div>
           `;
         }
@@ -226,6 +234,9 @@
             <label style="display:flex; align-items:center; gap:4px; font-size:12px; cursor:pointer; user-select:none;">
               <input type="checkbox" ${f.unique ? 'checked' : ''} onchange="updateField(${idx}, 'unique', this.checked)"> Uniq
             </label>
+            <label style="display:flex; align-items:center; gap:4px; font-size:12px; cursor:pointer; user-select:none;" title="Protected (Admin-Only Write): readable in responses, but non-admin users receive 403 when trying to set or change this field">
+              <input type="checkbox" class="field-admin-only-cb" ${f.adminOnly ? 'checked' : ''} onchange="updateField(${idx}, 'adminOnly', this.checked)"> 🔒 Protected
+            </label>
             <button type="button" class="btn btn-danger btn-sm" onclick="removeField(${idx})" title="Remove field">✕</button>
           </div>
         `;
@@ -239,10 +250,41 @@
         type: 'text',
         required: false,
         unique: false,
+        adminOnly: false,
         options: {},
       });
       renderFieldRows(state.activeCollection.schema);
       renderAccessRulesSection(state.activeCollection);
+    }
+
+    function addRoleFieldPreset() {
+      if (!state.activeCollection) return;
+      state.activeCollection.schema = state.activeCollection.schema || [];
+      if (state.activeCollection.schema.some(f => f.name === 'role')) {
+        if (typeof toast === 'function') toast('A "role" field already exists in this collection', 'info');
+        return;
+      }
+      state.activeCollection.schema.push({
+        id: `f_role_${Math.random().toString(36).substring(2, 6)}`,
+        name: 'role',
+        type: 'select',
+        required: false,
+        unique: false,
+        adminOnly: true,
+        defaultValue: 'user',
+        options: { values: ['user', 'editor', 'moderator'] },
+      });
+      const presetBtn = document.getElementById('btn-add-role-field');
+      if (presetBtn) presetBtn.style.display = 'none';
+      renderFieldRows(state.activeCollection.schema);
+      renderAccessRulesSection(state.activeCollection);
+      if (typeof toast === 'function') {
+        toast('Added Protected role field (default: user). Remember to click Save Schema!', 'success');
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addRoleFieldPreset = addRoleFieldPreset;
     }
 
     function updateField(idx, prop, val) {

@@ -215,6 +215,7 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
         { id: 'nav-functions', label: 'Functions' },
         { id: 'nav-flows', label: 'Flows' },
         { id: 'nav-queues', label: 'Queues' },
+        { id: 'nav-api-keys', label: 'API Keys' },
         { id: 'nav-plugins', label: 'Plugins' },
         { id: 'nav-snapshots', label: 'Snapshots' },
         { id: 'sidebar-database-link', label: 'Database' },

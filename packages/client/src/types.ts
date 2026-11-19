@@ -178,6 +178,27 @@ export interface CreateApiKeyOptions {
   expiresAt?: string;
 }
 
+export interface UpdateApiKeyOptions {
+  name?: string;
+  description?: string;
+  role?: 'admin' | 'service' | 'custom';
+  scopes?: string[];
+  allowedIps?: string[];
+  expiresAt?: string | null;
+  status?: 'active' | 'revoked';
+}
+
+export interface ApiKeyListOptions {
+  limit?: number;
+  offset?: number;
+  status?: 'active' | 'revoked' | 'expired';
+}
+
+export interface ApiKeySecretResult {
+  apiKey: ApiKeyModel;
+  secretKey: string;
+}
+
 export interface AppModel extends BaseSystemFields {
   name: string;
   slug: string;

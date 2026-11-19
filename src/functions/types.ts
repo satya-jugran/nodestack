@@ -1,6 +1,6 @@
 import { QueueMessage, EnqueueMessageDto, MessageFailResult } from '../queue/types';
 
-export type FunctionAuthPolicy = 'public' | 'auth' | 'admin' | 'apiKey';
+export type FunctionAuthPolicy = 'public' | 'auth' | 'admin' | 'apiKey' | 'custom';
 export type FunctionTriggerType = 'http' | 'hook' | 'cron' | 'queue';
 
 export interface FunctionConfig {
@@ -10,6 +10,7 @@ export interface FunctionConfig {
   code: string;
   enabled: boolean;
   authPolicy: FunctionAuthPolicy;
+  invokeRule?: string | null;
   methods: string[];
   eventTrigger?: string | null;
   timeoutMs: number;

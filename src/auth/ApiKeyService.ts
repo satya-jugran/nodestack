@@ -92,6 +92,178 @@ export function hasScope(
   return false;
 }
 
+function hasScopedResourceAccess(
+  auth: AuthClaims | null | undefined,
+  category: string,
+  resourceName: string,
+  actions: string[]
+): boolean {
+  if (!auth) return false;
+  if (auth.isAdmin) return true;
+  if (!auth.isApiKey || !Array.isArray(auth.scopes)) return false;
+
+  const cat = category.trim().toLowerCase();
+  const res = resourceName.trim().toLowerCase();
+  const actSet = new Set(actions.map((a) => a.toLowerCase()));
+
+  for (const s of auth.scopes) {
+    const scope = String(s || '').trim().toLowerCase();
+    if (!scope) continue;
+    if (scope === '*' || scope === 'admin:*' || scope === cat || scope === `${cat}:*`) {
+      return true;
+    }
+    if (res && (scope === `${cat}:${res}` || scope === `${cat}:${res}:*`)) {
+      return true;
+    }
+    for (const act of actSet) {
+      if (scope === `${cat}:${act}`) return true;
+      if (res && (scope === `${cat}:${res}:${act}` || scope === `${res}:${act}`)) return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Checks whether an API key or admin caller is permitted to invoke a serverless function.
+ */
+export function hasFunctionScope(auth: AuthClaims | null | undefined, functionName: string): boolean {
+  return hasScopedResourceAccess(auth, 'functions', functionName, ['invoke', 'execute']);
+}
+
+/**
+ * Checks whether an API key or admin caller is permitted to execute an HTTP flow.
+ */
+export function hasFlowScope(auth: AuthClaims | null | undefined, flowName: string): boolean {
+  return hasScopedResourceAccess(auth, 'flows', flowName, ['execute', 'invoke']);
+}
+
+/**
+ * Checks whether an API key or admin caller has permission for a queue action (global or per-queue).
+ */
+export function hasQueueScope(
+  auth: AuthClaims | null | undefined,
+  queueName: string | undefined,
+  action: 'send' | 'read' | 'delete'
+): boolean {
+  if (!auth) return false;
+  if (auth.isAdmin) return true;
+  if (!auth.isApiKey || !Array.isArray(auth.scopes)) return false;
+
+  const normalizedActions =
+    action === 'send'
+      ? ['send', 'write', 'create']
+      : action === 'read'
+        ? ['read', 'view', 'list']
+        : ['delete', 'write'];
+
+  return hasScopedResourceAccess(auth, 'queues', queueName || '', normalizedActions);
+}
+
+const RESERVED_SCOPE_CATEGORIES = new Set(['*', 'admin', 'functions', 'flows', 'queues']);
+const COLLECTION_READ_ACTIONS = new Set(['read', 'list', 'view']);
+const COLLECTION_WRITE_ACTIONS = new Set(['write', 'create', 'update', 'delete']);
+const QUEUE_GLOBAL_ACTIONS = new Set(['send', 'read', 'delete', '*']);
+
+/**
+ * Deduplicates scopes and removes specific resource scopes that are superseded
+ * by a broader wildcard scope in the same permission group.
+ */
+export function normalizeApiKeyScopes(rawScopes: string[] | undefined, role?: string): string[] {
+  const cleaned: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawScopes || []) {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      cleaned.push(trimmed);
+    }
+  }
+
+  if (role === 'admin' || seen.has('*')) {
+    return ['*'];
+  }
+  if (seen.has('admin:*')) {
+    return ['admin:*'];
+  }
+
+  const hasAllColRead = seen.has('*:read');
+  const hasAllColWrite = seen.has('*:write');
+  const hasAllFunctions =
+    seen.has('functions') || seen.has('functions:*') || seen.has('functions:invoke') || seen.has('functions:execute');
+  const hasAllFlows =
+    seen.has('flows') || seen.has('flows:*') || seen.has('flows:execute') || seen.has('flows:invoke');
+  const hasAllQueues = seen.has('queues') || seen.has('queues:*');
+  const hasQueueSendAll = hasAllQueues || seen.has('queues:send');
+  const hasQueueReadAll = hasAllQueues || seen.has('queues:read');
+  const hasQueueDeleteAll = hasAllQueues || seen.has('queues:delete');
+
+  // Track per-collection `<col>:*` and per-queue `queues:<q>` / `queues:<q>:*` wildcards
+  const wildcardCollections = new Set<string>();
+  const wildcardQueues = new Set<string>();
+  for (const s of seen) {
+    const parts = s.split(':');
+    if (parts.length === 2 && parts[1] === '*' && !RESERVED_SCOPE_CATEGORIES.has(parts[0])) {
+      wildcardCollections.add(parts[0]);
+    }
+    if (parts[0] === 'queues' && parts.length === 2 && !QUEUE_GLOBAL_ACTIONS.has(parts[1])) {
+      wildcardQueues.add(parts[1]);
+    }
+    if (parts[0] === 'queues' && parts.length === 3 && parts[2] === '*' && !QUEUE_GLOBAL_ACTIONS.has(parts[1])) {
+      wildcardQueues.add(parts[1]);
+    }
+  }
+
+  return cleaned.filter((original) => {
+    const s = original.toLowerCase();
+    const parts = s.split(':');
+
+    // 1. Collections: `<col>:<action>`
+    if (parts.length === 2 && !RESERVED_SCOPE_CATEGORIES.has(parts[0])) {
+      const [col, act] = parts;
+      if (act !== '*' && wildcardCollections.has(col)) return false;
+      if (hasAllColRead && COLLECTION_READ_ACTIONS.has(act)) return false;
+      if (hasAllColWrite && COLLECTION_WRITE_ACTIONS.has(act)) return false;
+      return true;
+    }
+
+    // 2. Functions: strip specific `functions:<name>` / `functions:<name>:<act>` when wildcard is present
+    if (parts[0] === 'functions' && hasAllFunctions) {
+      if (s === 'functions' || s === 'functions:*' || s === 'functions:invoke' || s === 'functions:execute') {
+        return true;
+      }
+      return false;
+    }
+
+    // 3. Flows: strip specific `flows:<name>` / `flows:<name>:<act>` when wildcard is present
+    if (parts[0] === 'flows' && hasAllFlows) {
+      if (s === 'flows' || s === 'flows:*' || s === 'flows:execute' || s === 'flows:invoke') {
+        return true;
+      }
+      return false;
+    }
+
+    // 4. Queues
+    if (parts[0] === 'queues') {
+      if (hasAllQueues) {
+        return s === 'queues' || s === 'queues:*';
+      }
+      if (parts.length === 3) {
+        const [, qName, qAct] = parts;
+        if (qAct !== '*' && wildcardQueues.has(qName)) return false;
+        if (qAct === 'send' && hasQueueSendAll) return false;
+        if (qAct === 'read' && hasQueueReadAll) return false;
+        if (qAct === 'delete' && hasQueueDeleteAll) return false;
+      }
+      return true;
+    }
+
+    return true;
+  });
+}
+
 export class ApiKeyService {
   public static readonly DEFAULT_MAX_API_KEYS_PER_USER = 50;
 
@@ -278,10 +450,7 @@ export class ApiKeyService {
     }
 
     const role = dto.role || 'service';
-    let scopes = dto.scopes || [];
-    if (role === 'admin' && !scopes.includes('*')) {
-      scopes = ['*'];
-    }
+    const scopes = normalizeApiKeyScopes(dto.scopes, role);
 
     const allowedIps = (dto.allowedIps || []).map((ip) => ip.trim()).filter(Boolean);
 
@@ -761,13 +930,18 @@ export class ApiKeyService {
         updates.push('description = ?');
         params.push(dto.description);
       }
+      const effectiveRole = dto.role !== undefined ? dto.role : current.role;
       if (dto.role !== undefined) {
         updates.push('role = ?');
         params.push(dto.role);
       }
-      if (dto.scopes !== undefined) {
+      if (dto.scopes !== undefined || dto.role === 'admin') {
+        const nextScopes = normalizeApiKeyScopes(
+          dto.scopes !== undefined ? dto.scopes : current.scopes,
+          effectiveRole
+        );
         updates.push('scopes = ?');
-        params.push(JSON.stringify(dto.scopes));
+        params.push(JSON.stringify(nextScopes));
       }
       if (dto.allowedIps !== undefined) {
         updates.push('allowedIps = ?');

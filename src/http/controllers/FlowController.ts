@@ -3,6 +3,7 @@ import { BaseController } from './BaseController';
 import { AppError } from '../../core/errors/AppError';
 import { FlowService } from '../../flows/FlowService';
 import { CreateFlowDto, UpdateFlowDto, FlowAsyncDispatchResponse } from '../../flows/types';
+import { hasFlowScope } from '../../auth/ApiKeyService';
 
 export class FlowController extends BaseController {
   constructor(private flowService?: FlowService) {
@@ -118,15 +119,29 @@ export class FlowController extends BaseController {
       return;
     }
 
-    // If triggerType is not 'http', require admin credentials
+    // Enforce trigger / HTTP auth policy
+    const auth = (req as any).auth;
     if (flow.triggerType !== 'http') {
-      const auth = (req as any).auth;
       if (!auth || !auth.isAdmin) {
         this.error(
           reply,
           `Flow '${flow.name}' has triggerType '${flow.triggerType}' and requires admin credentials to execute directly`,
           403
         );
+        return;
+      }
+    } else {
+      try {
+        service.verifyHttpAuthPolicy(flow, auth, {
+          query: (req.query as Record<string, any>) || {},
+          data: req.body ?? {},
+        });
+      } catch (err: any) {
+        if (err instanceof AppError) {
+          this.error(reply, err.message, err.statusCode);
+          return;
+        }
+        this.error(reply, err.message || 'Authorization failed', 403);
         return;
       }
     }
@@ -218,11 +233,23 @@ export class FlowController extends BaseController {
     }
 
     const flow = await service.getFlowById(execution.flowId);
+    const auth = (req as any).auth;
     if (flow && flow.triggerType !== 'http') {
-      const auth = (req as any).auth;
       if (!auth || !auth.isAdmin) {
         this.error(reply, `Flow execution for '${execution.flowName}' requires admin credentials`, 403);
         return;
+      }
+    } else if (flow && flow.triggerType === 'http' && flow.authPolicy && flow.authPolicy !== 'public') {
+      const canAccessByApiKey = Boolean(auth?.isApiKey && hasFlowScope(auth, flow.name));
+      if (!auth?.isAdmin && !canAccessByApiKey) {
+        if (!auth || !auth.id) {
+          this.error(reply, `Authentication required to view execution for '${execution.flowName}'`, 401);
+          return;
+        }
+        if (execution.actorId !== auth.id) {
+          this.error(reply, `You are not allowed to view execution '${execution.id}'`, 403);
+          return;
+        }
       }
     }
 

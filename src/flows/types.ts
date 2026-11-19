@@ -1,4 +1,5 @@
 export type FlowTriggerType = 'http' | 'event' | 'manual';
+export type FlowAuthPolicy = 'public' | 'auth' | 'admin' | 'apiKey' | 'custom';
 export type FlowExecutionStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled' | 'aborted';
 export type FlowStateType = 'Task' | 'Choice' | 'Map' | 'Loop' | 'Parallel' | 'Pass' | 'Wait' | 'Succeed' | 'Fail';
 
@@ -131,6 +132,8 @@ export interface FlowConfig {
   description?: string;
   enabled: boolean;
   triggerType: FlowTriggerType;
+  authPolicy?: FlowAuthPolicy;
+  invokeRule?: string | null;
   eventTrigger?: string | null;
   maxConcurrentExecutions?: number | null;
   definition: FlowDefinition;

@@ -103,6 +103,7 @@ function renderTriggerConfigHtml(flow) {
   if (triggerType === 'http') {
     const base = getDesignerFlowsApiBase();
     const endpointPath = `${base}/${flow.id}/execute`;
+    const authPolicy = flow.authPolicy || 'public';
     return `
       <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; color: var(--text-muted);">
         Endpoint:
@@ -115,6 +116,20 @@ function renderTriggerConfigHtml(flow) {
           POST ${endpointPath} 📋
         </code>
       </span>
+      <span style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-left: 4px;">Auth:</span>
+      <select
+        id="flow-edit-auth-policy"
+        class="flow-field-select"
+        aria-label="HTTP Flow Authorization Policy"
+        style="width: 130px; padding: 0.25rem 0.5rem; font-size: 0.8rem; font-weight: 600;"
+        onchange="handleFlowAuthPolicyChange(this.value)"
+      >
+        <option value="admin" ${authPolicy === 'admin' ? 'selected' : ''}>Admin Only</option>
+        <option value="auth" ${authPolicy === 'auth' ? 'selected' : ''}>User Token</option>
+        <option value="apiKey" ${authPolicy === 'apiKey' ? 'selected' : ''}>API Key</option>
+        <option value="custom" ${authPolicy === 'custom' ? 'selected' : ''}>Custom Rule</option>
+        <option value="public" ${authPolicy === 'public' ? 'selected' : ''}>Public</option>
+      </select>
     `;
   }
 
@@ -141,11 +156,35 @@ function handleFlowTriggerTypeChange(newType) {
   if (configArea) {
     configArea.innerHTML = renderTriggerConfigHtml(designerState.activeFlow);
   }
+  const rulePanel = document.getElementById('flow-custom-rule-panel');
+  if (rulePanel) {
+    const showCustom = newType === 'http' && (designerState.activeFlow.authPolicy || 'public') === 'custom';
+    rulePanel.style.display = showCustom ? 'block' : 'none';
+  }
+}
+
+function handleFlowAuthPolicyChange(policy) {
+  if (!designerState.activeFlow) return;
+  designerState.activeFlow.authPolicy = policy;
+  const rulePanel = document.getElementById('flow-custom-rule-panel');
+  if (rulePanel) {
+    const showCustom = (designerState.activeFlow.triggerType || 'http') === 'http' && policy === 'custom';
+    rulePanel.style.display = showCustom ? 'block' : 'none';
+    if (showCustom && typeof renderStandaloneRuleEditor === 'function') {
+      if (typeof initStandaloneRule === 'function' && (!state.standaloneRules || !state.standaloneRules.flow_invoke)) {
+        initStandaloneRule('flow_invoke', designerState.activeFlow.invokeRule || '@request.auth.id != ""');
+      }
+      rulePanel.innerHTML = renderStandaloneRuleEditor('flow_invoke');
+    }
+  }
 }
 
 function renderFlowDesignerWorkbench(flow) {
   const container = document.getElementById('page-view-flows') || document.getElementById('main-body');
   if (!container || !flow) return;
+  if (typeof initStandaloneRule === 'function') {
+    initStandaloneRule('flow_invoke', flow.invokeRule || '@request.auth.id != ""');
+  }
 
   container.innerHTML = `
     <div class="flows-container">
@@ -221,6 +260,11 @@ function renderFlowDesignerWorkbench(flow) {
             Save Flow
           </button>
         </div>
+      </div>
+
+      <!-- Conditional Custom Invoke Rule Panel (HTTP Trigger + Custom Policy) -->
+      <div id="flow-custom-rule-panel" style="display: ${(flow.triggerType || 'http') === 'http' && flow.authPolicy === 'custom' ? 'block' : 'none'}; padding: 0.75rem 1.25rem; background: var(--bg-card); border-bottom: 1px solid var(--border-subtle);">
+        ${typeof renderStandaloneRuleEditor === 'function' ? renderStandaloneRuleEditor('flow_invoke') : ''}
       </div>
 
       <!-- Main Designer Workspace -->
@@ -1016,6 +1060,10 @@ async function saveFlowChanges(options = {}) {
         name: flow.name,
         description: flow.description,
         triggerType: flow.triggerType,
+        authPolicy: flow.authPolicy || 'public',
+        invokeRule: (flow.triggerType || 'http') === 'http' && flow.authPolicy === 'custom'
+          ? (typeof getStandaloneRuleValue === 'function' ? getStandaloneRuleValue('flow_invoke') : (flow.invokeRule || null))
+          : null,
         eventTrigger: flow.triggerType === 'event' ? (flow.eventTrigger || null) : null,
         maxConcurrentExecutions: flow.maxConcurrentExecutions ?? null,
         definition: flow.definition,
@@ -1049,6 +1097,7 @@ if (typeof window !== 'undefined') {
   window.renderFlowDesignerWorkbench = renderFlowDesignerWorkbench;
   window.updateFlowMeta = updateFlowMeta;
   window.handleFlowTriggerTypeChange = handleFlowTriggerTypeChange;
+  window.handleFlowAuthPolicyChange = handleFlowAuthPolicyChange;
   window.updateFlowStartAt = updateFlowStartAt;
   window.updateStepProp = updateStepProp;
   window.handleStepEndToggle = handleStepEndToggle;

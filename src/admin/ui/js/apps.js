@@ -153,6 +153,10 @@ async function selectApp(slugOrId) {
     webhooksState.webhooks = [];
     webhooksState.deliveries = [];
   }
+  if (typeof apiKeysState !== 'undefined') {
+    apiKeysState.keys = [];
+    if (typeof updateSidebarApiKeysBadge === 'function') updateSidebarApiKeysBadge([]);
+  }
 
   try {
     if (typeof loadCollections === 'function') {
@@ -187,6 +191,9 @@ async function selectApp(slugOrId) {
     }
     if (typeof renderQueuesView === 'function' && state.activeNav === 'queues') {
       renderQueuesView();
+    }
+    if (typeof loadApiKeys === 'function' && state.activeNav === 'api-keys') {
+      await loadApiKeys();
     }
 
     // Refresh plugin catalog and nav items for the switched app

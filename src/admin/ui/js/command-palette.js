@@ -104,6 +104,16 @@ function getAllCommandPaletteItems() {
     action: () => selectNav('queues')
   },
   {
+    id: 'nav-api-keys',
+    title: 'API Keys & Service Tokens',
+    description: 'Create scoped machine-to-machine API keys across Collections, Functions, Flows and Queues',
+    category: 'Navigation',
+    badge: 'PAGE',
+    icon: '🔑',
+    keywords: ['api', 'keys', 'tokens', 'm2m', 'scopes', 'permissions', 'auth'],
+    action: () => selectNav('api-keys')
+  },
+  {
     id: 'nav-analytics',
     title: 'Analytics',
     description: 'Realtime telemetry, latency and request throughput',

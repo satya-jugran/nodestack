@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AuthService, AuthClaims } from '../../auth/AuthService';
-import { ApiKeyService, hasScope } from '../../auth/ApiKeyService';
+import { ApiKeyService, hasScope, hasQueueScope } from '../../auth/ApiKeyService';
 import type { RealtimeAuthRevalidator } from '../../realtime/RealtimeService';
 
 const requestAuthRevalidators = new WeakMap<FastifyRequest, RealtimeAuthRevalidator>();
@@ -293,13 +293,16 @@ export class AuthMiddleware {
           message: 'Authentication required to access this resource',
         });
       }
+      const queueName = resource === 'queues' ? (req.params as any)?.name : undefined;
       const isAuthorized =
         Boolean(req.auth.isAdmin) ||
         Boolean(
           req.auth.isApiKey &&
-            (hasScope(req.auth, resource, action) ||
-              (action === 'send' && (hasScope(req.auth, resource, 'write') || hasScope(req.auth, resource, 'create'))) ||
-              (action === 'read' && hasScope(req.auth, resource, 'view')))
+            (resource === 'queues'
+              ? hasQueueScope(req.auth, queueName, action as 'send' | 'read' | 'delete')
+              : hasScope(req.auth, resource, action) ||
+                (action === 'send' && (hasScope(req.auth, resource, 'write') || hasScope(req.auth, resource, 'create'))) ||
+                (action === 'read' && hasScope(req.auth, resource, 'view')))
         );
 
       if (!isAuthorized) {

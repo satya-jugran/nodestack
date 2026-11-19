@@ -17,6 +17,7 @@ export { RecordService, ClientWithRealtime } from './services/RecordService';
 export { FileService, FileUrlOptions } from './services/FileService';
 export { RealtimeService } from './services/RealtimeService';
 export { AdminService } from './services/AdminService';
+export { ApiKeyService } from './services/ApiKeyService';
 export { CollectionService } from './services/CollectionService';
 export { SnapshotService } from './services/SnapshotService';
 export {

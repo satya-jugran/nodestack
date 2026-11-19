@@ -195,7 +195,10 @@ export class FunctionController extends BaseController {
     // Auth Policy Enforcement
     const auth = (req as any).auth;
     try {
-      service.verifyAuthPolicy(fn, auth);
+      service.verifyAuthPolicy(fn, auth, {
+        query: (req.query as Record<string, any>) || {},
+        data: req.body ?? {},
+      });
     } catch (err: any) {
       if (err instanceof AppError) {
         this.error(reply, err.message, err.statusCode);
@@ -205,6 +208,18 @@ export class FunctionController extends BaseController {
       return;
     }
 
+    let safeAuth: FunctionRequestContext['auth'] = null;
+    if (auth) {
+      const { tokenKey: _tokenKey, ...rest } = auth;
+      safeAuth = {
+        ...rest,
+        id: auth.id,
+        email: auth.email,
+        collection: auth.collection,
+        role: auth.isAdmin ? 'admin' : (auth.isApiKey ? 'apiKey' : (auth.role || 'user')),
+      };
+    }
+
     const requestContext: FunctionRequestContext = {
       method: req.method,
       path: req.url,
@@ -212,7 +227,7 @@ export class FunctionController extends BaseController {
       headers: (req.headers as Record<string, string>) || {},
       body: req.body ?? {},
       params: (req.params as Record<string, string>) || {},
-      auth: auth ? { id: auth.id, role: auth.isAdmin ? 'admin' : (auth.isApiKey ? 'apiKey' : 'user'), email: auth.email } : null,
+      auth: safeAuth,
     };
 
     try {

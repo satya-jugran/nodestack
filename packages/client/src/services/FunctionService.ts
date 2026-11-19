@@ -6,7 +6,8 @@ export interface FunctionConfig {
   name: string;
   description?: string;
   enabled: boolean;
-  authPolicy: string;
+  authPolicy: 'public' | 'auth' | 'apiKey' | 'admin' | 'custom' | string;
+  invokeRule?: string | null;
   methods: string[];
   eventTrigger?: string | null;
   timeoutMs: number;
