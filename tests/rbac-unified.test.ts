@@ -756,6 +756,39 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
         expect((doc.getElementById('scope-col-all-read') as HTMLInputElement).disabled).toBe(false);
         win.closeApiKeyDrawer();
 
+        // 2c. API Key Permissions Tester Modal
+        win.renderApiKeysView();
+        const testBtn = doc.querySelector('button[data-action="test"][data-key-id="k_existing"]') as HTMLButtonElement;
+        expect(testBtn).not.toBeNull();
+        await win.openApiKeyTesterModal('k_existing');
+        expect(doc.getElementById('apikey-tester-title')?.textContent).toContain('API Key Permissions Tester');
+        expect(doc.getElementById('tester-subsystem-select')).not.toBeNull();
+        expect(doc.getElementById('btn-run-api-key-test')).not.toBeNull();
+
+        // Switch to Queues in tester
+        win.handleTesterSubsystemChange('queues', 'k_existing');
+        const actSelect = doc.getElementById('tester-action-select') as HTMLSelectElement;
+        expect(actSelect.textContent).toContain('send');
+        expect(actSelect.textContent).toContain('claim');
+
+        // Mock simulation response and trigger simulation
+        win.api = vi.fn().mockImplementation(async (endpoint: string, opts?: any) => {
+          if (endpoint.includes('/simulate')) {
+            return {
+              allowed: true,
+              status: 200,
+              reason: "Granted by scope 'queues:email-jobs:send'",
+              matchedScope: 'queues:email-jobs:send',
+              curlExample: 'curl -X POST "/api/queues/email-jobs/messages"',
+            };
+          }
+          return [];
+        });
+        await win.runApiKeySimulation('k_existing');
+        expect(doc.getElementById('api-key-tester-result')?.textContent).toContain('ACCESS GRANTED');
+        expect(doc.getElementById('api-key-tester-result')?.textContent).toContain('queues:email-jobs:send');
+        win.closeApiKeyTesterModal();
+
         // 3. New Function UI defaults authPolicy to 'admin' and supports 'custom' Visual Rule Editor
         await win.openCreateFunctionModal();
         expect(win.functionsState.activeFunctionForEdit.authPolicy).toBe('admin');
@@ -955,6 +988,102 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
           fs.rmSync(cliDir, { recursive: true, force: true });
         }
       }
+    });
+  });
+
+  describe('6. Policy Engine Dry-Run API Key Simulation Endpoint (/api/api-keys/:id/simulate)', () => {
+    it('accurately evaluates permissions across Collections, Functions, Flows, and Queues with IP checks', async () => {
+      // 1. Create a scoped service key
+      const createdKey = app.apiKeys.createKey({
+        name: 'Multi-Role Worker',
+        role: 'service',
+        scopes: [
+          'orders:read',
+          'functions:queue-proxy-fn',
+          'flows:mod-approval-flow',
+          'queues:email-jobs:send',
+        ],
+        allowedIps: ['127.0.0.1', '10.0.0.0/24'],
+      });
+      const key = createdKey.apiKey;
+
+      // Simulation requires Admin token
+      const simulateCall = async (body: any) => {
+        const res = await fetch(`${serverUrl}/api/api-keys/${key.id}/simulate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${adminToken}`,
+          },
+          body: JSON.stringify(body),
+        });
+        return { status: res.status, body: await res.json() };
+      };
+
+      // 2. Collections: orders:list succeeds, orders:create is denied
+      const colAllowed = await simulateCall({ subsystem: 'collections', resource: 'orders', action: 'list' });
+      expect(colAllowed.status).toBe(200);
+      expect(colAllowed.body.allowed).toBe(true);
+      expect(colAllowed.body.matchedScope).toBe('orders:read');
+      expect(colAllowed.body.curlExample).toContain('GET "/api/collections/orders/records"');
+
+      const colDenied = await simulateCall({ subsystem: 'collections', resource: 'orders', action: 'create' });
+      expect(colDenied.status).toBe(200);
+      expect(colDenied.body.allowed).toBe(false);
+      expect(colDenied.body.status).toBe(403);
+      expect(colDenied.body.reason).toContain('Missing required scope');
+
+      // 3. Functions: queue-proxy-fn succeeds, unknown-fn is denied
+      const fnAllowed = await simulateCall({ subsystem: 'functions', resource: 'queue-proxy-fn', action: 'invoke' });
+      expect(fnAllowed.body.allowed).toBe(true);
+      expect(fnAllowed.body.matchedScope).toBe('functions:queue-proxy-fn');
+
+      const fnDenied = await simulateCall({ subsystem: 'functions', resource: 'unknown-fn', action: 'invoke' });
+      expect(fnDenied.body.allowed).toBe(false);
+
+      // 4. Flows: mod-approval-flow succeeds, unknown-flow is denied
+      const flowAllowed = await simulateCall({ subsystem: 'flows', resource: 'mod-approval-flow', action: 'execute' });
+      expect(flowAllowed.body.allowed).toBe(true);
+      expect(flowAllowed.body.matchedScope).toBe('flows:mod-approval-flow');
+
+      const flowDenied = await simulateCall({ subsystem: 'flows', resource: 'other-flow', action: 'execute' });
+      expect(flowDenied.body.allowed).toBe(false);
+
+      // 5. Queues: send succeeds, read/claim is denied
+      const queueSend = await simulateCall({ subsystem: 'queues', resource: 'email-jobs', action: 'send' });
+      expect(queueSend.body.allowed).toBe(true);
+      expect(queueSend.body.matchedScope).toBe('queues:email-jobs:send');
+
+      const queueRead = await simulateCall({ subsystem: 'queues', resource: 'email-jobs', action: 'read' });
+      expect(queueRead.body.allowed).toBe(false);
+      expect(queueRead.body.reason).toContain('queues:email-jobs:read');
+
+      // 6. IP Allowlist checks
+      const ipAllowed = await simulateCall({
+        subsystem: 'queues',
+        resource: 'email-jobs',
+        action: 'send',
+        clientIp: '127.0.0.1',
+      });
+      expect(ipAllowed.body.allowed).toBe(true);
+      expect(ipAllowed.body.ipCheck.enforced).toBe(true);
+      expect(ipAllowed.body.ipCheck.allowed).toBe(true);
+
+      const ipDenied = await simulateCall({
+        subsystem: 'queues',
+        resource: 'email-jobs',
+        action: 'send',
+        clientIp: '198.51.100.25',
+      });
+      expect(ipDenied.body.allowed).toBe(false);
+      expect(ipDenied.body.reason).toContain('not in allowed IP list');
+      expect(ipDenied.body.ipCheck.allowed).toBe(false);
+
+      // 7. Revocation checks
+      await app.apiKeys.updateKey(key.id, { status: 'revoked' });
+      const revokedCheck = await simulateCall({ subsystem: 'collections', resource: 'orders', action: 'list' });
+      expect(revokedCheck.body.allowed).toBe(false);
+      expect(revokedCheck.body.reason).toContain('API key is revoked');
     });
   });
 });

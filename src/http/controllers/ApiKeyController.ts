@@ -101,4 +101,18 @@ export class ApiKeyController extends BaseController {
     const result = await service.rotateKey(req.params.id);
     this.ok(reply, result);
   }
+
+  public async simulate(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const service = this.getService(req);
+    const body = (req.body as any) || {};
+    const keyId = (req.params as any)?.id || body.keyId;
+    const appScope = (req as any)?.appScope;
+    const appSlug = (req.params as any)?.appId || appScope?.app?.slug || appScope?.app?.id;
+    const result = await service.simulate({
+      ...body,
+      keyId,
+      appSlug: appSlug && appSlug !== 'default' ? appSlug : body.appSlug,
+    });
+    this.ok(reply, result);
+  }
 }

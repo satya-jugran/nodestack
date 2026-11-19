@@ -57,6 +57,35 @@ export interface ListKeysOptions {
   createdBy?: string;
 }
 
+export interface SimulateKeyOptions {
+  keyId?: string;
+  role?: string;
+  scopes?: string[];
+  allowedIps?: string[];
+  subsystem: 'collections' | 'functions' | 'flows' | 'queues';
+  resource: string;
+  action: string;
+  clientIp?: string;
+  appSlug?: string;
+}
+
+export interface SimulateKeyResult {
+  allowed: boolean;
+  status: number;
+  reason: string;
+  matchedScope: string | null;
+  requiredScope: string;
+  subsystem: string;
+  resource: string;
+  action: string;
+  ipCheck: {
+    enforced: boolean;
+    allowed: boolean;
+    clientIp: string | null;
+  };
+  curlExample: string;
+}
+
 /**
  * Checks if a given AuthClaims object has permissions for a resource and action.
  */
@@ -792,7 +821,7 @@ export class ApiKeyService {
     return validateModel(model);
   }
 
-  private isIpAllowed(ip: string, allowedList: string[]): boolean {
+  public isIpAllowed(ip: string, allowedList: string[]): boolean {
     const cleanIp = ip.replace(/^::ffff:/, '').trim();
     for (const pattern of allowedList) {
       const cleanPattern = pattern.trim();
@@ -1078,6 +1107,224 @@ export class ApiKeyService {
       return (existing as any).then(doRotate);
     }
     return doRotate(existing);
+  }
+
+  /**
+   * Evaluates key permissions and IP restrictions against a subsystem resource and action
+   * in dry-run simulation mode without side-effects.
+   */
+  public async simulate(options: SimulateKeyOptions): Promise<SimulateKeyResult> {
+    let key: ApiKeyModel | null = null;
+    if (options.keyId) {
+      key = await this.getKey(options.keyId);
+      if (!key) {
+        throw new NotFoundError(`API key '${options.keyId}' not found`);
+      }
+    }
+
+    const subsystem = (options.subsystem || '').toLowerCase();
+    const resource = (options.resource || '').trim();
+    const action = (options.action || '').trim().toLowerCase();
+
+    const effectiveRole = (options.role || key?.role || 'service') as 'admin' | 'service' | 'custom';
+    const effectiveScopes = normalizeApiKeyScopes(
+      options.scopes !== undefined ? options.scopes : (key?.scopes || []),
+      effectiveRole
+    );
+    const effectiveIps = options.allowedIps !== undefined ? options.allowedIps : (key?.allowedIps || []);
+    const hasIpRestriction = Array.isArray(effectiveIps) && effectiveIps.length > 0;
+
+    let isKeyActive = true;
+    let inactiveReason = '';
+    if (key) {
+      if (key.status === 'revoked') {
+        isKeyActive = false;
+        inactiveReason = 'API key is revoked';
+      } else if (key.status === 'expired' || (key.expiresAt && new Date(key.expiresAt) < new Date())) {
+        isKeyActive = false;
+        inactiveReason = 'API key has expired';
+      }
+    }
+
+    if (!isKeyActive) {
+      return {
+        allowed: false,
+        status: 403,
+        reason: inactiveReason,
+        matchedScope: null,
+        requiredScope: '',
+        subsystem,
+        resource,
+        action,
+        ipCheck: { enforced: hasIpRestriction, allowed: true, clientIp: options.clientIp || null },
+        curlExample: '',
+      };
+    }
+
+    if (hasIpRestriction && options.clientIp) {
+      const ipAllowed = this.isIpAllowed(options.clientIp, effectiveIps);
+      if (!ipAllowed) {
+        return {
+          allowed: false,
+          status: 403,
+          reason: `Client IP '${options.clientIp}' not in allowed IP list (${effectiveIps.join(', ')})`,
+          matchedScope: null,
+          requiredScope: '',
+          subsystem,
+          resource,
+          action,
+          ipCheck: { enforced: true, allowed: false, clientIp: options.clientIp },
+          curlExample: '',
+        };
+      }
+    }
+
+    const isAdmin = effectiveRole === 'admin' || effectiveScopes.includes('*') || effectiveScopes.includes('admin:*');
+    const simulatedAuth: AuthClaims = {
+      id: key?.id || 'simulated_key',
+      email: `${(key?.name || 'simulated').toLowerCase().replace(/[^a-z0-9]/g, '_')}@service.nodestack.local`,
+      collection: '_api_keys',
+      tokenKey: key?.id || 'simulated_key',
+      isAdmin,
+      isApiKey: true,
+      scopes: effectiveScopes,
+      role: effectiveRole,
+      allowedIps: effectiveIps,
+    };
+
+    let allowed = false;
+    let matchedScope: string | null = null;
+    let requiredScope = '';
+    let reason = '';
+
+    if (subsystem === 'collections') {
+      requiredScope = `${resource}:${action}`;
+      allowed = hasScope(simulatedAuth, resource, action);
+      if (allowed) {
+        if (isAdmin) {
+          matchedScope = effectiveScopes.find(s => s === '*' || s === 'admin:*') || 'role:admin';
+          reason = `Granted with full administrative access (${matchedScope})`;
+        } else {
+          matchedScope = effectiveScopes.find(s => {
+            const sc = s.toLowerCase();
+            return sc === '*' || sc === `${resource.toLowerCase()}:*` || sc === requiredScope.toLowerCase() ||
+              ((action === 'list' || action === 'view' || action === 'export') && (sc === `${resource.toLowerCase()}:read` || sc === '*:read')) ||
+              ((action === 'create' || action === 'update' || action === 'delete' || action === 'import') && (sc === `${resource.toLowerCase()}:write` || sc === '*:write'));
+          }) || null;
+          reason = `Granted by scope '${matchedScope}'`;
+        }
+      } else {
+        reason = `Missing required scope '${resource}:${action}' (or wildcard '${resource}:*')`;
+      }
+    } else if (subsystem === 'functions') {
+      requiredScope = `functions:${resource}`;
+      allowed = hasFunctionScope(simulatedAuth, resource);
+      if (allowed) {
+        if (isAdmin) {
+          matchedScope = effectiveScopes.find(s => s === '*' || s === 'admin:*') || 'role:admin';
+          reason = `Granted with full administrative access (${matchedScope})`;
+        } else {
+          matchedScope = effectiveScopes.find(s => {
+            const sc = s.toLowerCase();
+            return sc === '*' || sc === 'functions' || sc === 'functions:*' || sc === `functions:${resource.toLowerCase()}` || sc === `functions:${resource.toLowerCase()}:*` || sc === `functions:${resource.toLowerCase()}:invoke`;
+          }) || null;
+          reason = `Granted by scope '${matchedScope}'`;
+        }
+      } else {
+        reason = `Missing required scope 'functions:${resource}' (or wildcard 'functions:*')`;
+      }
+    } else if (subsystem === 'flows') {
+      requiredScope = `flows:${resource}`;
+      allowed = hasFlowScope(simulatedAuth, resource);
+      if (allowed) {
+        if (isAdmin) {
+          matchedScope = effectiveScopes.find(s => s === '*' || s === 'admin:*') || 'role:admin';
+          reason = `Granted with full administrative access (${matchedScope})`;
+        } else {
+          matchedScope = effectiveScopes.find(s => {
+            const sc = s.toLowerCase();
+            return sc === '*' || sc === 'flows' || sc === 'flows:*' || sc === `flows:${resource.toLowerCase()}` || sc === `flows:${resource.toLowerCase()}:*` || sc === `flows:${resource.toLowerCase()}:execute`;
+          }) || null;
+          reason = action === 'poll'
+            ? `Granted by scope '${matchedScope}' (Note: caller must also match execution actorId)`
+            : `Granted by scope '${matchedScope}'`;
+        }
+      } else {
+        reason = `Missing required scope 'flows:${resource}' (or wildcard 'flows:*')`;
+      }
+    } else if (subsystem === 'queues') {
+      const queueAct = action === 'claim' ? 'read' : (action as 'send' | 'read' | 'delete');
+      requiredScope = `queues:${resource}:${queueAct}`;
+      allowed = hasQueueScope(simulatedAuth, resource, queueAct);
+      if (allowed) {
+        if (isAdmin) {
+          matchedScope = effectiveScopes.find(s => s === '*' || s === 'admin:*') || 'role:admin';
+          reason = `Granted with full administrative access (${matchedScope})`;
+        } else {
+          matchedScope = effectiveScopes.find(s => {
+            const sc = s.toLowerCase();
+            return sc === '*' || sc === 'queues' || sc === 'queues:*' || sc === `queues:${resource.toLowerCase()}` || sc === `queues:${resource.toLowerCase()}:*` || sc === `queues:${resource.toLowerCase()}:${queueAct}`;
+          }) || null;
+          reason = `Granted by scope '${matchedScope}'`;
+        }
+      } else {
+        reason = `Missing required scope 'queues:${resource}:${queueAct}' (or wildcard 'queues:${resource}:*')`;
+      }
+    } else {
+      throw new AppError(`Invalid subsystem '${options.subsystem}'. Expected one of: collections, functions, flows, queues`, 400);
+    }
+
+    const keyToken = key?.redactedKey ? `${key.keyPrefix}...` : 'YOUR_API_KEY';
+    const pathPrefix = options.appSlug && options.appSlug !== 'default'
+      ? `/api/apps/${encodeURIComponent(options.appSlug)}`
+      : '/api';
+    let curlExample = '';
+    if (subsystem === 'collections') {
+      if (action === 'list') {
+        curlExample = `curl -X GET "${pathPrefix}/collections/${resource}/records" \\\n  -H "Authorization: ApiKey ${keyToken}"`;
+      } else if (action === 'view') {
+        curlExample = `curl -X GET "${pathPrefix}/collections/${resource}/records/<RECORD_ID>" \\\n  -H "Authorization: ApiKey ${keyToken}"`;
+      } else if (action === 'create') {
+        curlExample = `curl -X POST "${pathPrefix}/collections/${resource}/records" \\\n  -H "Authorization: ApiKey ${keyToken}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"field": "value"}'`;
+      } else if (action === 'update') {
+        curlExample = `curl -X PATCH "${pathPrefix}/collections/${resource}/records/<RECORD_ID>" \\\n  -H "Authorization: ApiKey ${keyToken}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"field": "value"}'`;
+      } else if (action === 'delete') {
+        curlExample = `curl -X DELETE "${pathPrefix}/collections/${resource}/records/<RECORD_ID>" \\\n  -H "Authorization: ApiKey ${keyToken}"`;
+      }
+    } else if (subsystem === 'functions') {
+      curlExample = `curl -X POST "${pathPrefix}/functions/${resource}/invoke" \\\n  -H "Authorization: ApiKey ${keyToken}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"param": "value"}'`;
+    } else if (subsystem === 'flows') {
+      if (action === 'poll') {
+        curlExample = `curl -X GET "${pathPrefix}/flows/executions/<EXECUTION_ID>" \\\n  -H "Authorization: ApiKey ${keyToken}"`;
+      } else {
+        curlExample = `curl -X POST "${pathPrefix}/flows/${resource}/execute" \\\n  -H "Authorization: ApiKey ${keyToken}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"param": "value"}'`;
+      }
+    } else if (subsystem === 'queues') {
+      if (action === 'send') {
+        curlExample = `curl -X POST "${pathPrefix}/queues/${resource}/messages" \\\n  -H "Authorization: ApiKey ${keyToken}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"payload": {"task": "demo"}}'`;
+      } else if (action === 'read' || action === 'claim') {
+        curlExample = `curl -X GET "${pathPrefix}/queues/${resource}/messages" \\\n  -H "Authorization: ApiKey ${keyToken}"`;
+      } else {
+        curlExample = `curl -X DELETE "${pathPrefix}/queues/${resource}/messages/<MESSAGE_ID>" \\\n  -H "Authorization: ApiKey ${keyToken}"`;
+      }
+    }
+
+    return {
+      allowed,
+      status: allowed ? 200 : 403,
+      reason,
+      matchedScope,
+      requiredScope,
+      subsystem,
+      resource,
+      action,
+      ipCheck: {
+        enforced: hasIpRestriction,
+        allowed: !hasIpRestriction || !options.clientIp ? true : this.isIpAllowed(options.clientIp, effectiveIps),
+        clientIp: options.clientIp || null,
+      },
+      curlExample,
+    };
   }
 
   private mapRow(row: any): ApiKeyModel {

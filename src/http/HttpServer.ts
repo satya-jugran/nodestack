@@ -787,6 +787,12 @@ export class HttpServer {
     app.post('/api/apps/:appId/api-keys/:id/rotate', { preHandler: requireAdmin }, (req: any, reply) =>
       this.apiKeyController ? this.apiKeyController.rotate(req, reply) : reply.status(501).send()
     );
+    app.post('/api/apps/:appId/api-keys/simulate', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.simulate(req, reply) : reply.status(501).send()
+    );
+    app.post('/api/apps/:appId/api-keys/:id/simulate', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.simulate(req, reply) : reply.status(501).send()
+    );
     app.get('/api/apps/:appId/files/:collection/:recordId/:filename', (req: any, reply) =>
       this.fileController.getFile(req, reply)
     );
@@ -1152,6 +1158,12 @@ export class HttpServer {
     );
     app.post('/api/api-keys/:id/rotate', { preHandler: requireAdmin }, (req: any, reply) =>
       this.apiKeyController ? this.apiKeyController.rotate(req, reply) : reply.status(501).send()
+    );
+    app.post('/api/api-keys/simulate', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.simulate(req, reply) : reply.status(501).send()
+    );
+    app.post('/api/api-keys/:id/simulate', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.apiKeyController ? this.apiKeyController.simulate(req, reply) : reply.status(501).send()
     );
 
     // 3. Collection Schema Endpoints (Admin only)

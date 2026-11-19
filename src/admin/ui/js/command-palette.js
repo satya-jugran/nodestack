@@ -105,7 +105,7 @@ function getAllCommandPaletteItems() {
   },
   {
     id: 'nav-api-keys',
-    title: 'API Keys & Service Tokens',
+    title: 'API Keys',
     description: 'Create scoped machine-to-machine API keys across Collections, Functions, Flows and Queues',
     category: 'Navigation',
     badge: 'PAGE',
