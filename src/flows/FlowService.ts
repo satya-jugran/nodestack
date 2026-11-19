@@ -470,7 +470,7 @@ export class FlowService {
 
       // Asynchronous event trigger (single-path through executeFlow with wait: false)
       const eventActor = actor || (flow.eventTrigger ? { id: `event:${flow.eventTrigger}` } : { id: 'system:event' });
-      this.executeFlow(flow.id, eventPayload, eventActor, { wait: false }).catch((err) => {
+      this.executeFlow(flow.id, eventPayload, eventActor, { wait: false, trusted: true }).catch((err) => {
         console.error(`[FlowService] Event trigger failed for flow '${flow.name}':`, err);
       });
     }
@@ -869,6 +869,14 @@ export class FlowService {
 
     if (!flow.enabled) {
       throw new AppError(`Flow '${flow.name}' is currently disabled`, 403);
+    }
+
+    // Enforce authorization policy at the service boundary unless explicitly running in trusted internal mode
+    if (!options.trusted && flow.triggerType === 'http') {
+      this.verifyHttpAuthPolicy(flow, actor, {
+        query: options.query || {},
+        data: input,
+      });
     }
 
     const executionId = options.executionId || FlowService.generateExecutionId();

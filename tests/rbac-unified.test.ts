@@ -444,6 +444,35 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
         body: JSON.stringify({ orderId: 3 }),
       });
       expect(flowKeyDenied.status).toBe(403);
+
+      // Service boundary enforcement on app.flows.executeFlow()
+      // 1. Direct invocation without actor on protected HTTP flow fails
+      await expect(
+        app.flows.executeFlow('mod-approval-flow', { orderId: 4 })
+      ).rejects.toThrow(/You do not satisfy the access rule to execute flow 'mod-approval-flow'/);
+
+      // 2. Direct invocation with non-moderator actor fails
+      await expect(
+        app.flows.executeFlow('mod-approval-flow', { orderId: 4 }, { id: 'u_user', role: 'user' })
+      ).rejects.toThrow(/You do not satisfy the access rule to execute flow 'mod-approval-flow'/);
+
+      // 3. Direct invocation with authorized moderator actor succeeds
+      const directModExec = await app.flows.executeFlow(
+        'mod-approval-flow',
+        { orderId: 4 },
+        { id: 'u_mod', role: 'moderator' },
+        { wait: true }
+      );
+      expect(directModExec.status).toBe('succeeded');
+
+      // 4. Explicit trusted internal execution (e.g. event triggers) succeeds without external actor
+      const directTrustedExec = await app.flows.executeFlow(
+        'mod-approval-flow',
+        { orderId: 5 },
+        undefined,
+        { wait: true, trusted: true }
+      );
+      expect(directTrustedExec.status).toBe('succeeded');
     });
   });
 

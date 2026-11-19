@@ -157,6 +157,7 @@ export class FlowController extends BaseController {
           wait: true,
           timeoutMs: typeof timeoutMs === 'number' && !isNaN(timeoutMs) ? timeoutMs : undefined,
           executionId: (req.body as any)?.executionId,
+          query: (req.query as Record<string, any>) || {},
         });
         this.ok(reply, execution);
       } else {
@@ -169,6 +170,7 @@ export class FlowController extends BaseController {
         const dispatched = await service.executeFlow(flow.id, req.body || {}, (req as any).auth, {
           wait: false,
           executionId,
+          query: (req.query as Record<string, any>) || {},
         });
 
         const dispatchStatus: 'queued' | 'running' =

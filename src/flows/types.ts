@@ -228,4 +228,13 @@ export interface FlowExecutionOptions {
   maxRecursionDepth?: number;
   executionId?: string;
   recoveryStrategy?: 'abort' | 'resume';
+  /**
+   * If true, marks this execution as a trusted internal execution (e.g. event triggers, system tasks)
+   * which bypasses external HTTP authPolicy checks. Defaults to false.
+   */
+  trusted?: boolean;
+  /**
+   * Optional query parameters for RuleEngine evaluation.
+   */
+  query?: Record<string, any>;
 }
