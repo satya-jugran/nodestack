@@ -202,12 +202,12 @@ function renderApiKeysView() {
                     </td>
                     <td style="text-align: right; white-space: nowrap;">
                       <div style="display: inline-flex; gap: 4px;">
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="openApiKeyDrawer('${escapeHtml(key.id)}')" aria-label="Edit scopes for ${safeName}">Edit</button>
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="handleRotateApiKey('${escapeHtml(key.id)}', '${safeName}')" aria-label="Rotate secret for ${safeName}" title="Rotate secret key">Rotate</button>
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="handleToggleApiKeyStatus('${escapeHtml(key.id)}', '${isActive ? 'revoked' : 'active'}')" aria-label="${isActive ? 'Revoke' : 'Restore'} ${safeName}">
+                        <button type="button" class="btn btn-secondary btn-sm" data-action="edit" data-key-id="${escapeHtml(key.id)}" aria-label="Edit scopes for ${safeName}">Edit</button>
+                        <button type="button" class="btn btn-secondary btn-sm" data-action="rotate" data-key-id="${escapeHtml(key.id)}" aria-label="Rotate secret for ${safeName}" title="Rotate secret key">Rotate</button>
+                        <button type="button" class="btn btn-secondary btn-sm" data-action="toggle-status" data-key-id="${escapeHtml(key.id)}" data-next-status="${isActive ? 'revoked' : 'active'}" aria-label="${isActive ? 'Revoke' : 'Restore'} ${safeName}">
                           ${isActive ? 'Revoke' : 'Restore'}
                         </button>
-                        <button type="button" class="btn btn-danger btn-sm" onclick="handleDeleteApiKey('${escapeHtml(key.id)}', '${safeName}')" aria-label="Delete ${safeName}" title="Permanently delete key">✕</button>
+                        <button type="button" class="btn btn-danger btn-sm" data-action="delete" data-key-id="${escapeHtml(key.id)}" aria-label="Delete ${safeName}" title="Permanently delete key">✕</button>
                       </div>
                     </td>
                   </tr>
@@ -219,6 +219,28 @@ function renderApiKeysView() {
       `}
     </div>
   `;
+
+  const tableWrapper = container.querySelector('.webhook-table-wrapper');
+  if (tableWrapper) {
+    tableWrapper.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const action = btn.getAttribute('data-action');
+      const keyId = btn.getAttribute('data-key-id');
+      if (!keyId) return;
+
+      if (action === 'edit') {
+        openApiKeyDrawer(keyId);
+      } else if (action === 'rotate') {
+        handleRotateApiKey(keyId);
+      } else if (action === 'toggle-status') {
+        const nextStatus = btn.getAttribute('data-next-status') || 'revoked';
+        handleToggleApiKeyStatus(keyId, nextStatus);
+      } else if (action === 'delete') {
+        handleDeleteApiKey(keyId);
+      }
+    });
+  }
 }
 
 function handleApiKeyDrawerKeyDown(e) {
@@ -753,11 +775,13 @@ function closeApiKeySecretModal() {
 
 async function handleRotateApiKey(id, name) {
   try {
+    const keyObj = (apiKeysState.keys || []).find(k => k.id === id);
+    const displayName = name || keyObj?.name || id;
     const rotated = await api(`/api/api-keys/${id}/rotate`, {
       method: 'POST',
       body: JSON.stringify({}),
     });
-    if (typeof toast === 'function') toast(`Rotated secret for '${name}'`, 'success');
+    if (typeof toast === 'function') toast(`Rotated secret for '${displayName}'`, 'success');
     await loadApiKeys();
     showApiKeySecretModal(rotated);
   } catch (err) {
@@ -780,8 +804,10 @@ async function handleToggleApiKeyStatus(id, nextStatus) {
 
 async function handleDeleteApiKey(id, name) {
   try {
+    const keyObj = (apiKeysState.keys || []).find(k => k.id === id);
+    const displayName = name || keyObj?.name || id;
     await api(`/api/api-keys/${id}`, { method: 'DELETE' });
-    if (typeof toast === 'function') toast(`Deleted API key '${name}'`, 'success');
+    if (typeof toast === 'function') toast(`Deleted API key '${displayName}'`, 'success');
     await loadApiKeys();
   } catch (err) {
     if (typeof toast === 'function') toast('Failed to delete API key: ' + (err.message || err), 'error');
