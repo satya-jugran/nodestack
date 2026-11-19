@@ -81,7 +81,7 @@ curl -X DELETE http://localhost:8090/api/api-keys/key_k8f9a2_31107e \
 
 ## Granular Read/Write ACL & Scoping Syntax
 
-Scopes use the format `<resource>:<action>`:
+Scopes use the format `<subsystem_or_resource>:<action>`:
 
 | Scope Pattern | Permissions Granted |
 | :--- | :--- |
@@ -90,12 +90,62 @@ Scopes use the format `<resource>:<action>`:
 | `orders:read` | Read-only access (`list`, `view`, `export`) on `orders`. |
 | `orders:write` | Mutation access (`create`, `update`, `delete`, `import`) on `orders`. |
 | `orders:create` | Only permitted to create new records in `orders`. |
+| `functions:invoke` / `functions:*` | Permission to invoke serverless functions. |
+| `flows:execute` / `flows:*` | Permission to trigger and execute workflow automation flows. |
+| `queues:claim` / `queues:read` | Permission to claim and process messages from durable background queues. |
+| `queues:send` / `queues:*` | Permission to publish jobs to queues. |
+
+:::info Automatic Role Downgrade Protection (v2.6.0)
+When an API key's role is downgraded (e.g., from `admin` or `service` to a custom restricted role), all wildcard privileges (`*`, `admin:*`) are **automatically stripped** to guarantee that reduced roles cannot inadvertently retain administrative access.
+:::
 
 If a key attempts an operation outside its assigned scopes, NodeStack returns `403 Forbidden` with a detailed error message:
 ```json
 {
   "statusCode": 403,
   "message": "API Key missing required scope for 'orders:create'"
+}
+```
+
+---
+
+## Interactive Permissions Tester & Simulation (v2.6.0)
+
+NodeStack provides real-time API key simulation tools to verify whether a key has access to a particular resource and action before deploying to production.
+
+### 1. In the Web Admin UI
+Navigate to **API Keys** in the Admin Portal and click **Test Permissions** on any key. The interactive simulation pane allows selecting subsystems (Collections, Functions, Flows, Queues), resource names, actions, and simulated client IPs, rendering an immediate access grant/denial determination with matched scopes and a ready-to-run `curl` command.
+
+### 2. Via CLI (`nodestack api-keys test`)
+```bash
+# Test if key can insert orders
+npx nodestack api-keys test key_k8f9a2_31107e \
+  --subsystem collections \
+  --resource orders \
+  --action create
+
+# Test flow execution from a specific client IP
+npx nodestack api-keys test key_k8f9a2_31107e \
+  --subsystem flows \
+  --resource checkout-pipeline \
+  --action execute \
+  --ip 192.168.1.100
+```
+
+### 3. Via TypeScript Client SDK (`nodestack-client`)
+```typescript
+const result = await client.apiKeys.simulate({
+  keyId: 'key_k8f9a2_31107e',
+  subsystem: 'collections',
+  resource: 'orders',
+  action: 'create',
+  clientIp: '192.168.1.100',
+});
+
+if (result.allowed) {
+  console.log('Access granted via scope:', result.matchedScope);
+} else {
+  console.warn('Access denied. Missing scope:', result.requiredScope);
 }
 ```
 
@@ -151,3 +201,5 @@ All management endpoints require superuser (`admin`) authorization:
 | `PATCH` | `/api/api-keys/:id` | Update key name, scopes, IP allowlist, status, or expiration. |
 | `DELETE` | `/api/api-keys/:id` | Revoke and delete an API key. |
 | `POST` | `/api/api-keys/:id/rotate` | Atomically rotate the key secret. |
+| `POST` | `/api/api-keys/simulate` | Test/simulate permissions for any key payload or ID (Superuser). |
+| `POST` | `/api/api-keys/:id/simulate` | Test/simulate permissions specifically for key `:id` (Superuser). |

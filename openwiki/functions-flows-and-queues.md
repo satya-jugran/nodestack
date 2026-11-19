@@ -4,7 +4,7 @@ title: "Serverless Functions, Workflows & Queues"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-15T09:01:29.660Z
+    at: 2026-11-19T12:05:15.938Z
 sources:
   - id: openwiki-source-e69860785030352a5a6b3062
     resource: repo://src/flows/FlowEngine.ts
@@ -30,7 +30,7 @@ sources:
     resource: repo://src/queue/drivers/SqliteQueueDriver.ts
   - id: openwiki-source-75c9cc054eb2d6fc3f07ef6a
     resource: repo://src/queue/QueueService.ts
-generated: { by: "doc-gen", at: "2026-11-15T08:56:16.837Z" }
+generated: { by: "doc-gen", at: "2026-11-19T12:05:15.938Z" }
 ---
 
 # Serverless Functions, Workflows & Queues
@@ -83,7 +83,7 @@ Each function in `_functions` configures:
     - `core.sdk.collection(name).get / list / create / update / delete`
     - `core.sdk.queue` / `core.queue` / `ctx.queue` (`send`, `claim`, `complete`, `fail`, `touch`, `getJob` — blocking access to reserved `_system:*` queues from user functions)
     - `core.network.http.fetch / get / post` and global `fetch`
-    - `core.observability.log / info / warn / error / metric` and global `console`
+    - `core.observability.logger.log / info / warn / error`, `core.observability.metric`, and global `console`
 
 ---
 

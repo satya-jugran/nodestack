@@ -5,13 +5,20 @@ title: Context API Reference (ctx)
 description: Complete specification of the execution context injected into NodeStack functions
 ---
 
-# Context API Reference (`ctx`)
+# Functions API Reference (`core, context`)
 
-Every serverless function in NodeStack receives a single `ctx` execution parameter. The `ctx` object provides isolated, scoped access to the incoming HTTP request, database events, collection CRUD operations, safe network fetching, encrypted environment secrets, and execution logging.
+Every serverless function in NodeStack receives execution parameters. In NodeStack v2.6.0, the recommended function signature provides structured `(core, context)` parameters (while maintaining full backwards compatibility for legacy single-argument `(ctx)` handlers).
 
 ```javascript
-export default async function(ctx) {
-  // ctx.* APIs are available here
+export default async function(core, context) {
+  const logger = core.observability.logger;
+  logger.log("Invoked function in app:", context.app.slug);
+  
+  // SDK and Observability APIs
+  // core.sdk.collection('orders')...
+  // core.network.http.fetch('https://api.example.com')...
+  // core.observability.logger.info(...)
+  // core.observability.metric("order_placed", 1, { status: "success" })
 }
 ```
 
@@ -214,20 +221,32 @@ export default async function(ctx) {
 
 ---
 
-## 6. Execution Logging (`ctx.log`)
+## 6. Observability & Logging (`core.observability.logger`, `console.log`)
 
-Functions can emit structured log entries captured in the NodeStack audit history:
+Functions can emit structured log entries and metrics captured in the NodeStack audit history:
 
 ```javascript
-export default async function(ctx) {
-  ctx.log("Starting order calculation for cart:", ctx.request.body.cartId);
-  console.log("Standard console.log is also redirected to ctx.log");
+export default async function(core, context) {
+  const logger = core.observability.logger;
+
+  logger.log("Processing order calculation for cart:", context.request?.body?.cartId);
+  logger.warn("Inventory low for item:", "SKU-9948");
+  logger.error("Failed downstream webhook attempt");
+
+  // Publish dimensional metrics
+  core.observability.metric("cart_checkout_attempt", 1, {
+    tenant: context.app.slug,
+    status: "success",
+  });
+
+  // console.log is also redirected to execution logs
+  console.log("Standard console statements are preserved.");
 
   return { status: 200, body: { ok: true } };
 }
 ```
 
-All logs are visible in the **Live Test Runner** and stored in the **Function Logs** tab with latency and caller attribution.
+All logs and metrics are visible in the **Live Test Runner**, stored in the **Function Logs** tab, and attributed with execution latency and caller credentials.
 
 ---
 

@@ -24,7 +24,9 @@ Building modern web and mobile apps often requires juggling separate database en
 
 NodeStack packages this entire backend architecture into a **single Node.js process**:
 
-- **Multi-Database Support (v2.5.0)**: Native engine support for **PostgreSQL**, **Microsoft SQL Server**, and embedded **SQLite**, with zero-downtime live migrations, dynamic driver switching, per-schema storage tracking, and dual sync/async queue execution.
+- **Unified RBAC Engine & Permissions Tester (v2.6.0)**: Granular role-based and scope-based authorization across collections, records, flows, and serverless functions with automatic wildcard stripping on role downgrades, atomic quota enforcement, and built-in interactive permission testing tools in the Admin UI, CLI, and client SDK.
+- **Hardened Plugin Sandboxing (PoLP) (v2.6.0)**: Principle of Least Privilege plugin DI containers, safe service token allowlists, tenant configuration isolation, and fault-tolerant EventBus error boundaries.
+- **Multi-Database Support**: Native engine support for **PostgreSQL**, **Microsoft SQL Server**, and embedded **SQLite**, with zero-downtime live migrations, dynamic driver switching, per-schema storage tracking, and dual sync/async queue execution.
 - **Embedded SQLite with Zero Native Compilation**: Powered directly by Node.js (`node:sqlite`). No Python, C++ compilers, or external database daemon installations required.
 - **Multi-Application Platform**: Host multiple completely isolated application tenants within a single process—with separate database schemas, file storage directories, auth collections, and realtime SSE buses.
 - **Instant REST CRUD & Server-Sent Events (SSE)**: Immediately exposes JSON endpoints and realtime change event streams for every collection.

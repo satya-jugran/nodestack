@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NodeStack vs PocketBase vs Supabase</title>
+  <title>NodeStack vs PocketBase</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     .nodestack-col {
@@ -22,71 +22,72 @@
         <div class="flex items-center gap-2 mb-0.5">
           <span class="text-[11px] font-semibold tracking-wider uppercase text-blue-600">Architectural Matrix</span>
           <span class="text-slate-300 text-xs">•</span>
-          <span class="text-slate-500 text-xs">Self-Hosted BaaS Ecosystem</span>
+          <span class="text-slate-500 text-xs">Self-Hosted Single-Process BaaS</span>
         </div>
         <h2 class="text-lg font-bold tracking-tight text-slate-900">
-          NodeStack <span class="font-normal text-slate-400">vs.</span> PocketBase <span class="font-normal text-slate-400">vs.</span> Supabase
+          NodeStack <span class="font-normal text-slate-400">vs.</span> PocketBase
         </h2>
       </div>
 
       <div class="text-right text-xs text-slate-500 font-medium hidden sm:block">
-        Single-Process &amp; Enterprise Trade-Offs
+        The TypeScript Alternative to PocketBase
       </div>
     </div>
 
-    <!-- 19-Row Compact Table -->
+    <!-- 20-Row Grouped Table (3 Columns) -->
     <div class="overflow-x-auto">
       <table class="w-full text-left text-[12px] border-collapse">
         <thead>
           <tr class="border-b border-slate-200 bg-slate-100/60 text-slate-600">
-            <th class="py-2.5 px-4 font-semibold w-1/4">Capability</th>
-            <th class="py-2.5 px-4 font-bold text-blue-700 nodestack-col border-x border-blue-200/60 w-1/4 text-sm">
+            <th class="py-2.5 px-4 font-semibold w-2/5">Capability</th>
+            <th class="py-2.5 px-4 font-bold text-blue-700 nodestack-col border-x border-blue-200/60 w-[30%] text-sm">
               NodeStack
             </th>
-            <th class="py-2.5 px-4 font-semibold text-slate-800 w-1/4 text-sm">
+            <th class="py-2.5 px-4 font-semibold text-slate-800 w-[30%] text-sm">
               PocketBase
-            </th>
-            <th class="py-2.5 px-4 font-semibold text-slate-800 w-1/4 text-sm">
-              Supabase
             </th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 text-slate-600">
 
+          <!-- Category 1: Runtime & Deployment Architecture -->
+          <tr class="bg-slate-100/90 border-y border-slate-200">
+            <td colspan="3" class="py-1.5 px-4 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              1. Runtime &amp; Deployment Architecture
+            </td>
+          </tr>
+
           <tr class="hover:bg-slate-50/80 transition-colors">
             <td class="py-2 px-4 font-medium text-slate-900">Primary Ecosystem</td>
             <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>TypeScript &amp; Node.js (npm)</span>
+                <span>TypeScript &amp; Node.js (npm native)</span>
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
             </td>
             <td class="py-2 px-4 text-slate-600">Go ecosystem</td>
-            <td class="py-2 px-4 text-slate-600">Polyglot (Elixir, Go, SQL)</td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
-            <td class="py-2 px-4 font-medium text-slate-900">Lowest Idle Memory</td>
-            <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 text-slate-600">Low (~40–80 MB)</td>
-            <td class="py-2 px-4 font-semibold text-emerald-800">
+            <td class="py-2 px-4 font-medium text-slate-900">Deployment Simplicity</td>
+            <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>Ultra-Low (~20–40 MB)</span>
-                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">WIN</span>
+                <span>Single Binary or <code>npx</code> ($5 VPS)</span>
+                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">Heavy (2–4 GB+ RAM)</td>
+            <td class="py-2 px-4 text-slate-600">Single binary on a $5 VPS</td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
             <td class="py-2 px-4 font-medium text-slate-900">Zero-Install Velocity</td>
             <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>Instant via <code>npx</code></span>
+                <span>Instant via <code>npx</code> (Zero download)</span>
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">Manual binary download</td>
-            <td class="py-2 px-4 text-slate-600">Docker Compose / Cloud</td>
+            <td class="py-2 px-4 text-slate-600">Manual binary download &amp; extract</td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
@@ -98,78 +99,114 @@
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">Multi-container Docker</td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
-            <td class="py-2 px-4 font-medium text-slate-900">Dual-Mode Usage</td>
-            <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
+            <td class="py-2 px-4 font-medium text-slate-900">Lowest Idle Memory</td>
+            <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 text-slate-600">Low (~40–80 MB RAM)</td>
+            <td class="py-2 px-4 font-semibold text-emerald-800">
               <div class="flex items-center justify-between">
-                <span>CLI Server + npm Import</span>
-                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
+                <span>Ultra-Low (~20–40 MB RAM)</span>
+                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">Standalone (Go-only lib)</td>
-            <td class="py-2 px-4 text-slate-600">Server only (No embed)</td>
+          </tr>
+
+          <!-- Category 2: Database & Multi-Tenancy -->
+          <tr class="bg-slate-100/90 border-y border-slate-200">
+            <td colspan="3" class="py-1.5 px-4 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              2. Database &amp; Multi-Tenancy
+            </td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
             <td class="py-2 px-4 font-medium text-slate-900">Process Multi-Tenancy</td>
             <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>Multi-App in 1 Process</span>
+                <span>Multi-App in 1 Process (Isolated DBs)</span>
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">Single tenant per process</td>
-            <td class="py-2 px-4 text-slate-600">Cloud / Multi-cluster</td>
+            <td class="py-2 px-4 text-slate-600">Single tenant per process (Separate ports)</td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
-            <td class="py-2 px-4 font-medium text-slate-900">Deployment Simplicity</td>
+            <td class="py-2 px-4 font-medium text-slate-900">Multi-Database Support</td>
             <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>Single Binary or <code>npx</code></span>
+                <span>SQLite + PostgreSQL + MSSQL</span>
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">Single binary ($5 VPS)</td>
-            <td class="py-2 px-4 text-slate-600">Complex (10+ containers)</td>
+            <td class="py-2 px-4 text-slate-600">SQLite only (No external engines)</td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
             <td class="py-2 px-4 font-medium text-slate-900">Full-Text Search</td>
             <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>Native SQLite FTS5 (BM25)</span>
+                <span>Native SQLite FTS5 (BM25 + Snippets)</span>
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">Basic SQL <code>LIKE</code></td>
-            <td class="py-2 px-4 text-slate-600"><code>tsvector</code> (Manual setup)</td>
+            <td class="py-2 px-4 text-slate-600">Basic SQL <code>LIKE '%query%'</code> scans</td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
-            <td class="py-2 px-4 font-medium text-slate-900">Realtime Scale &amp; Presence</td>
-            <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 text-slate-600">Lightweight SSE Streams</td>
-            <td class="py-2 px-4 text-slate-600">Lightweight SSE Streams</td>
-            <td class="py-2 px-4 font-semibold text-emerald-800">
+            <td class="py-2 px-4 font-medium text-slate-900">Snapshots &amp; Rollback</td>
+            <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>WebSockets + Presence</span>
-                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">WIN</span>
+                <span>Atomic Checkpoints &amp; Drift Detection</span>
+                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
+            </td>
+            <td class="py-2 px-4 text-slate-600">Manual ZIP archive file backups</td>
+          </tr>
+
+          <!-- Category 3: Security, Governance & Auditing -->
+          <tr class="bg-slate-100/90 border-y border-slate-200">
+            <td colspan="3" class="py-1.5 px-4 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              3. Security, Governance &amp; Auditing
             </td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
-            <td class="py-2 px-4 font-medium text-slate-900">Database-Level RLS</td>
-            <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 text-slate-600">Visual Rules + SQL</td>
-            <td class="py-2 px-4 text-slate-600">Filter expressions</td>
-            <td class="py-2 px-4 font-semibold text-emerald-800">
+            <td class="py-2 px-4 font-medium text-slate-900">Unified RBAC &amp; API Keys</td>
+            <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>Native PostgreSQL RLS</span>
-                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">WIN</span>
+                <span>Cross-System RBAC + Key Simulator</span>
+                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
+            </td>
+            <td class="py-2 px-4 text-slate-600">Basic collection rules only</td>
+          </tr>
+
+          <tr class="hover:bg-slate-50/80 transition-colors">
+            <td class="py-2 px-4 font-medium text-slate-900">Database-Level Rules &amp; RLS</td>
+            <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
+              <div class="flex items-center justify-between">
+                <span>Visual Rules + SQL Expressions</span>
+                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
+              </div>
+            </td>
+            <td class="py-2 px-4 text-slate-600">Filter expressions (Constrained)</td>
+          </tr>
+
+          <tr class="hover:bg-slate-50/80 transition-colors">
+            <td class="py-2 px-4 font-medium text-slate-900">Field-Level Audit Trail</td>
+            <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
+              <div class="flex items-center justify-between">
+                <span>Field-level <code>{old, new}</code> Diffs &amp; Actors</span>
+                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
+              </div>
+            </td>
+            <td class="py-2 px-4 text-slate-600">HTTP access request logs only</td>
+          </tr>
+
+          <!-- Category 4: Backend Compute & Workflows -->
+          <tr class="bg-slate-100/90 border-y border-slate-200">
+            <td colspan="3" class="py-1.5 px-4 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              4. Backend Compute &amp; Workflows
             </td>
           </tr>
 
@@ -177,12 +214,11 @@
             <td class="py-2 px-4 font-medium text-slate-900">Embedded Serverless IDE</td>
             <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>QuickJS-Wasm &amp; Web IDE</span>
+                <span>QuickJS-Wasm &amp; Web IDE (npm access)</span>
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">Basic JS (Goja VM)</td>
-            <td class="py-2 px-4 text-slate-600">External Deno Edge</td>
+            <td class="py-2 px-4 text-slate-600">Legacy ES5 interpreter (Goja VM)</td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
@@ -194,91 +230,79 @@
               </div>
             </td>
             <td class="py-2 px-4 text-slate-600">None (Manual Go code)</td>
-            <td class="py-2 px-4 text-slate-600">None (External queues / Temporal)</td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
             <td class="py-2 px-4 font-medium text-slate-900">Background Job Queues</td>
             <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>Embedded SQLite (FIFO, DLQ, Functions)</span>
+                <span>Embedded SQLite (FIFO, DLQ, Leases)</span>
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">None (Manual in-memory)</td>
-            <td class="py-2 px-4 text-slate-600">None (External BullMQ / SQS)</td>
+            <td class="py-2 px-4 text-slate-600">None (Manual in-memory goroutines)</td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
-            <td class="py-2 px-4 font-medium text-slate-900">Multi-Database Support</td>
+            <td class="py-2 px-4 font-medium text-slate-900">Realtime Event Streams</td>
             <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>SQLite + PostgreSQL + MSSQL</span>
+                <span>Lightweight SSE Streams + Multi-Tenant</span>
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">SQLite only</td>
-            <td class="py-2 px-4 text-slate-600">PostgreSQL only</td>
+            <td class="py-2 px-4 text-slate-600">Lightweight SSE Streams</td>
+          </tr>
+
+          <!-- Category 5: Developer Experience & Tooling -->
+          <tr class="bg-slate-100/90 border-y border-slate-200">
+            <td colspan="3" class="py-1.5 px-4 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              5. Developer Experience &amp; Tooling
+            </td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
-            <td class="py-2 px-4 font-medium text-slate-900">Snapshots &amp; Rollback</td>
+            <td class="py-2 px-4 font-medium text-slate-900">Dual-Mode Usage</td>
             <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>Atomic Checkpoints &amp; Drift</span>
+                <span>CLI Server + Importable npm Library</span>
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">Manual ZIP backups</td>
-            <td class="py-2 px-4 text-slate-600">SQL migrations only</td>
-          </tr>
-
-          <tr class="hover:bg-slate-50/80 transition-colors">
-            <td class="py-2 px-4 font-medium text-slate-900">Field-Level Audit Trail</td>
-            <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
-              <div class="flex items-center justify-between">
-                <span>Field-level <code>{old, new}</code></span>
-                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
-              </div>
-            </td>
-            <td class="py-2 px-4 text-slate-600">HTTP request logs only</td>
-            <td class="py-2 px-4 text-slate-600">Manual pgAudit / Triggers</td>
+            <td class="py-2 px-4 text-slate-600">Standalone Binary (Go-only lib)</td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
             <td class="py-2 px-4 font-medium text-slate-900">Live HTTP Type Safety</td>
             <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span><code>GET /_/types.d.ts</code></span>
+                <span>Dynamic <code>GET /_/types.d.ts</code></span>
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">Community CLI tools</td>
-            <td class="py-2 px-4 text-slate-600">CLI type generator</td>
+            <td class="py-2 px-4 text-slate-600">Requires external CLI tool</td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
             <td class="py-2 px-4 font-medium text-slate-900">Interactive API Docs</td>
             <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>Built-in Scalar &amp; Swagger</span>
+                <span>Built-in Scalar &amp; Swagger UI</span>
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">Static documentation</td>
-            <td class="py-2 px-4 text-slate-600">Studio table browser</td>
+            <td class="py-2 px-4 text-slate-600">Static external documentation</td>
           </tr>
 
           <tr class="hover:bg-slate-50/80 transition-colors">
             <td class="py-2 px-4 font-medium text-slate-900">Templates &amp; Mock Data</td>
             <td class="py-2 px-4 nodestack-col border-x border-blue-200/60 font-semibold text-blue-900">
               <div class="flex items-center justify-between">
-                <span>1-Click Templates + Faker</span>
+                <span>1-Click Templates + Faker Engine</span>
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-700 border border-blue-200">WIN</span>
               </div>
             </td>
-            <td class="py-2 px-4 text-slate-600">Empty database</td>
-            <td class="py-2 px-4 text-slate-600">Empty DB (Cloud sample)</td>
+            <td class="py-2 px-4 text-slate-600">Empty database on initialization</td>
           </tr>
 
         </tbody>
@@ -289,17 +313,14 @@
     <div class="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 font-mono">
       <div class="flex items-center gap-5">
         <span class="text-slate-900 font-semibold flex items-center gap-1.5">
-          <span class="w-2 h-2 rounded-full bg-blue-600"></span> NodeStack: 14
-        </span>
-        <span class="flex items-center gap-1.5">
-          <span class="w-2 h-2 rounded-full bg-emerald-600"></span> Supabase: 3
+          <span class="w-2 h-2 rounded-full bg-blue-600"></span> NodeStack: 18
         </span>
         <span class="flex items-center gap-1.5">
           <span class="w-2 h-2 rounded-full bg-emerald-600"></span> PocketBase: 2
         </span>
       </div>
       <div class="text-[11px] text-slate-400">
-        19 Dimensions Evaluated
+        20 Dimensions Evaluated across 5 Architecture Categories
       </div>
     </div>
 

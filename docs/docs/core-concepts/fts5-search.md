@@ -14,7 +14,8 @@ NodeStack includes an embedded Full-Text Search Subsystem (FTSS) powered by SQLi
 ## Key Features
 
 * **BM25 Relevance Scoring**: Results are ranked by statistical term frequency and inverse document frequency (`ORDER BY rank ASC`).
-* **Automatic SQLite Triggers**: Synchronizes the `_fts_<collection>` virtual table atomically on `AFTER INSERT`, `AFTER UPDATE`, and `AFTER DELETE`.
+* **Automatic Multi-Engine Triggers**: Synchronizes the full-text search indexes atomically on `AFTER INSERT`, `AFTER UPDATE`, and `AFTER DELETE` across SQLite, PostgreSQL, and MSSQL.
+* **Equal-Cardinality Drift Detection & Rebuilds (v2.6.0)**: Detects subtle index cardinality drift between records and virtual FTS tables, automatically rebuilding when schema tokenizers or language options change while preserving custom linguistic configurations.
 * **Keyword Prefix Matching**: Searching `type*` matches "typescript", "typedef", and "types".
 * **Contextual Snippets & Highlighting**: Returns extracted text excerpts with matching search terms wrapped in `<mark>` tags.
 * **Safe Query Sanitization**: Automatic parsing and sanitization prevents malformed FTS syntax exceptions.

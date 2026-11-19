@@ -59,3 +59,14 @@ export const analyticsPlugin: NodeStackPlugin = (app, options) => {
   });
 };
 ```
+
+---
+
+## Plugin Security & Principle of Least Privilege (PoLP) (v2.6.0)
+
+NodeStack enforces strict security isolation boundaries for third-party plugins:
+
+1. **DI Container Token Locking**: Container tokens are sealed prior to plugin initialization. Plugins cannot overwrite or tamper with core framework services.
+2. **Safe Service Allowlisting**: Plugins access an isolated application facade. Direct access to internal database connection pools or tenant-scoped private bindings is blocked unless explicitly allowlisted.
+3. **Tenant-Scoped Configuration Isolation**: Plugin settings and configuration state are partitioned strictly per tenant app scope, preventing cross-tenant leakage.
+4. **EventBus Error Isolation**: Unhandled exceptions thrown by plugin event listeners are safely trapped and logged, ensuring rogue plugin callbacks cannot abort the core event dispatch loop or disrupt in-flight queue operations.

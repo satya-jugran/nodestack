@@ -4,7 +4,7 @@ title: "Quickstart & Repository Overview"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-15T09:01:29.660Z
+    at: 2026-11-19T12:05:15.938Z
 sources:
   - id: openwiki-source-5b54a58d1b51cd490b0e7162
     resource: repo://package.json
@@ -22,12 +22,12 @@ sources:
     resource: repo://src/NodeStack.ts
   - id: openwiki-source-6ef2b73e0eabdb84d8cc7283
     resource: repo://tests/nodestack.test.ts
-generated: { by: "doc-gen", at: "2026-11-15T08:56:16.837Z" }
+generated: { by: "doc-gen", at: "2026-11-19T12:05:15.938Z" }
 ---
 
 # Quickstart & Repository Overview
 
-NodeStack (`nodestack` v2.5.0) is a TypeScript-native embedded backend stack built on `better-sqlite3` and Node's native HTTP server. It combines dynamic SQLite collections, JWT authentication, collection access rules, serverless functions, workflow automation flows, durable background queues, realtime SSE, outbound webhooks, point-in-time snapshots, and a bundled React Admin UI into a single package and CLI.
+NodeStack (`nodestack` v2.6.0) is a TypeScript-native embedded backend stack built on `better-sqlite3` and Node's native HTTP server. It combines dynamic SQLite collections, JWT authentication, collection access rules, serverless functions, workflow automation flows, durable background queues, realtime SSE, outbound webhooks, point-in-time snapshots, and a bundled React Admin UI into a single package and CLI.
 
 ---
 
@@ -101,6 +101,7 @@ Once running:
 | `nodestack template [name]` | `recipe` | Lists (`-l, --list`) or applies (`ecommerce`, `blog`, `crm`) starter templates (`--overwrite`) |
 | `nodestack collection [action] [name]` | `collections` | Lists collections and record counts, or deletes a collection and its files (`delete` / `rm` / `drop`) |
 | `nodestack snapshots [action] [target]` | — | Lists, creates (`create` / `take`), restores (`restore` / `reset`), deletes (`delete`), or clears (`clear`) point-in-time snapshots |
+| `nodestack api-keys [action]` | `apikey` | Lists, creates, rotates, revokes, restores, deletes, or simulates/tests scoped M2M API keys (`list`, `create`, `rotate`, `revoke`, `restore`, `delete`, `test`) |
 | `nodestack db [action] [provider] [uri]` | — | Manages database engine status, tests connectivity, saves configuration, and performs live migration across SQLite, PostgreSQL, and MSSQL (`status`, `test`, `configure`, `switch`) |
 
 ---

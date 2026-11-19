@@ -12,26 +12,42 @@ type FeatureItem = {
 const FeatureList: FeatureItem[] = [
   {
     title: 'Multi-Database & Multi-Tenant',
-    badge: 'v2.5.0',
     description: (
       <>
-        Host multiple isolated application tenants with native support for SQLite, PostgreSQL, and Microsoft SQL Server, seamless live migration, and dedicated schemas.
+        Host multiple isolated application tenants with native support for SQLite, PostgreSQL, and Microsoft SQL Server, seamless live migrations, and dedicated schemas.
       </>
     ),
   },
   {
-    title: 'Queues, Functions & Flows',
+    title: 'Access Management with API Keys',
+    badge: 'v2.6.0',
     description: (
       <>
-        Transactional multi-database queues with strict FIFO partitions, visual state machine flow orchestration, and sandboxed QuickJS-Wasm serverless execution.
+        Unified cross-subsystem RBAC authorization engine, scoped M2M API keys with auto role-downgrade stripping, and real-time permission simulation testing.
       </>
     ),
   },
   {
-    title: 'Snapshots & Time-Travel',
+    title: 'Serverless Functions & Flows',
     description: (
       <>
-        Atomic SQLite state checkpoints with non-destructive rollbacks, file storage preservation, live schema drift tracking, and FIFO capacity limits.
+        Sandboxed QuickJS-Wasm serverless execution with Anti-SSRF firewalls, structured observability logging, and visual state machine workflow orchestration.
+      </>
+    ),
+  },
+  {
+    title: 'Transactional Background Queues',
+    description: (
+      <>
+        Durable multi-database message queues with atomic claiming, worker leases, heartbeats, strict partition FIFO ordering, exponential retries, and dead-letter queues.
+      </>
+    ),
+  },
+  {
+    title: 'Outbound Webhooks Engine',
+    description: (
+      <>
+        Event-driven HTTP dispatch engine with HMAC-SHA256 signature verification, delivery logs, automated retry backoff, and Anti-SSRF network firewalls.
       </>
     ),
   },
@@ -44,10 +60,18 @@ const FeatureList: FeatureItem[] = [
     ),
   },
   {
-    title: 'FTS5 Search, Webhooks & Audits',
+    title: 'Snapshots & Time-Travel',
     description: (
       <>
-        Embedded BM25 full-text search with highlights, outbound webhooks with HMAC-SHA256 signatures, and field-level change history diffs.
+        Atomic SQLite state checkpoints with non-destructive rollbacks, file storage preservation, live schema drift tracking, and FIFO capacity limits.
+      </>
+    ),
+  },
+  {
+    title: 'FTS5 Search & Audit Logs',
+    description: (
+      <>
+        Embedded BM25 relevance ranking with highlighted snippets, multi-engine language drift detection, and immutable field-level change history diffs.
       </>
     ),
   },

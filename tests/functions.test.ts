@@ -1685,7 +1685,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(data.hasNetwork).toBe(true);
       expect(data.hasObs).toBe(true);
       expect(data.coreObsLogUndefined).toBe(true);
-      expect(data.version).toBe('2.5.0');
+      expect(data.version).toBe('2.6.0');
       expect(data.ctxRecordsUndefined).toBe(true);
       expect(data.hasCtxQueue).toBe(true);
       expect(data.ctxCoreUndefined).toBe(true);

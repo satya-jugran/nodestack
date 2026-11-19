@@ -5,7 +5,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-7.x-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D24.0-green.svg)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/satya-jugran/nodestack/releases)
+[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](https://github.com/satya-jugran/nodestack/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://img.shields.io/badge/docs-online-blue.svg)](https://satya-jugran.github.io/nodestack/)
 
@@ -37,7 +37,9 @@ Building modern web and mobile apps often requires managing external database se
 
 NodeStack delivers an instant, complete backend stack in a **single Node.js process**:
 
-* **Zero-Compilation Embedded SQLite**: Powered natively by Node.js (`node:sqlite`). Zero C++ compilers, Python, or external database daemon installations required.
+* **Zero-Compilation Embedded SQLite & Multi-Database Engine**: Powered natively by Node.js (`node:sqlite`) with first-class multi-database support for PostgreSQL and Microsoft SQL Server, zero-downtime migrations, and storage analytics.
+* **Unified RBAC Engine & API Key Tester (v2.6.0)**: Granular role-based and scope-based authorization across collections, records, flows, and serverless functions with automatic wildcard stripping on role downgrades, atomic quota enforcement, and built-in interactive permission testing tools in Admin UI, CLI, and client SDK.
+* **Hardened Plugin Sandboxing (PoLP) (v2.6.0)**: Principle of Least Privilege plugin DI containers, safe service token allowlists, tenant configuration isolation, and fault-tolerant EventBus error boundaries.
 * **Multi-Application Platform**: Host multiple completely isolated application tenants within a single process—with separate SQLite databases, file storage directories, auth collections, realtime SSE buses, and 1-click app deletion.
 * **Instant CRUD & Realtime SSE**: Automatically exposes REST endpoints and Server-Sent Events change streams for every collection.
 * **Embedded Web Admin Dashboard**: A sleek, reactive dashboard served directly from `http://localhost:8090/_/` without needing an external web server.
@@ -54,45 +56,51 @@ NodeStack delivers an instant, complete backend stack in a **single Node.js proc
 
 ---
 
-## Comparison: NodeStack vs. PocketBase vs. Supabase
+## Comparison: NodeStack vs. PocketBase
 
 <p align="center">
-  <img width="850" alt="NodeStack vs. PocketBase vs. Supabase Architectural Comparison" src="./assets/comparison-matrix.png" />
+  <img width="850" alt="NodeStack vs. PocketBase Architectural Comparison" src="./assets/comparison-matrix.png" />
 </p>
 
 <details>
-  <summary><strong>Click to expand accessible data table (19 Dimensions)</strong></summary>
+  <summary><strong>Click to expand accessible data table (20 Dimensions)</strong></summary>
 
 
 > **Legend**: Exactly **one bold cell per row** indicates the standout category leader for that specific dimension.
 
-| Feature / Dimension | 🚀 **NodeStack** | 📦 **PocketBase** | ⚡ **Supabase** |
-| :--- | :--- | :--- | :--- |
-| **Primary Ecosystem** | **TypeScript & Node.js (npm native)** | Go | Polyglot (Elixir / Go / SQL) |
-| **Relational Database Scale** | Embedded SQLite (WAL) | Embedded SQLite (WAL) | **PostgreSQL (ACID, pgvector, PostGIS)** |
-| **Lowest Resource Footprint** | Low (~40–80 MB RAM) | **Ultra-Low (~20–40 MB RAM)** | Heavy (2–4 GB+ RAM) |
-| **Zero-Install CLI Velocity** | **Instant via `npx` (Zero downloads needed)** | Manual binary download | Requires Docker or Cloud account |
-| **Binary Self-Containment** | Standalone Binary (Win, macOS, Linux) | **Ultra-Compact Binary (<20MB Go)** | Multi-container Docker suite |
-| **Dual-Mode Usage** | **Standalone CLI + Importable npm Library** | Standalone Binary (Go-only library) | Standalone Service (Cannot embed) |
-| **Single-Process Multi-Tenancy** | **Native Multi-App (Isolated DBs in 1 process)** | Single tenant per process | Cloud platform (or multi-cluster) |
-| **Deployment Simplicity** | **Single binary or `npx` on a $5 VPS** | Single binary on a $5 VPS | Complex self-hosting (10+ Docker containers) |
-| **Embedded Full-Text Search** | **Native SQLite FTS5 (BM25 + Snippets)** | Basic SQL `LIKE` queries | Postgres `tsvector` (Manual schema setup) |
-| **Realtime Scale & Presence** | Lightweight SSE Streams | Lightweight SSE Streams | **WebSockets + Presence (Phoenix Engine)** |
-| **Database-Level RLS Security** | Visual Rules + SQL expressions | Filter expressions | **PostgreSQL Native RLS (In-kernel)** |
-| **Embedded Serverless IDE** | **QuickJS-Wasm (Sub-ms cold starts & Web IDE)** | Basic JS (via Goja VM) | External Deno Edge Functions |
-| **Workflow Orchestration** | **Embedded Visual State Machines (Flows & DSL)** | None (Manual Go code) | None (External queues/temporal) |
-| **Background Job Queues** | **Embedded SQLite (FIFO, DLQ, Functions)** | None (Manual in-memory) | None (External BullMQ / SQS) |
-| **Application Snapshots & Rollback** | **Atomic checkpoints, drift detection & 1-click restore** | Manual ZIP file backups | Sequential SQL migrations only |
-| **Immutable Audit Trail** | **Field-level `{ old, new }` diffs & actor attribution** | HTTP access request logs only | Requires custom triggers or pgAudit |
-| **Live HTTP Type Safety** | **Live dynamic `GET /_/types.d.ts` endpoint** | Community CLI tools (`pocketbase-typegen`) | CLI typegen (`supabase gen types`) |
-| **Interactive API Documentation** | **Built-in Scalar & Swagger UI (`/_/docs`)** | Static external documentation | Supabase Studio / PostgREST spec |
-| **Starter Templates & Mock Data** | **1-Click templates (E-comm, CRM) + Faker engine** | Empty database | Empty database (or Cloud samples) |
+| Feature / Dimension | 🚀 **NodeStack** | 📦 **PocketBase** |
+| :--- | :--- | :--- |
+| **1. RUNTIME & DEPLOYMENT ARCHITECTURE** | | |
+| **Primary Ecosystem** | **TypeScript & Node.js (npm native)** | Go ecosystem |
+| **Deployment Simplicity** | **Single binary or `npx` ($5 VPS)** | Single binary on a $5 VPS |
+| **Zero-Install CLI Velocity** | **Instant via `npx` (Zero downloads needed)** | Manual binary download & extract |
+| **Binary Self-Containment** | Standalone Binary (Win, macOS, Linux) | **Ultra-Compact Binary (< 20MB Go)** |
+| **Lowest Resource Footprint** | Low (~40–80 MB RAM) | **Ultra-Low (~20–40 MB RAM)** |
+| **2. DATABASE & MULTI-TENANCY** | | |
+| **Process Multi-Tenancy** | **Native Multi-App in 1 Process (Isolated DBs)** | Single tenant per process (Separate ports) |
+| **Multi-Database Support** | **SQLite + PostgreSQL + MSSQL** | SQLite only (No external engines) |
+| **Embedded Full-Text Search** | **Native SQLite FTS5 (BM25 + Snippets)** | Basic SQL `LIKE '%query%'` scans |
+| **Application Snapshots & Rollback** | **Atomic checkpoints, drift detection & 1-click restore** | Manual ZIP archive file backups |
+| **3. SECURITY, GOVERNANCE & AUDITING** | | |
+| **Unified RBAC & Key Security** | **Cross-System RBAC + Key Simulator** | Basic collection rules only |
+| **Database-Level Rules & RLS** | **Visual Rules + Custom SQL Expressions** | Filter expressions (Constrained) |
+| **Immutable Audit Trail** | **Field-level `{ old, new }` diffs & actor attribution** | HTTP access request logs only |
+| **4. BACKEND COMPUTE & WORKFLOWS** | | |
+| **Embedded Serverless IDE** | **QuickJS-Wasm (Sub-ms cold starts & Web IDE)** | Legacy ES5 interpreter (Goja VM) |
+| **Workflow Orchestration** | **Embedded Visual State Machines (Flows & DSL)** | None (Manual Go code) |
+| **Background Job Queues** | **Embedded SQLite (FIFO, DLQ, Functions)** | None (Manual in-memory goroutines) |
+| **Realtime Event Streams** | **Lightweight SSE Streams + Multi-Tenant** | Lightweight SSE Streams |
+| **5. DEVELOPER EXPERIENCE & TOOLING** | | |
+| **Dual-Mode Usage** | **Standalone CLI + Importable npm Library** | Standalone Binary (Go-only library) |
+| **Live HTTP Type Safety** | **Live dynamic `GET /_/types.d.ts` endpoint** | Requires external CLI tool (`pocketbase-typegen`) |
+| **Interactive API Documentation** | **Built-in Scalar & Swagger UI (`/_/docs`)** | Static external documentation |
+| **Starter Templates & Mock Data** | **1-Click templates (E-comm, CRM) + Faker engine** | Empty database on initialization |
 
 </details>
 
 ### When to Choose What
 
-* **Choose NodeStack if:** You want the simplicity of a single-process embedded backend, but your team builds in **TypeScript & Node.js**. You get instant access to the **npm ecosystem**, **zero-install `npx` startup**, **isolated multi-app tenancy in one process**, **atomic state snapshots**, and **embedded FTS5 search & Wasm serverless lambdas**.
+* **Choose NodeStack if:** You want the simplicity of a single-process embedded backend, but your team builds in **TypeScript & Node.js**. You get instant access to the **npm ecosystem**, **zero-install `npx` startup**, **isolated multi-app tenancy in one process**, **atomic state snapshots**, **embedded background queues**, **unified RBAC authorization & key simulation**, and **embedded FTS5 search & Wasm serverless lambdas**.
 * **Choose PocketBase if:** Your priority is absolute raw binary minimalism (<20MB single Go binary) and the lowest possible idle memory footprint (~20MB RAM).
 * **Choose Supabase if:** You need multi-terabyte enterprise PostgreSQL with complex relational models, pgvector, in-kernel RLS, and bidirectional WebSockets presence.
 

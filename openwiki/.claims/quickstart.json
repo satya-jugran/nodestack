@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:f40e2544d12f66c6e04ff73a35cbb33f53d5cfba95d4795d7c48d1cef57db596",
+  "pageVersion": "sha256:a42b9b5b5db1dcbc31ee190424a49dc513e7ded6f76254639c6093a846c5b75e",
   "claims": [
     {
       "id": "claim_e0a4841e457a4b0cbe35115f2034eb88",
-      "statement": "The nodestack CLI (src/cli/cli.ts) provides start (alias serve), superuser (create, reset-password), typegen, openapi, mock, import-json, template, collection, snapshots, and db (status, test, configure, switch) commands.",
+      "statement": "The nodestack CLI (src/cli/cli.ts) provides start (alias serve), superuser (create, reset-password), typegen, openapi, mock, import-json, template, collection, snapshots, api-keys (list, create, rotate, revoke, restore, delete, test), and db (status, test, configure, switch) commands.",
       "evidence": [
         {
           "resource": "repo://package.json",
-          "version": "repo-file-v1:sha256:15f07f34c6bf009275dea7c162c422a924da5a12ccf81b4cf0cc60ef929fa4f8"
+          "version": "repo-file-v1:sha256:0715401a4746651974152d4b364f8305c095055d201741dbf17eed50cbfbcf9b"
         },
         {
           "resource": "repo://src/cli/cli.ts",
-          "version": "repo-file-v1:sha256:3ef9372085f7a9e14abdbe9838f28282975996887d6557bae18ca2612c6089e9"
+          "version": "repo-file-v1:sha256:4b0e60a6360d6e0223d8890daa1fde4aeb621e35ae703eb93517a7729bb2c072"
         }
       ]
     },
@@ -22,15 +22,15 @@
       "evidence": [
         {
           "resource": "repo://src/NodeStack.ts",
-          "version": "repo-file-v1:sha256:c1f5659bcb80e80ab24f9e902dd097ddba16756d98fcb80688ad69705ea0be1d"
+          "version": "repo-file-v1:sha256:07fd0ed84a14c88d9e963129d0a3bc35511513ded7cdf7f4dff9a2c32c12e637"
         },
         {
           "resource": "repo://src/index.ts",
-          "version": "repo-file-v1:sha256:8a3b6f939f05c209a5ab7e9b40d209edcdeb38af78fef89e4cdeb19c4218a8b9"
+          "version": "repo-file-v1:sha256:d8ad759caa4ac649a13bd848317c726a81d09ddd92ae6c5c3790c00da97bbe8d"
         },
         {
           "resource": "repo://tests/nodestack.test.ts",
-          "version": "repo-file-v1:sha256:3f7db1b325b75fc6d65c38c90eeab14def9a6aede0b62f2cacccba21ba69f9b3"
+          "version": "repo-file-v1:sha256:927d68587ace65ce2d0e159c9bd918045f6d79fec59d3725a4486c950f054087"
         }
       ]
     },
@@ -40,15 +40,15 @@
       "evidence": [
         {
           "resource": "repo://src/cli/cli.ts",
-          "version": "repo-file-v1:sha256:3ef9372085f7a9e14abdbe9838f28282975996887d6557bae18ca2612c6089e9"
+          "version": "repo-file-v1:sha256:4b0e60a6360d6e0223d8890daa1fde4aeb621e35ae703eb93517a7729bb2c072"
         },
         {
           "resource": "repo://src/core/config/ConfigService.ts",
-          "version": "repo-file-v1:sha256:26972d2cb3b2886a6c5c486cd589585ade40ce4508bab1e76d520bd6823369a2"
+          "version": "repo-file-v1:sha256:5165c2a58e884d4f5778158acf900134ed41e1a84d58c5e4aa8b8f6db2f5bee3"
         },
         {
           "resource": "repo://src/core/config/EnvLoader.ts",
-          "version": "repo-file-v1:sha256:b3324b9a0dba030e85cac10e2b4ff3a63a7d59586bba1b4baeaa2f5ea02537f6"
+          "version": "repo-file-v1:sha256:d9cfd1ef536442a769802c527ab1f8d850c4110895d4b093fb9869a6b3f6d7e1"
         }
       ]
     },
@@ -58,7 +58,7 @@
       "evidence": [
         {
           "resource": "repo://package.json",
-          "version": "repo-file-v1:sha256:15f07f34c6bf009275dea7c162c422a924da5a12ccf81b4cf0cc60ef929fa4f8"
+          "version": "repo-file-v1:sha256:0715401a4746651974152d4b364f8305c095055d201741dbf17eed50cbfbcf9b"
         },
         {
           "resource": "repo://src/cli/sea-entry.ts",
@@ -69,6 +69,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-15T09:01:29.660Z"
+    "at": "2026-11-19T12:05:15.938Z"
   }
 }

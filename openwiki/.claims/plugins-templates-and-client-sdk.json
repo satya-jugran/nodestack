@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:7e3b257ac775dcad78639264808d7682bf856c3c33e70227345d504943230f32",
+  "pageVersion": "sha256:db5531ac9748701859ed7c179345d14ecce94f1e97a3b362f7583c67d24881fe",
   "claims": [
     {
       "id": "claim_b690f0f49d864dcbad52372147d84577",
@@ -8,11 +8,11 @@
       "evidence": [
         {
           "resource": "repo://src/core/plugins/PluginManager.ts",
-          "version": "repo-file-v1:sha256:fe020db3585f393d8b205e9b411a24de899d4bbb4aea6196b9d9979e2bba3ee8"
+          "version": "repo-file-v1:sha256:5bdeb1cbdfe38d4f891ed30e353a6684e7e1a4c85b03fca28b376ad31e25c4b0"
         },
         {
           "resource": "repo://src/core/plugins/types.ts",
-          "version": "repo-file-v1:sha256:9129721d08f5a7a96cf5c42efa8ea3503c757eccb772d407c8feb66edd96d2b6"
+          "version": "repo-file-v1:sha256:1f416e43ede6f1cc8358e38e098fcf3569ab6cf0e1545eeb1c7dfb40381419ba"
         },
         {
           "resource": "repo://src/plugins/index.ts",
@@ -26,7 +26,7 @@
       "evidence": [
         {
           "resource": "repo://src/core/plugins/PluginManager.ts",
-          "version": "repo-file-v1:sha256:fe020db3585f393d8b205e9b411a24de899d4bbb4aea6196b9d9979e2bba3ee8"
+          "version": "repo-file-v1:sha256:5bdeb1cbdfe38d4f891ed30e353a6684e7e1a4c85b03fca28b376ad31e25c4b0"
         }
       ]
     },
@@ -54,7 +54,7 @@
       "evidence": [
         {
           "resource": "repo://packages/client/src/Client.ts",
-          "version": "repo-file-v1:sha256:c3b35812d53fdaeb29ae9f184191732456f9fe2eeadbea3208f95cb95dffaaa9"
+          "version": "repo-file-v1:sha256:dc9f1264a0e0b27cd4a898a691554865eb54b5551773eb2721298de281160e96"
         },
         {
           "resource": "repo://packages/client/src/auth/BaseAuthStore.ts",
@@ -66,13 +66,13 @@
         },
         {
           "resource": "repo://packages/client/src/index.ts",
-          "version": "repo-file-v1:sha256:a601dc725294f340ffbe1fe082ccf99c7d8205c2d682d2018a656863946afd69"
+          "version": "repo-file-v1:sha256:fd6a9406b34bf7d051dd8436717a024219871c93662204c985d47ff0547d18a0"
         }
       ]
     }
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-15T09:01:29.660Z"
+    "at": "2026-11-19T12:05:15.938Z"
   }
 }

@@ -4,7 +4,7 @@ title: "Plugins, Starter Templates & Client SDK"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-15T09:01:29.660Z
+    at: 2026-11-19T12:05:15.938Z
 sources:
   - id: openwiki-source-986c92d89ee5ef388488c0d6
     resource: repo://packages/client/src/auth/BaseAuthStore.ts
@@ -26,7 +26,7 @@ sources:
     resource: repo://src/templates/TemplateImageGenerator.ts
   - id: openwiki-source-830900714b998dab2d6de1b4
     resource: repo://src/templates/TemplateService.ts
-generated: { by: "doc-gen", at: "2026-11-05T17:08:40.212Z" }
+generated: { by: "doc-gen", at: "2026-11-19T12:05:15.938Z" }
 ---
 
 # Plugins, Starter Templates & Client SDK
@@ -130,3 +130,4 @@ The `@nodestackapp/client` package (`packages/client/src/Client.ts` and `package
 | `client.files` | `FileService` | `getUrl(record, filename, options)` for constructing file download URLs with optional token/download parameters. |
 | `client.admins` / `client.collections` / `client.apps` | `AdminService`, `CollectionService`, `AppService` | Admin login/setup, collection schema CRUD + JSON schema inference (`inferSchema`, `importJson`), and multi-app workspace CRUD. |
 | `client.snapshots` / `client.webhooks` | `SnapshotService`, `WebhookService` | Database snapshot create/restore and webhook subscription CRUD + HMAC signature verification helpers (`computeWebhookSignature`, `verifyWebhookSignature`). |
+| `client.apiKeys` | `ApiKeyService` | API key lifecycle (`list`, `getOne`, `create`, `update`, `delete`, `rotate`) and real-time permission simulation (`simulate`). |

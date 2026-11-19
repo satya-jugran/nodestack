@@ -89,7 +89,7 @@ const config: Config = {
         {
           type: 'html',
           position: 'right',
-          value: '<span class="badge badge--info" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 9999px;">v2.5.0</span>',
+          value: '<span class="badge badge--info" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 9999px;">v2.6.0</span>',
         },
         {
           href: 'https://github.com/satya-jugran/nodestack',
@@ -117,7 +117,7 @@ const config: Config = {
               to: '/functions/overview',
             },
             {
-              label: 'Multi-Database Engine (v2.5.0)',
+              label: 'Multi-Database Engine',
               to: '/core-concepts/database-sqlite',
             },
             {

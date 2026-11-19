@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:3902d5593189f6dcefc758b3c97f4d17854724791ac103655c4b79882391eb28",
+  "pageVersion": "sha256:d26ad109f564451187388e4b4b9092aa33c196c365957604f385fdf91fd1c589",
   "claims": [
     {
       "id": "claim_8a8b9d89e7b340a4b9bb2285225cdc4e",
@@ -8,7 +8,7 @@
       "evidence": [
         {
           "resource": "repo://src/http/HttpServer.ts",
-          "version": "repo-file-v1:sha256:ea94f65de207b84c782172075a14958294722d2b8f8f3f375fa3e2d9f2f0da1a"
+          "version": "repo-file-v1:sha256:2e7f5d04a0a821764f768e3f9326d26f1b5c3191a02c38fdf87111256a8b1bdb"
         },
         {
           "resource": "repo://src/http/controllers/BaseController.ts",
@@ -30,7 +30,7 @@
       "evidence": [
         {
           "resource": "repo://src/http/middleware/AppResolutionMiddleware.ts",
-          "version": "repo-file-v1:sha256:3534f30f3c84dd9ca1f7f8420b107e83c5a7304152428ed20925a33f84eaafbb"
+          "version": "repo-file-v1:sha256:6a7a93c8810b7c3b8b17e217a5bd658e729c973e995f913bcf4df42aa97cb5b0"
         }
       ]
     },
@@ -40,7 +40,7 @@
       "evidence": [
         {
           "resource": "repo://src/http/middleware/ChaosMiddleware.ts",
-          "version": "repo-file-v1:sha256:10f9852d72b4069bba2620fd1c0d4bee8f9ed9b9eab2ce2f1a24d5257f6d40de"
+          "version": "repo-file-v1:sha256:faae7052117839361854c04695a4297768ba5beca5509556a8a231048dd3c09c"
         }
       ]
     },
@@ -50,7 +50,7 @@
       "evidence": [
         {
           "resource": "repo://src/admin/AdminUIBundler.ts",
-          "version": "repo-file-v1:sha256:76d402eca699ff3535bc42fff1adefdb1f22c5df7cba252fdb25cbdb6eb389e0"
+          "version": "repo-file-v1:sha256:ca3840aa612b47ae85a76554c0f1a262acfe5a82d0ac88c8457cb42f88046db9"
         },
         {
           "resource": "repo://src/admin/AdminUIService.ts",
@@ -71,6 +71,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-15T09:01:29.660Z"
+    "at": "2026-11-19T12:05:15.938Z"
   }
 }

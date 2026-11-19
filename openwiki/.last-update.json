@@ -1,7 +1,7 @@
 {
-  "updatedAt": "2026-11-15T09:02:57.110Z",
+  "updatedAt": "2026-11-19T12:11:42.498Z",
   "command": "update",
-  "gitHead": "0ac15f36b488b4fc8fbf30175d79ee6e70ec9740",
+  "gitHead": "13635097e64fc6d4d683c8e012353289fff5b2f9",
   "model": "host-agent/doc-gen",
   "status": "complete",
   "language": "en"

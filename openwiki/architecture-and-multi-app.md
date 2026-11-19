@@ -4,11 +4,11 @@ title: "Core Architecture & Multi-Application Engine"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-15T09:01:29.660Z
+    at: 2026-11-19T12:05:15.938Z
 sources:
   - id: openwiki-source-b4b029988cbb0f1f8db7496e
     resource: repo://src/NodeStack.ts
-generated: { by: "doc-gen", at: "2026-11-15T08:56:16.837Z" }
+generated: { by: "doc-gen", at: "2026-11-19T12:05:15.938Z" }
 ---
 
 # Core Architecture & Multi-Application Engine
@@ -50,6 +50,10 @@ NodeStack uses a zero-decorator dependency injection container (`src/core/contai
 - **`bindInstance(token, instance)`**: Registers a pre-constructed singleton instance directly into both the bindings map and singleton cache.
 - **`bindFactory(token, factory, isSingleton = true)`**: Registers a factory function `(container: Container) => T`. When `isSingleton` is `true`, the created value is cached after its first resolution.
 - **`bindClass(token, ctor, dependencies = [], isSingleton = true)`**: Registers a class constructor along with an array of dependency tokens. Upon `.get(token)`, each dependency token is recursively resolved via `this.get(dep)` and passed to `new ctor(...resolvedDeps)`.
+
+### Container Token Locking
+
+To enforce the Principle of Least Privilege (PoLP) before loading untrusted plugins, `Container` provides token locking mechanisms (`lock()`) preventing runtime mutations or service hijacking of critical framework tokens.
 
 ### Container Disposal
 

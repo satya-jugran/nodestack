@@ -18,6 +18,7 @@ The `nodestack-client` is a zero-dependency, isomorphic TypeScript & JavaScript 
 **Fluent CRUD Operations**: `getList`, `getFullList`, `getFirstListItem`, `create`, `update`, `delete`.
 **Application Snapshots**: Programmatic checkpoint management with `client.snapshots` (create, restore, drift checks, FIFO eviction).
 **FTS5 Full-Text Search**: Built-in support for BM25 ranking, prefix queries, and highlighted snippet excerpts.
+**API Keys & Permissions Simulator (v2.6.0)**: Manage API keys and simulate permission authorization (`client.apiKeys.simulate(...)`).
 **Webhooks Client Service**: Webhook registration, delivery logs, test dispatch, and HMAC verification.
 **Multiplexed SSE Realtime**: Persistent connection with auto-handshake and auto-reconnect.
 **100% Type-Safe**: Works with `nodestack typegen` for complete end-to-end typing.

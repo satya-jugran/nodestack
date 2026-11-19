@@ -7,6 +7,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.6.0] - 2026-11-19
+
+Release v2.6.0 delivers the **Unified RBAC Authorization Engine & API Key Ecosystem**—extending fine-grained role-based and scope-based authorization across collections, records, flows, serverless functions, and queues, backed by an interactive real-time API Key Permissions Tester across Admin UI, CLI, and client SDK; establishes the **Plugin Principle of Least Privilege (PoLP)** security architecture with DI container token locking, allowlisted service capabilities, and fault-tolerant EventBus boundaries; introduces a comprehensive **Registration & Verification Hardening Overhaul** eliminating cross-tenant token replay, redacting sensitive verification tokens, and enforcing registry persistence; strengthens **Full-Text Search (FTS)** with equal-cardinality drift detection and dynamic index rebuilds on tokenizer/language changes; supports **Apple OAuth `form_post`** and user payload propagation; hardens **Maintenance Gate Distributed Locks** with liveness awareness and shutdown connection draining; and refactors the serverless functions **Observability Logger API** (`core.observability.logger`).
+
+### Added
+
+#### 1. Unified RBAC Authorization Engine & API Key Ecosystem (PR #45)
+* **Unified RBAC Authorization Engine**:
+  * Implemented centralized, cross-subsystem authorization enforcing granular read, write, and execute permissions across collections, records, serverless functions, workflow flows, and background queues.
+  * Enforced authorization at service boundaries (`FlowService`, `FlowController`) with strict actor identity validation (`actor` check on flows).
+  * Enforced explicit `read` scope requirements for queue claim operations (`queues:claim`).
+* **Automatic Role Downgrade Safeguards**:
+  * Automatically strips wildcard permissions (`*`, `admin:*`) when an API key or actor role is downgraded, eliminating retained administrative privileges.
+* **Interactive API Key Permissions Tester**:
+  * **Admin UI**: Added interactive permission testing and real-time access simulation workbench in `api-keys.js` with matched scope details, reason codes, and ready-to-run `curl` commands.
+  * **CLI (`nodestack api-keys test`)**: Added `nodestack api-keys test <id> -s <subsystem> -r <resource> -x <action> [--ip <ip>] [--json]` simulation command in `cli.ts`.
+  * **Client SDK**: Added `client.apiKeys.simulate(options)` to `nodestack-client` (`ApiKeyService.ts`).
+  * **REST Endpoints**: Added `POST /api/api-keys/simulate` and `POST /api/api-keys/:id/simulate` (and tenant-scoped `/api/apps/:appId/api-keys/simulate`).
+* **Atomic Quota & Pagination Sanitization**:
+  * Enforced atomic quota checks and balance deductions for API keys.
+  * Validated integer parameters for `limit` and `offset` pagination to prevent invalid query payloads.
+
+#### 2. Apple OAuth `form_post` & User Metadata Support (PR #42, #43)
+* **Apple `response_mode=form_post` Support**:
+  * Added first-class support in `AppleProvider` and `HttpServer` for Apple's form-post OAuth callback mode.
+  * Accurately propagated and stored Apple's one-time user profile payload (`firstName`, `lastName`, `email`) on first sign-in.
+
+### Security
+
+#### 1. Plugin Sandboxing & Principle of Least Privilege (PoLP) (PR #40)
+* **Container & Token Locking**:
+  * Sealed DI container tokens prior to autoloading third-party plugins in `Container.ts` and restricted `PluginManager` to an isolated application facade.
+* **Service Allowlisting & Tenant Isolation**:
+  * Implemented strict service token allowlisting, preventing plugins from resolving tenant-scoped bindings or accessing internal database handles directly.
+  * Scoped plugin configurations to isolated tenant boundaries.
+* **EventBus Fault-Tolerance**:
+  * Isolated EventBus listener errors so exceptions thrown by third-party plugin handlers do not disrupt the event dispatch loop or other listeners.
+  * Added queue in-flight callback awaits to prevent unhandled background rejections.
+
+#### 2. Registration & Email Verification Hardening (PR #41)
+* **Cross-Tenant Replay Prevention**:
+  * Verification tokens are cryptographically bound to the recipient's email address and tenant scope, preventing token reuse across tenants.
+* **Token Redaction & Persistence**:
+  * Redacted verification tokens from public HTTP response bodies.
+  * Persisted admin verification state directly in `AppRegistry` with database write confirmation and eliminated connection leak vectors.
+* **Self-Verification Exploit Mitigation**:
+  * Blocked unauthorized self-verification exploits on record update payloads (`PATCH /api/collections/users/records/:id`).
+
+#### 3. Distributed Maintenance Gate & Liveness Locking (PR #43, #44)
+* **Atomic & Liveness-Aware Locks**:
+  * Implemented atomic maintenance lock acquisition with liveness-aware heartbeat timeouts in `MaintenanceGate.ts` to prevent deadlocks and stale lock holding.
+  * Verified caller lock ownership prior to lock release to eliminate out-of-order unlocks.
+* **Graceful Shutdown Draining**:
+  * Ensured active HTTP requests and background queue workers drain completely before entering maintenance mode.
+
+### Changed & Refactored
+
+#### 1. Core Observability Logger API
+* **Structured Logger in Functions Runtime (`1363509`)**:
+  * Refactored serverless function observability to use `core.observability.logger` (`log`, `info`, `warn`, `error`) and `core.observability.metric(name, value, tags)` across `QuickJsWasmRuntime`, CodeMirror workbench, and starter templates.
+  * Maintained seamless redirection for `console.log` into execution audit logs.
+
+#### 2. Full-Text Search (FTS) Rebuilds & Drift Detection (PR #42, #44)
+* **Equal-Cardinality Drift Detection**:
+  * Detected and resolved subtle cardinality drift between collection records and underlying FTS virtual tables in `FtsService.ts`.
+* **Dynamic Rebuilds on Tokenizer/Language Changes**:
+  * Automatically drops and recreates FTS indexes when schema tokenizers or language settings change across SQLite FTS5, PostgreSQL FTS, and MSSQL FTS drivers, preserving custom language options on rebuild.
+  * Ensured synchronous FTS error propagation.
+
+#### 3. Core Stability & Concurrency Fixes (PR #43, #44)
+* **Race Condition Fixes**:
+  * Resolved race conditions on concurrent duplicate ID record insertions.
+* **Relation Expansion Validation**:
+  * Strictly rejected non-ID relation items in `RecordValidator.ts`.
+* **Flow State Reachability**:
+  * Added support for `catch` transitions during state machine flow reachability analysis.
+* **Dev Mode Localhost CORS (`d0ed5b4`)**:
+  * Fixed localhost CORS preflight handling for local Vite/React development servers.
+
+---
+
 ## [2.5.0] - 2026-11-15
 
 Release v2.5.0 introduces **Native Multi-Database Support**—expanding NodeStack beyond SQLite to include first-class support for **PostgreSQL** and **Microsoft SQL Server (MSSQL)** with dynamic driver hot-swapping, zero-downtime live migrations, multi-engine Full-Text Search (FTS), and dual synchronous/asynchronous background queue engines; adds a dedicated **Admin UI Database Manager** and `nodestack db` CLI commands; delivers an extensive **Security Hardening Overhaul** addressing initial setup authorization, tenant privilege escalation, API key HMAC-SHA256 hashing, granular API key scopes, cryptographically validated OAuth state sessions with SSRF protection, wildcard CORS credential reflection mitigation, PostgreSQL SSL certificate enforcement, and realtime SSE subscriber privacy; and wraps all schema migrations in atomic database transactions with concurrency race condition prevention.

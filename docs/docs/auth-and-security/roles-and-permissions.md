@@ -207,15 +207,17 @@ Authorization in NodeStack is deeply woven into all runtime components:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        NodeStack Core Engine                           │
+│                   NodeStack Core Engine (v2.6.0)                       │
 ├────────────────────┬───────────────────────────────────────────────────┤
 │ Subsystem          │ Authorization Enforcement Mechanism               │
 ├────────────────────┼───────────────────────────────────────────────────┤
 │ **Collections**    │ 5 CRUD rules compiled to SQL WHERE predicates     │
 │ **Realtime SSE**   │ Per-client viewRule evaluation & auto-sanitization│
-│ **Functions**      │ authPolicy ('public' | 'auth' | 'admin' | 'apiKey')│
+│ **Functions**      │ authPolicy ('public'|'auth'|'admin'|'apiKey') + RBAC│
+│ **Flows**          │ Service-boundary RBAC authorization & actor checks│
+│ **Queues**         │ Required read/claim scopes & tenant isolation     │
 │ **Webhooks**       │ HMAC-SHA256 signature verification & SSRF guard   │
-│ **API Keys**       │ Scoped RBAC permissions ("orders:read", "*:write")│
+│ **API Keys**       │ Unified RBAC scopes with auto role-downgrade strip │
 │ **Session State**  │ tokenKey cache with instant realtime revocation   │
 └────────────────────┴───────────────────────────────────────────────────┘
 ```

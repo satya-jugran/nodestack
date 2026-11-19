@@ -176,3 +176,16 @@ GET /_/openapi.json
 | `GET` | `/api/system/database/migration-progress` | Check real-time progress for active database migration and cutover (Superuser). |
 | `POST` | `/api/system/database/test` | Test connectivity to a target SQLite, PostgreSQL, or MSSQL database (Superuser). |
 | `POST` | `/api/system/database/switch` | Switch active database engine with optional live schema and data migration (Superuser). |
+
+### API Key Management & Simulation (v2.6.0)
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/api-keys` | List all API keys with integer pagination (`limit`, `offset`) and status filter (Superuser). |
+| `POST` | `/api/api-keys` | Generate a new scoped API key with HMAC-SHA256 hashing (Superuser). |
+| `GET` | `/api/api-keys/:id` | Retrieve metadata and scope allocations for a specific key (Superuser). |
+| `PATCH` | `/api/api-keys/:id` | Update key name, scopes, IP allowlist, or expiration with auto role-downgrade stripping (Superuser). |
+| `DELETE` | `/api/api-keys/:id` | Revoke and delete an API key (Superuser). |
+| `POST` | `/api/api-keys/:id/rotate` | Atomically rotate the key secret (Superuser). |
+| `POST` | `/api/api-keys/simulate` | Test/simulate permissions for a key against any subsystem, resource, or action (Superuser). |
+| `POST` | `/api/api-keys/:id/simulate` | Test/simulate permissions specifically for key `:id` (Superuser). |
+| Any | `/api/apps/:appId/api-keys/*` | Route API key operations or simulation to a specific application tenant. |

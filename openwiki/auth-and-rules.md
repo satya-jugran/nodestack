@@ -4,7 +4,7 @@ title: "Authentication, OAuth2, API Keys & Access Rules"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-15T09:01:29.660Z
+    at: 2026-11-19T12:05:15.938Z
 sources:
   - id: openwiki-source-46bed1e718db2844a20df5a0
     resource: repo://src/auth/ApiKeyService.ts
@@ -30,7 +30,7 @@ sources:
     resource: repo://tests/rule-builder.test.ts
   - id: openwiki-source-7a6d6991cdc34a8bbf49c67a
     resource: repo://tests/rules.test.ts
-generated: { by: "doc-gen", at: "2026-11-15T08:56:16.837Z" }
+generated: { by: "doc-gen", at: "2026-11-19T12:05:15.938Z" }
 ---
 
 # Authentication, OAuth2, API Keys & Access Rules
@@ -82,7 +82,7 @@ NodeStack supports OAuth2 authorization code flows secured with PKCE (`S256`) an
 | **GitHub** (`github`) | `GitHubProvider` | `read:user`, `user:email` | Queries both `/user` and `/user/emails`; prefers a `primary && verified` email, falls back to matching verified email, and fails closed (`isEmailVerified = false`) if `/user/emails` fails. |
 | **Discord** (`discord`) | `DiscordProvider` | `identify`, `email` | Appends `prompt=consent`; constructs CDN avatar URL and checks `data.verified`. |
 | **Microsoft** (`microsoft`) | `MicrosoftProvider` | `openid`, `profile`, `email`, `User.Read` | Appends `prompt=select_account`; inspects Graph `/v1.0/me` and decoded `id_token` claims, requiring `email_verified === true` or Entra ID `xms_edov === '1'` for verification. |
-| **Apple** (`apple`) | `AppleProvider` | `name`, `email` | Appends `response_mode=query`; fetches Apple's JWKS keys (`https://appleid.apple.com/auth/keys`, cached 1 hour) and cryptographically verifies the `RS256` `id_token` signature, `iss`, `aud`, and `nonce`. |
+| **Apple** (`apple`) | `AppleProvider` | `name`, `email` | Uses `response_mode=form_post`; handles Apple form-post callback payloads with user metadata propagation (`firstName`, `lastName`, `email`), fetches Apple's JWKS keys (`https://appleid.apple.com/auth/keys`, cached 1 hour) and cryptographically verifies the `RS256` `id_token` signature, `iss`, `aud`, and `nonce`. |
 
 Passing `enabled: false` to `register()` or `registerFromConfig()` unregisters the provider and excludes it from discovery and login flows.
 
@@ -130,11 +130,18 @@ Users can inspect or unlink social identities via `getExternalAuths(collectionNa
 
 API keys have a `role` (`'admin' | 'service' | 'custom'`) and an array of `scopes`:
 - Keys with `role: 'admin'` automatically receive `['*']`.
+- **Role Downgrade Safeguards**: When an API key role is downgraded, all administrative wildcards (`*`, `admin:*`) are automatically stripped to prevent unauthorized privilege retention.
+- **Quota & Pagination**: Key quotas are decremented atomically, and pagination integers (`limit`, `offset`) are strictly validated.
 - `hasScope(auth, resource, action)` evaluates permissions as follows:
   - Returns `true` if `auth.isAdmin` is `true`, or if `scopes` includes `'*'`, `'admin:*'`, `'${resource}:*'`, or exact `'${resource}:${action}'`.
   - **Read Rollup**: Actions `'list'`, `'view'`, and `'export'` are permitted by `'${resource}:read'` or `'*:read'`.
   - **Write Rollup**: Actions `'create'`, `'update'`, `'delete'`, and `'import'` are permitted by `'${resource}:write'` or `'*:write'`.
+  - **Flows & Functions**: Subsystems evaluate `'flows:execute'`, `'functions:invoke'`, and `'queues:claim'`/`'queues:send'` scopes.
 - **Interaction with Collection Rules**: Super-admin API keys (`role === 'admin'`, `scopes.includes('*')`, or `scopes.includes('admin:*')`) set `req.auth.isAdmin = true` and bypass collection rules. Non-admin `service` or `custom` API keys set `req.auth.isAdmin = false`; they must pass **both** the API key scope check (`requireScope`) and the target collection's `RuleEngine` access rules.
+
+### Permission Simulation & Testing (`simulate`)
+
+`ApiKeyService.simulate(options)` allows evaluating whether a key has access to a target subsystem (`collections`, `functions`, `flows`, `queues`), resource, and action under a specified client IP before executing requests. This powers the Admin UI Permission Workbench, CLI (`nodestack api-keys test`), and SDK (`client.apiKeys.simulate`).
 
 ---
 

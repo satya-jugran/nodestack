@@ -80,3 +80,14 @@ console.log('Valid token:', client.authStore.isValid);
 // Logout
 client.authStore.clear();
 ```
+
+---
+
+## Registration & Email Verification Security (v2.6.0)
+
+NodeStack v2.6.0 includes comprehensive hardening for user registration and email verification workflows:
+
+* **Cryptographic Token Binding**: Verification tokens are bound directly to the recipient's email address and tenant scope, preventing cross-tenant token replay attacks.
+* **Token Redaction in API Responses**: Verification and reset tokens are strictly redacted from HTTP response payloads to prevent leakage across client logs and proxies.
+* **Self-Verification Exploit Prevention**: User record update payloads (`PATCH /api/collections/users/records/:id`) cannot mutate `verified` status directly; verification state transitions require authenticated verification tokens or superuser authorization.
+* **Enforced Verification Persistence**: Verification states are written synchronously to the database and persisted in the registry with connection leak prevention.

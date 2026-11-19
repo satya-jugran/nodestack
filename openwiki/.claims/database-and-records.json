@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:68a4de0a5b3dff39a147b0c9ec52201f051e754987ea1fcbc4ae375b93f19ff8",
+  "pageVersion": "sha256:bbfd1d7934a3dad39b034e2bcff5c61fffd5d25c8502ce067a3639411e39e070",
   "claims": [
     {
       "id": "claim_94d5e801b563413891e89f45f2242afe",
@@ -8,11 +8,11 @@
       "evidence": [
         {
           "resource": "repo://src/database/DatabaseService.ts",
-          "version": "repo-file-v1:sha256:bff4227ccde236535acaee644bef07731579eec393b6c023e8820bef1d5cd18b"
+          "version": "repo-file-v1:sha256:19b6553523549e39f750bd4147f15ef9d4007382c108ec0b129d43b2ed47d776"
         },
         {
           "resource": "repo://src/database/drivers/NodeSqliteDriver.ts",
-          "version": "repo-file-v1:sha256:74d05b8689010813e353e76edbec34f9d0875bf2a238589d527d0e461e632e72"
+          "version": "repo-file-v1:sha256:8765b0028f11fb10e886bf869776335d8a2d950fde32ee5f57d7d735d11d2b21"
         }
       ]
     },
@@ -22,7 +22,7 @@
       "evidence": [
         {
           "resource": "repo://src/database/migrations/SystemMigrations.ts",
-          "version": "repo-file-v1:sha256:dd8afad3f8b3ad0eb85b9a3e2dc2a2a1dc74d6516a2418b615c79c7c4cfb8330"
+          "version": "repo-file-v1:sha256:a125615cdfad62f55996309e85fcf1065ee4a35ef9eefe060e12431dd42e4d31"
         }
       ]
     },
@@ -32,7 +32,7 @@
       "evidence": [
         {
           "resource": "repo://src/records/FtsService.ts",
-          "version": "repo-file-v1:sha256:027c3ddcc1ceca30b1462247cfa41a89bcdcaa0246e8fed351ad4527b57f3817"
+          "version": "repo-file-v1:sha256:7b4ac7a87ca0f4ba4488b43cf464ee3f5628bc40d90aa318b314147be9ed5831"
         },
         {
           "resource": "repo://src/schema/SchemaService.ts",
@@ -46,7 +46,7 @@
       "evidence": [
         {
           "resource": "repo://src/schema/OpenApiGenerator.ts",
-          "version": "repo-file-v1:sha256:c1bc7f9622f68d798381b19740baf71650f6ec697670f8097786219e53557be0"
+          "version": "repo-file-v1:sha256:296274dfcab9833a0d4015898102fb1330255f73ba4887f30873b21332d4d926"
         },
         {
           "resource": "repo://src/schema/SchemaInferenceService.ts",
@@ -68,11 +68,11 @@
         },
         {
           "resource": "repo://src/records/QueryFilterParser.ts",
-          "version": "repo-file-v1:sha256:6d4082c8aa15bf63c17e58d97283191e0158225addb1578208d5c7567cd8a0fc"
+          "version": "repo-file-v1:sha256:357c3d55ae5ed347f61bdb988ff61a69632266c26a9449ddb08469549527d1ee"
         },
         {
           "resource": "repo://src/records/RecordService.ts",
-          "version": "repo-file-v1:sha256:c16d843cc45723f77e2203b6c8d451573dc35470b0bb66171dedcb4001f7a9dc"
+          "version": "repo-file-v1:sha256:608419c9d84fa8d40d0792ac3357f3a7daa8236ffcc40b5f0915822fc39f6273"
         }
       ]
     },
@@ -82,7 +82,7 @@
       "evidence": [
         {
           "resource": "repo://src/database/drivers/DriverRegistry.ts",
-          "version": "repo-file-v1:sha256:bdcd595b70a489a7c657d21f7c4d4d5399b71b750af52266f8867e4d1baa9988"
+          "version": "repo-file-v1:sha256:35b8f81cb421ee1fbe74422b4855fa306fc622a0b0ae08217616758ffe37b319"
         },
         {
           "resource": "repo://src/database/migration/DatabaseMigrationService.ts",
@@ -93,6 +93,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-15T09:01:29.660Z"
+    "at": "2026-11-19T12:05:15.938Z"
   }
 }

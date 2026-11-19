@@ -4,7 +4,7 @@ title: "Database, Schema & Record Management"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-15T09:01:29.660Z
+    at: 2026-11-19T12:05:15.938Z
 sources:
   - id: openwiki-source-a7511f573894f05c34c471d2
     resource: repo://src/database/DatabaseService.ts
@@ -32,7 +32,7 @@ sources:
     resource: repo://src/schema/SchemaService.ts
   - id: openwiki-source-0135a8c502d832c59da98841
     resource: repo://src/schema/TypeGenerator.ts
-generated: { by: "doc-gen", at: "2026-11-15T08:56:16.837Z" }
+generated: { by: "doc-gen", at: "2026-11-19T12:05:15.938Z" }
 ---
 
 # Database, Schema & Record Management
@@ -43,7 +43,7 @@ NodeStack provides an extensible multi-database persistence layer supporting emb
 
 ## Multi-Database Architecture & Dialects (`DriverRegistry`, `ISqlDialect`)
 
-In v2.5.0, NodeStack abstracts SQL execution across three primary engines via `ISqlDialect` (`src/database/dialects/ISqlDialect.ts`) and `DriverRegistry` (`src/database/drivers/DriverRegistry.ts`):
+NodeStack abstracts SQL execution across three primary engines via `ISqlDialect` (`src/database/dialects/ISqlDialect.ts`) and `DriverRegistry` (`src/database/drivers/DriverRegistry.ts`):
 - **`SqliteDialect` & `NodeSqliteDriver`**: Embedded zero-compilation SQLite powered natively by Node.js (`node:sqlite`).
 - **`PostgresDialect` & `PostgresDriver`**: Production PostgreSQL driver (`pg`) with strict SSL CA verification, camelCase identifier quoting, and boolean normalization.
 - **`MssqlDialect` & `MssqlDriver`**: Enterprise Microsoft SQL Server driver (`mssql`) with schema isolation and `CONTAINSTABLE` FTS predicates.
