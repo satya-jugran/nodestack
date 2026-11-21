@@ -207,7 +207,7 @@ Authorization in NodeStack is deeply woven into all runtime components:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                   NodeStack Core Engine (v2.6.0)                       │
+│                   NodeStack Core Engine (v2.7.0)                       │
 ├────────────────────┬───────────────────────────────────────────────────┤
 │ Subsystem          │ Authorization Enforcement Mechanism               │
 ├────────────────────┼───────────────────────────────────────────────────┤
@@ -216,6 +216,7 @@ Authorization in NodeStack is deeply woven into all runtime components:
 │ **Functions**      │ authPolicy ('public'|'auth'|'admin'|'apiKey') + RBAC│
 │ **Flows**          │ Service-boundary RBAC authorization & actor checks│
 │ **Queues**         │ Required read/claim scopes & tenant isolation     │
+│ **Scheduler**      │ RBAC scopes (cron:read, cron:write, cron:run)     │
 │ **Webhooks**       │ HMAC-SHA256 signature verification & SSRF guard   │
 │ **API Keys**       │ Unified RBAC scopes with auto role-downgrade strip │
 │ **Session State**  │ tokenKey cache with instant realtime revocation   │

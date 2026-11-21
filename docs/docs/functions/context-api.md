@@ -7,7 +7,7 @@ description: Complete specification of the execution context injected into NodeS
 
 # Functions API Reference (`core, context`)
 
-Every serverless function in NodeStack receives execution parameters. In NodeStack v2.6.0, the recommended function signature provides structured `(core, context)` parameters (while maintaining full backwards compatibility for legacy single-argument `(ctx)` handlers).
+Every serverless function in NodeStack receives execution parameters. In NodeStack v2.7.0, the recommended function signature provides structured `(core, context)` parameters (while maintaining full backwards compatibility for legacy single-argument `(ctx)` handlers).
 
 ```javascript
 export default async function(core, context) {
@@ -270,7 +270,40 @@ export default async function(ctx) {
 
 ---
 
-## 8. Web Standard Globals
+## 8. Scheduled Cron Context (`ctx.cron`)
+
+When a function is triggered by the built-in **Job Scheduler & Cron Engine**, `ctx.cron` provides execution timing metadata:
+
+```javascript
+export default async function(core, context) {
+  if (context.cron) {
+    const { scheduleName, cronExpression, isCatchUp, scheduledAt } = context.cron;
+    core.observability.logger.info(`Running scheduled job "${scheduleName}" (${cronExpression})`);
+    
+    if (isCatchUp) {
+      core.observability.logger.warn(`Execution was caught up after downtime. Scheduled for: ${scheduledAt}`);
+    }
+  }
+
+  return { status: 200, body: { success: true } };
+}
+```
+
+### Properties
+
+| Property | Type | Description |
+| :--- | :--- | :--- |
+| `ctx.cron.scheduleId` | `string` | The unique ID of the triggered schedule. |
+| `ctx.cron.scheduleName` | `string` | The human-readable name of the schedule. |
+| `ctx.cron.cronExpression` | `string` | The 5-field cron expression or macro (e.g. `0 2 * * *`). |
+| `ctx.cron.timezone` | `string` | The configured IANA timezone (e.g. `UTC`, `America/New_York`). |
+| `ctx.cron.scheduledAt` | `string` | ISO timestamp of the planned execution slot. |
+| `ctx.cron.triggeredAt` | `string` | ISO timestamp of when the execution was dispatched. |
+| `ctx.cron.isCatchUp` | `boolean` | `true` if this run was executed via a `catch_up_*` missed-run policy. |
+
+---
+
+## 9. Web Standard Globals
 
 The QuickJS sandbox provides standard JavaScript Web APIs:
 
