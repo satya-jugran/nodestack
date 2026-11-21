@@ -772,5 +772,54 @@ describe('Cron HTTP REST API, Client SDK, & Admin UI Bundle', () => {
       win.closeRunDetailDrawer();
       win.closeScheduleDrawer();
     });
+
+    it('fetchDemoStatus should parse array responses from GET /api/cron/schedules and populate state.snapshotSchedule', async () => {
+      const { JSDOM } = await import('jsdom');
+      const uiDir = path.resolve(__dirname, '../src/admin/ui');
+      const bundledHtml = AdminUIBundler.bundle(uiDir);
+
+      const dom = new JSDOM(bundledHtml, {
+        runScripts: 'dangerously',
+        url: 'http://localhost:8297/_/',
+      });
+
+      const win = dom.window as any;
+
+      const snapScheduleItem = {
+        id: 'sched-snap-1',
+        name: 'Automated Snapshot Backup',
+        targetType: 'snapshot',
+        targetId: 'snapshot_auto',
+        cronExpression: '0 2 * * *',
+        timezone: 'UTC',
+        missedRunPolicy: 'catch_up_once',
+        enabled: true,
+        nextRunAt: '2026-11-22T02:00:00.000Z',
+      };
+
+      // Mock api() to return snapshot info and array response from cron schedules endpoint
+      win.api = async (url: string) => {
+        if (url === '/api/snapshots') {
+          return { hasSnapshot: true, supported: true, snapshots: [], total: 0 };
+        }
+        if (url.includes('/cron/schedules')) {
+          // Returns array directly per CronController.getSchedules
+          return [snapScheduleItem];
+        }
+        return {};
+      };
+
+      await win.fetchDemoStatus();
+
+      expect(win.state.snapshotSchedule).not.toBeNull();
+      expect(win.state.snapshotSchedule?.id).toBe('sched-snap-1');
+      expect(win.state.snapshotSchedule?.cronExpression).toBe('0 2 * * *');
+
+      // Verify rendering of automated scheduled backup card
+      const cardHtml = win.renderScheduledBackupsCardHtml();
+      expect(cardHtml).toContain('Automated Scheduled Backups');
+      expect(cardHtml).toContain('Active');
+      expect(cardHtml).toContain('0 2 * * *');
+    });
   });
 });

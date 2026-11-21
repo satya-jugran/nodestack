@@ -14,7 +14,8 @@ async function fetchDemoStatus() {
       const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
       const cronUrl = slug && slug !== 'default' ? `/api/apps/${slug}/cron/schedules?targetType=snapshot` : '/api/cron/schedules?targetType=snapshot';
       const cronRes = await api(cronUrl);
-      state.snapshotSchedule = (cronRes && cronRes.schedules && cronRes.schedules.length > 0) ? cronRes.schedules[0] : null;
+      const schedules = Array.isArray(cronRes) ? cronRes : (cronRes && cronRes.schedules ? cronRes.schedules : []);
+      state.snapshotSchedule = schedules.length > 0 ? schedules[0] : null;
     } catch (_) {
       state.snapshotSchedule = null;
     }
@@ -774,7 +775,7 @@ function openSnapshotScheduleModal() {
   const existing = state.snapshotSchedule;
   const currentExpr = existing?.cronExpression || '0 2 * * *';
   const currentTz = existing?.timezone || 'UTC';
-  const currentPolicy = existing?.missedPolicy || 'catch_up_once';
+  const currentPolicy = existing?.missedRunPolicy || existing?.missedPolicy || 'catch_up_once';
   const isEnabled = existing ? existing.enabled : true;
 
   let presetVal = 'custom';
@@ -950,7 +951,7 @@ async function saveSnapshotScheduleModal(e) {
         body: JSON.stringify({
           cronExpression,
           timezone,
-          missedPolicy,
+          missedRunPolicy: missedPolicy,
           enabled,
           payload: { evictOldest: true, description: 'Automated scheduled backup' },
         }),
@@ -966,7 +967,7 @@ async function saveSnapshotScheduleModal(e) {
           targetId: 'snapshot_auto',
           cronExpression,
           timezone,
-          missedPolicy,
+          missedRunPolicy: missedPolicy,
           enabled,
           payload: { evictOldest: true, description: 'Automated scheduled backup' },
         }),
