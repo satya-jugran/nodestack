@@ -122,23 +122,23 @@ function renderSchedulesView() {
       <!-- Stats Grid -->
       <div class="webhooks-stats-grid" id="cron-stats-grid">
         <div class="webhook-stat-card">
-          <span class="webhook-stat-label">Total Schedules</span>
+          <span class="webhook-stat-label" title="Total Schedules">Total Schedules</span>
           <div class="webhook-stat-value" id="cron-stat-total">0</div>
         </div>
         <div class="webhook-stat-card">
-          <span class="webhook-stat-label">Active (Enabled)</span>
+          <span class="webhook-stat-label" title="Active (Enabled)">Active (Enabled)</span>
           <div class="webhook-stat-value" style="color: var(--accent-success);" id="cron-stat-active">0</div>
         </div>
         <div class="webhook-stat-card">
-          <span class="webhook-stat-label">Succeeded Runs</span>
+          <span class="webhook-stat-label" title="Succeeded Runs">Succeeded Runs</span>
           <div class="webhook-stat-value" style="color: var(--accent-primary);" id="cron-stat-succeeded">0</div>
         </div>
         <div class="webhook-stat-card">
-          <span class="webhook-stat-label">Failed Runs</span>
+          <span class="webhook-stat-label" title="Failed Runs">Failed Runs</span>
           <div class="webhook-stat-value" style="color: var(--accent-danger);" id="cron-stat-failed">0</div>
         </div>
         <div class="webhook-stat-card">
-          <span class="webhook-stat-label">Skipped (Missed Window)</span>
+          <span class="webhook-stat-label" title="Skipped (Missed Window)">Skipped (Missed Window)</span>
           <div class="webhook-stat-value" style="color: var(--accent-warning);" id="cron-stat-skipped">0</div>
         </div>
       </div>

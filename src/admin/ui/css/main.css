@@ -604,6 +604,7 @@ html.light {
       flex: 1;
       padding: 1.5rem;
       overflow-y: auto;
+      scrollbar-gutter: stable;
       display: flex;
       flex-direction: column;
     }

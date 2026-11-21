@@ -90,23 +90,23 @@ function renderQueuesView() {
       <!-- Stats Grid -->
       <div class="webhooks-stats-grid" id="queues-stats-grid">
         <div class="webhook-stat-card">
-          <span class="webhook-stat-label">Configured Queues</span>
+          <span class="webhook-stat-label" title="Configured Queues">Configured Queues</span>
           <div class="webhook-stat-value" id="q-stat-queues">0</div>
         </div>
         <div class="webhook-stat-card">
-          <span class="webhook-stat-label">Queued / Pending</span>
+          <span class="webhook-stat-label" title="Queued / Pending">Queued / Pending</span>
           <div class="webhook-stat-value" style="color: var(--accent-primary);" id="q-stat-queued">0</div>
         </div>
         <div class="webhook-stat-card">
-          <span class="webhook-stat-label">Processing (Active)</span>
+          <span class="webhook-stat-label" title="Processing (Active)">Processing (Active)</span>
           <div class="webhook-stat-value" style="color: var(--accent-warning);" id="q-stat-processing">0</div>
         </div>
         <div class="webhook-stat-card">
-          <span class="webhook-stat-label">Completed Messages</span>
+          <span class="webhook-stat-label" title="Completed Messages">Completed Messages</span>
           <div class="webhook-stat-value" style="color: var(--accent-success);" id="q-stat-completed">0</div>
         </div>
         <div class="webhook-stat-card">
-          <span class="webhook-stat-label">Dead-Letter / Failed</span>
+          <span class="webhook-stat-label" title="Dead-Letter / Failed">Dead-Letter / Failed</span>
           <div class="webhook-stat-value" style="color: var(--accent-danger);" id="q-stat-dlq">0</div>
         </div>
       </div>
