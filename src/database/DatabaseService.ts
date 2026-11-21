@@ -144,7 +144,7 @@ export class DatabaseService {
       return this.txStorage.run(txDriver, () => fn(txDriver));
     };
 
-    return this.driver.transaction(runWithTx as any);
+    return this.getDriver().transaction(runWithTx as any);
   }
 
   public async checkpoint(): Promise<void> {

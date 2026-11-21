@@ -1,6 +1,7 @@
 import { IDatabaseDriver, IPreparedStatement, RunResult } from './IDatabaseDriver';
 import { ISqlDialect } from '../dialects/ISqlDialect';
 import { MssqlDialect } from '../dialects/MssqlDialect';
+import { loadDriverPackage } from './DriverPackageLoader';
 
 export interface MssqlDriverOptions {
   connectionString?: string;
@@ -46,12 +47,11 @@ export class MssqlDriver implements IDatabaseDriver {
     this.options = options;
     let mssqlModule: any;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      mssqlModule = require('mssql');
+      mssqlModule = loadDriverPackage('mssql');
     } catch {
       if (!options || typeof options !== 'object' || (!options.connectionPool && !options.transaction)) {
         throw new Error(
-          "SQL Server driver requires the 'mssql' package. Install it via 'npm install mssql'."
+          "SQL Server driver requires the 'mssql' package. Install it via 'npm install mssql' in your project root or globally via 'npm install -g mssql'."
         );
       }
     }
@@ -349,11 +349,10 @@ export class MssqlDriver implements IDatabaseDriver {
 
     let mssqlModule: any;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      mssqlModule = require('mssql');
+      mssqlModule = loadDriverPackage('mssql');
     } catch {
       throw new Error(
-        "SQL Server driver requires the 'mssql' package. Install it via 'npm install mssql'."
+        "SQL Server driver requires the 'mssql' package. Install it via 'npm install mssql' in your project root or globally via 'npm install -g mssql'."
       );
     }
     const Transaction = mssqlModule.Transaction || mssqlModule.default?.Transaction;

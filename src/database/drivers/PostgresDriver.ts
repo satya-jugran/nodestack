@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import { IDatabaseDriver, IPreparedStatement, RunResult } from './IDatabaseDriver';
 import { ISqlDialect } from '../dialects/ISqlDialect';
 import { PostgresDialect } from '../dialects/PostgresDialect';
+import { loadDriverPackage } from './DriverPackageLoader';
 
 export interface PostgresSslOptions {
   rejectUnauthorized?: boolean;
@@ -109,8 +110,7 @@ export class PostgresDriver implements IDatabaseDriver {
 
     if (typeof options === 'string') {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { parse } = require('pg-connection-string');
+        const { parse } = loadDriverPackage('pg-connection-string');
         const parsed = parse(options);
         if (parsed.ssl === false || parsed.sslmode === 'disable') {
           return undefined;
@@ -208,12 +208,11 @@ export class PostgresDriver implements IDatabaseDriver {
     this.options = options;
     let pgModule: any;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      pgModule = require('pg');
+      pgModule = loadDriverPackage('pg');
     } catch {
       if (!options || typeof options !== 'object' || (!options.pool && !options.client)) {
         throw new Error(
-          "PostgreSQL driver requires the 'pg' package. Install it via 'npm install pg'."
+          "PostgreSQL driver requires the 'pg' package. Install it via 'npm install pg' in your project root or globally via 'npm install -g pg'."
         );
       }
     }

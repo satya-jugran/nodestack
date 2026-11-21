@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { IDatabaseDriver } from '../drivers/IDatabaseDriver';
 import { SystemMigrations } from '../migrations/SystemMigrations';
 
@@ -384,12 +385,28 @@ export class DatabaseMigrationService {
     };
   }
 
+  public static isSameDriver(source: IDatabaseDriver, target: IDatabaseDriver): boolean {
+    if (source === target) return true;
+    if (source.dialect.name === 'sqlite' && target.dialect.name === 'sqlite') {
+      const srcPath = (source as any).getPath?.() || (source as any).filePath;
+      const tgtPath = (target as any).getPath?.() || (target as any).filePath;
+      if (srcPath && tgtPath && srcPath !== ':memory:' && tgtPath !== ':memory:') {
+        return path.resolve(srcPath).toLowerCase() === path.resolve(tgtPath).toLowerCase();
+      }
+    }
+    return false;
+  }
+
   public static async migrateAppScope(
     sourceDriver: IDatabaseDriver,
     targetDriver: IDatabaseDriver,
     onProgress?: MigrationProgressCallback,
     scopeContext?: { appIndex: number; totalApps: number; appSlug: string }
   ): Promise<{ collectionsCount: number; recordsCount: number }> {
+    if (DatabaseMigrationService.isSameDriver(sourceDriver, targetDriver)) {
+      throw new Error('Cannot migrate database to itself: source and target point to the same database.');
+    }
+
     onProgress?.({
       phase: 'system_migrations',
       percent: 3,

@@ -365,14 +365,17 @@ export class DatabaseConfigService {
       connected = false;
     }
 
+    const liveDialect = currentDriver?.dialect?.name;
+    const provider = liveDialect || activeConfig.provider;
+
     return {
       appSlug: cleanSlug,
-      provider: activeConfig.provider,
+      provider,
       connected,
       latencyMs,
       availableProviders: DriverRegistry.listAvailableProviders(),
       config: this.redactConfig(activeConfig),
-      snapshotsSupported: activeConfig.provider === 'sqlite',
+      snapshotsSupported: provider === 'sqlite',
     };
   }
 }

@@ -481,11 +481,7 @@ async function selectNav(nav, pushState = true) {
     document.getElementById('view-badge').style.display = 'none';
     document.getElementById('nav-snapshots')?.classList.add('active');
     document.getElementById('view-title').textContent = 'Snapshots';
-    document.getElementById('view-actions').innerHTML = `
-      <button class="btn btn-primary btn-sm" onclick="openCreateSnapshotModal()" style="font-weight:600;">
-        + Create Snapshot
-      </button>
-    `;
+    document.getElementById('view-actions').innerHTML = '';
     if (typeof renderSnapshotsView === 'function') renderSnapshotsView();
   } else if (nav === 'database') {
     state.activeCollection = null;

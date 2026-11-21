@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { DatabaseConfigService } from '../../database/config/DatabaseConfigService';
@@ -119,6 +120,28 @@ export class DatabaseController extends BaseController {
       }
     } catch {
       // App scope may not exist in mock environments
+    }
+
+    const currentDriver = scope?.db ? scope.db.getRootDriver() : this.rootDb?.getRootDriver();
+    if (currentDriver && currentDriver.dialect.name === 'sqlite' && config.provider === 'sqlite') {
+      const currentPath = (currentDriver as any).getPath?.() || (currentDriver as any).filePath;
+      const targetPath = config.dbPath;
+      if (
+        currentPath &&
+        targetPath &&
+        currentPath !== ':memory:' &&
+        targetPath !== ':memory:' &&
+        path.resolve(currentPath).toLowerCase() === path.resolve(targetPath).toLowerCase()
+      ) {
+        if (migrateData) {
+          this.error(
+            reply,
+            `Application '${appSlug}' is already running on this SQLite database. Migration cannot target the active database.`,
+            400
+          );
+          return;
+        }
+      }
     }
 
     const executeSwitch = async () => {

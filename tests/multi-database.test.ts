@@ -2526,6 +2526,39 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       app.close();
     });
 
+    it('should reject switch with migrateData=true when target SQLite database is identical to active database', async () => {
+      const testSameDir = path.join(testDir, 'app_same_db_test');
+      fs.mkdirSync(testSameDir, { recursive: true });
+
+      const app = new NodeStack({ dataDir: testSameDir });
+      await app.auth.createAdmin('same_db_admin@nodestack.dev', 'password123');
+      const { token: adminToken } = await app.auth.authenticateAdmin('same_db_admin@nodestack.dev', 'password123');
+
+      const blogScope = await app.apps.create({
+        name: 'Blog App',
+        slug: 'blog-app',
+      });
+      expect(blogScope.db.dialect.name).toBe('sqlite');
+
+      // Attempting to migrate data to the exact same SQLite database must return 400
+      const switchRes = await app.server.inject({
+        method: 'POST',
+        url: '/api/system/database/switch',
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: {
+          appSlug: 'blog-app',
+          config: { provider: 'sqlite' },
+          migrateData: true,
+          confirmText: 'migrate',
+        },
+      });
+
+      expect(switchRes.statusCode).toBe(400);
+      expect(switchRes.json().message).toContain('already running on this SQLite database');
+
+      app.close();
+    });
+
     it('should reset snapshots post-migration and automatically capture a baseline when target is SQLite', async () => {
       const snapResetDir = path.join(testDir, 'snap_reset_test');
       fs.mkdirSync(snapResetDir, { recursive: true });
