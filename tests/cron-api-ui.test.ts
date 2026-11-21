@@ -840,6 +840,29 @@ describe('Cron HTTP REST API, Client SDK, & Admin UI Bundle', () => {
       await win.saveSnapshotScheduleModal({ preventDefault: () => {} });
       expect(savedBody).not.toBeNull();
       expect(savedBody.missedRunPolicy).toBe('skip');
+
+      // Verify updateSnapshotScheduleModalPreview correctly renders zonedFormatted and isoUtc
+      win.openSnapshotScheduleModal();
+      win.api = async (url: string) => {
+        if (url.includes('/cron/preview')) {
+          return {
+            valid: true,
+            cronExpression: '0 2 * * *',
+            timezone: 'UTC',
+            nextRuns: [
+              { zonedFormatted: '2026-11-22 02:00:00 UTC', isoUtc: '2026-11-22T02:00:00.000Z' },
+            ],
+          };
+        }
+        return {};
+      };
+
+      win.updateSnapshotScheduleModalPreview();
+      await new Promise((r) => setTimeout(r, 400));
+      const previewEl = win.document.getElementById('snap-sched-preview');
+      expect(previewEl.innerHTML).toContain('2026-11-22 02:00:00 UTC');
+      expect(previewEl.innerHTML).toContain('2026-11-22T02:00:00.000Z');
+      expect(previewEl.innerHTML).not.toContain('undefined');
     });
   });
 });

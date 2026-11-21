@@ -915,7 +915,7 @@ function updateSnapshotScheduleModalPreview() {
       });
 
       if (res && res.valid && Array.isArray(res.nextRuns) && res.nextRuns.length > 0) {
-        previewEl.innerHTML = res.nextRuns.map((r, i) => `<div>${i + 1}. ${escapeHtml(r.formattedTz)} (${escapeHtml(r.formattedUtc)})</div>`).join('');
+        previewEl.innerHTML = res.nextRuns.map((r, i) => `<div>${i + 1}. ${escapeHtml(r.zonedFormatted || r.formattedTz || '')} (${escapeHtml(r.isoUtc || r.formattedUtc || '')})</div>`).join('');
         previewEl.style.color = 'var(--accent-success)';
       } else {
         previewEl.textContent = res?.error || 'Invalid cron expression';
