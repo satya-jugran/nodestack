@@ -717,7 +717,16 @@ export class CronService {
   private finishSyncFunctionSchedule(fn: FunctionConfig, scheduleId: string, existing: CronSchedule | null): any {
     if (fn.cronSchedule && fn.cronSchedule.trim() && fn.enabled) {
       const tz = fn.cronTimezone?.trim() || 'UTC';
+      const validation = CronParser.validate(fn.cronSchedule.trim(), tz);
+      if (!validation.valid) {
+        throw new ValidationError(validation.error || 'Invalid cron expression');
+      }
+
       const missedPolicy: MissedRunPolicy = fn.cronMissedPolicy || 'skip';
+      if (!['skip', 'catch_up_once', 'catch_up_all'].includes(missedPolicy)) {
+        throw new ValidationError(`Invalid missedRunPolicy '${missedPolicy}'`);
+      }
+
       const now = new Date();
       const nextDate = this.getNextOccurrence(fn.cronSchedule.trim(), tz, now);
       const nextRunAt = nextDate ? nextDate.toISOString() : null;
@@ -783,7 +792,16 @@ export class CronService {
   private finishSyncFlowSchedule(flow: FlowConfig, scheduleId: string, existing: CronSchedule | null): any {
     if (flow.triggerType === 'cron' && flow.cronSchedule && flow.cronSchedule.trim() && flow.enabled) {
       const tz = flow.cronTimezone?.trim() || 'UTC';
+      const validation = CronParser.validate(flow.cronSchedule.trim(), tz);
+      if (!validation.valid) {
+        throw new ValidationError(validation.error || 'Invalid cron expression');
+      }
+
       const missedPolicy: MissedRunPolicy = flow.cronMissedPolicy || 'skip';
+      if (!['skip', 'catch_up_once', 'catch_up_all'].includes(missedPolicy)) {
+        throw new ValidationError(`Invalid missedRunPolicy '${missedPolicy}'`);
+      }
+
       const now = new Date();
       const nextDate = this.getNextOccurrence(flow.cronSchedule.trim(), tz, now);
       const nextRunAt = nextDate ? nextDate.toISOString() : null;

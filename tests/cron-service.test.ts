@@ -582,6 +582,57 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
       const fnAfterDelete = await app.functions.getFunctionById(fn.id);
       expect(fnAfterDelete?.cronSchedule).toBeNull();
     });
+
+    it('should reject invalid cronSchedule or timezone when creating/updating functions and syncing inline schedules', async () => {
+      // 1. FunctionService.createFunction with invalid cron expression
+      expect(() =>
+        app.functions.createFunction({
+          name: 'invalid-cron-fn',
+          code: `export default async function() { return { status: 200 }; }`,
+          methods: ['POST'],
+          enabled: true,
+          cronSchedule: 'not a valid cron expression',
+        })
+      ).toThrow(/Value NaN out of bounds|Invalid cron expression/);
+
+      // 2. FunctionService.createFunction with invalid timezone
+      expect(() =>
+        app.functions.createFunction({
+          name: 'invalid-tz-fn',
+          code: `export default async function() { return { status: 200 }; }`,
+          methods: ['POST'],
+          enabled: true,
+          cronSchedule: '0 0 * * *',
+          cronTimezone: 'Invalid/Timezone_Name',
+        })
+      ).toThrow(/timezone/i);
+
+      // 3. FunctionService.updateFunction with invalid cron expression
+      const validFn = await app.functions.createFunction({
+        name: 'valid-cron-fn',
+        code: `export default async function() { return { status: 200 }; }`,
+        methods: ['POST'],
+        enabled: true,
+      });
+
+      expect(() =>
+        app.functions.updateFunction(validFn.id, {
+          cronSchedule: 'bad-expr',
+        })
+      ).toThrow(/Invalid cron expression|Value NaN out of bounds|too few fields/);
+
+      // 4. CronService.syncFunctionSchedule directly rejects invalid cron
+      await expect(async () => {
+        const fakeFn: any = {
+          id: 'fake_fn_sync',
+          name: 'fake-sync-fn',
+          cronSchedule: 'invalid-sync-expr',
+          cronTimezone: 'UTC',
+          enabled: true,
+        };
+        await app.cron.syncFunctionSchedule(fakeFn);
+      }).rejects.toThrow(/Invalid cron expression|Value NaN out of bounds|too few fields/);
+    });
   });
 
   describe('9. Snapshot Schedule Update Policy on Non-SQLite Engines', () => {

@@ -24,6 +24,7 @@ import {
 export const ALLOWED_AUTH_POLICIES: readonly FunctionAuthPolicy[] = ['public', 'auth', 'admin', 'apiKey', 'custom'] as const;
 import { AppError, NotFoundError, ForbiddenError, UnauthorizedError, ValidationError, ConflictError } from '../core/errors/AppError';
 import { FlowValidator } from '../flows/FlowValidator';
+import { CronParser } from '../cron/CronParser';
 import type { FlowService } from '../flows/FlowService';
 import type { QueueService } from '../queue/QueueService';
 import type { AuthService, AuthClaims } from '../auth/AuthService';
@@ -248,6 +249,17 @@ export class FunctionService {
       }
     }
 
+    if (dto.cronSchedule !== undefined && dto.cronSchedule !== null && String(dto.cronSchedule).trim() !== '') {
+      const tz = dto.cronTimezone?.trim() || 'UTC';
+      const validation = CronParser.validate(dto.cronSchedule.trim(), tz);
+      if (!validation.valid) {
+        throw new ValidationError(validation.error || 'Invalid cron expression');
+      }
+      if (dto.cronMissedPolicy !== undefined && dto.cronMissedPolicy !== null && !['skip', 'catch_up_once', 'catch_up_all'].includes(dto.cronMissedPolicy as any)) {
+        throw new ValidationError(`Invalid missedRunPolicy '${dto.cronMissedPolicy}'`);
+      }
+    }
+
     const cleanName = dto.name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
     const existing = this.getFunctionByName(cleanName);
     if (existing instanceof Promise) {
@@ -345,6 +357,17 @@ export class FunctionService {
       }
     }
 
+    if (dto.cronSchedule !== undefined && dto.cronSchedule !== null && String(dto.cronSchedule).trim() !== '') {
+      const tz = dto.cronTimezone?.trim() || 'UTC';
+      const validation = CronParser.validate(dto.cronSchedule.trim(), tz);
+      if (!validation.valid) {
+        throw new ValidationError(validation.error || 'Invalid cron expression');
+      }
+      if (dto.cronMissedPolicy !== undefined && dto.cronMissedPolicy !== null && !['skip', 'catch_up_once', 'catch_up_all'].includes(dto.cronMissedPolicy as any)) {
+        throw new ValidationError(`Invalid missedRunPolicy '${dto.cronMissedPolicy}'`);
+      }
+    }
+
     const current = this.getFunctionById(id);
     if (current instanceof Promise) {
       return current.then((curr) => {
@@ -388,6 +411,17 @@ export class FunctionService {
     const cronSchedule = dto.cronSchedule !== undefined ? dto.cronSchedule : (current.cronSchedule ?? null);
     const cronTimezone = dto.cronTimezone !== undefined ? dto.cronTimezone : (current.cronTimezone ?? 'UTC');
     const cronMissedPolicy = dto.cronMissedPolicy !== undefined ? dto.cronMissedPolicy : (current.cronMissedPolicy ?? 'skip');
+
+    if (cronSchedule && cronSchedule.trim() !== '') {
+      const tz = (cronTimezone || 'UTC').trim();
+      const validation = CronParser.validate(cronSchedule.trim(), tz);
+      if (!validation.valid) {
+        throw new ValidationError(validation.error || 'Invalid cron expression');
+      }
+    }
+    if (cronMissedPolicy && !['skip', 'catch_up_once', 'catch_up_all'].includes(cronMissedPolicy as any)) {
+      throw new ValidationError(`Invalid missedRunPolicy '${cronMissedPolicy}'`);
+    }
     let cronPayloadStr: string | null = null;
     if (dto.cronPayload !== undefined) {
       cronPayloadStr = dto.cronPayload !== null ? (typeof dto.cronPayload === 'string' ? dto.cronPayload : JSON.stringify(dto.cronPayload)) : null;
