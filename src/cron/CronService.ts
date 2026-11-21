@@ -730,7 +730,10 @@ export class CronService {
       const now = new Date();
       const nextDate = this.getNextOccurrence(fn.cronSchedule.trim(), tz, now);
       const nextRunAt = nextDate ? nextDate.toISOString() : null;
-      const payloadStr = fn.cronPayload ? JSON.stringify(fn.cronPayload) : null;
+      let payloadStr: string | null = null;
+      if (fn.cronPayload !== undefined && fn.cronPayload !== null) {
+        payloadStr = typeof fn.cronPayload === 'string' ? fn.cronPayload : JSON.stringify(fn.cronPayload);
+      }
       const nowIso = now.toISOString();
 
       let runRes: any;
@@ -805,7 +808,10 @@ export class CronService {
       const now = new Date();
       const nextDate = this.getNextOccurrence(flow.cronSchedule.trim(), tz, now);
       const nextRunAt = nextDate ? nextDate.toISOString() : null;
-      const payloadStr = flow.cronInput ? JSON.stringify(flow.cronInput) : null;
+      let payloadStr: string | null = null;
+      if (flow.cronInput !== undefined && flow.cronInput !== null) {
+        payloadStr = typeof flow.cronInput === 'string' ? flow.cronInput : JSON.stringify(flow.cronInput);
+      }
       const nowIso = now.toISOString();
 
       let runRes: any;

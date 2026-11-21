@@ -633,6 +633,83 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
         await app.cron.syncFunctionSchedule(fakeFn);
       }).rejects.toThrow(/Invalid cron expression|Value NaN out of bounds|too few fields/);
     });
+
+    it('should preserve falsy but defined payloads (false, 0, empty string) when syncing inline schedules', async () => {
+      // 1. Function with boolean false payload
+      const fnFalse = await app.functions.createFunction({
+        name: 'payload-false-fn',
+        code: `export default async function() { return { status: 200 }; }`,
+        methods: ['POST'],
+        enabled: true,
+        cronSchedule: '0 0 * * *',
+        cronPayload: false,
+      });
+
+      const schedFalse = await app.cron.getSchedule(`inline_fn_${fnFalse.id}`);
+      expect(schedFalse).not.toBeNull();
+      expect(schedFalse?.payload).toBe(false);
+
+      // 2. Function with numeric 0 payload
+      const fnZero = await app.functions.createFunction({
+        name: 'payload-zero-fn',
+        code: `export default async function() { return { status: 200 }; }`,
+        methods: ['POST'],
+        enabled: true,
+        cronSchedule: '0 0 * * *',
+        cronPayload: 0,
+      });
+
+      const schedZero = await app.cron.getSchedule(`inline_fn_${fnZero.id}`);
+      expect(schedZero).not.toBeNull();
+      expect(schedZero?.payload).toBe(0);
+
+      // 3. Function with empty string payload
+      const fnEmptyStr = await app.functions.createFunction({
+        name: 'payload-empty-str-fn',
+        code: `export default async function() { return { status: 200 }; }`,
+        methods: ['POST'],
+        enabled: true,
+        cronSchedule: '0 0 * * *',
+        cronPayload: '',
+      });
+
+      const schedEmptyStr = await app.cron.getSchedule(`inline_fn_${fnEmptyStr.id}`);
+      expect(schedEmptyStr).not.toBeNull();
+      expect(schedEmptyStr?.payload).toBe('');
+
+      // 4. Flow with boolean false / 0 cronInput
+      const flowFalse = await app.flows.createFlow({
+        name: 'payload-false-flow',
+        enabled: true,
+        triggerType: 'cron',
+        cronSchedule: '0 8 * * *',
+        cronInput: false,
+        definition: {
+          startAt: 'Step1',
+          states: { Step1: { type: 'Pass', end: true } },
+        },
+      });
+
+      const schedFlowFalse = await app.cron.getSchedule(`inline_flow_${flowFalse.id}`);
+      expect(schedFlowFalse).not.toBeNull();
+      expect(schedFlowFalse?.payload).toBe(false);
+
+      const flowZero = await app.flows.createFlow({
+        name: 'payload-zero-flow',
+        enabled: true,
+        triggerType: 'cron',
+        cronSchedule: '0 8 * * *',
+        cronInput: 0,
+        definition: {
+          startAt: 'Step1',
+          states: { Step1: { type: 'Pass', end: true } },
+        },
+      });
+
+      const schedFlowZero = await app.cron.getSchedule(`inline_flow_${flowZero.id}`);
+      expect(schedFlowZero).not.toBeNull();
+      expect(schedFlowZero?.payload).toBe(0);
+    });
   });
 
   describe('9. Snapshot Schedule Update Policy on Non-SQLite Engines', () => {
