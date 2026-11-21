@@ -958,5 +958,58 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
       expect(sched.id).toBeDefined();
       expect(sched.maxRetries).toBe(2);
     });
+
+    it('should not re-enable schedule if an administrator pauses it while target is executing', async () => {
+      let finishRunningPromiseResolve: () => void;
+      const runningPromise = new Promise<void>((r) => { finishRunningPromiseResolve = r; });
+
+      const fn = await app.functions.createFunction({
+        name: 'in-flight-pause-fn',
+        code: `export default async function() { return { status: 200, body: 'done' }; }`,
+        methods: ['POST'],
+        enabled: true,
+      });
+
+      const sched = await app.cron.createSchedule({
+        name: 'In-Flight Pause Test',
+        targetType: 'function',
+        targetId: fn.id,
+        cronExpression: '*/1 * * * *',
+        enabled: true,
+      });
+
+      let inFlight = false;
+      const originalExec = app.functions.executeScheduledFunction.bind(app.functions);
+      app.functions.executeScheduledFunction = async (...args) => {
+        inFlight = true;
+        await runningPromise;
+        return originalExec(...args);
+      };
+
+      try {
+        const triggerPromise = app.cron.triggerSchedule(sched.id);
+
+        while (!inFlight) {
+          await new Promise((r) => setTimeout(r, 10));
+        }
+
+        // Administrator pauses schedule while target is in flight
+        await app.cron.updateSchedule(sched.id, { enabled: false });
+
+        const pausedState = await app.cron.getSchedule(sched.id);
+        expect(pausedState?.enabled).toBe(false);
+
+        // Target finishes
+        finishRunningPromiseResolve!();
+        await triggerPromise;
+
+        // Schedule must remain disabled and nextRunAt must remain null!
+        const finalState = await app.cron.getSchedule(sched.id);
+        expect(finalState?.enabled).toBe(false);
+        expect(finalState?.nextRunAt).toBeNull();
+      } finally {
+        app.functions.executeScheduledFunction = originalExec;
+      }
+    });
   });
 });

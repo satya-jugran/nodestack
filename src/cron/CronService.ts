@@ -576,7 +576,10 @@ export class CronService {
         name = ?, targetType = ?, targetId = ?, cronExpression = ?, timezone = ?,
         missedRunPolicy = ?, payload = ?, enabled = ?, nextRunAt = ?,
         maxRetries = ?, autoPauseAfterFailures = ?, consecutiveFailures = ?,
-        expiresAt = ?, keepLast = ?, updated = ?
+        expiresAt = ?, keepLast = ?, updated = ?,
+        leaseOwner = CASE WHEN ? = 0 THEN NULL ELSE leaseOwner END,
+        leaseExpiresAt = CASE WHEN ? = 0 THEN NULL ELSE leaseExpiresAt END,
+        claimToken = CASE WHEN ? = 0 THEN NULL ELSE claimToken END
       WHERE id = ?`,
       name,
       targetType,
@@ -593,6 +596,9 @@ export class CronService {
       expiresAt,
       keepLast,
       nowIso,
+      enabled ? 1 : 0,
+      enabled ? 1 : 0,
+      enabled ? 1 : 0,
       id
     );
 
@@ -859,7 +865,7 @@ export class CronService {
 
     const runId = randomUUID();
     const scheduledAt = new Date();
-    return await this.executeTarget(schedule, scheduledAt, false, runId);
+    return await this.executeTarget(schedule, scheduledAt, false, runId, true);
   }
 
   public async getRuns(options: CronListRunsOptions = {}): Promise<{
@@ -1078,30 +1084,38 @@ export class CronService {
 
   private async advanceNextRun(
     schedule: CronSchedule,
-    nextOccurrence: Date | null,
     claimToken: string,
+    afterTime: number,
     lastRunAtIso?: string,
     lastStatus?: CronRunStatus,
     lastError?: string | null
   ): Promise<void> {
     const current = await this.getSchedule(schedule.id);
     if (!current || !current.enabled) {
-      // Auto-paused by circuit breaker or disabled during execution
+      // Auto-paused by circuit breaker, deleted, or disabled by administrator during execution
       await this.db.run(
         `UPDATE _cron_schedules
          SET nextRunAt = NULL, leaseOwner = NULL, leaseExpiresAt = NULL, claimToken = NULL
-         WHERE id = ? AND claimToken = ?`,
+         WHERE id = ? AND (claimToken = ? OR claimToken IS NULL)`,
         schedule.id,
         claimToken
       );
       return;
     }
 
+    // Compute next future occurrence using fresh cronExpression and timezone
+    const baseTime = Math.max(Date.now(), afterTime);
+    const nextOccurrence = this.getNextOccurrence(
+      current.cronExpression,
+      current.timezone,
+      new Date(baseTime + 1000)
+    );
+
     let isExpired = false;
     let nextRunAt: string | null = null;
 
     if (nextOccurrence) {
-      if (schedule.expiresAt && nextOccurrence.getTime() > new Date(schedule.expiresAt).getTime()) {
+      if (current.expiresAt && nextOccurrence.getTime() > new Date(current.expiresAt).getTime()) {
         isExpired = true;
       } else {
         nextRunAt = nextOccurrence.toISOString();
@@ -1119,7 +1133,7 @@ export class CronService {
       );
       if (this.eventBus) {
         try {
-          this.eventBus.emit('cron:expired', { scheduleId: schedule.id, scheduleName: schedule.name });
+          this.eventBus.emit('cron:expired', { scheduleId: current.id, scheduleName: current.name });
         } catch {}
       }
       return;
@@ -1155,8 +1169,8 @@ export class CronService {
     now: Date,
     claimToken: string
   ): Promise<void> {
+    const scheduledTime = schedule.nextRunAt ? new Date(schedule.nextRunAt).getTime() : now.getTime();
     try {
-      const scheduledTime = schedule.nextRunAt ? new Date(schedule.nextRunAt).getTime() : now.getTime();
       const diffMs = now.getTime() - scheduledTime;
       const nowIso = now.toISOString();
 
@@ -1182,18 +1196,16 @@ export class CronService {
           );
 
           // Advance to next future occurrence after now
-          const nextFuture = this.getNextOccurrence(schedule.cronExpression, schedule.timezone, now);
-          await this.advanceNextRun(schedule, nextFuture, claimToken, nowIso, 'skipped', 'Skipped missed window');
+          await this.advanceNextRun(schedule, claimToken, now.getTime(), nowIso, 'skipped', 'Skipped missed window');
           return;
         }
 
         if (schedule.missedRunPolicy === 'catch_up_once') {
           // Run once with catch-up flag
-          await this.executeTarget(schedule, new Date(scheduledTime), true, claimToken);
+          await this.executeTarget(schedule, new Date(scheduledTime), true, claimToken, false);
 
-          // Advance nextRunAt to next future occurrence after now
-          const nextFuture = this.getNextOccurrence(schedule.cronExpression, schedule.timezone, now);
-          await this.advanceNextRun(schedule, nextFuture, claimToken);
+          // Advance nextRunAt to next future occurrence after scheduled time
+          await this.advanceNextRun(schedule, claimToken, scheduledTime);
           return;
         }
 
@@ -1210,31 +1222,25 @@ export class CronService {
           }
 
           for (const slot of catchUpSlots) {
-            await this.executeTarget(schedule, slot, true, claimToken);
+            await this.executeTarget(schedule, slot, true, claimToken, false);
           }
 
-          // Advance nextRunAt to next future occurrence after now
-          const nextFuture = this.getNextOccurrence(schedule.cronExpression, schedule.timezone, now);
-          await this.advanceNextRun(schedule, nextFuture, claimToken);
+          // Advance nextRunAt to next future occurrence after last caught up slot
+          const lastSlotTime = catchUpSlots[catchUpSlots.length - 1].getTime();
+          await this.advanceNextRun(schedule, claimToken, lastSlotTime);
           return;
         }
       }
 
       // Normal on-time execution (diffMs <= 60_000)
-      await this.executeTarget(schedule, new Date(scheduledTime), false, claimToken);
+      await this.executeTarget(schedule, new Date(scheduledTime), false, claimToken, false);
 
-      // Compute next future occurrence starting 1 second after the scheduled time
-      const nextFuture = this.getNextOccurrence(
-        schedule.cronExpression,
-        schedule.timezone,
-        new Date(scheduledTime + 1000)
-      );
-      await this.advanceNextRun(schedule, nextFuture, claimToken);
+      // Advance nextRunAt using fresh schedule state
+      await this.advanceNextRun(schedule, claimToken, scheduledTime);
     } catch (err: any) {
       // Emergency lease release and error logging if an unexpected failure occurs
       try {
-        const nextFuture = this.getNextOccurrence(schedule.cronExpression, schedule.timezone, new Date(Date.now() + 1000));
-        await this.advanceNextRun(schedule, nextFuture, claimToken, undefined, 'failed', err?.message || 'Unexpected execution failure');
+        await this.advanceNextRun(schedule, claimToken, scheduledTime, undefined, 'failed', err?.message || 'Unexpected execution failure');
       } catch {}
     }
   }
@@ -1243,7 +1249,8 @@ export class CronService {
     schedule: CronSchedule,
     scheduledAt: Date,
     isCatchUp: boolean,
-    claimToken: string
+    claimToken: string,
+    isManual = false
   ): Promise<CronRunLog> {
     const runId = randomUUID();
     const startedAt = new Date();
@@ -1414,34 +1421,6 @@ export class CronService {
     const finishedAtIso = finishedAt.toISOString();
     const durationMs = Math.max(0, finishedAt.getTime() - startedAt.getTime());
 
-    // Circuit breaker & consecutive failures handling
-    let consecutiveFailures = schedule.consecutiveFailures || 0;
-    let autoPaused = false;
-    let scheduleEnabled = schedule.enabled;
-    let scheduleError = error;
-
-    if (status === 'succeeded') {
-      consecutiveFailures = 0;
-    } else {
-      consecutiveFailures += 1;
-      const pauseThreshold = schedule.autoPauseAfterFailures || 0;
-      if (pauseThreshold > 0 && consecutiveFailures >= pauseThreshold) {
-        autoPaused = true;
-        scheduleEnabled = false;
-        scheduleError = `Auto-paused: reached ${pauseThreshold} consecutive failures (${error || 'Unknown error'})`;
-        if (this.eventBus) {
-          try {
-            this.eventBus.emit('cron:autopause', {
-              scheduleId: schedule.id,
-              scheduleName: schedule.name,
-              consecutiveFailures,
-              error: scheduleError,
-            });
-          } catch {}
-        }
-      }
-    }
-
     // Update run record
     await this.db.run(
       `UPDATE _cron_runs
@@ -1458,18 +1437,62 @@ export class CronService {
       runId
     );
 
-    // Update schedule stats & failure counter
-    await this.db.run(
-      `UPDATE _cron_schedules
-       SET lastRunAt = ?, lastStatus = ?, lastError = ?, consecutiveFailures = ?, enabled = ?
-       WHERE id = ?`,
-      startedAtIso,
-      status,
-      scheduleError,
-      consecutiveFailures,
-      scheduleEnabled ? 1 : 0,
-      schedule.id
-    );
+    // 1. Re-read latest schedule state from DB to avoid overwriting administrator updates
+    const currentSchedule = await this.getSchedule(schedule.id);
+    if (currentSchedule) {
+      let consecutiveFailures = currentSchedule.consecutiveFailures || 0;
+      let scheduleEnabled = currentSchedule.enabled;
+      let scheduleError = error;
+
+      if (status === 'succeeded') {
+        consecutiveFailures = 0;
+      } else {
+        consecutiveFailures += 1;
+        const pauseThreshold = currentSchedule.autoPauseAfterFailures || 0;
+        if (pauseThreshold > 0 && consecutiveFailures >= pauseThreshold) {
+          scheduleEnabled = false;
+          scheduleError = `Auto-paused: reached ${pauseThreshold} consecutive failures (${error || 'Unknown error'})`;
+          if (this.eventBus) {
+            try {
+              this.eventBus.emit('cron:autopause', {
+                scheduleId: currentSchedule.id,
+                scheduleName: currentSchedule.name,
+                consecutiveFailures,
+                error: scheduleError,
+              });
+            } catch {}
+          }
+        }
+      }
+
+      // 2. Guard schedule completion update with active claimToken (or direct id for manual trigger)
+      if (isManual) {
+        await this.db.run(
+          `UPDATE _cron_schedules
+           SET lastRunAt = ?, lastStatus = ?, lastError = ?, consecutiveFailures = ?, enabled = ?
+           WHERE id = ?`,
+          startedAtIso,
+          status,
+          scheduleError,
+          consecutiveFailures,
+          scheduleEnabled ? 1 : 0,
+          currentSchedule.id
+        );
+      } else {
+        await this.db.run(
+          `UPDATE _cron_schedules
+           SET lastRunAt = ?, lastStatus = ?, lastError = ?, consecutiveFailures = ?, enabled = ?
+           WHERE id = ? AND claimToken = ?`,
+          startedAtIso,
+          status,
+          scheduleError,
+          consecutiveFailures,
+          scheduleEnabled ? 1 : 0,
+          currentSchedule.id,
+          claimToken
+        );
+      }
+    }
 
     // Prune run history (keep last 100 runs per schedule)
     try {
