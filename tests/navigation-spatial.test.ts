@@ -215,6 +215,7 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
         { id: 'nav-functions', label: 'Functions' },
         { id: 'nav-flows', label: 'Flows' },
         { id: 'nav-queues', label: 'Queues' },
+        { id: 'nav-schedules', label: 'Schedules' },
         { id: 'nav-api-keys', label: 'API Keys' },
         { id: 'nav-plugins', label: 'Plugins' },
         { id: 'nav-snapshots', label: 'Snapshots' },
@@ -625,11 +626,11 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
   });
 
   describe('Overview Page Hub & Vitals', () => {
-    it('should render 9 KPI vital cards including Webhooks, Functions, Flows, Queues, and Plugins and exclude Quick Access Collections table', () => {
+    it('should render 11 KPI vital cards including Webhooks, Functions, Flows, Queues, Schedules, API Keys, and Plugins and exclude Quick Access Collections table', () => {
       const { win, doc } = createTestDOM({ activeNav: 'home' });
       win.renderHomeView();
 
-      // Verify 9 KPI vitals are present
+      // Verify 11 KPI vitals are present
       expect(doc.getElementById('home-stat-collections')).not.toBeNull();
       expect(doc.getElementById('home-stat-records')).not.toBeNull();
       expect(doc.getElementById('home-stat-size')).not.toBeNull();
@@ -638,6 +639,8 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(doc.getElementById('home-stat-functions')).not.toBeNull();
       expect(doc.getElementById('home-stat-flows')).not.toBeNull();
       expect(doc.getElementById('home-stat-queues')).not.toBeNull();
+      expect(doc.getElementById('home-stat-schedules')).not.toBeNull();
+      expect(doc.getElementById('home-stat-api-keys')).not.toBeNull();
       expect(doc.getElementById('home-stat-plugins')).not.toBeNull();
 
       // Verify arbitrary Quick Access Collections table is NOT present
@@ -650,22 +653,70 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(homeTools?.textContent).toContain('New Collection');
     });
 
-    it('should route to flows and queues views when clicking their overview KPI cards', () => {
+    it('should route to flows, queues, schedules, and api-keys views when clicking their overview KPI cards', () => {
       const { win, doc } = createTestDOM({ activeNav: 'home' });
       win.selectNav = vi.fn();
       win.renderHomeView();
 
       const flowsCard = doc.getElementById('home-stat-flows')?.closest('[onclick*="selectNav"]');
       const queuesCard = doc.getElementById('home-stat-queues')?.closest('[onclick*="selectNav"]');
+      const schedulesCard = doc.getElementById('home-stat-schedules')?.closest('[onclick*="selectNav"]');
+      const apiKeysCard = doc.getElementById('home-stat-api-keys')?.closest('[onclick*="selectNav"]');
 
       expect(flowsCard).not.toBeNull();
       expect(queuesCard).not.toBeNull();
+      expect(schedulesCard).not.toBeNull();
+      expect(apiKeysCard).not.toBeNull();
 
       (flowsCard as HTMLElement)?.click();
       expect(win.selectNav).toHaveBeenCalledWith('flows');
 
       (queuesCard as HTMLElement)?.click();
       expect(win.selectNav).toHaveBeenCalledWith('queues');
+
+      (schedulesCard as HTMLElement)?.click();
+      expect(win.selectNav).toHaveBeenCalledWith('schedules');
+
+      (apiKeysCard as HTMLElement)?.click();
+      expect(win.selectNav).toHaveBeenCalledWith('api-keys');
+    });
+
+    it('should dynamically enrich Schedules and API Keys cards with stats', async () => {
+      const { win, doc } = createTestDOM({ activeNav: 'home' });
+
+      win.api = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('/api/cron/stats')) {
+          return {
+            totalSchedules: 4,
+            activeSchedules: 3,
+            totalRuns: 28,
+          };
+        }
+        if (url.includes('/api/api-keys')) {
+          return [
+            { id: 'key-1', status: 'active', totalRequests: 50 },
+            { id: 'key-2', status: 'active', totalRequests: 25 },
+            { id: 'key-3', status: 'revoked', totalRequests: 10 },
+          ];
+        }
+        return {};
+      });
+
+      win.renderHomeView();
+
+      // Wait a tick for promises in renderHomeView to resolve
+      await new Promise(r => setTimeout(r, 50));
+
+      const schedCount = doc.getElementById('home-stat-schedules')?.textContent;
+      const schedSub = doc.getElementById('home-stat-schedules-sub')?.textContent;
+      const apiKeysCount = doc.getElementById('home-stat-api-keys')?.textContent;
+      const apiKeysSub = doc.getElementById('home-stat-api-keys-sub')?.textContent;
+
+      expect(schedCount).toBe('4');
+      expect(schedSub).toBe('3 active • 28 runs');
+
+      expect(apiKeysCount).toBe('3');
+      expect(apiKeysSub).toBe('2 active • 85 reqs');
     });
 
     it('should open Import JSON modal when clicking Import JSON button in collections hub', () => {

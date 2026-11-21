@@ -27,12 +27,24 @@ function setAppShellInert(isInert) {
 
 function updateSidebarApiKeysBadge(keysList) {
   if (typeof document === 'undefined') return;
-  const badge = document.getElementById('sidebar-api-keys-count');
-  if (!badge) return;
   const list = Array.isArray(keysList) ? keysList : apiKeysState.keys;
   const activeCount = list.filter(k => k.status === 'active').length;
-  badge.textContent = String(activeCount);
-  badge.style.display = activeCount > 0 ? 'inline-block' : 'none';
+
+  const badge = document.getElementById('sidebar-api-keys-count');
+  if (badge) {
+    badge.textContent = String(activeCount);
+    badge.style.display = activeCount > 0 ? 'inline-block' : 'none';
+  }
+
+  const homeKeyEl = document.getElementById('home-stat-api-keys');
+  const homeKeySubEl = document.getElementById('home-stat-api-keys-sub');
+  if (homeKeyEl) {
+    homeKeyEl.textContent = String(list.length);
+  }
+  if (homeKeySubEl) {
+    const totalRequests = list.reduce((sum, k) => sum + Number(k.totalRequests || 0), 0);
+    homeKeySubEl.textContent = `${activeCount} active${totalRequests > 0 ? ` • ${totalRequests} reqs` : ' • 0 reqs'}`;
+  }
 }
 
 function getApiKeysApiPrefix() {

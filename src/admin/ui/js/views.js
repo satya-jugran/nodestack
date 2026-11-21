@@ -37,6 +37,38 @@
           ? queuesState.queues.filter(q => !q.isSystem).length
           : '--';
 
+      // Schedules initial count
+      const schedulesInitial = (typeof cronState !== 'undefined' && cronState.stats?.totalSchedules !== undefined)
+        ? cronState.stats.totalSchedules
+        : (typeof cronState !== 'undefined' && Array.isArray(cronState.schedules))
+          ? cronState.schedules.length
+          : '--';
+      const schedulesActiveInitial = (typeof cronState !== 'undefined' && cronState.stats?.activeSchedules !== undefined)
+        ? cronState.stats.activeSchedules
+        : (typeof cronState !== 'undefined' && Array.isArray(cronState.schedules))
+          ? cronState.schedules.filter(s => s.enabled).length
+          : 0;
+      const schedulesRunsInitial = (typeof cronState !== 'undefined' && cronState.stats?.totalRuns !== undefined)
+        ? cronState.stats.totalRuns
+        : 0;
+      const schedulesSubInitial = schedulesInitial !== '--'
+        ? `${schedulesActiveInitial} active${schedulesRunsInitial > 0 ? ` • ${schedulesRunsInitial} runs` : ' • 0 runs'}`
+        : 'Cron & interval triggers';
+
+      // API Keys initial count
+      const apiKeysInitial = (typeof apiKeysState !== 'undefined' && Array.isArray(apiKeysState.keys))
+        ? apiKeysState.keys.length
+        : '--';
+      const apiKeysActiveInitial = (typeof apiKeysState !== 'undefined' && Array.isArray(apiKeysState.keys))
+        ? apiKeysState.keys.filter(k => k.status === 'active').length
+        : 0;
+      const apiKeysReqsInitial = (typeof apiKeysState !== 'undefined' && Array.isArray(apiKeysState.keys))
+        ? apiKeysState.keys.reduce((sum, k) => sum + Number(k.totalRequests || 0), 0)
+        : 0;
+      const apiKeysSubInitial = apiKeysInitial !== '--'
+        ? `${apiKeysActiveInitial} active${apiKeysReqsInitial > 0 ? ` • ${apiKeysReqsInitial} reqs` : ' • 0 reqs'}`
+        : 'Scoped access tokens';
+
       main.innerHTML = `
         <div style="width: 100%; display: flex; flex-direction: column; gap: 1.25rem;">
           
@@ -74,9 +106,9 @@
             </div>
           </div>
 
-          <!-- Zone 1 (Vitals Strip): High-Density 9-KPI Row + Integrated Telemetry Bar -->
+          <!-- Zone 1 (Vitals Strip): High-Density 11-KPI Row + Integrated Telemetry Bar -->
           <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden;">
-            <!-- Top: 9 Horizontal KPI Metrics (Responsive auto-fitting row) -->
+            <!-- Top: 11 Horizontal KPI Metrics (Responsive auto-fitting row) -->
             <div class="home-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 0.75rem; padding: 0.85rem 1.15rem;">
               <!-- KPI 1: Collections -->
               <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('collections')" title="Click to view all collections directory">
@@ -184,6 +216,32 @@
                 </div>
                 <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-queues">${queuesInitial}</div>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-queues-sub">Async messages & workers</div>
+              </div>
+
+              <!-- KPI 10: Schedules -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('schedules')" title="Click to view and manage scheduled triggers">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Schedules</span>
+                  </div>
+                  <span style="font-size: 11px; color: var(--accent-primary); font-weight: 600;">View ➔</span>
+                </div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-schedules">${schedulesInitial}</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-schedules-sub">${schedulesSubInitial}</div>
+              </div>
+
+              <!-- KPI 11: API Keys -->
+              <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s ease;" onclick="selectNav('api-keys')" title="Click to manage API keys and access tokens">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary);"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">API Keys</span>
+                  </div>
+                  <span style="font-size: 11px; color: var(--accent-primary); font-weight: 600;">View ➔</span>
+                </div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--text-heading);" id="home-stat-api-keys">${apiKeysInitial}</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="home-stat-api-keys-sub">${apiKeysSubInitial}</div>
               </div>
             </div>
 
@@ -462,6 +520,50 @@
           const queued = stats.queued || 0;
           const comp = stats.completed || 0;
           qSubEl.textContent = `${queued} queued • ${comp} completed`;
+        }
+      }).catch(() => {});
+
+      // Asynchronously load schedules vitals
+      const cronSlug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+      const cronEndpoint = cronSlug && cronSlug !== 'default' ? `/api/apps/${cronSlug}/cron/stats` : '/api/cron/stats';
+      api(cronEndpoint).then((stats) => {
+        if (!stats) return;
+        if (typeof cronState !== 'undefined') {
+          cronState.stats = stats;
+        }
+        const schedEl = document.getElementById('home-stat-schedules');
+        const schedSubEl = document.getElementById('home-stat-schedules-sub');
+        if (schedEl) {
+          schedEl.textContent = (stats.totalSchedules !== undefined ? stats.totalSchedules : 0).toString();
+        }
+        if (schedSubEl) {
+          const active = stats.activeSchedules || 0;
+          const runs = stats.totalRuns || 0;
+          schedSubEl.textContent = `${active} active${runs > 0 ? ` • ${runs} runs` : ' • 0 runs'}`;
+        }
+      }).catch(() => {});
+
+      // Asynchronously load API keys vitals
+      const apiKeySlug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+      const apiKeyEndpoint = apiKeySlug && apiKeySlug !== 'default' ? `/api/apps/${apiKeySlug}/api-keys` : '/api/api-keys';
+      api(apiKeyEndpoint).then((keysData) => {
+        if (!keysData) return;
+        const keys = Array.isArray(keysData) ? keysData : (keysData?.items || keysData?.data || []);
+        if (typeof apiKeysState !== 'undefined') {
+          apiKeysState.keys = keys;
+          if (typeof updateSidebarApiKeysBadge === 'function') {
+            updateSidebarApiKeysBadge(keys);
+          }
+        }
+        const keyEl = document.getElementById('home-stat-api-keys');
+        const keySubEl = document.getElementById('home-stat-api-keys-sub');
+        if (keyEl) {
+          keyEl.textContent = keys.length.toString();
+        }
+        if (keySubEl) {
+          const active = keys.filter(k => k.status === 'active').length;
+          const totalReqs = keys.reduce((sum, k) => sum + Number(k.totalRequests || 0), 0);
+          keySubEl.textContent = `${active} active${totalReqs > 0 ? ` • ${totalReqs} reqs` : ' • 0 reqs'}`;
         }
       }).catch(() => {});
     }

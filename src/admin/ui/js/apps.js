@@ -202,7 +202,7 @@ async function selectApp(slugOrId) {
     if (typeof renderQueuesView === 'function' && state.activeNav === 'queues') {
       renderQueuesView();
     }
-    if (typeof loadApiKeys === 'function' && state.activeNav === 'api-keys') {
+    if (typeof loadApiKeys === 'function') {
       await loadApiKeys();
     }
     if (typeof loadCronStats === 'function') {

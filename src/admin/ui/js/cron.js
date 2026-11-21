@@ -373,6 +373,17 @@ function updateStatsDom() {
     sidebarCountEl.textContent = s.totalSchedules || 0;
     sidebarCountEl.style.display = s.totalSchedules > 0 ? 'inline-block' : 'none';
   }
+
+  const homeSchedEl = document.getElementById('home-stat-schedules');
+  const homeSchedSubEl = document.getElementById('home-stat-schedules-sub');
+  if (homeSchedEl) {
+    homeSchedEl.textContent = String(s.totalSchedules || 0);
+  }
+  if (homeSchedSubEl) {
+    const active = s.activeSchedules || 0;
+    const runs = s.totalRuns || 0;
+    homeSchedSubEl.textContent = `${active} active${runs > 0 ? ` • ${runs} runs` : ' • 0 runs'}`;
+  }
 }
 
 function refreshSchedulesView() {

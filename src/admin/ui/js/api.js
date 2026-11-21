@@ -245,6 +245,9 @@
       if (typeof loadCronStats === 'function') {
         loadCronStats();
       }
+      if (typeof loadApiKeys === 'function') {
+        loadApiKeys();
+      }
       try {
         const pRes = await fetch('/api/plugins');
         if (pRes.ok) {
