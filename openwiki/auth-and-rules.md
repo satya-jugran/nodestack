@@ -4,7 +4,7 @@ title: "Authentication, OAuth2, API Keys & Access Rules"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-19T12:05:15.938Z
+    at: 2026-11-21T11:41:59.603Z
 sources:
   - id: openwiki-source-46bed1e718db2844a20df5a0
     resource: repo://src/auth/ApiKeyService.ts
@@ -30,7 +30,7 @@ sources:
     resource: repo://tests/rule-builder.test.ts
   - id: openwiki-source-7a6d6991cdc34a8bbf49c67a
     resource: repo://tests/rules.test.ts
-generated: { by: "doc-gen", at: "2026-11-19T12:05:15.938Z" }
+generated: { by: "doc-gen", at: "2026-11-21T11:41:59.603Z" }
 ---
 
 # Authentication, OAuth2, API Keys & Access Rules
@@ -136,12 +136,12 @@ API keys have a `role` (`'admin' | 'service' | 'custom'`) and an array of `scope
   - Returns `true` if `auth.isAdmin` is `true`, or if `scopes` includes `'*'`, `'admin:*'`, `'${resource}:*'`, or exact `'${resource}:${action}'`.
   - **Read Rollup**: Actions `'list'`, `'view'`, and `'export'` are permitted by `'${resource}:read'` or `'*:read'`.
   - **Write Rollup**: Actions `'create'`, `'update'`, `'delete'`, and `'import'` are permitted by `'${resource}:write'` or `'*:write'`.
-  - **Flows & Functions**: Subsystems evaluate `'flows:execute'`, `'functions:invoke'`, and `'queues:claim'`/`'queues:send'` scopes.
+  - **Flows, Functions & Cron**: Subsystems evaluate `'flows:execute'`, `'functions:invoke'`, `'queues:claim'`/`'queues:send'`, and `'cron:read'`/`'cron:write'`/`'cron:run'` scopes.
 - **Interaction with Collection Rules**: Super-admin API keys (`role === 'admin'`, `scopes.includes('*')`, or `scopes.includes('admin:*')`) set `req.auth.isAdmin = true` and bypass collection rules. Non-admin `service` or `custom` API keys set `req.auth.isAdmin = false`; they must pass **both** the API key scope check (`requireScope`) and the target collection's `RuleEngine` access rules.
 
 ### Permission Simulation & Testing (`simulate`)
 
-`ApiKeyService.simulate(options)` allows evaluating whether a key has access to a target subsystem (`collections`, `functions`, `flows`, `queues`), resource, and action under a specified client IP before executing requests. This powers the Admin UI Permission Workbench, CLI (`nodestack api-keys test`), and SDK (`client.apiKeys.simulate`).
+`ApiKeyService.simulate(options)` allows evaluating whether a key has access to a target subsystem (`collections`, `functions`, `flows`, `queues`, `cron`), resource, and action under a specified client IP before executing requests. This powers the Admin UI Permission Workbench, CLI (`nodestack api-keys test`), and SDK (`client.apiKeys.simulate`).
 
 ---
 

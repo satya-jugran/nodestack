@@ -4,7 +4,7 @@ title: "HTTP Server, REST Controllers & Admin UI"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-19T12:05:15.938Z
+    at: 2026-11-21T11:41:59.603Z
 sources:
   - id: openwiki-source-4bb0492330e9cc8fed4432fd
     resource: repo://src/admin/AdminUIBundler.ts
@@ -24,7 +24,7 @@ sources:
     resource: repo://src/http/middleware/AppResolutionMiddleware.ts
   - id: openwiki-source-3e62e37659aa60446b558759
     resource: repo://src/http/middleware/ChaosMiddleware.ts
-generated: { by: "doc-gen", at: "2026-11-15T08:56:16.837Z" }
+generated: { by: "doc-gen", at: "2026-11-21T11:41:59.603Z" }
 ---
 
 # HTTP Server, REST Controllers & Admin UI
@@ -110,6 +110,7 @@ All controllers inherit from `BaseController` (`src/http/controllers/BaseControl
 | `FunctionController` | `GET/POST/PATCH/DELETE .../functions`, `POST .../functions/:id/test`, `ALL .../functions/:name/invoke` | Serverless function CRUD, execution logs/stats, admin test runner, and public/authenticated HTTP invocation. |
 | `FlowController` | `GET/POST/PATCH/DELETE .../flows`, `POST .../flows/:id/execute`, `POST .../flows/executions/:executionId/resume\|abort` | Workflow state machine CRUD, synchronous/asynchronous execution, checkpoint resumption, and cancellation. |
 | `QueueController` | `GET/POST/DELETE .../queues`, `POST/GET .../queues/:name/messages`, `POST .../ack\|nack\|touch\|retry`, `POST .../dlq/retry` | Queue configuration, message enqueue/claim/ack/nack/touch, dead-letter queue replay, and retention cleanup. |
+| `CronController` | `GET/POST/PATCH/DELETE .../cron/schedules`, `POST .../cron/preview`, `GET .../cron/stats`, `POST .../cron/schedules/:id/trigger`, `GET/DELETE .../cron/runs` | Recurring cron schedule management, timing previews, manual execution triggers, and execution run logs. |
 | `WebhookController` | `GET/POST/PATCH/DELETE .../webhooks`, `POST .../webhooks/:id/test`, `GET/DELETE .../webhooks/deliveries`, `POST .../deliveries/:id/retry` | Outbound webhook subscription management, test pings, and delivery log inspection/retry. |
 | `SnapshotController` | `GET/POST/DELETE .../snapshots`, `POST .../snapshots/:id/restore` | Point-in-time SQLite + storage snapshot creation and restoration. |
 | `RealtimeController` | `GET/POST .../realtime` | Server-Sent Events (SSE) connection establishment and topic subscription management. |
@@ -127,7 +128,7 @@ All controllers inherit from `BaseController` (`src/http/controllers/BaseControl
 
 1. Reads `src/admin/ui/index.html`.
 2. Concatenates and inlines the 6 CSS stylesheets from `src/admin/ui/css/` (`codemirror.css`, `main.css`, `rules.css`, `analytics.css`, `webhooks.css`, `flows.css`) into a `<style>` block before `</head>`.
-3. Concatenates and inlines the 28 JavaScript modules from `src/admin/ui/js/` (`codemirror.js`, `state.js`, `theme.js`, `api.js`, `apps.js`, `rules.js`, `schema.js`, `records.js`, `modals.js`, `snapshots.js`, `database.js`, `analytics.js`, `views.js`, `collections.js`, `plugins.js`, `plugin-tester.js`, `command-palette.js`, `webhooks.js`, `functions.js`, `functions-tester.js`, `functions-workbench.js`, `flows.js`, `flows-designer.js`, `flows-designer-forms.js`, `flows-designer-modal.js`, `flows-designer-diagram.js`, `queues.js`, `app.js`) into a `<script>` block before `</body>`.
+3. Concatenates and inlines the 29 JavaScript modules from `src/admin/ui/js/` (`codemirror.js`, `state.js`, `theme.js`, `api.js`, `apps.js`, `rules.js`, `schema.js`, `records.js`, `modals.js`, `snapshots.js`, `database.js`, `analytics.js`, `views.js`, `collections.js`, `plugins.js`, `plugin-tester.js`, `command-palette.js`, `webhooks.js`, `functions.js`, `functions-tester.js`, `functions-workbench.js`, `flows.js`, `flows-designer.js`, `flows-designer-forms.js`, `flows-designer-modal.js`, `flows-designer-diagram.js`, `queues.js`, `cron.js`, `app.js`) into a `<script>` block before `</body>`.
 
 ### `AdminUIService`
 

@@ -4,11 +4,11 @@ title: "Core Architecture & Multi-Application Engine"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-19T12:05:15.938Z
+    at: 2026-11-21T11:41:59.603Z
 sources:
   - id: openwiki-source-b4b029988cbb0f1f8db7496e
     resource: repo://src/NodeStack.ts
-generated: { by: "doc-gen", at: "2026-11-19T12:05:15.938Z" }
+generated: { by: "doc-gen", at: "2026-11-21T11:41:59.603Z" }
 ---
 
 # Core Architecture & Multi-Application Engine
@@ -164,16 +164,16 @@ On initialization, `AppRegistry.init()` ensures two built-in applications are re
 
 An `AppScope` (`src/apps/AppScope.ts`) encapsulates the complete service stack for a single tenant application:
 - Dedicated `DatabaseService` (`apps/<slug>/data.db`), `FileStorageService` (`apps/<slug>/storage`), and `SnapshotService` (`apps/<slug>/.snapshots`).
-- Dedicated `MaintenanceGate`, `EventBus`, `FtsService`, `SchemaService`, `TypeGenerator`, `OpenApiGenerator`, `RuleEngine`, `AuthService`, `ApiKeyService`, `RealtimeService`, `LogService`, `RecordService`, `MockDataService`, `AnalyticsService`, `AuditLogService`, `WebhookService`, `FunctionService`, `QueueService`, `FlowService`, and `TemplateService`.
-- **Event Wiring**: `AppScope` automatically binds `EventBus` record hooks (`onRecordBefore*` / `onRecordAfter*`) to `AuditLogService.handleRecordEvent`, `WebhookService.handleRecordEvent`, and `FunctionService.handleRecordEvent`, and listens to `snapshot:restore` to reinitialize flow tables and reconcile queues.
+- Dedicated `MaintenanceGate`, `EventBus`, `FtsService`, `SchemaService`, `TypeGenerator`, `OpenApiGenerator`, `RuleEngine`, `AuthService`, `ApiKeyService`, `RealtimeService`, `LogService`, `RecordService`, `MockDataService`, `AnalyticsService`, `AuditLogService`, `WebhookService`, `FunctionService`, `QueueService`, `CronService`, `FlowService`, and `TemplateService`.
+- **Event Wiring**: `AppScope` automatically binds `EventBus` record hooks (`onRecordBefore*` / `onRecordAfter*`) to `AuditLogService.handleRecordEvent`, `WebhookService.handleRecordEvent`, and `FunctionService.handleRecordEvent`, and listens to `snapshot:restore` to reinitialize flow tables, reconcile queues, and refresh cron schedules.
 - **Legacy Migration (`migrateLegacyDefault`)**: When creating the `default` scope for the first time, if a legacy `<dataDir>/data.db` exists and `<appsDir>/.legacy_migrated` is absent, `AppScope` migrates tables, storage files, and `_admins` records into `apps/default/data.db` and `system.db`.
-- **Teardown (`close` / `closeAsync`)**: Disposes the `QueueService`, disconnects all SSE clients on `RealtimeService`, disposes `LogService` and `ApiKeyService`, clears `EventBus` listeners, resets `MaintenanceGate`, and runs a WAL checkpoint before closing the SQLite database driver.
+- **Teardown (`close` / `closeAsync`)**: Disposes the `QueueService` and `CronService`, disconnects all SSE clients on `RealtimeService`, disposes `LogService` and `ApiKeyService`, clears `EventBus` listeners, resets `MaintenanceGate`, and runs a WAL checkpoint before closing the SQLite database driver.
 
 ### 3. Application Manager (`AppManager`)
 
 `AppManager` (`src/apps/AppManager.ts`) orchestrates the creation, lazy instantiation, caching, and teardown of `AppScope` instances:
-- **`get(slugOrId = 'default')`**: Resolves an `AppScope` by slug or ID from `appCache`. If not yet instantiated, it looks up the `AppModel` in `AppRegistry`, constructs the `AppScope` via `AppScope.create(...)`, caches it under both `slug` and `id`, starts its `QueueService`, and invokes any registered `onScopeInit` callbacks (used by `PluginManager` to wire plugins into newly opened scopes).
-- **`create(dto)`**: Creates the metadata record in `AppRegistry`, initializes the `AppScope`, starts its queue, and optionally applies a starter template (`dto.template`) via `scope.templates.apply(...)`.
+- **`get(slugOrId = 'default')`**: Resolves an `AppScope` by slug or ID from `appCache`. If not yet instantiated, it looks up the `AppModel` in `AppRegistry`, constructs the `AppScope` via `AppScope.create(...)`, caches it under both `slug` and `id`, starts its `QueueService` and `CronService`, and invokes any registered `onScopeInit` callbacks (used by `PluginManager` to wire plugins into newly opened scopes).
+- **`create(dto)`**: Creates the metadata record in `AppRegistry`, initializes the `AppScope`, starts its queue and cron services, and optionally applies a starter template (`dto.template`) via `scope.templates.apply(...)`.
 - **`delete(slugOrId)`**: Closes the cached `AppScope` (terminating SSE connections and closing SQLite handles), deletes the `_apps` entry from `AppRegistry`, and removes `<dataDir>/apps/<slug>` from disk.
 - **`ensureDemoAppInitialized()`**: Called during `NodeStack.start()` to idempotently apply the `ecommerce` template, create a baseline snapshot (`ecommerce-demo-baseline`), seed the demo customer account (`alex.vance@nodestack.dev`), and provision the `cart_items` collection on the `ecommerce-demo` scope.
 

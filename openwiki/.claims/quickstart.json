@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:a42b9b5b5db1dcbc31ee190424a49dc513e7ded6f76254639c6093a846c5b75e",
+  "pageVersion": "sha256:fa031ec3103e4e310e546ceeba74d69878c83b29dd7302b8ec0a71f0e6984f5d",
   "claims": [
     {
       "id": "claim_e0a4841e457a4b0cbe35115f2034eb88",
@@ -8,21 +8,21 @@
       "evidence": [
         {
           "resource": "repo://package.json",
-          "version": "repo-file-v1:sha256:0715401a4746651974152d4b364f8305c095055d201741dbf17eed50cbfbcf9b"
+          "version": "repo-file-v1:sha256:d41c2c89e697ada956cbef11693e88e6d5806db44fa53036dfea631395f99657"
         },
         {
           "resource": "repo://src/cli/cli.ts",
-          "version": "repo-file-v1:sha256:4b0e60a6360d6e0223d8890daa1fde4aeb621e35ae703eb93517a7729bb2c072"
+          "version": "repo-file-v1:sha256:9974f21ee49e8d1d0ded4c57134c2a511a4ab0dbcc5aa876d9596259bd8f7ecf"
         }
       ]
     },
     {
       "id": "claim_5fd47a0eadd7476b878dd90f4edb8f20",
-      "statement": "NodeStack can be embedded programmatically via new NodeStack(options), exposing schema, records, auth, router, functions, flows, queues, files, realtime, webhooks, snapshots, plugins, and templates services along with record lifecycle hooks.",
+      "statement": "NodeStack can be embedded programmatically via new NodeStack(options), exposing schema, records, auth, router, functions, flows, queues, cron, files, realtime, webhooks, snapshots, plugins, and templates services along with record lifecycle hooks.",
       "evidence": [
         {
           "resource": "repo://src/NodeStack.ts",
-          "version": "repo-file-v1:sha256:07fd0ed84a14c88d9e963129d0a3bc35511513ded7cdf7f4dff9a2c32c12e637"
+          "version": "repo-file-v1:sha256:992d73a8934f3c9f75afb741fb4cc5b12f66a538c01a4c3335f39340d3ee62d7"
         },
         {
           "resource": "repo://src/index.ts",
@@ -40,7 +40,7 @@
       "evidence": [
         {
           "resource": "repo://src/cli/cli.ts",
-          "version": "repo-file-v1:sha256:4b0e60a6360d6e0223d8890daa1fde4aeb621e35ae703eb93517a7729bb2c072"
+          "version": "repo-file-v1:sha256:9974f21ee49e8d1d0ded4c57134c2a511a4ab0dbcc5aa876d9596259bd8f7ecf"
         },
         {
           "resource": "repo://src/core/config/ConfigService.ts",
@@ -58,7 +58,7 @@
       "evidence": [
         {
           "resource": "repo://package.json",
-          "version": "repo-file-v1:sha256:0715401a4746651974152d4b364f8305c095055d201741dbf17eed50cbfbcf9b"
+          "version": "repo-file-v1:sha256:d41c2c89e697ada956cbef11693e88e6d5806db44fa53036dfea631395f99657"
         },
         {
           "resource": "repo://src/cli/sea-entry.ts",
@@ -69,6 +69,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-19T12:05:15.938Z"
+    "at": "2026-11-21T11:41:59.603Z"
   }
 }

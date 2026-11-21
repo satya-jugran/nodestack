@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:d26ad109f564451187388e4b4b9092aa33c196c365957604f385fdf91fd1c589",
+  "pageVersion": "sha256:1ea1314d549431409281c0d73057e29b85b08267af1dbd9ad28e440c728cc4da",
   "claims": [
     {
       "id": "claim_8a8b9d89e7b340a4b9bb2285225cdc4e",
@@ -8,7 +8,7 @@
       "evidence": [
         {
           "resource": "repo://src/http/HttpServer.ts",
-          "version": "repo-file-v1:sha256:2e7f5d04a0a821764f768e3f9326d26f1b5c3191a02c38fdf87111256a8b1bdb"
+          "version": "repo-file-v1:sha256:1292cea62300b61a67b3f0682fb9d5c597a9e88c219f2dba77cb661aff612b60"
         },
         {
           "resource": "repo://src/http/controllers/BaseController.ts",
@@ -50,7 +50,7 @@
       "evidence": [
         {
           "resource": "repo://src/admin/AdminUIBundler.ts",
-          "version": "repo-file-v1:sha256:ca3840aa612b47ae85a76554c0f1a262acfe5a82d0ac88c8457cb42f88046db9"
+          "version": "repo-file-v1:sha256:f8f269b115240f7329af5f868047a3b57723fac2fc92572f679e64c2b0be3c77"
         },
         {
           "resource": "repo://src/admin/AdminUIService.ts",
@@ -71,6 +71,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-19T12:05:15.938Z"
+    "at": "2026-11-21T11:41:59.603Z"
   }
 }

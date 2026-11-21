@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:bbfd1d7934a3dad39b034e2bcff5c61fffd5d25c8502ce067a3639411e39e070",
+  "pageVersion": "sha256:73dac3a64dcacae7502acb85761134a8989ce62d13da92db0290459a234729ce",
   "claims": [
     {
       "id": "claim_94d5e801b563413891e89f45f2242afe",
@@ -8,7 +8,7 @@
       "evidence": [
         {
           "resource": "repo://src/database/DatabaseService.ts",
-          "version": "repo-file-v1:sha256:19b6553523549e39f750bd4147f15ef9d4007382c108ec0b129d43b2ed47d776"
+          "version": "repo-file-v1:sha256:82d11a81b019cc80cbbc269e27b1e06ce8416a749067ac23ce14d5ba132fe642"
         },
         {
           "resource": "repo://src/database/drivers/NodeSqliteDriver.ts",
@@ -18,11 +18,11 @@
     },
     {
       "id": "claim_3afbb167b1444b9ca7655e824fbbdd14",
-      "statement": "SystemMigrations bootstraps internal metadata tables (_collections, _admins, _logs, _params, _audit_logs, _webhooks, _webhook_deliveries, _external_auths, _api_keys) and seeds the default users auth collection.",
+      "statement": "SystemMigrations bootstraps internal metadata tables (_collections, _admins, _logs, _params, _audit_logs, _webhooks, _webhook_deliveries, _external_auths, _api_keys, _cron_schedules, _cron_runs) and seeds the default users auth collection.",
       "evidence": [
         {
           "resource": "repo://src/database/migrations/SystemMigrations.ts",
-          "version": "repo-file-v1:sha256:a125615cdfad62f55996309e85fcf1065ee4a35ef9eefe060e12431dd42e4d31"
+          "version": "repo-file-v1:sha256:36168f516611e3968f578731d0f7d45a16dc85373d080ba9cd5923f43f088f08"
         }
       ]
     },
@@ -46,7 +46,7 @@
       "evidence": [
         {
           "resource": "repo://src/schema/OpenApiGenerator.ts",
-          "version": "repo-file-v1:sha256:296274dfcab9833a0d4015898102fb1330255f73ba4887f30873b21332d4d926"
+          "version": "repo-file-v1:sha256:3549b6e031d1f67e13b2252b8c917f6ef4ae6695879e009b8d73fbba82c99d5d"
         },
         {
           "resource": "repo://src/schema/SchemaInferenceService.ts",
@@ -86,13 +86,13 @@
         },
         {
           "resource": "repo://src/database/migration/DatabaseMigrationService.ts",
-          "version": "repo-file-v1:sha256:4f4ef0068ac42030b958e1479d18d615ab0ee162bd510af981c848881d517f5e"
+          "version": "repo-file-v1:sha256:2d743d3b6a9144bf9dbceccf942324ea2fd0e6d81f4bf697074a83c246cf0fe6"
         }
       ]
     }
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-19T12:05:15.938Z"
+    "at": "2026-11-21T11:41:59.603Z"
   }
 }

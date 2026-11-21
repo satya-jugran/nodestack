@@ -4,7 +4,7 @@ title: "Serverless Functions, Workflows & Queues"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-19T12:05:15.938Z
+    at: 2026-11-21T11:41:59.603Z
 sources:
   - id: openwiki-source-e69860785030352a5a6b3062
     resource: repo://src/flows/FlowEngine.ts
@@ -30,7 +30,7 @@ sources:
     resource: repo://src/queue/drivers/SqliteQueueDriver.ts
   - id: openwiki-source-75c9cc054eb2d6fc3f07ef6a
     resource: repo://src/queue/QueueService.ts
-generated: { by: "doc-gen", at: "2026-11-19T12:05:15.938Z" }
+generated: { by: "doc-gen", at: "2026-11-21T11:41:59.603Z" }
 ---
 
 # Serverless Functions, Workflows & Queues
@@ -166,3 +166,28 @@ NodeStack's Flow Engine implements an Amazon States Language (ASL)-compatible wo
   - When a job fails with `attempts < maxAttempts`, `fail()` reschedules it with exponential backoff: `baseBackoff * 2^(attempts - 1)`.
   - Once `attempts >= maxAttempts`, the job transitions to `status = 'dead_letter'`. If the queue configures a separate `deadLetterQueue`, `SqliteQueueDriver` also enqueues a linked copy (`originalJobId` / `forwardedToJobId`) into the DLQ.
   - Background sweepers periodically reclaim expired `'processing'` leases (`reclaimOrphaned`, default every `15s`) and prune terminal jobs older than `queueJobRetentionDays` (`cleanup`, default `7` days).
+
+---
+
+## Job Scheduler & Cron Engine (`CronService` & `CronParser`)
+
+`CronService` (`src/cron/CronService.ts`) and `CronParser` (`src/cron/CronParser.ts`) provide persistent, app-scoped recurring task execution integrated across Functions, Flows, and Snapshots.
+
+### 1. 5-Field Cron Parser & Timing Projections (`CronParser`)
+- **Syntax**: Parses 5-field cron expressions `minute hour day-of-month month day-of-week` supporting wildcards (`*`), lists (`,`), ranges (`-`), and step intervals (`/`).
+- **Standard Macros**: Supports `@hourly` (`0 * * * *`), `@daily` / `@midnight` (`0 0 * * *`), `@weekly` (`0 0 * * 0`), `@monthly` (`0 0 1 * *`), and `@yearly` / `@annually` (`0 0 1 1 *`).
+- **Projections (`getNextRuns`)**: Computes upcoming execution timestamps with timezone offsets and DST adjustments, powering dry-run previews (`CronController.getPreview`).
+
+### 2. Priority Wake-Up Queue & Lifecycle (`CronService`)
+- **Event-Driven Sleep**: Maintains an in-memory priority timer queue (`scheduleNextWakeUp`) calculating sleep duration until the earliest `nextRunAt`, avoiding CPU-intensive polling loops.
+- **Missed-Run Policies (`missedRunPolicy`)**:
+  - `'skip'`: Silently ignores missed execution slots during downtime.
+  - `'catch_up_once'`: Executes exactly one catch-up run upon boot if scheduled slots were missed.
+  - `'catch_up_all'`: Sequentially dispatches all missed execution slots that occurred during downtime.
+- **Multi-Target Dispatch**:
+  - `function`: Dispatches to `FunctionService.executeFunction` (injecting `context.cron` metadata) or evaluates inline JavaScript code.
+  - `flow`: Dispatches to `FlowService.startExecution` with input payload.
+  - `snapshot`: Dispatches to `SnapshotService.createSnapshot` with automated retention cleanup (`keepLast`).
+- **Execution History & Failure Circuit Breaker**:
+  - Logs execution timestamps, duration, status (`succeeded`, `failed`, `skipped`), and errors in `_cron_runs`.
+  - Supports automatic retries (`maxRetries`) and auto-pausing after consecutive failures (`autoPauseAfterFailures`).

@@ -4,7 +4,7 @@ title: "Database, Schema & Record Management"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-19T12:05:15.938Z
+    at: 2026-11-21T11:41:59.603Z
 sources:
   - id: openwiki-source-a7511f573894f05c34c471d2
     resource: repo://src/database/DatabaseService.ts
@@ -32,7 +32,7 @@ sources:
     resource: repo://src/schema/SchemaService.ts
   - id: openwiki-source-0135a8c502d832c59da98841
     resource: repo://src/schema/TypeGenerator.ts
-generated: { by: "doc-gen", at: "2026-11-19T12:05:15.938Z" }
+generated: { by: "doc-gen", at: "2026-11-21T11:41:59.603Z" }
 ---
 
 # Database, Schema & Record Management
@@ -72,7 +72,9 @@ NodeStack abstracts SQL execution across three primary engines via `ISqlDialect`
 `DatabaseService` (`src/database/DatabaseService.ts`) wraps `IDatabaseDriver` and adds operational controls:
 
 - **System Bootstrap**: `init()` initializes the underlying driver and runs `SystemMigrations.run(this.driver)`.
-- **Maintenance Locking**: `lock()` and `unlock()` toggle an internal `isLocked` flag. While locked (e.g., during snapshot restores or database resets), `query`, `get`, `run`, `exec`, and `transaction` throw a `503 ServiceUnavailableError` (`Database is currently undergoing maintenance/reset. Please try again shortly.`).
+- **Maintenance & Fail-Closed Locking**: `lock(reason?)` and `unlock()` toggle an internal `isLocked` flag with an optional diagnostic reason string. While locked (e.g., during snapshot restores, database resets, or when a remote PostgreSQL/MSSQL database is unreachable on startup), `query`, `get`, `run`, `exec`, and `transaction` throw a `503 ServiceUnavailableError` (`this.lockReason` or `'Database is temporarily locked for maintenance / demo reset.'`) to prevent split-brain data corruption.
+- **Dynamic Driver Loading (`DriverPackageLoader`)**: Resolves optional driver packages (`pg`, `mssql`) dynamically at runtime via `loadDriverPackage`, throwing actionable error messages with installation commands when optional packages are missing.
+- **Migration Guards**: Database switching via `DatabaseController` guards against circular data migrations when the target SQLite database path is identical to the active database.
 - **WAL Checkpointing & Reconnection**:
   - `checkpoint()` executes `PRAGMA wal_checkpoint(TRUNCATE);` to flush the Write-Ahead Log back into the main database file.
   - `reconnect()` closes and re-initializes the underlying SQLite connection after file replacement operations.
@@ -92,6 +94,8 @@ NodeStack abstracts SQL execution across three primary engines via `ISqlDialect`
 | `_webhook_deliveries` | Tracks webhook delivery attempts, HTTP statuses, durations, and response bodies. |
 | `_external_auths` | Links OAuth2 provider identities (`provider`, `providerId`) to local auth collection records (`collectionId`, `recordId`). |
 | `_api_keys` | Stores scoped service API keys (`name`, `keyHash`, `keyPrefix`, `scopes`, `collections`, `expiresAt`, `lastUsedAt`). |
+| `_cron_schedules` | Stores recurring job schedules, cron expressions, target bindings (`function`, `flow`, `snapshot`), missed-run policies, and lease states. |
+| `_cron_runs` | Stores job execution logs, timestamps, duration, status, and output/error diagnostics. |
 
 If no `users` collection exists, `SystemMigrations` seeds the default `users` `auth` collection (`id: 'c_users_default'`, with `name` text and `avatar` file fields, public `listRule`/`viewRule`/`createRule: ''`, and owner-only `updateRule`/`deleteRule: 'id = @request.auth.id'`) and creates the underlying `users` table.
 

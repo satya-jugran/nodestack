@@ -4,7 +4,7 @@ title: "Files, Realtime, Webhooks, Snapshots & Observability"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-19T12:05:15.938Z
+    at: 2026-11-21T11:41:59.603Z
 sources:
   - id: openwiki-source-f89e861107ff41a995cce15a
     resource: repo://src/analytics/AnalyticsService.ts
@@ -20,7 +20,7 @@ sources:
     resource: repo://src/snapshots/SnapshotService.ts
   - id: openwiki-source-42775f04299d5f47c666d7ad
     resource: repo://src/webhooks/WebhookService.ts
-generated: { by: "doc-gen", at: "2026-11-15T08:56:16.837Z" }
+generated: { by: "doc-gen", at: "2026-11-21T11:41:59.603Z" }
 ---
 
 # Files, Realtime, Webhooks, Snapshots & Observability
@@ -157,12 +157,13 @@ All snapshot mutations (`createSnapshot`, `restoreSnapshot`, `deleteSnapshot`, `
 ### Operations
 
 - **`createSnapshot(options)`**:
-  - Enforces the 10-snapshot limit (`MAX_SNAPSHOTS = 10`). If full and `evictOldest` is not `true`, throws a `409 ConflictError` with `code: 'SNAPSHOT_LIMIT_REACHED'`. If `evictOldest: true`, removes the oldest snapshot first.
+  - Enforces the 10-snapshot limit (`MAX_SNAPSHOTS = 10`). If full and `evictOldest` is not `true`, throws a `409 ConflictError` with `code: 'SNAPSHOT_LIMIT_REACHED'`. If `evictOldest: true`, atomically evicts the oldest snapshot directory and manifest entry, rejecting partial evictions to prevent disk-manifest drift.
   - Flushes the SQLite WAL via `db.checkpoint('TRUNCATE')` and executes `VACUUM INTO '<snapDir>/data.db'`.
-  - Copies `storageDir` into `<snapDir>/storage`, records collection/record/file counts and `contentHash`, sets `activeSnapshotId` to the new snapshot, and emits `snapshot:create` / `SNAPSHOT_CREATE`.
+  - Copies `storageDir` into `<snapDir>/storage`, records collection/record/file counts, cron schedules, and `contentHash`, sets `activeSnapshotId` to the new snapshot, and emits `snapshot:create` / `SNAPSHOT_CREATE`.
 - **`restoreSnapshot(targetSnapshotId?)`**:
   - Defaults to `activeSnapshotId` (or the latest snapshot).
   - Inside `maintenanceGate.executeExclusive()`: calls `db.lock()`, checkpoints WAL, closes the live SQLite connection (`db.close()`), copies `<snapDir>/data.db` over `db.getDbPath()`, deletes stale `-wal` and `-shm` files, replaces `storageDir` with `<snapDir>/storage`, and in a `finally` block calls `db.reconnect()` and `db.unlock()`.
+  - Reinitializes system tables and refreshes active cron schedules from the restored database state.
   - Updates `activeSnapshotId` without deleting newer snapshots (allowing forward and backward jumping across snapshots) and emits `snapshot:restore` / `SNAPSHOT_RESTORE`.
 - **`getStatus(targetSnapshotId?)`**:
   - Compares live collection counts, record counts, file counts/bytes, and `computeStateHash()` against the target or active snapshot to report `collectionsDelta`, `recordsDelta`, `filesDelta`, `contentChanged`, and `isModified`.

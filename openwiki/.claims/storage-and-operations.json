@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:3a6de035f627bfdccb0117f79f080d4bc55ec05fc0d3cce6cd86a3b012509b18",
+  "pageVersion": "sha256:54f9885f4b3789e71dba79f213bb702233f83ba3e696089cdd29e1946accf54f",
   "claims": [
     {
       "id": "claim_d8170633bd4a4cb798aa45ef105ae15f",
@@ -28,7 +28,7 @@
       "evidence": [
         {
           "resource": "repo://src/webhooks/WebhookService.ts",
-          "version": "repo-file-v1:sha256:970b977bfcc4c60b31cec0bf5e6ada937fa7b5ed0e21729e1d8d418fa471d575"
+          "version": "repo-file-v1:sha256:c72236ff2d72116bc92d7163a03a1b04c6d5233414a2b9f5fe6c437c3f435097"
         }
       ]
     },
@@ -38,7 +38,7 @@
       "evidence": [
         {
           "resource": "repo://src/snapshots/SnapshotService.ts",
-          "version": "repo-file-v1:sha256:f2dad02ed0198cc1cea798b3f4ac92e8772cb4e6a91d0fe10d70f4940d15167c"
+          "version": "repo-file-v1:sha256:b0ac3d2905d208b93dbf26843a6845b28bdbd04223efbcb8a5c71a124a1d63d4"
         }
       ]
     },
@@ -69,6 +69,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-19T12:05:15.938Z"
+    "at": "2026-11-21T11:41:59.603Z"
   }
 }

@@ -4,7 +4,7 @@ title: "Quickstart & Repository Overview"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-19T12:05:15.938Z
+    at: 2026-11-21T11:41:59.603Z
 sources:
   - id: openwiki-source-5b54a58d1b51cd490b0e7162
     resource: repo://package.json
@@ -22,12 +22,12 @@ sources:
     resource: repo://src/NodeStack.ts
   - id: openwiki-source-6ef2b73e0eabdb84d8cc7283
     resource: repo://tests/nodestack.test.ts
-generated: { by: "doc-gen", at: "2026-11-19T12:05:15.938Z" }
+generated: { by: "doc-gen", at: "2026-11-21T11:41:59.603Z" }
 ---
 
 # Quickstart & Repository Overview
 
-NodeStack (`nodestack` v2.6.0) is a TypeScript-native embedded backend stack built on `better-sqlite3` and Node's native HTTP server. It combines dynamic SQLite collections, JWT authentication, collection access rules, serverless functions, workflow automation flows, durable background queues, realtime SSE, outbound webhooks, point-in-time snapshots, and a bundled React Admin UI into a single package and CLI.
+NodeStack (`nodestack` v2.7.0) is a TypeScript-native embedded backend stack built on `node:sqlite` and Node's native HTTP server. It combines dynamic SQLite collections, JWT authentication, collection access rules, serverless functions, recurring cron schedules, workflow automation flows, durable background queues, realtime SSE, outbound webhooks, point-in-time snapshots, and a bundled React Admin UI into a single package and CLI.
 
 ---
 

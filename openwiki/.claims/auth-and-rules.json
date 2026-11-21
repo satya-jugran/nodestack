@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:b02db16dd8331152dc0c17297521fc311f5cf6f84d15c7f0fba8bc03b51ed8c0",
+  "pageVersion": "sha256:bd92096c208650c0723ed4af1b27d86eab9f5a8df1c46bbfc1efcf87cf8e4389",
   "claims": [
     {
       "id": "claim_ddf66823442f460399dfeddeb5b19534",
@@ -54,7 +54,7 @@
       "evidence": [
         {
           "resource": "repo://src/auth/ApiKeyService.ts",
-          "version": "repo-file-v1:sha256:01103c1cea0a6eb076ca45689675b02df91dc8b71ac9da3cda7672485b55549b"
+          "version": "repo-file-v1:sha256:d057af6a66c9d050fbfe5b8bc8b377334372e556e65aab4b5cbbc30a6a224394"
         },
         {
           "resource": "repo://tests/api-keys.test.ts",
@@ -68,7 +68,7 @@
       "evidence": [
         {
           "resource": "repo://src/auth/ApiKeyService.ts",
-          "version": "repo-file-v1:sha256:01103c1cea0a6eb076ca45689675b02df91dc8b71ac9da3cda7672485b55549b"
+          "version": "repo-file-v1:sha256:d057af6a66c9d050fbfe5b8bc8b377334372e556e65aab4b5cbbc30a6a224394"
         },
         {
           "resource": "repo://src/http/middleware/AuthMiddleware.ts",
@@ -105,6 +105,6 @@
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-19T12:05:15.938Z"
+    "at": "2026-11-21T11:41:59.603Z"
   }
 }

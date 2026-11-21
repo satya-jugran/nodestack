@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:db5531ac9748701859ed7c179345d14ecce94f1e97a3b362f7583c67d24881fe",
+  "pageVersion": "sha256:529f427359785b5febad9ec4e3d43c41298d889a24f0a4e4ca7d4b98115143e5",
   "claims": [
     {
       "id": "claim_b690f0f49d864dcbad52372147d84577",
@@ -50,11 +50,11 @@
     },
     {
       "id": "claim_d3a24f07216f4d68a1dffe88f4196524",
-      "statement": "NodeStackClient (@nodestackapp/client) provides type-safe collection CRUD, multi-app scoping via client.app(slug), LocalAuthStore and MemoryAuthStore, RFC 7636 PKCE utilities, and client services for queues, functions, flows, realtime SSE, webhooks, and snapshots.",
+      "statement": "NodeStackClient (@nodestackapp/client) provides type-safe collection CRUD, multi-app scoping via client.app(slug), LocalAuthStore and MemoryAuthStore, RFC 7636 PKCE utilities, and client services for queues, cron scheduling, functions, flows, realtime SSE, webhooks, and snapshots.",
       "evidence": [
         {
           "resource": "repo://packages/client/src/Client.ts",
-          "version": "repo-file-v1:sha256:dc9f1264a0e0b27cd4a898a691554865eb54b5551773eb2721298de281160e96"
+          "version": "repo-file-v1:sha256:559b9a6d8f9e294ccdba36d1a12001689d65bfe8985d10eef639ee1a94fa3e9d"
         },
         {
           "resource": "repo://packages/client/src/auth/BaseAuthStore.ts",
@@ -66,13 +66,13 @@
         },
         {
           "resource": "repo://packages/client/src/index.ts",
-          "version": "repo-file-v1:sha256:fd6a9406b34bf7d051dd8436717a024219871c93662204c985d47ff0547d18a0"
+          "version": "repo-file-v1:sha256:32014f0e9895e2f79c89f14792d318acd12501cd67a071f3eb078ff5f2a3b7e4"
         }
       ]
     }
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-19T12:05:15.938Z"
+    "at": "2026-11-21T11:41:59.603Z"
   }
 }

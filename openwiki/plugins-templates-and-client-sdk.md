@@ -4,7 +4,7 @@ title: "Plugins, Starter Templates & Client SDK"
 openwiki_generated: true
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-19T12:05:15.938Z
+    at: 2026-11-21T11:41:59.603Z
 sources:
   - id: openwiki-source-986c92d89ee5ef388488c0d6
     resource: repo://packages/client/src/auth/BaseAuthStore.ts
@@ -26,7 +26,7 @@ sources:
     resource: repo://src/templates/TemplateImageGenerator.ts
   - id: openwiki-source-830900714b998dab2d6de1b4
     resource: repo://src/templates/TemplateService.ts
-generated: { by: "doc-gen", at: "2026-11-19T12:05:15.938Z" }
+generated: { by: "doc-gen", at: "2026-11-21T11:41:59.603Z" }
 ---
 
 # Plugins, Starter Templates & Client SDK
@@ -124,6 +124,7 @@ The `@nodestackapp/client` package (`packages/client/src/Client.ts` and `package
 | :--- | :--- | :--- |
 | `client.collection(name)` | `RecordService` | `getList`, `getFullList`, `getOne`, `getFirstListItem`, `create`, `update`, `delete`, `authWithPassword`, `listAuthMethods`, `authWithOAuth2Code`, `listExternalAuths`, `unlinkExternalAuth`, `subscribe`, `unsubscribe`. |
 | `client.queue(name)` | `QueueService` | `send`, `sendBatch`, `claim`, `ack` / `complete`, `nack` / `fail`, `touch`, `getJob`, `listJobs`, `retryJob`, `cancelJob`, `retryDlq`, `purge`, `getStats`. |
+| `client.cron` | `CronService` | `preview`, `getStats`, `getAllSchedules`, `getSchedule`, `createSchedule`, `updateSchedule`, `deleteSchedule`, `triggerSchedule`, `getRuns`, `clearRuns`. |
 | `client.functions` | `FunctionService` | `list`, `getOne`, `create`, `update`, `delete`, `invoke`, `test`, `getLogs`, `clearLogs`, `getStats`. |
 | `client.flows` | `FlowService` | `list`, `getOne`, `create`, `update`, `delete`, `execute`, `listExecutions`, `getExecution`, `resumeExecution`, `abortExecution`, `recoverExecutions`, `clearExecutions`. |
 | `client.realtime` | `RealtimeService` | `subscribe(topic, callback)`, `unsubscribe(topic?)` over Server-Sent Events (`EventSource`) with automatic subscription sync via `POST /api/realtime`. |
