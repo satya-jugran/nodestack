@@ -313,7 +313,9 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
       const snapshots = app.snapshots.listSnapshots();
       const createdSnap = snapshots.find((s) => s.id === runLog.executionRefId);
       expect(createdSnap).toBeDefined();
-      expect(createdSnap?.name).toContain('cron-daily-sqlite-backup');
+      expect(createdSnap?.name).toContain('cron-');
+      expect(createdSnap?.name).toContain('daily-sqlite-backup');
+      expect(createdSnap?.name).toContain(schedule.id.toLowerCase().replace(/[^a-z0-9_-]/g, '-'));
     });
   });
 
@@ -826,13 +828,59 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
       await new Promise((r) => setTimeout(r, 20));
       await app.cron.triggerSchedule(sched.id);
 
-      // List all snapshots with prefix for this schedule
-      const prefix = `cron-${sched.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-')}-`;
+      // List all snapshots with schedule-scoped prefix
+      const cleanSchedId = sched.id.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+      const prefix = `cron-${cleanSchedId}-`;
       const allSnaps = await app.snapshots.listSnapshots();
       const matching = (allSnaps || []).filter((s: any) => s.name && s.name.startsWith(prefix));
 
       // Older snapshots beyond keepLast (2) must have been automatically pruned!
       expect(matching.length).toBe(2);
+    });
+
+    it('should isolate keepLast retention between multiple schedules sharing identical names', async () => {
+      const schedA = await app.cron.createSchedule({
+        name: 'Shared Name Backup',
+        targetType: 'snapshot',
+        targetId: 'data.db',
+        cronExpression: '0 0 1 1 *',
+        keepLast: 2,
+      });
+
+      const schedB = await app.cron.createSchedule({
+        name: 'Shared Name Backup',
+        targetType: 'snapshot',
+        targetId: 'data.db',
+        cronExpression: '0 0 1 1 *',
+        keepLast: 2,
+      });
+
+      expect(schedA.id).not.toBe(schedB.id);
+
+      // Trigger Sched A 3 times
+      await app.cron.triggerSchedule(schedA.id);
+      await new Promise((r) => setTimeout(r, 20));
+      await app.cron.triggerSchedule(schedA.id);
+      await new Promise((r) => setTimeout(r, 20));
+      await app.cron.triggerSchedule(schedA.id);
+
+      // Trigger Sched B 3 times
+      await app.cron.triggerSchedule(schedB.id);
+      await new Promise((r) => setTimeout(r, 20));
+      await app.cron.triggerSchedule(schedB.id);
+      await new Promise((r) => setTimeout(r, 20));
+      await app.cron.triggerSchedule(schedB.id);
+
+      const allSnaps = await app.snapshots.listSnapshots();
+      const prefixA = `cron-${schedA.id.toLowerCase().replace(/[^a-z0-9_-]/g, '-')}-`;
+      const prefixB = `cron-${schedB.id.toLowerCase().replace(/[^a-z0-9_-]/g, '-')}-`;
+
+      const matchingA = (allSnaps || []).filter((s: any) => s.name && s.name.startsWith(prefixA));
+      const matchingB = (allSnaps || []).filter((s: any) => s.name && s.name.startsWith(prefixB));
+
+      // Each schedule must independently retain exactly keepLast (2) snapshots without cross-pruning!
+      expect(matchingA.length).toBe(2);
+      expect(matchingB.length).toBe(2);
     });
   });
 

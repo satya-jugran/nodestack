@@ -1353,18 +1353,21 @@ export class CronService {
             );
             throw new AppError(errorMsg, 400);
           }
-          const cleanName = `cron-${schedule.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-')}-${Date.now()}`;
+          const cleanSchedId = schedule.id.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+          const cleanNameSlug = schedule.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+          const cleanName = `cron-${cleanSchedId}-${cleanNameSlug}-${Date.now()}`;
           const snap = await this.snapshotService.createSnapshot({
             name: cleanName,
+            description: `Automated scheduled snapshot for '${schedule.name}' (${schedule.id})`,
             evictOldest: true,
           });
           executionRefId = snap.id;
           output = JSON.stringify({ snapshotId: snap.id, name: snap.name, size: snap.size });
 
-          // Rolling Snapshot Retention: keepLast
+          // Rolling Snapshot Retention: keepLast (scoped to immutable schedule ID)
           if (schedule.keepLast && schedule.keepLast > 0) {
             try {
-              const prefix = `cron-${schedule.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-')}-`;
+              const prefix = `cron-${cleanSchedId}-`;
               const allSnaps = await this.snapshotService.listSnapshots();
               const matchingSnaps = (allSnaps || [])
                 .filter((s: any) => s.name && s.name.startsWith(prefix))
