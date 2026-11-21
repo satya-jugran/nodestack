@@ -368,8 +368,8 @@ export class CronService {
     let nextRunAt: string | null = null;
     if (enabled) {
       const nextDate = this.getNextOccurrence(dto.cronExpression, tz, now);
-      if (expiresAt && nextDate && nextDate.getTime() > new Date(expiresAt).getTime()) {
-        nextRunAt = null;
+      if (expiresAt && (!nextDate || nextDate.getTime() > new Date(expiresAt).getTime())) {
+        nextRunAt = expiresAt;
       } else {
         nextRunAt = nextDate ? nextDate.toISOString() : null;
       }
@@ -516,6 +516,9 @@ export class CronService {
       }
     }
 
+    const now = new Date();
+    const nowIso = now.toISOString();
+
     let expiresAt = existing.expiresAt;
     if (dto.expiresAt !== undefined) {
       if (dto.expiresAt === null || String(dto.expiresAt).trim() === '') {
@@ -524,6 +527,9 @@ export class CronService {
         const expDate = new Date(dto.expiresAt);
         if (isNaN(expDate.getTime())) {
           throw new ValidationError('expiresAt must be a valid ISO 8601 date string');
+        }
+        if (expDate.getTime() <= now.getTime()) {
+          throw new ValidationError('expiresAt must be a future date');
         }
         expiresAt = expDate.toISOString();
       }
@@ -556,14 +562,11 @@ export class CronService {
       payloadStr = typeof existing.payload === 'string' ? existing.payload : JSON.stringify(existing.payload);
     }
 
-    const now = new Date();
-    const nowIso = now.toISOString();
-
     let nextRunAt: string | null = existing.nextRunAt;
-    if (enabled && (dto.cronExpression !== undefined || dto.timezone !== undefined || !existing.enabled)) {
+    if (enabled && (dto.cronExpression !== undefined || dto.timezone !== undefined || !existing.enabled || dto.expiresAt !== undefined)) {
       const nextDate = this.getNextOccurrence(cronExpr, tz, now);
-      if (expiresAt && nextDate && nextDate.getTime() > new Date(expiresAt).getTime()) {
-        nextRunAt = null;
+      if (expiresAt && (!nextDate || nextDate.getTime() > new Date(expiresAt).getTime())) {
+        nextRunAt = expiresAt;
       } else {
         nextRunAt = nextDate ? nextDate.toISOString() : null;
       }
@@ -1120,6 +1123,8 @@ export class CronService {
       } else {
         nextRunAt = nextOccurrence.toISOString();
       }
+    } else if (current.expiresAt) {
+      isExpired = true;
     }
 
     if (isExpired) {

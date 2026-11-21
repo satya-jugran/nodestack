@@ -798,8 +798,8 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
       expect(sched.enabled).toBe(true);
 
       // Simulate passage of time past expiration
-      const pastExpire = new Date(Date.now() + 5000);
-      await app.db.run('UPDATE _cron_schedules SET nextRunAt = ? WHERE id = ?', new Date(Date.now() - 1000).toISOString(), sched.id);
+      const pastExpire = new Date(Date.now() - 1000).toISOString();
+      await app.db.run('UPDATE _cron_schedules SET nextRunAt = ?, expiresAt = ? WHERE id = ?', pastExpire, pastExpire, sched.id);
 
       // Trigger tick after expiration
       await app.cron.tick();
@@ -808,6 +808,46 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
       expect(expiredSched?.enabled).toBe(false);
       expect(expiredSched?.nextRunAt).toBeNull();
       expect(expiredSched?.lastError).toContain('expired');
+    });
+
+    it('should schedule expiration wake-up when first cron occurrence is after expiresAt and persist expired state on tick', async () => {
+      const fn = await app.functions.createFunction({
+        name: 'fn-expire-wakeup',
+        code: `export default async function() { return { status: 200, body: 'ok' }; }`,
+        methods: ['POST'],
+        enabled: true,
+      });
+
+      // Schedule runs on Jan 1st next year, but expires in 200ms
+      const expDate = new Date(Date.now() + 200);
+      const expiresAt = expDate.toISOString();
+      const sched = await app.cron.createSchedule({
+        name: 'Late Occurrence Schedule',
+        targetType: 'function',
+        targetId: fn.id,
+        cronExpression: '0 0 1 1 *',
+        expiresAt,
+        enabled: true,
+      });
+
+      // Since next cron occurrence (Jan 1) is after expiresAt, nextRunAt should be set to expiresAt
+      expect(sched.enabled).toBe(true);
+      expect(sched.nextRunAt).toBe(expiresAt);
+
+      let expiredEventFired = false;
+      app.eventBus.on('cron:expired', (ev: any) => {
+        if (ev.scheduleId === sched.id) expiredEventFired = true;
+      });
+
+      // Wait until expiresAt has passed and scheduler ticks
+      await new Promise((r) => setTimeout(r, 400));
+      await app.cron.tick();
+
+      const updated = await app.cron.getSchedule(sched.id);
+      expect(updated?.enabled).toBe(false);
+      expect(updated?.nextRunAt).toBeNull();
+      expect(updated?.lastError).toBe('Schedule expired');
+      expect(expiredEventFired).toBe(true);
     });
 
     it('should maintain per-schedule rolling snapshot retention (keepLast)', async () => {
