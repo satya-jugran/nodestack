@@ -463,7 +463,18 @@ export class CronService {
       throw new ValidationError('Schedule name cannot be empty');
     }
 
+    if (dto.targetType !== undefined) {
+      if (!dto.targetType || !['function', 'flow', 'snapshot'].includes(dto.targetType)) {
+        throw new ValidationError("Valid targetType ('function', 'flow', 'snapshot') is required");
+      }
+    }
     const targetType = dto.targetType || existing.targetType;
+
+    if (dto.targetId !== undefined) {
+      if (!dto.targetId || !dto.targetId.trim()) {
+        throw new ValidationError('targetId is required and cannot be empty');
+      }
+    }
     const targetId = dto.targetId !== undefined ? dto.targetId.trim() : existing.targetId;
     const enabled = dto.enabled !== undefined ? dto.enabled : existing.enabled;
 
@@ -482,6 +493,11 @@ export class CronService {
       throw new ValidationError(validation.error || 'Invalid cron expression');
     }
 
+    if (dto.missedRunPolicy !== undefined) {
+      if (!['skip', 'catch_up_once', 'catch_up_all'].includes(dto.missedRunPolicy)) {
+        throw new ValidationError(`Invalid missedRunPolicy '${dto.missedRunPolicy}'`);
+      }
+    }
     const missedPolicy = dto.missedRunPolicy || existing.missedRunPolicy;
 
     let maxRetries = existing.maxRetries || 0;
@@ -1366,6 +1382,9 @@ export class CronService {
               console.warn(`[CronService] Failed to prune snapshot retention for '${schedule.id}':`, pruneErr);
             }
           }
+        } else {
+          status = 'failed';
+          error = `Unsupported targetType '${schedule.targetType}'`;
         }
       } catch (err: any) {
         status = 'failed';

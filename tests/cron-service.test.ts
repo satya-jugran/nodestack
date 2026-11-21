@@ -118,6 +118,29 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
       expect(updated.missedRunPolicy).toBe('catch_up_once');
     });
 
+    it('should reject invalid targetType, empty targetId, or invalid missedRunPolicy on updateSchedule', async () => {
+      // 1. Invalid targetType
+      await expect(
+        app.cron.updateSchedule(createdScheduleId, {
+          targetType: 'unsupported_type' as any,
+        })
+      ).rejects.toThrow("Valid targetType ('function', 'flow', 'snapshot') is required");
+
+      // 2. Empty targetId
+      await expect(
+        app.cron.updateSchedule(createdScheduleId, {
+          targetId: '   ',
+        })
+      ).rejects.toThrow('targetId is required and cannot be empty');
+
+      // 3. Invalid missedRunPolicy
+      await expect(
+        app.cron.updateSchedule(createdScheduleId, {
+          missedRunPolicy: 'invalid_policy' as any,
+        })
+      ).rejects.toThrow("Invalid missedRunPolicy 'invalid_policy'");
+    });
+
     it('should provide accurate cron stats', async () => {
       const stats = await app.cron.getStats();
       expect(stats.totalSchedules).toBeGreaterThanOrEqual(1);
