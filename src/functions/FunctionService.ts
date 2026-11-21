@@ -13,6 +13,7 @@ import {
   UpdateFunctionDto,
   FunctionRequestContext,
   FunctionEventContext,
+  FunctionCronContext,
   FunctionHostServices,
   FunctionExecutionResult,
   FunctionLog,
@@ -43,6 +44,7 @@ export interface FunctionServiceOptions {
   queueService?: QueueService;
   authService?: AuthService;
   apiKeyService?: ApiKeyService;
+  cronService?: any;
 }
 
 export class FunctionService {
@@ -55,6 +57,7 @@ export class FunctionService {
   private queueService?: QueueService;
   private authService?: AuthService;
   private apiKeyService?: ApiKeyService;
+  private cronService?: any;
 
   constructor(
     private db: DatabaseService,
@@ -72,7 +75,12 @@ export class FunctionService {
     this.queueService = options.queueService;
     this.authService = options.authService;
     this.apiKeyService = options.apiKeyService;
+    this.cronService = options.cronService;
     this.initTables();
+  }
+
+  public setCronService(cronService: any): void {
+    this.cronService = cronService;
   }
 
   public getActiveExecutions(): number {
@@ -135,6 +143,24 @@ export class FunctionService {
           const colRes = this.db.exec(colSql);
           if (colRes && typeof (colRes as any).then === 'function') {
             void (colRes as Promise<any>).catch(() => {});
+          }
+        } catch {}
+        try {
+          const cols = [
+            `cronSchedule ${this.db.dialect.name === 'sqlite' ? 'TEXT' : 'VARCHAR(255)'}`,
+            `cronTimezone ${this.db.dialect.name === 'sqlite' ? 'TEXT' : 'VARCHAR(100)'}`,
+            `cronMissedPolicy ${this.db.dialect.name === 'sqlite' ? 'TEXT' : 'VARCHAR(50)'}`,
+            `cronPayload ${textType}`,
+          ];
+          for (const col of cols) {
+            const cName = col.split(' ')[0];
+            const sql = this.db.dialect.name === 'postgres'
+              ? `ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "${cName}" ${col.substring(cName.length + 1)}`
+              : this.db.dialect.addColumnSql('_functions', col);
+            const r = this.db.exec(sql);
+            if (r && typeof (r as any).then === 'function') {
+              void (r as Promise<any>).catch(() => {});
+            }
           }
         } catch {}
       };
@@ -244,13 +270,21 @@ export class FunctionService {
     const env = JSON.stringify(dto.env || {});
 
     const invokeRule = dto.invokeRule !== undefined ? dto.invokeRule : null;
+    const cronSchedule = dto.cronSchedule || null;
+    const cronTimezone = dto.cronTimezone || 'UTC';
+    const cronMissedPolicy = dto.cronMissedPolicy || 'skip';
+    let cronPayloadStr: string | null = null;
+    if (dto.cronPayload !== undefined && dto.cronPayload !== null) {
+      cronPayloadStr = typeof dto.cronPayload === 'string' ? dto.cronPayload : JSON.stringify(dto.cronPayload);
+    }
 
     const res = this.db.run(`
       INSERT INTO _functions (
         id, name, description, code, enabled, authPolicy, invokeRule, methods,
-        eventTrigger, timeoutMs, memoryLimitMb, allowedDomains,
+        eventTrigger, cronSchedule, cronTimezone, cronMissedPolicy, cronPayload,
+        timeoutMs, memoryLimitMb, allowedDomains,
         elevated, env, created, updated
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
       id,
       cleanName,
@@ -261,6 +295,10 @@ export class FunctionService {
       invokeRule,
       methods,
       dto.eventTrigger || null,
+      cronSchedule,
+      cronTimezone,
+      cronMissedPolicy,
+      cronPayloadStr,
       dto.timeoutMs || 1000,
       dto.memoryLimitMb || 32,
       allowedDomains,
@@ -273,11 +311,28 @@ export class FunctionService {
     if (res instanceof Promise) {
       return res.then(async () => {
         const created = await this.getFunctionById(id);
+        if (this.cronService && created) {
+          await this.cronService.syncFunctionSchedule(created);
+        }
         return created!;
       });
     }
 
     const created = this.getFunctionById(id);
+    if (this.cronService && created) {
+      if (created instanceof Promise) {
+        return created.then(async (c: any) => {
+          if (c) await this.cronService.syncFunctionSchedule(c);
+          return c!;
+        });
+      }
+      const syncRes = this.cronService.syncFunctionSchedule(created);
+      if (syncRes instanceof Promise) {
+        void syncRes.catch((err: any) => {
+          console.warn(`[FunctionService] Failed to sync cron schedule for function '${created.name}':`, err);
+        });
+      }
+    }
     return created!;
   }
 
@@ -330,6 +385,15 @@ export class FunctionService {
     const invokeRule = dto.invokeRule !== undefined ? dto.invokeRule : (current.invokeRule ?? null);
     const methods = dto.methods ? dto.methods.join(',') : current.methods.join(',');
     const eventTrigger = dto.eventTrigger !== undefined ? dto.eventTrigger : current.eventTrigger;
+    const cronSchedule = dto.cronSchedule !== undefined ? dto.cronSchedule : (current.cronSchedule ?? null);
+    const cronTimezone = dto.cronTimezone !== undefined ? dto.cronTimezone : (current.cronTimezone ?? 'UTC');
+    const cronMissedPolicy = dto.cronMissedPolicy !== undefined ? dto.cronMissedPolicy : (current.cronMissedPolicy ?? 'skip');
+    let cronPayloadStr: string | null = null;
+    if (dto.cronPayload !== undefined) {
+      cronPayloadStr = dto.cronPayload !== null ? (typeof dto.cronPayload === 'string' ? dto.cronPayload : JSON.stringify(dto.cronPayload)) : null;
+    } else if (current.cronPayload !== undefined && current.cronPayload !== null) {
+      cronPayloadStr = typeof current.cronPayload === 'string' ? current.cronPayload : JSON.stringify(current.cronPayload);
+    }
     const timeoutMs = dto.timeoutMs !== undefined ? dto.timeoutMs : current.timeoutMs;
     const memoryLimitMb = dto.memoryLimitMb !== undefined ? dto.memoryLimitMb : current.memoryLimitMb;
     const allowedDomains = dto.allowedDomains ? JSON.stringify(dto.allowedDomains) : JSON.stringify(current.allowedDomains);
@@ -340,8 +404,8 @@ export class FunctionService {
     const res = this.db.run(`
       UPDATE _functions SET
         name = ?, description = ?, code = ?, enabled = ?, authPolicy = ?, invokeRule = ?,
-        methods = ?, eventTrigger = ?, timeoutMs = ?, memoryLimitMb = ?,
-        allowedDomains = ?, elevated = ?, env = ?, updated = ?
+        methods = ?, eventTrigger = ?, cronSchedule = ?, cronTimezone = ?, cronMissedPolicy = ?, cronPayload = ?,
+        timeoutMs = ?, memoryLimitMb = ?, allowedDomains = ?, elevated = ?, env = ?, updated = ?
       WHERE id = ?
     `,
       name,
@@ -352,6 +416,10 @@ export class FunctionService {
       invokeRule,
       methods,
       eventTrigger,
+      cronSchedule,
+      cronTimezone,
+      cronMissedPolicy,
+      cronPayloadStr,
       timeoutMs,
       memoryLimitMb,
       allowedDomains,
@@ -366,11 +434,28 @@ export class FunctionService {
     if (res instanceof Promise || cascadeRes instanceof Promise) {
       return Promise.all([res, cascadeRes]).then(async () => {
         const updated = await this.getFunctionById(id);
+        if (this.cronService && updated) {
+          await this.cronService.syncFunctionSchedule(updated);
+        }
         return updated!;
       });
     }
 
     const updated = this.getFunctionById(id);
+    if (this.cronService && updated) {
+      if (updated instanceof Promise) {
+        return updated.then(async (u: any) => {
+          if (u) await this.cronService.syncFunctionSchedule(u);
+          return u!;
+        });
+      }
+      const syncRes = this.cronService.syncFunctionSchedule(updated);
+      if (syncRes instanceof Promise) {
+        void syncRes.catch((err: any) => {
+          console.warn(`[FunctionService] Failed to sync cron schedule for function '${updated.name}':`, err);
+        });
+      }
+    }
     return updated!;
   }
 
@@ -537,6 +622,9 @@ export class FunctionService {
 
   private finishDeleteFunction(current: FunctionConfig, actor?: any, options?: { force?: boolean }): any {
     const doDelete = () => {
+      if (this.cronService) {
+        void Promise.resolve(this.cronService.removeTargetSchedules('function', current.id)).catch(() => {});
+      }
       const del1 = this.db.run('DELETE FROM _function_logs WHERE functionId = ?', current.id);
       const del2 = this.db.run('DELETE FROM _functions WHERE id = ?', current.id);
       if (del1 instanceof Promise || del2 instanceof Promise) {
@@ -812,6 +900,86 @@ export class FunctionService {
         logs: result.logs.join('\n'),
         error: result.error,
         actorId: actor?.id || `msg:${message.id}`,
+      });
+
+      return result;
+    } finally {
+      this.activeExecutions = Math.max(0, this.activeExecutions - 1);
+      this.queueService?.wakeAllWorkers();
+    }
+  }
+
+  public async executeScheduledFunction(
+    functionIdOrName: string,
+    cronCtx: FunctionCronContext,
+    payload?: any
+  ): Promise<FunctionExecutionResult> {
+    const fn = (await this.getFunctionById(functionIdOrName)) || (await this.getFunctionByName(functionIdOrName));
+    if (!fn) {
+      throw new NotFoundError(`Function '${functionIdOrName}' not found`);
+    }
+
+    if (!fn.enabled) {
+      throw new AppError(`Function '${fn.name}' is currently disabled`, 403);
+    }
+
+    if (this.activeExecutions >= this.maxConcurrent) {
+      throw new FunctionConcurrencyLimitError();
+    }
+
+    const parentStore = this.executionStorage.getStore();
+    const currentDepth = (parentStore?.depth || 0) + 1;
+    const activeFns = parentStore?.activeFns ? new Set(parentStore.activeFns) : new Set<string>();
+
+    if (currentDepth > this.maxRecursionDepth || activeFns.has(fn.id)) {
+      const errorMsg = activeFns.has(fn.id)
+        ? `Circular recursion detected: function '${fn.name}' already active in call stack`
+        : `Maximum function recursion depth of ${this.maxRecursionDepth} exceeded`;
+      throw new AppError(errorMsg, 508);
+    }
+
+    this.activeExecutions++;
+    const nextActiveFns = new Set(activeFns);
+    nextActiveFns.add(fn.id);
+
+    const requestCtx: FunctionRequestContext = {
+      method: 'POST',
+      path: `/api/cron/${cronCtx.scheduleId}`,
+      query: {},
+      headers: { 'x-nodestack-trigger': 'cron' },
+      body: payload,
+      auth: { id: `cron:${cronCtx.scheduleId}`, role: 'admin', isAdmin: true },
+    };
+
+    try {
+      const context = this.buildFunctionContext(
+        fn,
+        requestCtx,
+        undefined,
+        { id: `cron:${cronCtx.scheduleId}`, isAdmin: true },
+        cronCtx
+      );
+      const result = await this.executionStorage.run(
+        { depth: currentDepth, activeFns: nextActiveFns },
+        () =>
+          this.runner.execute(fn.code, context, {
+            timeoutMs: fn.timeoutMs,
+            memoryLimitMb: fn.memoryLimitMb,
+          })
+      );
+
+      this.recordLog({
+        functionId: fn.id,
+        functionName: fn.name,
+        trigger: 'cron',
+        status: result.status,
+        statusCode: result.statusCode,
+        durationMs: result.durationMs,
+        requestPayload: payload !== undefined ? JSON.stringify(payload) : undefined,
+        responsePayload: JSON.stringify(result.body ?? null),
+        logs: result.logs.join('\n'),
+        error: result.error,
+        actorId: `cron:${cronCtx.scheduleId}`,
       });
 
       return result;
@@ -1269,7 +1437,8 @@ export class FunctionService {
     fn: FunctionConfig,
     requestCtx?: FunctionRequestContext,
     eventCtx?: FunctionEventContext,
-    actor?: any
+    actor?: any,
+    cronCtx?: FunctionCronContext
   ): FunctionHostServices {
     // If elevated is true, run as service-role (bypassing user rules)
     const effectiveAuth = fn.elevated
@@ -1471,6 +1640,7 @@ export class FunctionService {
         app: this.appScope,
         request: requestCtx,
         event: eventCtx,
+        cron: cronCtx,
         env: fn.env || {},
         auth: (requestCtx && requestCtx.auth !== undefined) ? requestCtx.auth : (effectiveAuth || null),
       },
@@ -1517,6 +1687,15 @@ export class FunctionService {
       env = row.env ? JSON.parse(row.env) : {};
     } catch {}
 
+    let cronPayload: any = undefined;
+    if (row.cronPayload !== null && row.cronPayload !== undefined) {
+      try {
+        cronPayload = typeof row.cronPayload === 'string' ? JSON.parse(row.cronPayload) : row.cronPayload;
+      } catch {
+        cronPayload = row.cronPayload;
+      }
+    }
+
     return {
       id: row.id,
       name: row.name,
@@ -1527,6 +1706,10 @@ export class FunctionService {
       invokeRule: row.invokeRule ?? null,
       methods: row.methods ? row.methods.split(',').map((m: string) => m.trim()) : ['GET', 'POST'],
       eventTrigger: row.eventTrigger || null,
+      cronSchedule: row.cronSchedule ?? null,
+      cronTimezone: row.cronTimezone ?? null,
+      cronMissedPolicy: row.cronMissedPolicy ?? null,
+      cronPayload,
       timeoutMs: row.timeoutMs || 1000,
       memoryLimitMb: row.memoryLimitMb || 32,
       allowedDomains,

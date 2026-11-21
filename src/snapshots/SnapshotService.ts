@@ -308,14 +308,14 @@ export class SnapshotService {
             }
           );
         }
-        const oldest = currentSnapshots[0];
-        if (oldest.isProtected) {
+        const evictable = currentSnapshots.filter((s) => !s.isProtected);
+        if (evictable.length === 0) {
           throw new ConflictError(
-            `Snapshot limit reached (${this.maxSnapshots}) and oldest snapshot '${oldest.name}' is protected.`
+            `Snapshot limit reached (${this.maxSnapshots}) and all existing snapshots are protected.`
           );
         }
         const evictCount = currentSnapshots.length - this.maxSnapshots + 1;
-        toEvict = currentSnapshots.slice(0, evictCount);
+        toEvict = evictable.slice(0, evictCount);
       }
 
       await this.db.checkpoint();

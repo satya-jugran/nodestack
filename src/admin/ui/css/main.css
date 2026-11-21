@@ -1538,7 +1538,8 @@ html.light {
     /* Slide-Over Drawer Container */
     .record-drawer,
     .plugin-drawer,
-    .webhook-drawer {
+    .webhook-drawer,
+    .schedule-drawer {
       position: fixed;
       top: 0;
       right: 0;
@@ -1556,12 +1557,14 @@ html.light {
     }
     .record-drawer.open,
     .plugin-drawer.open,
-    .webhook-drawer.open {
+    .webhook-drawer.open,
+    .schedule-drawer.open {
       transform: translateX(0);
     }
     .record-drawer:focus,
     .plugin-drawer:focus,
-    .webhook-drawer:focus {
+    .webhook-drawer:focus,
+    .schedule-drawer:focus {
       outline: none;
     }
 

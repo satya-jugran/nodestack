@@ -189,7 +189,25 @@ export function hasQueueScope(
   return hasScopedResourceAccess(auth, 'queues', queueName || '', normalizedActions);
 }
 
-const RESERVED_SCOPE_CATEGORIES = new Set(['*', 'admin', 'functions', 'flows', 'queues']);
+export function hasCronScope(
+  auth: AuthClaims | null | undefined,
+  action: 'read' | 'write' | 'trigger'
+): boolean {
+  if (!auth) return false;
+  if (auth.isAdmin) return true;
+  if (!auth.isApiKey || !Array.isArray(auth.scopes)) return false;
+
+  const normalizedActions =
+    action === 'read'
+      ? ['read', 'list', 'view']
+      : action === 'trigger'
+        ? ['trigger', 'execute', 'run', 'write']
+        : ['write', 'create', 'update', 'delete'];
+
+  return hasScopedResourceAccess(auth, 'cron', '*', normalizedActions);
+}
+
+const RESERVED_SCOPE_CATEGORIES = new Set(['*', 'admin', 'functions', 'flows', 'queues', 'cron']);
 const COLLECTION_READ_ACTIONS = new Set(['read', 'list', 'view']);
 const COLLECTION_WRITE_ACTIONS = new Set(['write', 'create', 'update', 'delete']);
 const QUEUE_GLOBAL_ACTIONS = new Set(['send', 'read', 'delete', '*']);

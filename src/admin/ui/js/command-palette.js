@@ -104,6 +104,16 @@ function getAllCommandPaletteItems() {
     action: () => selectNav('queues')
   },
   {
+    id: 'nav-schedules',
+    title: 'Schedules Manager',
+    description: 'Configure cron schedules, timezone wall-clock triggers, and automated background jobs',
+    category: 'Navigation',
+    badge: 'PAGE',
+    icon: '⏱️',
+    keywords: ['schedules', 'cron', 'timer', 'scheduled', 'triggers', 'backup', 'automation', 'misfire'],
+    action: () => selectNav('schedules')
+  },
+  {
     id: 'nav-api-keys',
     title: 'API Keys',
     description: 'Create scoped machine-to-machine API keys across Collections, Functions, Flows and Queues',

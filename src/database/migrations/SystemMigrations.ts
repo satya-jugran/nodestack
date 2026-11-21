@@ -261,6 +261,48 @@ export class SystemMigrations {
         settings ${txt} NOT NULL,
         updatedAt ${txt} NOT NULL
       `),
+      dialect.createTableIfNotExists('_cron_schedules', `
+        id ${pk} PRIMARY KEY,
+        name ${txt} NOT NULL,
+        targetType ${idx} NOT NULL,
+        targetId ${idx} NOT NULL,
+        cronExpression ${txt} NOT NULL,
+        timezone ${txt} NOT NULL DEFAULT 'UTC',
+        missedRunPolicy ${txt} NOT NULL DEFAULT 'skip',
+        payload ${txt},
+        isSystemBound ${num} NOT NULL DEFAULT 0,
+        enabled ${num} NOT NULL DEFAULT 1,
+        nextRunAt ${date},
+        lastRunAt ${date},
+        lastStatus ${txt},
+        lastError ${txt},
+        leaseOwner ${txt},
+        leaseExpiresAt ${date},
+        claimToken ${txt},
+        created ${date} NOT NULL,
+        updated ${date} NOT NULL
+      `),
+      dialect.createIndexIfNotExists('idx_cron_due', '_cron_schedules', 'enabled, nextRunAt'),
+      dialect.createIndexIfNotExists('idx_cron_target', '_cron_schedules', 'targetType, targetId'),
+      dialect.createIndexIfNotExists('idx_cron_lease', '_cron_schedules', 'leaseExpiresAt'),
+      dialect.createTableIfNotExists('_cron_runs', `
+        id ${pk} PRIMARY KEY,
+        scheduleId ${idx} NOT NULL,
+        scheduleName ${txt} NOT NULL,
+        targetType ${txt} NOT NULL,
+        targetId ${txt} NOT NULL,
+        scheduledAt ${date} NOT NULL,
+        startedAt ${date} NOT NULL,
+        finishedAt ${date},
+        durationMs ${num} NOT NULL DEFAULT 0,
+        status ${idx} NOT NULL,
+        isCatchUp ${num} NOT NULL DEFAULT 0,
+        executionRefId ${txt},
+        output ${txt},
+        error ${txt}
+      `),
+      dialect.createIndexIfNotExists('idx_cron_runs_sched', '_cron_runs', 'scheduleId, startedAt DESC'),
+      dialect.createIndexIfNotExists('idx_cron_runs_status', '_cron_runs', 'status, startedAt DESC'),
     ];
 
     const userSchema = JSON.stringify([
@@ -314,8 +356,16 @@ export class SystemMigrations {
         }
         try { d.exec(`ALTER TABLE _admins ADD COLUMN verified ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`); } catch {}
         try { d.exec(`ALTER TABLE _functions ADD COLUMN invokeRule ${txt}`); } catch {}
+        try { d.exec(`ALTER TABLE _functions ADD COLUMN cronSchedule ${txt}`); } catch {}
+        try { d.exec(`ALTER TABLE _functions ADD COLUMN cronTimezone ${txt}`); } catch {}
+        try { d.exec(`ALTER TABLE _functions ADD COLUMN cronMissedPolicy ${txt}`); } catch {}
+        try { d.exec(`ALTER TABLE _functions ADD COLUMN cronPayload ${txt}`); } catch {}
         try { d.exec(`ALTER TABLE _flows ADD COLUMN authPolicy ${txt} NOT NULL DEFAULT 'public'`); } catch {}
         try { d.exec(`ALTER TABLE _flows ADD COLUMN invokeRule ${txt}`); } catch {}
+        try { d.exec(`ALTER TABLE _flows ADD COLUMN cronSchedule ${txt}`); } catch {}
+        try { d.exec(`ALTER TABLE _flows ADD COLUMN cronTimezone ${txt}`); } catch {}
+        try { d.exec(`ALTER TABLE _flows ADD COLUMN cronMissedPolicy ${txt}`); } catch {}
+        try { d.exec(`ALTER TABLE _flows ADD COLUMN cronInput ${txt}`); } catch {}
         const usersExists = d.prepare('SELECT id FROM _collections WHERE name = ?').get('users');
         if (!usersExists) {
           d.prepare(insertUserSql).run(
@@ -367,13 +417,29 @@ export class SystemMigrations {
         if (dialect.name === 'postgres') {
           try { await driver.exec(`ALTER TABLE "_admins" ADD COLUMN IF NOT EXISTS "verified" ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`); } catch {}
           try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "invokeRule" ${txt}`); } catch {}
+          try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "cronSchedule" ${txt}`); } catch {}
+          try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "cronTimezone" ${txt}`); } catch {}
+          try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "cronMissedPolicy" ${txt}`); } catch {}
+          try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "cronPayload" ${txt}`); } catch {}
           try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "authPolicy" ${txt} NOT NULL DEFAULT 'public'`); } catch {}
           try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "invokeRule" ${txt}`); } catch {}
+          try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronSchedule" ${txt}`); } catch {}
+          try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronTimezone" ${txt}`); } catch {}
+          try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronMissedPolicy" ${txt}`); } catch {}
+          try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronInput" ${txt}`); } catch {}
         } else {
           try { await driver.exec(dialect.addColumnSql('_admins', `verified ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`)); } catch {}
           try { await driver.exec(dialect.addColumnSql('_functions', `invokeRule ${txt}`)); } catch {}
+          try { await driver.exec(dialect.addColumnSql('_functions', `cronSchedule ${txt}`)); } catch {}
+          try { await driver.exec(dialect.addColumnSql('_functions', `cronTimezone ${txt}`)); } catch {}
+          try { await driver.exec(dialect.addColumnSql('_functions', `cronMissedPolicy ${txt}`)); } catch {}
+          try { await driver.exec(dialect.addColumnSql('_functions', `cronPayload ${txt}`)); } catch {}
           try { await driver.exec(dialect.addColumnSql('_flows', `authPolicy ${txt} NOT NULL DEFAULT 'public'`)); } catch {}
           try { await driver.exec(dialect.addColumnSql('_flows', `invokeRule ${txt}`)); } catch {}
+          try { await driver.exec(dialect.addColumnSql('_flows', `cronSchedule ${txt}`)); } catch {}
+          try { await driver.exec(dialect.addColumnSql('_flows', `cronTimezone ${txt}`)); } catch {}
+          try { await driver.exec(dialect.addColumnSql('_flows', `cronMissedPolicy ${txt}`)); } catch {}
+          try { await driver.exec(dialect.addColumnSql('_flows', `cronInput ${txt}`)); } catch {}
         }
       });
     }

@@ -100,6 +100,37 @@ function renderTriggerConfigHtml(flow) {
     `;
   }
 
+  if (triggerType === 'cron') {
+    return `
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <input
+          type="text"
+          id="flow-edit-cron-schedule"
+          class="flow-field-input"
+          placeholder="e.g. 0 * * * * or */15 * * * *"
+          value="${escapeHtml(flow.cronSchedule || '')}"
+          style="width: 140px; padding: 0.25rem 0.5rem; font-size: 0.8rem; font-family: var(--font-mono, monospace);"
+          title="5-field cron expression"
+          oninput="handleFlowCronScheduleChange(this.value)"
+        />
+        <input
+          type="text"
+          id="flow-edit-cron-timezone"
+          class="flow-field-input"
+          placeholder="Timezone"
+          list="iana-timezones-list"
+          value="${escapeHtml(flow.cronTimezone || 'UTC')}"
+          style="width: 110px; padding: 0.25rem 0.5rem; font-size: 0.8rem;"
+          title="IANA timezone (e.g. UTC, America/New_York)"
+          oninput="handleFlowCronTimezoneChange(this.value)"
+        />
+        <span id="flow-cron-preview" style="font-size: 0.72rem; color: var(--text-muted); max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          ${flow.cronSchedule ? '⏱️ Scheduled' : 'Enter expression'}
+        </span>
+      </div>
+    `;
+  }
+
   if (triggerType === 'http') {
     const base = getDesignerFlowsApiBase();
     const endpointPath = `${base}/${flow.id}/execute`;
@@ -151,6 +182,16 @@ function handleFlowTriggerTypeChange(newType) {
   } else {
     designerState.activeFlow.eventTrigger = null;
   }
+  if (newType === 'cron') {
+    if (!designerState.activeFlow.cronSchedule) {
+      designerState.activeFlow.cronSchedule = '0 * * * *';
+    }
+    if (!designerState.activeFlow.cronTimezone) {
+      designerState.activeFlow.cronTimezone = 'UTC';
+    }
+  } else {
+    designerState.activeFlow.cronSchedule = null;
+  }
 
   const configArea = document.getElementById('flow-trigger-config-area');
   if (configArea) {
@@ -161,6 +202,53 @@ function handleFlowTriggerTypeChange(newType) {
     const showCustom = newType === 'http' && (designerState.activeFlow.authPolicy || 'public') === 'custom';
     rulePanel.style.display = showCustom ? 'block' : 'none';
   }
+}
+
+function handleFlowCronScheduleChange(val) {
+  if (!designerState.activeFlow) return;
+  designerState.activeFlow.cronSchedule = val.trim();
+  updateFlowCronPreview();
+}
+
+function handleFlowCronTimezoneChange(val) {
+  if (!designerState.activeFlow) return;
+  designerState.activeFlow.cronTimezone = val.trim() || 'UTC';
+  updateFlowCronPreview();
+}
+
+let flowPreviewTimer = null;
+function updateFlowCronPreview() {
+  clearTimeout(flowPreviewTimer);
+  flowPreviewTimer = setTimeout(async () => {
+    const el = document.getElementById('flow-cron-preview');
+    if (!el || !designerState.activeFlow) return;
+    const expr = designerState.activeFlow.cronSchedule;
+    const tz = designerState.activeFlow.cronTimezone || 'UTC';
+    if (!expr || expr.split(/\s+/).length < 5) {
+      el.textContent = 'Enter 5-field cron';
+      el.style.color = 'var(--text-muted)';
+      return;
+    }
+    try {
+      const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+      const url = slug && slug !== 'default' ? `/api/apps/${slug}/cron/preview` : '/api/cron/preview';
+      const res = await api(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cronExpression: expr, timezone: tz, count: 1 })
+      });
+      if (res && res.valid) {
+        el.textContent = res.description || 'Valid cron';
+        el.style.color = 'var(--accent-success)';
+      } else {
+        el.textContent = res?.error || 'Invalid cron';
+        el.style.color = 'var(--accent-danger)';
+      }
+    } catch (_) {
+      el.textContent = 'Invalid cron';
+      el.style.color = 'var(--accent-danger)';
+    }
+  }, 400);
 }
 
 function handleFlowAuthPolicyChange(policy) {
@@ -203,6 +291,7 @@ function renderFlowDesignerWorkbench(flow) {
               style="font-weight: 700; font-size: 1rem; width: 210px;"
               onchange="updateFlowMeta('name', this.value)"
             />
+            ${flow.id ? `<code style="font-size: 11px; color: var(--text-muted); background: var(--bg-card); border: 1px solid var(--border-subtle); padding: 3px 6px; border-radius: 4px;" title="Unique Flow ID">id: ${escapeHtml(flow.id)}</code>` : ''}
             <div style="display: flex; align-items: center; gap: 0.4rem; background: var(--bg-card); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border-subtle);">
               <span style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Trigger:</span>
               <select
@@ -213,6 +302,7 @@ function renderFlowDesignerWorkbench(flow) {
               >
                 <option value="http" ${flow.triggerType === 'http' ? 'selected' : ''}>HTTP API</option>
                 <option value="event" ${flow.triggerType === 'event' ? 'selected' : ''}>DB Event</option>
+                <option value="cron" ${flow.triggerType === 'cron' ? 'selected' : ''}>Cron Schedule</option>
                 <option value="manual" ${flow.triggerType === 'manual' ? 'selected' : ''}>Manual</option>
               </select>
               <div id="flow-trigger-config-area" style="display: flex; align-items: center; gap: 6px;">
@@ -1065,6 +1155,8 @@ async function saveFlowChanges(options = {}) {
           ? (typeof getStandaloneRuleValue === 'function' ? getStandaloneRuleValue('flow_invoke') : (flow.invokeRule || null))
           : null,
         eventTrigger: flow.triggerType === 'event' ? (flow.eventTrigger || null) : null,
+        cronSchedule: flow.triggerType === 'cron' ? (flow.cronSchedule || null) : null,
+        cronTimezone: flow.triggerType === 'cron' ? (flow.cronTimezone || 'UTC') : 'UTC',
         maxConcurrentExecutions: flow.maxConcurrentExecutions ?? null,
         definition: flow.definition,
       }),
@@ -1097,6 +1189,8 @@ if (typeof window !== 'undefined') {
   window.renderFlowDesignerWorkbench = renderFlowDesignerWorkbench;
   window.updateFlowMeta = updateFlowMeta;
   window.handleFlowTriggerTypeChange = handleFlowTriggerTypeChange;
+  window.handleFlowCronScheduleChange = handleFlowCronScheduleChange;
+  window.handleFlowCronTimezoneChange = handleFlowCronTimezoneChange;
   window.handleFlowAuthPolicyChange = handleFlowAuthPolicyChange;
   window.updateFlowStartAt = updateFlowStartAt;
   window.updateStepProp = updateStepProp;

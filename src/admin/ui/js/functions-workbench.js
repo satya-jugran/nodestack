@@ -573,6 +573,7 @@ function renderWorkbenchHeader(fn, isNew, invokePath) {
               <h2 style="font-size: 1.35rem; font-weight: 700; color: var(--text-main); margin: 0; font-family: monospace; display: flex; align-items: center; gap: 8px;">
                 ${escapeHtml(fn.name)}
               </h2>
+              ${fn.id ? `<code style="font-size: 11px; color: var(--text-muted); background: var(--bg-card-hover); border: 1px solid var(--border-subtle); padding: 2px 6px; border-radius: 4px;" title="Unique Function ID">id: ${escapeHtml(fn.id)}</code>` : ''}
               <div id="editor-header-badges" style="display: inline-flex; align-items: center; gap: 6px;">
                 <span class="badge" style="background: ${fn.enabled !== false ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-card-hover)'}; color: ${fn.enabled !== false ? '#10b981' : 'var(--text-muted)'};">
                   ${fn.enabled !== false ? '● Active' : '○ Disabled'}
@@ -587,6 +588,7 @@ function renderWorkbenchHeader(fn, isNew, invokePath) {
                 📋 Copy URL
               </button>
               ${fn.eventTrigger ? `<span style="color: var(--accent-primary);">⚡ Hook: <code>${escapeHtml(fn.eventTrigger)}</code></span>` : ''}
+              ${fn.cronSchedule ? `<span style="color: var(--accent-success);">⏱️ Cron: <code>${escapeHtml(fn.cronSchedule)}</code> (${escapeHtml(fn.cronTimezone || 'UTC')})</span>` : ''}
               <span>Limits: ${fn.timeoutMs || 1000}ms / ${fn.memoryLimitMb || 32}MB</span>
             </div>
           `}
@@ -777,6 +779,16 @@ function renderWorkbenchConfigPane(fn, isNew, allowedDomainsString, envString) {
               Format: <code>&lt;collection&gt;:&lt;phase&gt;&lt;Action&gt;</code>. Available phases: <code>beforeCreate</code>, <code>afterCreate</code>, <code>beforeUpdate</code>, <code>afterUpdate</code>, <code>beforeDelete</code>, <code>afterDelete</code>.
             </span>
           </div>
+          <div>
+            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px;">Scheduled Cron Trigger (Optional)</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="fn-editor-cron" class="input" value="${escapeHtml(fn.cronSchedule || '')}" placeholder="e.g. 0 9 * * 1-5 or */15 * * * *" style="flex: 1; font-size: 12px; font-family: monospace;" autocomplete="off">
+              <input type="text" id="fn-editor-timezone" class="input" value="${escapeHtml(fn.cronTimezone || 'UTC')}" placeholder="Timezone (UTC)" list="iana-timezones-list" style="width: 140px; font-size: 12px;">
+            </div>
+            <span style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display: block;">
+              Standard 5-field cron expression. Automatically scheduled with distributed atomic DB lease locking.
+            </span>
+          </div>
         </div>
       </div>
 
@@ -941,6 +953,8 @@ async function saveFunctionEditor() {
     const elevatedEl = document.getElementById('fn-editor-elevated');
     const enabledEl = document.getElementById('fn-editor-enabled');
     const envEl = document.getElementById('fn-editor-env');
+    const cronEl = document.getElementById('fn-editor-cron');
+    const tzEl = document.getElementById('fn-editor-timezone');
 
     const nameHeaderEl = document.getElementById('fn-editor-name-header');
     const nameConfigEl = document.getElementById('fn-editor-name');
@@ -968,6 +982,8 @@ async function saveFunctionEditor() {
     const allowedDomains = domainsRaw ? domainsRaw.split(',').map(s => s.trim()).filter(Boolean) : (fn.allowedDomains || []);
     const elevated = elevatedEl ? elevatedEl.checked : !!fn.elevated;
     const enabled = enabledEl ? enabledEl.checked : (fn.enabled !== false);
+    const cronSchedule = cronEl ? (cronEl.value.trim() || null) : (fn.cronSchedule || null);
+    const cronTimezone = tzEl ? (tzEl.value.trim() || 'UTC') : (fn.cronTimezone || 'UTC');
 
     let env = fn.env || {};
     if (envEl && envEl.value.trim()) {
@@ -994,6 +1010,8 @@ async function saveFunctionEditor() {
       allowedDomains,
       elevated,
       enabled,
+      cronSchedule,
+      cronTimezone,
       code,
       env,
     };

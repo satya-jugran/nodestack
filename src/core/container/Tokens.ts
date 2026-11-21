@@ -43,4 +43,6 @@ export const TOKENS = {
   AppManager: Symbol('AppManager'),
   DatabaseConfigService: Symbol('DatabaseConfigService'),
   DatabaseController: Symbol('DatabaseController'),
+  CronService: Symbol('CronService'),
+  CronController: Symbol('CronController'),
 } as const;

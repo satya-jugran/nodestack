@@ -1360,8 +1360,8 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       // 5. Reject invalid triggerType on update
       expect(() => {
-        app.flows.updateFlow(validFlow.id, { triggerType: 'cron' as any });
-      }).toThrow(/Invalid triggerType 'cron'/);
+        app.flows.updateFlow(validFlow.id, { triggerType: 'webhook' as any });
+      }).toThrow(/Invalid triggerType 'webhook'/);
 
       // 6. Reject invalid event pattern on update
       expect(() => {

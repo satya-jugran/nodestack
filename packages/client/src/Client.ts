@@ -12,6 +12,7 @@ import { AppService } from './services/AppService';
 import { FunctionService } from './services/FunctionService';
 import { FlowService } from './services/FlowService';
 import { QueueService } from './services/QueueService';
+import { CronService } from './services/CronService';
 import { ApiKeyService } from './services/ApiKeyService';
 import type {
   ClientOptions,
@@ -37,6 +38,7 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
   public readonly apps: AppService;
   public readonly functions: FunctionService;
   public readonly flows: FlowService;
+  public readonly cron: CronService;
   public readonly appSlug?: string;
 
   private customFetch?: typeof fetch;
@@ -66,6 +68,7 @@ export class NodeStackClient<TCollections extends Record<string, any> = Record<s
     this.apps = new AppService(this);
     this.functions = new FunctionService(this);
     this.flows = new FlowService(this);
+    this.cron = new CronService(this);
   }
 
   /**

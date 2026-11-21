@@ -22,6 +22,7 @@ import { WebhookController } from './controllers/WebhookController';
 import { FunctionController } from './controllers/FunctionController';
 import { FlowController } from './controllers/FlowController';
 import { QueueController } from './controllers/QueueController';
+import { CronController } from './controllers/CronController';
 import { DatabaseController } from './controllers/DatabaseController';
 import { AppController } from './controllers/AppController';
 import { AppResolutionMiddleware } from './middleware/AppResolutionMiddleware';
@@ -40,9 +41,14 @@ export class HttpServer {
   private functionController?: FunctionController;
   private flowController?: FlowController;
   private queueController?: QueueController;
+  private cronController?: CronController;
   private databaseController?: DatabaseController;
   private dynamicRouteHandler?: (req: FastifyRequest, reply: FastifyReply) => Promise<boolean>;
   private dynamicRouteMatcher?: (method: string, path: string) => any;
+
+  public setCronController(controller: CronController): void {
+    this.cronController = controller;
+  }
 
   public setDatabaseController(controller: DatabaseController): void {
     this.databaseController = controller;
@@ -99,7 +105,8 @@ export class HttpServer {
     functionController?: FunctionController,
     flowController?: FlowController,
     queueController?: QueueController,
-    databaseController?: DatabaseController
+    databaseController?: DatabaseController,
+    cronController?: CronController
   ) {
     this.maintenanceGate = maintenanceGate;
     if (databaseController) {
@@ -116,6 +123,9 @@ export class HttpServer {
     }
     if (queueController) {
       this.queueController = queueController;
+    }
+    if (cronController) {
+      this.cronController = cronController;
     }
 
     let analyticsController: AnalyticsController | undefined;
@@ -470,7 +480,8 @@ export class HttpServer {
           (req.method === 'POST' || req.method === 'DELETE' || req.method === 'PATCH') &&
           (req.url.includes('/restore') ||
            req.url.includes('/snapshots') ||
-           req.url.includes('/database/switch'));
+           req.url.includes('/database/switch') ||
+           req.url.includes('/cron/schedules'));
         const isExempt =
           isExclusiveMutation ||
           req.url.includes('/restore') ||
@@ -1003,6 +1014,39 @@ export class HttpServer {
       );
     }
 
+    if (this.cronController) {
+      app.post('/api/apps/:appId/cron/preview', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.getPreview(req, reply)
+      );
+      app.get('/api/apps/:appId/cron/stats', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.getStats(req, reply)
+      );
+      app.get('/api/apps/:appId/cron/schedules', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.getSchedules(req, reply)
+      );
+      app.post('/api/apps/:appId/cron/schedules', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.createSchedule(req, reply)
+      );
+      app.get('/api/apps/:appId/cron/schedules/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.getSchedule(req, reply)
+      );
+      app.patch('/api/apps/:appId/cron/schedules/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.updateSchedule(req, reply)
+      );
+      app.delete('/api/apps/:appId/cron/schedules/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.deleteSchedule(req, reply)
+      );
+      app.post('/api/apps/:appId/cron/schedules/:id/trigger', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.triggerSchedule(req, reply)
+      );
+      app.get('/api/apps/:appId/cron/runs', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.getRuns(req, reply)
+      );
+      app.delete('/api/apps/:appId/cron/runs', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.clearRuns(req, reply)
+      );
+    }
+
     app.get('/api/apps/:appId/realtime', (req, reply) => this.realtimeController.connect(req, reply));
     app.post('/api/apps/:appId/realtime', (req, reply) => this.realtimeController.setSubscriptions(req, reply));
 
@@ -1513,6 +1557,39 @@ export class HttpServer {
       );
       app.delete('/api/queues/:name/purge', { preHandler: requireAdmin }, (req: any, reply) =>
         this.queueController!.purgeQueue(req, reply)
+      );
+    }
+
+    if (this.cronController) {
+      app.post('/api/cron/preview', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.getPreview(req, reply)
+      );
+      app.get('/api/cron/stats', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.getStats(req, reply)
+      );
+      app.get('/api/cron/schedules', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.getSchedules(req, reply)
+      );
+      app.post('/api/cron/schedules', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.createSchedule(req, reply)
+      );
+      app.get('/api/cron/schedules/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.getSchedule(req, reply)
+      );
+      app.patch('/api/cron/schedules/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.updateSchedule(req, reply)
+      );
+      app.delete('/api/cron/schedules/:id', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.deleteSchedule(req, reply)
+      );
+      app.post('/api/cron/schedules/:id/trigger', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.triggerSchedule(req, reply)
+      );
+      app.get('/api/cron/runs', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.getRuns(req, reply)
+      );
+      app.delete('/api/cron/runs', { preHandler: requireAdmin }, (req: any, reply) =>
+        this.cronController!.clearRuns(req, reply)
       );
     }
 

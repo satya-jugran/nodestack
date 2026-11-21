@@ -54,6 +54,9 @@ async function parseUrlAndNavigate(initial = false) {
       try {
         await loadCollections();
       } catch (_) {}
+      if (typeof loadCronStats === 'function') {
+        try { await loadCronStats(); } catch (_) {}
+      }
     }
   } else if (!initial && state.activeApp && state.activeApp.slug !== 'default') {
     // Navigating back/forward (popstate) to a route without ?app= query parameter; restore default app
@@ -68,6 +71,9 @@ async function parseUrlAndNavigate(initial = false) {
       try {
         await loadCollections();
       } catch (_) {}
+      if (typeof loadCronStats === 'function') {
+        try { await loadCronStats(); } catch (_) {}
+      }
     }
   }
 
@@ -175,6 +181,17 @@ async function parseUrlAndNavigate(initial = false) {
     } else {
       if (typeof switchQueuesTab === 'function') switchQueuesTab('queues', false);
     }
+  } else if (root === 'schedules') {
+    const isHistory = parts[1] === 'history' || parts[1] === 'runs';
+    if (typeof cronState !== 'undefined') {
+      cronState.subTab = isHistory ? 'history' : 'schedules';
+    }
+    await selectNav('schedules', false);
+    if (isHistory) {
+      if (typeof switchCronTab === 'function') switchCronTab('history', false);
+    } else {
+      if (typeof switchCronTab === 'function') switchCronTab('schedules', false);
+    }
   } else if (root === 'webhooks') {
     if (typeof webhooksState !== 'undefined') {
       webhooksState.subTab = (parts[1] === 'deliveries') ? 'deliveries' : 'webhooks';
@@ -236,6 +253,7 @@ function initRouter() {
     if (typeof closeApiKeyDrawer === 'function') closeApiKeyDrawer();
     if (typeof closeApiKeySecretModal === 'function') closeApiKeySecretModal();
     if (typeof closeCommandPalette === 'function') closeCommandPalette();
+    if (typeof closeScheduleDrawer === 'function') closeScheduleDrawer();
 
     await parseUrlAndNavigate(false);
   });
@@ -243,7 +261,7 @@ function initRouter() {
 
 
 function showPageView(viewName) {
-  const views = ['home', 'collections', 'plugins', 'webhooks', 'functions', 'flows', 'queues', 'api-keys', 'analytics', 'snapshots', 'database', 'logs'];
+  const views = ['home', 'collections', 'plugins', 'webhooks', 'functions', 'flows', 'queues', 'schedules', 'api-keys', 'analytics', 'snapshots', 'database', 'logs'];
   for (const v of views) {
     const el = document.getElementById('page-view-' + v);
     if (el) {
@@ -257,7 +275,7 @@ function showPageView(viewName) {
 }
 
 function clearSidebarNavActive() {
-  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-functions', 'nav-flows', 'nav-queues', 'nav-api-keys', 'nav-analytics', 'nav-snapshots', 'nav-database', 'nav-logs'];
+  const navIds = ['nav-home', 'nav-collections', 'nav-plugins', 'nav-webhooks', 'nav-functions', 'nav-flows', 'nav-queues', 'nav-schedules', 'nav-api-keys', 'nav-analytics', 'nav-snapshots', 'nav-database', 'nav-logs'];
   for (const id of navIds) {
     document.getElementById(id)?.classList.remove('active');
   }
@@ -296,6 +314,7 @@ async function selectNav(nav, pushState = true) {
     if (typeof closeApiKeyDrawer === 'function') closeApiKeyDrawer();
     if (typeof closeApiKeySecretModal === 'function') closeApiKeySecretModal();
     if (typeof closeCommandPalette === 'function') closeCommandPalette();
+    if (typeof closeScheduleDrawer === 'function') closeScheduleDrawer();
   }
 
   if (nav === 'home') {
@@ -414,6 +433,20 @@ async function selectNav(nav, pushState = true) {
     document.getElementById('view-title').style.display = 'none';
     document.getElementById('view-actions').innerHTML = '';
     if (typeof renderQueuesView === 'function') renderQueuesView();
+  } else if (nav === 'schedules') {
+    state.activeCollection = null;
+    if (pushState && typeof cronState !== 'undefined') {
+      cronState.subTab = 'schedules';
+    }
+    if (typeof renderCollectionsList === 'function') renderCollectionsList();
+    showPageView('schedules');
+    document.getElementById('collection-tabs').style.display = 'none';
+    document.getElementById('view-badge').style.display = 'none';
+    document.getElementById('nav-schedules')?.classList.add('active');
+    document.getElementById('view-title').textContent = 'Schedules Manager';
+    document.getElementById('view-title').style.display = 'none';
+    document.getElementById('view-actions').innerHTML = '';
+    if (typeof renderSchedulesView === 'function') renderSchedulesView();
   } else if (nav === 'api-keys') {
     state.activeCollection = null;
     if (typeof renderCollectionsList === 'function') renderCollectionsList();
@@ -521,6 +554,8 @@ async function selectNav(nav, pushState = true) {
       updateUrl('/_/flows');
     } else if (nav === 'queues') {
       updateUrl('/_/queues');
+    } else if (nav === 'schedules') {
+      updateUrl('/_/schedules');
     } else if (nav === 'api-keys') {
       updateUrl('/_/api-keys');
     } else if (nav === 'analytics') {
