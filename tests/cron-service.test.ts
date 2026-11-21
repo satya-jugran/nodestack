@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
 import { CronService } from '../src/cron/CronService';
+import { DatabaseService } from '../src/database/DatabaseService';
+import { NodeSqliteDriver } from '../src/database/drivers/NodeSqliteDriver';
 
 describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', () => {
   const testDir = path.resolve(__dirname, '../.test_cron_nodestack_data');
@@ -653,7 +655,7 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
         name: 'Retry Schedule Test',
         targetType: 'function',
         targetId: fn.id,
-        cronExpression: '* * * * *',
+        cronExpression: '0 0 1 1 *',
         maxRetries: 2,
       });
 
@@ -808,6 +810,82 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
 
       // Older snapshots beyond keepLast (2) must have been automatically pruned!
       expect(matching.length).toBe(2);
+    });
+  });
+
+  describe('11. Startup & Closed Database Lifecycle Resiliency', () => {
+    it('should handle start() when database is closed, and successfully start when database is opened without stale promise lockout', async () => {
+      let isOpenState = false;
+      const realDriver = new NodeSqliteDriver(':memory:');
+      const mockDriver: any = new Proxy(realDriver, {
+        get(target, prop) {
+          if (prop === 'isOpen') return () => isOpenState;
+          const val = (target as any)[prop];
+          return typeof val === 'function' ? val.bind(target) : val;
+        },
+      });
+      const db = new DatabaseService({} as any, mockDriver);
+
+      expect(db.isOpen()).toBe(false);
+
+      const cron = new CronService(db);
+      expect(cron.isRunning()).toBe(false);
+
+      // 1. Call start() before driver is initialized/open
+      await cron.start();
+      // Should not be marked running, and should not lock out future start() calls
+      expect(cron.isRunning()).toBe(false);
+
+      // 2. Database driver becomes open
+      isOpenState = true;
+      expect(db.isOpen()).toBe(true);
+
+      // 3. Call start() now that DB is open
+      await cron.start();
+      expect(cron.isRunning()).toBe(true);
+
+      // 4. Verify power feature columns exist and schedule creation succeeds
+      const sched = await cron.createSchedule({
+        name: 'Resilient Power Schedule',
+        targetType: 'function',
+        targetId: 'fn-test',
+        cronExpression: '0 0 * * *',
+        maxRetries: 3,
+        autoPauseAfterFailures: 5,
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      });
+
+      expect(sched.id).toBeDefined();
+      expect(sched.maxRetries).toBe(3);
+      expect(sched.autoPauseAfterFailures).toBe(5);
+      expect(sched.expiresAt).toBeDefined();
+
+      const retrieved = await cron.getSchedule(sched.id);
+      expect(retrieved?.name).toBe('Resilient Power Schedule');
+      expect(retrieved?.maxRetries).toBe(3);
+
+      await cron.dispose();
+      await realDriver.close();
+    });
+
+    it('should start cron and queue on new app scope after scope.ensureInitialized() completes', async () => {
+      const newApp = await app.apps.create({
+        name: 'Lifecycle App Test',
+      });
+
+      const scope = await app.apps.getAsync(newApp.slug);
+      expect(scope.cron.isRunning()).toBe(true);
+
+      const sched = await scope.cron.createSchedule({
+        name: 'Tenant Sched',
+        targetType: 'function',
+        targetId: 'fn-tenant',
+        cronExpression: '*/10 * * * *',
+        maxRetries: 2,
+      });
+
+      expect(sched.id).toBeDefined();
+      expect(sched.maxRetries).toBe(2);
     });
   });
 });

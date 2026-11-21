@@ -34,11 +34,14 @@ export class CronService {
   private snapshotService?: any;
 
   private isDisposed = false;
+  private isStarted = false;
+  private tablesEnsured = false;
   private loopTimer: NodeJS.Timeout | null = null;
   private isTicking = false;
   private activeRenewals = new Map<string, NodeJS.Timeout>();
   private readonly instanceId: string = randomUUID();
   private startPromise: Promise<void> | null = null;
+  private ensureTablesPromise: Promise<void> | null = null;
 
   constructor(db: DatabaseService, options: CronServiceOptions = {}) {
     this.db = db;
@@ -63,6 +66,16 @@ export class CronService {
 
   public onDriverSwitched(newDb: DatabaseService): void {
     this.db = newDb;
+    this.tablesEnsured = false;
+    if (this.isDbAvailable()) {
+      void this.ensureTables().then(() => {
+        if (this.isDbAvailable()) {
+          this.cleanStaleLeases().catch(() => {});
+          this.scheduleNextWake();
+          this.isStarted = true;
+        }
+      }).catch(() => {});
+    }
   }
 
   public isDbAvailable(): boolean {
@@ -75,11 +88,18 @@ export class CronService {
     return true;
   }
 
+  public isRunning(): boolean {
+    return this.isStarted && !this.isDisposed;
+  }
+
   // ==========================================
   // Lifecycle
   // ==========================================
 
   public async start(): Promise<void> {
+    if (this.isStarted && !this.isDisposed) {
+      return;
+    }
     if (this.startPromise) {
       return this.startPromise;
     }
@@ -87,13 +107,27 @@ export class CronService {
 
     this.startPromise = (async () => {
       try {
-        await this.ensureTables();
+        if (!this.isDbAvailable()) {
+          // If database driver is closed, attempt initialization if db exists
+          if (this.db && !this.db.isOpen()) {
+            try {
+              await this.db.init();
+            } catch {
+              // DB driver may still be pending initialization via scope.ensureInitialized()
+            }
+          }
+        }
+
         if (this.isDbAvailable()) {
+          await this.ensureTables();
           await this.cleanStaleLeases();
           this.scheduleNextWake();
+          this.isStarted = true;
         }
       } catch (err) {
         // Table initialization or schedule query failure
+      } finally {
+        this.startPromise = null;
       }
     })();
 
@@ -102,6 +136,8 @@ export class CronService {
 
   public async dispose(): Promise<void> {
     this.isDisposed = true;
+    this.isStarted = false;
+    this.tablesEnsured = false;
     if (this.loopTimer) {
       clearTimeout(this.loopTimer);
       this.loopTimer = null;
@@ -111,6 +147,7 @@ export class CronService {
     }
     this.activeRenewals.clear();
     this.startPromise = null;
+    this.ensureTablesPromise = null;
   }
 
   public async resetAfterRestore(): Promise<void> {
@@ -123,9 +160,12 @@ export class CronService {
     }
     this.activeRenewals.clear();
 
+    this.tablesEnsured = false;
     if (this.isDbAvailable()) {
+      await this.ensureTables();
       await this.cleanStaleLeases();
       this.scheduleNextWake();
+      this.isStarted = true;
     }
   }
 
@@ -138,88 +178,103 @@ export class CronService {
     }
   }
 
-  private async ensureTables(): Promise<void> {
-    if (!this.isDbAvailable()) return;
-    const dialect = this.db.dialect;
-    const pk = dialect.name === 'sqlite' ? 'TEXT' : 'VARCHAR(255)';
-    const txt = dialect.textType();
-    const num = dialect.name === 'sqlite' ? 'INTEGER' : 'INT';
-    const date = dialect.timestampType();
-    const idx = dialect.name === 'sqlite' ? 'TEXT' : 'VARCHAR(100)';
+  public async ensureTables(): Promise<void> {
+    if (this.tablesEnsured || !this.isDbAvailable()) return;
+    if (this.ensureTablesPromise) {
+      return this.ensureTablesPromise;
+    }
 
-    const ddlSchedules = dialect.createTableIfNotExists(
-      '_cron_schedules',
-      `
-      id ${pk} PRIMARY KEY,
-      name ${txt} NOT NULL,
-      targetType ${idx} NOT NULL,
-      targetId ${idx} NOT NULL,
-      cronExpression ${txt} NOT NULL,
-      timezone ${txt} NOT NULL DEFAULT 'UTC',
-      missedRunPolicy ${txt} NOT NULL DEFAULT 'skip',
-      payload ${txt},
-      isSystemBound ${num} NOT NULL DEFAULT 0,
-      enabled ${num} NOT NULL DEFAULT 1,
-      nextRunAt ${date},
-      lastRunAt ${date},
-      lastStatus ${txt},
-      lastError ${txt},
-      leaseOwner ${txt},
-      leaseExpiresAt ${date},
-      claimToken ${txt},
-      maxRetries ${num} NOT NULL DEFAULT 0,
-      autoPauseAfterFailures ${num} NOT NULL DEFAULT 0,
-      consecutiveFailures ${num} NOT NULL DEFAULT 0,
-      expiresAt ${date},
-      keepLast ${num},
-      created ${date} NOT NULL,
-      updated ${date} NOT NULL
-    `
-    );
+    this.ensureTablesPromise = (async () => {
+      try {
+        if (!this.isDbAvailable()) return;
+        const dialect = this.db.dialect;
+        const pk = dialect.name === 'sqlite' ? 'TEXT' : 'VARCHAR(255)';
+        const txt = dialect.textType();
+        const num = dialect.name === 'sqlite' ? 'INTEGER' : 'INT';
+        const date = dialect.timestampType();
+        const idx = dialect.name === 'sqlite' ? 'TEXT' : 'VARCHAR(100)';
 
-    const ddlRuns = dialect.createTableIfNotExists(
-      '_cron_runs',
-      `
-      id ${pk} PRIMARY KEY,
-      scheduleId ${idx} NOT NULL,
-      scheduleName ${txt} NOT NULL,
-      targetType ${txt} NOT NULL,
-      targetId ${txt} NOT NULL,
-      scheduledAt ${date} NOT NULL,
-      startedAt ${date} NOT NULL,
-      finishedAt ${date},
-      durationMs ${num} NOT NULL DEFAULT 0,
-      status ${idx} NOT NULL,
-      isCatchUp ${num} NOT NULL DEFAULT 0,
-      attempt ${num} NOT NULL DEFAULT 1,
-      executionRefId ${txt},
-      output ${txt},
-      error ${txt}
-    `
-    );
+        const ddlSchedules = dialect.createTableIfNotExists(
+          '_cron_schedules',
+          `
+          id ${pk} PRIMARY KEY,
+          name ${txt} NOT NULL,
+          targetType ${idx} NOT NULL,
+          targetId ${idx} NOT NULL,
+          cronExpression ${txt} NOT NULL,
+          timezone ${txt} NOT NULL DEFAULT 'UTC',
+          missedRunPolicy ${txt} NOT NULL DEFAULT 'skip',
+          payload ${txt},
+          isSystemBound ${num} NOT NULL DEFAULT 0,
+          enabled ${num} NOT NULL DEFAULT 1,
+          nextRunAt ${date},
+          lastRunAt ${date},
+          lastStatus ${txt},
+          lastError ${txt},
+          leaseOwner ${txt},
+          leaseExpiresAt ${date},
+          claimToken ${txt},
+          maxRetries ${num} NOT NULL DEFAULT 0,
+          autoPauseAfterFailures ${num} NOT NULL DEFAULT 0,
+          consecutiveFailures ${num} NOT NULL DEFAULT 0,
+          expiresAt ${date},
+          keepLast ${num},
+          created ${date} NOT NULL,
+          updated ${date} NOT NULL
+        `
+        );
 
-    try {
-      await this.db.exec(ddlSchedules);
-      await this.db.exec(ddlRuns);
-      await this.db.exec(dialect.createIndexIfNotExists('idx_cron_due', '_cron_schedules', 'enabled, nextRunAt'));
-      await this.db.exec(dialect.createIndexIfNotExists('idx_cron_target', '_cron_schedules', 'targetType, targetId'));
-      await this.db.exec(dialect.createIndexIfNotExists('idx_cron_lease', '_cron_schedules', 'leaseExpiresAt'));
-      await this.db.exec(dialect.createIndexIfNotExists('idx_cron_runs_sched', '_cron_runs', 'scheduleId, startedAt DESC'));
-      await this.db.exec(dialect.createIndexIfNotExists('idx_cron_runs_status', '_cron_runs', 'status, startedAt DESC'));
+        const ddlRuns = dialect.createTableIfNotExists(
+          '_cron_runs',
+          `
+          id ${pk} PRIMARY KEY,
+          scheduleId ${idx} NOT NULL,
+          scheduleName ${txt} NOT NULL,
+          targetType ${txt} NOT NULL,
+          targetId ${txt} NOT NULL,
+          scheduledAt ${date} NOT NULL,
+          startedAt ${date} NOT NULL,
+          finishedAt ${date},
+          durationMs ${num} NOT NULL DEFAULT 0,
+          status ${idx} NOT NULL,
+          isCatchUp ${num} NOT NULL DEFAULT 0,
+          attempt ${num} NOT NULL DEFAULT 1,
+          executionRefId ${txt},
+          output ${txt},
+          error ${txt}
+        `
+        );
 
-      // Migration for existing tables
-      const tryAddColumn = async (table: string, colDef: string) => {
-        try {
-          await this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${colDef}`);
-        } catch {}
-      };
-      await tryAddColumn('_cron_schedules', `maxRetries ${num} NOT NULL DEFAULT 0`);
-      await tryAddColumn('_cron_schedules', `autoPauseAfterFailures ${num} NOT NULL DEFAULT 0`);
-      await tryAddColumn('_cron_schedules', `consecutiveFailures ${num} NOT NULL DEFAULT 0`);
-      await tryAddColumn('_cron_schedules', `expiresAt ${date}`);
-      await tryAddColumn('_cron_schedules', `keepLast ${num}`);
-      await tryAddColumn('_cron_runs', `attempt ${num} NOT NULL DEFAULT 1`);
-    } catch {}
+        await this.db.exec(ddlSchedules);
+        await this.db.exec(ddlRuns);
+        await this.db.exec(dialect.createIndexIfNotExists('idx_cron_due', '_cron_schedules', 'enabled, nextRunAt'));
+        await this.db.exec(dialect.createIndexIfNotExists('idx_cron_target', '_cron_schedules', 'targetType, targetId'));
+        await this.db.exec(dialect.createIndexIfNotExists('idx_cron_lease', '_cron_schedules', 'leaseExpiresAt'));
+        await this.db.exec(dialect.createIndexIfNotExists('idx_cron_runs_sched', '_cron_runs', 'scheduleId, startedAt DESC'));
+        await this.db.exec(dialect.createIndexIfNotExists('idx_cron_runs_status', '_cron_runs', 'status, startedAt DESC'));
+
+        // Migration for existing tables
+        const tryAddColumn = async (table: string, colDef: string) => {
+          try {
+            await this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${colDef}`);
+          } catch {}
+        };
+        await tryAddColumn('_cron_schedules', `maxRetries ${num} NOT NULL DEFAULT 0`);
+        await tryAddColumn('_cron_schedules', `autoPauseAfterFailures ${num} NOT NULL DEFAULT 0`);
+        await tryAddColumn('_cron_schedules', `consecutiveFailures ${num} NOT NULL DEFAULT 0`);
+        await tryAddColumn('_cron_schedules', `expiresAt ${date}`);
+        await tryAddColumn('_cron_schedules', `keepLast ${num}`);
+        await tryAddColumn('_cron_runs', `attempt ${num} NOT NULL DEFAULT 1`);
+
+        this.tablesEnsured = true;
+      } catch (err) {
+        // Table initialization or migration error
+      } finally {
+        this.ensureTablesPromise = null;
+      }
+    })();
+
+    return this.ensureTablesPromise;
   }
 
   private async cleanStaleLeases(): Promise<void> {
@@ -240,6 +295,9 @@ export class CronService {
   // ==========================================
 
   public async createSchedule(dto: CreateCronScheduleDto, actor?: any): Promise<CronSchedule> {
+    if (!this.tablesEnsured && this.isDbAvailable()) {
+      await this.ensureTables();
+    }
     if (!dto.name || !dto.name.trim()) {
       throw new ValidationError('Schedule name is required');
     }
@@ -358,6 +416,9 @@ export class CronService {
   }
 
   public async getSchedule(id: string): Promise<CronSchedule | null> {
+    if (!this.tablesEnsured && this.isDbAvailable()) {
+      await this.ensureTables();
+    }
     const row = await this.db.get<any>('SELECT * FROM _cron_schedules WHERE id = ?', id);
     return row ? this.mapRowToSchedule(row) : null;
   }
@@ -367,6 +428,9 @@ export class CronService {
     enabled?: boolean;
     targetId?: string;
   }): Promise<CronSchedule[]> {
+    if (!this.tablesEnsured && this.isDbAvailable()) {
+      await this.ensureTables();
+    }
     let sql = 'SELECT * FROM _cron_schedules WHERE 1=1';
     const params: any[] = [];
 
@@ -788,6 +852,9 @@ export class CronService {
     page: number;
     perPage: number;
   }> {
+    if (!this.tablesEnsured && this.isDbAvailable()) {
+      await this.ensureTables();
+    }
     const page = Math.max(1, options.page || 1);
     const perPage = Math.max(1, Math.min(options.perPage || 30, 100));
     const offset = (page - 1) * perPage;
@@ -829,6 +896,9 @@ export class CronService {
   }
 
   public async getStats(): Promise<CronStats> {
+    if (!this.tablesEnsured && this.isDbAvailable()) {
+      await this.ensureTables();
+    }
     const totalSchedulesRow = await this.db.get<any>('SELECT COUNT(*) as cnt FROM _cron_schedules');
     const activeSchedulesRow = await this.db.get<any>('SELECT COUNT(*) as cnt FROM _cron_schedules WHERE enabled = 1');
     const totalRunsRow = await this.db.get<any>('SELECT COUNT(*) as cnt FROM _cron_runs');
