@@ -820,6 +820,26 @@ describe('Cron HTTP REST API, Client SDK, & Admin UI Bundle', () => {
       expect(cardHtml).toContain('Automated Scheduled Backups');
       expect(cardHtml).toContain('Active');
       expect(cardHtml).toContain('0 2 * * *');
+
+      // Verify openSnapshotScheduleModal selects missedRunPolicy
+      snapScheduleItem.missedRunPolicy = 'skip';
+      win.openSnapshotScheduleModal();
+      const policySelect = win.document.getElementById('snap-sched-policy') as HTMLSelectElement;
+      expect(policySelect).not.toBeNull();
+      expect(policySelect.value).toBe('skip');
+
+      // Verify saveSnapshotScheduleModal passes missedRunPolicy in PATCH payload
+      let savedBody: any = null;
+      win.api = async (url: string, opts: any) => {
+        if (opts?.method === 'PATCH') {
+          savedBody = JSON.parse(opts.body);
+          return { ...snapScheduleItem, ...savedBody };
+        }
+        return {};
+      };
+      await win.saveSnapshotScheduleModal({ preventDefault: () => {} });
+      expect(savedBody).not.toBeNull();
+      expect(savedBody.missedRunPolicy).toBe('skip');
     });
   });
 });

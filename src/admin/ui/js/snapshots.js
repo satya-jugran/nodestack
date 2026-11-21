@@ -775,7 +775,7 @@ function openSnapshotScheduleModal() {
   const existing = state.snapshotSchedule;
   const currentExpr = existing?.cronExpression || '0 2 * * *';
   const currentTz = existing?.timezone || 'UTC';
-  const currentPolicy = existing?.missedRunPolicy || existing?.missedPolicy || 'catch_up_once';
+  const currentPolicy = existing?.missedRunPolicy || 'catch_up_once';
   const isEnabled = existing ? existing.enabled : true;
 
   let presetVal = 'custom';
@@ -937,7 +937,7 @@ async function saveSnapshotScheduleModal(e) {
 
   const cronExpression = exprInput ? exprInput.value.trim() : '0 2 * * *';
   const timezone = tzInput ? tzInput.value.trim() || 'UTC' : 'UTC';
-  const missedPolicy = policyInput ? policyInput.value : 'catch_up_once';
+  const missedRunPolicy = policyInput ? policyInput.value : 'catch_up_once';
   const enabled = enabledInput ? enabledInput.checked : true;
 
   const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
@@ -951,7 +951,7 @@ async function saveSnapshotScheduleModal(e) {
         body: JSON.stringify({
           cronExpression,
           timezone,
-          missedRunPolicy: missedPolicy,
+          missedRunPolicy,
           enabled,
           payload: { evictOldest: true, description: 'Automated scheduled backup' },
         }),
@@ -967,7 +967,7 @@ async function saveSnapshotScheduleModal(e) {
           targetId: 'snapshot_auto',
           cronExpression,
           timezone,
-          missedRunPolicy: missedPolicy,
+          missedRunPolicy,
           enabled,
           payload: { evictOldest: true, description: 'Automated scheduled backup' },
         }),
