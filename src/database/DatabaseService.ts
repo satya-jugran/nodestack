@@ -9,6 +9,7 @@ import { ISqlDialect } from './dialects/ISqlDialect';
 export class DatabaseService {
   private driver: IDatabaseDriver;
   private isLocked = false;
+  private lockReason?: string;
   private txStorage = new AsyncLocalStorage<IDatabaseDriver>();
 
   constructor(
@@ -56,6 +57,7 @@ export class DatabaseService {
 
   public async switchDriver(newDriver: IDatabaseDriver): Promise<void> {
     await this.initialize(newDriver);
+    this.unlock();
   }
 
   public get dialect(): ISqlDialect {
@@ -82,12 +84,18 @@ export class DatabaseService {
     return this.driver.isOpen();
   }
 
-  public lock(): void {
+  public lock(reason?: string): void {
     this.isLocked = true;
+    this.lockReason = reason;
   }
 
   public unlock(): void {
     this.isLocked = false;
+    this.lockReason = undefined;
+  }
+
+  public getLockReason(): string | undefined {
+    return this.lockReason;
   }
 
   public isDatabaseLocked(): boolean {
@@ -97,7 +105,7 @@ export class DatabaseService {
   private checkLocked(): void {
     if (this.isLocked) {
       throw new ServiceUnavailableError(
-        'Database is temporarily locked for maintenance / demo reset.'
+        this.lockReason || 'Database is temporarily locked for maintenance / demo reset.'
       );
     }
   }

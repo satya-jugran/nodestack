@@ -218,6 +218,16 @@ function renderDatabaseView() {
         </div>
       </div>
 
+      ${status.error ? `
+        <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 12px 16px; margin: 0.5rem 0 1rem 0; font-size: 12.5px; color: #ef4444; display: flex; align-items: flex-start; gap: 10px; line-height: 1.5;">
+          <span style="font-size: 16px; line-height: 1;">⚠️</span>
+          <div>
+            <strong style="color: #dc2626; display: block; margin-bottom: 2px;">Database Connection Alert (Fail-Closed)</strong>
+            <span>${status.error}</span>
+          </div>
+        </div>
+      ` : ''}
+
       <!-- Engine Selector Cards -->
       <div style="display: flex; flex-direction: column; gap: 8px;">
         <div style="display: flex; align-items: center; justify-content: space-between;">

@@ -28,6 +28,7 @@ export interface DatabaseStatus {
   config: Partial<DatabaseConfig>;
   activeSince?: string;
   snapshotsSupported?: boolean;
+  error?: string;
 }
 
 export class DatabaseConfigService {

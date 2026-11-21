@@ -647,6 +647,45 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       app.close();
     });
 
+    it('should fail closed with 503 and lock app scope when configured remote database is unreachable on startup', async () => {
+      const failClosedDir = path.join(testDir, 'fail_closed_test_' + Date.now());
+      fs.mkdirSync(failClosedDir, { recursive: true });
+
+      const app = new NodeStack({ dataDir: failClosedDir });
+      await app.auth.createAdmin('failclosed_admin@nodestack.dev', 'password123');
+      const { token: adminToken } = await app.auth.authenticateAdmin('failclosed_admin@nodestack.dev', 'password123');
+
+      // Save an unreachable postgres configuration for app 'unreachable-app'
+      const scope = await app.apps.create({
+        name: 'Unreachable App',
+        slug: 'unreachable-app',
+      });
+      await app.databaseConfig.saveConfig({
+        provider: 'postgres',
+        connectionString: 'postgresql://postgres:wrongpass@127.0.0.1:59999/nonexistent?connectionTimeoutMillis=500',
+      }, true, 'unreachable-app');
+
+      // Now run loadActiveDatabaseDriver()
+      await app.loadActiveDatabaseDriver();
+
+      // App scope must be locked to prevent split-brain data corruption
+      expect(scope.db.isDatabaseLocked()).toBe(true);
+      expect(() => scope.db.prepare('SELECT 1').get()).toThrow(/unreachable|blocked/i);
+
+      // Status endpoint must report disconnected with error
+      const statusRes = await app.server.inject({
+        method: 'GET',
+        url: '/api/system/database/status?app=unreachable-app',
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(statusRes.statusCode).toBe(200);
+      const json = statusRes.json();
+      expect(json.connected).toBe(false);
+      expect(json.error).toContain('unreachable');
+
+      app.close();
+    });
+
     // Finding 5: MaintenanceGate Lock during Switch
     it('Finding 5: should execute switchDatabase within MaintenanceGate.executeExclusive', async () => {
       let exclusiveCalled = false;

@@ -488,18 +488,35 @@ export class NodeStack {
     try {
       const allApps = await this.registry.getAllApps();
       for (const app of allApps) {
+        let activeDbConfig: any;
         try {
-          const activeDbConfig = await this.databaseConfig.getActiveConfig(app.slug);
+          activeDbConfig = await this.databaseConfig.getActiveConfig(app.slug);
           if (activeDbConfig && activeDbConfig.provider !== 'sqlite') {
             const activeDriver = await DriverRegistry.createDriver(activeDbConfig);
+            if (activeDriver.ping) {
+              const pingOk = await activeDriver.ping();
+              if (!pingOk) {
+                throw new Error(`Connection test to ${activeDbConfig.provider} failed.`);
+              }
+            }
             await this.apps.switchAppDriver(app.slug, activeDriver);
           }
         } catch (appErr: any) {
-          console.warn(`[NodeStack] Could not restore configured database for app '${app.slug}' (${appErr.message}). Defaulting to SQLite.`);
+          const providerName = activeDbConfig?.provider || 'remote';
+          console.error(
+            `[NodeStack] Could not restore configured ${providerName} database for app '${app.slug}' (${appErr.message}). Failing closed to prevent split-brain data corruption.`
+          );
+          try {
+            const scope = await this.apps.getAsync(app.slug);
+            const reason = `Configured database '${providerName}' is unreachable: ${appErr.message}. Serving stale local data is blocked to prevent data corruption. Reconnect or switch database in the Admin UI.`;
+            scope.db.lock(reason);
+          } catch (scopeErr: any) {
+            console.error(`[NodeStack] Failed to lock scope for app '${app.slug}':`, scopeErr.message);
+          }
         }
       }
     } catch (err: any) {
-      console.warn(`[NodeStack] Could not restore configured database (${err.message}). Defaulting to SQLite.`);
+      console.warn(`[NodeStack] Could not restore configured database (${err.message}).`);
     }
   }
 
@@ -512,7 +529,9 @@ export class NodeStack {
     await this.loadActiveDatabaseDriver();
 
     // 0.2 Ensure default app scope has completed initialization (migrations, FTS)
-    await this.defaultApp.ensureInitialized();
+    if (!this.defaultApp.db.isDatabaseLocked()) {
+      await this.defaultApp.ensureInitialized();
+    }
 
     // 1. Ensure all plugins have completed asynchronous initialization
     await this.pluginManager.ensureInitialized();
@@ -525,6 +544,10 @@ export class NodeStack {
     for (const app of allApps) {
       try {
         const scope = await this.apps.getAsync(app.slug);
+        if (scope.db.isDatabaseLocked()) {
+          console.warn(`[NodeStack] Skipping background queue and cron startup for locked app '${app.slug}'.`);
+          continue;
+        }
         await scope.queue.start();
         await scope.cron.start();
       } catch (err: any) {

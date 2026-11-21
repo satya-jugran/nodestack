@@ -35,6 +35,10 @@ export class DatabaseController extends BaseController {
       const scope = await this.appManager.getAsync(appSlug);
       const driver = scope.db.getRootDriver();
       const status = await this.dbConfigService.getStatus(driver, appSlug);
+      if (scope.db.isDatabaseLocked()) {
+        status.connected = false;
+        status.error = scope.db.getLockReason();
+      }
       this.ok(reply, status);
     } catch (err: any) {
       this.error(reply, err.message || 'Failed to retrieve database status', 500);
