@@ -179,6 +179,23 @@ describe('Cron HTTP REST API, Client SDK, & Admin UI Bundle', () => {
       expect(updated.nextRunAt).toBeNull();
     });
 
+    it('PATCH /api/cron/schedules/:id should reject invalid missedRunPolicy with 422', async () => {
+      const res = await fetch(`${baseUrl}/api/cron/schedules/${createdScheduleId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({
+          missedRunPolicy: 'invalid_policy',
+        }),
+      });
+
+      expect(res.status).toBe(422);
+      const data = await res.json();
+      expect(data.error || data.message).toContain("Invalid missedRunPolicy 'invalid_policy'");
+    });
+
     it('POST /api/cron/schedules/:id/trigger should trigger immediate manual run', async () => {
       const res = await fetch(`${baseUrl}/api/cron/schedules/${createdScheduleId}/trigger`, {
         method: 'POST',
