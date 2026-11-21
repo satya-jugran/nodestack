@@ -5,7 +5,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-7.x-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D24.0-green.svg)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](https://github.com/satya-jugran/nodestack/releases)
+[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)](https://github.com/satya-jugran/nodestack/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://img.shields.io/badge/docs-online-blue.svg)](https://satya-jugran.github.io/nodestack/)
 
@@ -41,6 +41,8 @@ NodeStack delivers an instant, complete backend stack in a **single Node.js proc
   <img width="850" alt="NodeStack Single-Process Architecture & Solution Map" src="./assets/nodestack-infographic.png" />
 </p>
 
+* **Built-in Job Scheduler & Cron Engine (v2.7.0)**: Recurring cron jobs and delayed task automation with standard 5-field syntax, macros, priority wake-up wheel, missed-run catchup policies, execution concurrency controls, and direct integration with Functions, Flows, and Snapshots.
+* **Fail-Closed Multi-Database Resilience (v2.7.0)**: Automated partition protection preventing split-brain corruption when remote databases are unreachable, dynamic external driver resolution (`DriverPackageLoader`), and guarded SQLite migrations.
 * **Zero-Compilation Embedded SQLite & Multi-Database Engine**: Powered natively by Node.js (`node:sqlite`) with first-class multi-database support for PostgreSQL and Microsoft SQL Server, zero-downtime migrations, and storage analytics.
 * **Unified RBAC Engine & API Key Tester (v2.6.0)**: Granular role-based and scope-based authorization across collections, records, flows, and serverless functions with automatic wildcard stripping on role downgrades, atomic quota enforcement, and built-in interactive permission testing tools in Admin UI, CLI, and client SDK.
 * **Hardened Plugin Sandboxing (PoLP) (v2.6.0)**: Principle of Least Privilege plugin DI containers, safe service token allowlists, tenant configuration isolation, and fault-tolerant EventBus error boundaries.

@@ -19,6 +19,7 @@ The `nodestack-client` is a zero-dependency, isomorphic TypeScript & JavaScript 
 **Application Snapshots**: Programmatic checkpoint management with `client.snapshots` (create, restore, drift checks, FIFO eviction).
 **FTS5 Full-Text Search**: Built-in support for BM25 ranking, prefix queries, and highlighted snippet excerpts.
 **API Keys & Permissions Simulator (v2.6.0)**: Manage API keys and simulate permission authorization (`client.apiKeys.simulate(...)`).
+**Scheduler & Recurring Jobs (v2.7.0)**: Programmatic cron schedules, dry-run previews, on-demand triggers, and execution history (`client.cron`).
 **Webhooks Client Service**: Webhook registration, delivery logs, test dispatch, and HMAC verification.
 **Multiplexed SSE Realtime**: Persistent connection with auto-handshake and auto-reconnect.
 **100% Type-Safe**: Works with `nodestack typegen` for complete end-to-end typing.
@@ -158,3 +159,33 @@ for (const job of jobs) {
 ```
 
 For more details, see the [Queues Overview](../queues/overview.md) and [Workers & Functions](../queues/workers-and-functions.md) guides.
+
+---
+
+## Scheduled Jobs & Cron
+
+Manage recurring tasks and on-demand triggers via `client.cron`:
+
+```typescript
+// 1. Preview upcoming execution windows
+const preview = await client.cron.preview('0 9 * * 1-5', 'America/New_York', 5);
+
+// 2. Create a recurring schedule
+const schedule = await client.cron.createSchedule({
+  name: 'Daily Lead Sync',
+  targetType: 'function',
+  targetId: 'sync-leads',
+  cronExpression: '0 2 * * *',
+  timezone: 'UTC',
+  missedRunPolicy: 'catch_up_once',
+  payload: { batchSize: 250 },
+});
+
+// 3. Trigger manual execution
+const run = await client.cron.triggerSchedule(schedule.id);
+
+// 4. Query execution logs
+const runs = await client.cron.getRuns({ scheduleId: schedule.id });
+```
+
+For more details, see the [Scheduler Overview](../cron/overview.md) and [Managing Scheduled Jobs](../cron/scheduled-jobs.md) guides.

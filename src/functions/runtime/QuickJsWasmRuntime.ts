@@ -374,7 +374,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
           };
 
           globalThis.core = {
-            version: '2.6.0',
+            version: '2.7.0',
             sdk: {
               collection: function(colName) {
                 return {

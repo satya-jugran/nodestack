@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.7.0] - 2026-11-21
+
+Release v2.7.0 introduces the native **Job Scheduler & Cron Engine** across the core runtime, HTTP API, Admin UI, and TypeScript Client SDK—enabling durable recurring job scheduling with priority timer wheel wake-ups, configurable missed-run policies (`skip`, `catch_up_once`, `catch_up_all`), concurrency constraints, and direct multi-target dispatching to serverless Functions, visual Flows, and automatic Snapshots; establishes **Fail-Closed Multi-Database Resilience** to eliminate split-brain data corruption when remote databases are unreachable; adds dynamic driver dependency resolution via `DriverPackageLoader`; hardens **Application Snapshot Eviction** and snapshot schedules; and expands the Admin UI with a dedicated visual **Schedules Workbench**.
+
+### Added
+
+#### 1. Native Job Scheduler & Cron Engine
+* **Core Scheduler & 5-Field Cron Parser**:
+  * Implemented `CronParser` with comprehensive 5-field syntax validation, range evaluation, lists, step intervals (`*/n`), and standard macro shortcuts (`@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`).
+  * Engineered `CronService` with an in-memory priority timer wheel avoiding CPU busy loops, dynamic next-run recalculation, timezone offset handling, and automatic wake-up on job expiration.
+  * Added configurable missed-run recovery policies (`skip`, `catch_up_once`, `catch_up_all`) to safely manage server reboots and temporary maintenance outages.
+  * Supported multi-target execution dispatching:
+    * Serverless Functions (`targetType: 'function'`): Executes registered QuickJS WebAssembly functions or inline JavaScript code with custom payload binding.
+    * Visual Workflow Flows (`targetType: 'flow'`): Triggers state machine workflows with structured input parameters.
+    * Automatic Snapshots (`targetType: 'snapshot'`): Generates point-in-time state checkpoints on recurring schedules with configurable retention (`keepLast`).
+  * Embedded durable persistence in `_cron_jobs` and `_cron_runs` system tables with execution latency tracking, status reporting, error logging, and retry backoff.
+* **Client SDK & REST API**:
+  * Added `CronService` to `@nodestack/client` with methods for schedule creation, updates, deletions, dry-run previews (`client.cron.preview`), manual triggers, and execution log queries.
+  * Exposed REST endpoints via `CronController` (`/api/cron/*` and app-scoped `/api/apps/:slug/cron/*`).
+  * Integrated dedicated RBAC permission scopes: `cron:read`, `cron:write`, `cron:run`, and `cron:*`.
+* **Admin UI Dashboard & Workbench**:
+  * Added a dedicated **Schedules** navigation panel (`cron.js`) featuring visual cron expression construction, real-time upcoming execution previews, and comprehensive run log drawers.
+  * Deeply integrated scheduling capabilities into the **Functions Workbench** and **Visual Flows Designer**, allowing one-click recurring schedule creation directly from function and flow editors.
+  * Added command palette navigation actions for rapid jump-to access (`⌘K` / `Ctrl+K`).
+
+#### 2. Multi-Database Fail-Closed Safety & Dynamic Driver Loading
+* **Fail-Closed Resilience on Unreachable Remote Database**:
+  * Implemented strict fail-closed partition protection when a configured external database (PostgreSQL/MSSQL) is unreachable or fails connection tests (`ping()`) at startup.
+  * Automatically locks the affected app scope (`scope.db.lock(reason)`), halts background queues and cron loops for that tenant, and returns 503 Service Unavailable to prevent split-brain data corruption.
+  * Added visual connection alert banners in the Admin UI Database view and diagnostic status reporting via `/api/system/database/status`.
+* **Dynamic Driver Resolution (`DriverPackageLoader`)**:
+  * Created `DriverPackageLoader` for dynamic resolution of optional external database drivers (`pg`, `mssql`), providing actionable installation instructions when missing.
+  * Added protection against circular database migrations when target SQLite paths match the currently active database.
+
+### Fixed
+
+* **Snapshot Eviction & Retention Hardening**:
+  * Hardened `SnapshotService` to reject partial evictions, preventing corrupted snapshot states when storage retention limits are reached.
+  * Added cron job configuration retention and restoration during snapshot import/export.
+* **Cron Execution Lifecycle Edge Cases**:
+  * Deferred cron service startup until after database driver initialization and scope unlocking.
+  * Preserved inline cron payloads and validated inline function targets during updates.
+  * Guarded against concurrent race conditions during cron execution completion status updates.
+
+---
+
 ## [2.6.0] - 2026-11-19
 
 Release v2.6.0 delivers the **Unified RBAC Authorization Engine & API Key Ecosystem**—extending fine-grained role-based and scope-based authorization across collections, records, flows, serverless functions, and queues, backed by an interactive real-time API Key Permissions Tester across Admin UI, CLI, and client SDK; establishes the **Plugin Principle of Least Privilege (PoLP)** security architecture with DI container token locking, allowlisted service capabilities, and fault-tolerant EventBus boundaries; introduces a comprehensive **Registration & Verification Hardening Overhaul** eliminating cross-tenant token replay, redacting sensitive verification tokens, and enforcing registry persistence; strengthens **Full-Text Search (FTS)** with equal-cardinality drift detection and dynamic index rebuilds on tokenizer/language changes; supports **Apple OAuth `form_post`** and user payload propagation; hardens **Maintenance Gate Distributed Locks** with liveness awareness and shutdown connection draining; and refactors the serverless functions **Observability Logger API** (`core.observability.logger`).

@@ -97,6 +97,15 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Scheduled Jobs & Cron',
+      collapsed: false,
+      items: [
+        'cron/overview',
+        'cron/scheduled-jobs',
+      ],
+    },
+    {
+      type: 'category',
       label: 'TypeScript Server SDK',
       collapsed: true,
       items: [

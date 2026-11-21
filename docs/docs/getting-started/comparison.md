@@ -102,6 +102,11 @@ This guide provides an objective architectural comparison to help you evaluate w
 * **NodeStack** provides a unified RBAC engine spanning collections, records, flows, serverless functions, and queues. Features include automatic wildcard removal on role downgrade, service boundary flow authorization, atomic key quota enforcement, an interactive API key permissions tester across Admin UI, CLI, and client SDK, and strict Principle of Least Privilege (PoLP) plugin container isolation.
 * **PocketBase** relies on basic API rules and has no unified cross-subsystem RBAC or plugin DI containment.
 
+### 9. Built-in Job Scheduler & Cron Engine (v2.7.0)
+
+* **NodeStack** includes an embedded recurring task scheduler with standard 5-field cron parsing, macros, priority wake-up wheel, missed-run catchup policies, execution history logging, and direct execution of serverless Functions, visual Flows, and Snapshots—with zero external daemons or worker services.
+* **PocketBase** has no built-in cron scheduling or visual workflow automation.
+
 ---
 
 ## Decision Framework: When to Choose What
@@ -115,6 +120,7 @@ This guide provides an objective architectural comparison to help you evaluate w
 6. **You need embedded background queues:** You want durable background job processing, strict partition FIFO ordering, and dead-letter queues directly in your database without running Redis or RabbitMQ.
 7. **You want database engine flexibility:** You want to develop rapidly with zero-config embedded SQLite and scale into production PostgreSQL or Microsoft SQL Server with live one-click migrations.
 8. **You require unified RBAC & secure plugins:** You want cross-subsystem authorization (collections, flows, functions, queues), live API key simulation, and isolated plugin containers with zero external IAM services.
+9. **You need automated cron scheduling:** You want reliable recurring job execution, missed-run catchup policies, and scheduled workflows directly in your backend without external cron jobs or BullMQ daemons.
 
 ### Choose PocketBase if:
 1. **Minimal binary footprint is paramount:** You need a single < 20MB standalone Go binary with ~20MB of idle RAM.

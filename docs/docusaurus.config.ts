@@ -89,7 +89,7 @@ const config: Config = {
         {
           type: 'html',
           position: 'right',
-          value: '<span class="badge badge--info" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 9999px;">v2.6.0</span>',
+          value: '<span class="badge badge--info" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 9999px;">v2.7.0</span>',
         },
         {
           href: 'https://github.com/satya-jugran/nodestack',

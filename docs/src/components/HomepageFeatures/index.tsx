@@ -20,10 +20,18 @@ const FeatureList: FeatureItem[] = [
   },
   {
     title: 'Access Management with API Keys',
-    badge: 'v2.6.0',
     description: (
       <>
         Unified cross-subsystem RBAC authorization engine, scoped M2M API keys with auto role-downgrade stripping, and real-time permission simulation testing.
+      </>
+    ),
+  },
+  {
+    title: 'Scheduler & Cron Engine',
+    badge: 'v2.7.0',
+    description: (
+      <>
+        Recurring task automation with 5-field cron syntax, macros, priority wake-up queueing, missed-run catchup policies, and direct binding to Functions, Flows, and Snapshots.
       </>
     ),
   },
@@ -72,6 +80,22 @@ const FeatureList: FeatureItem[] = [
     description: (
       <>
         Embedded BM25 relevance ranking with highlighted snippets, multi-engine language drift detection, and immutable field-level change history diffs.
+      </>
+    ),
+  },
+  {
+    title: 'Extensible Plugin Architecture',
+    description: (
+      <>
+        Principle of Least Privilege (PoLP) container isolation, sealed DI tokens, safe service capability allowlists, and fault-tolerant event boundaries.
+      </>
+    ),
+  },
+  {
+    title: 'Type-Safe Client SDK & CLI',
+    description: (
+      <>
+        Lightweight isomorphic TypeScript SDK with automatic JWT management, live typegen code generation, and an interactive developer CLI.
       </>
     ),
   },

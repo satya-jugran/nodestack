@@ -24,6 +24,8 @@ Building modern web and mobile apps often requires juggling separate database en
 
 NodeStack packages this entire backend architecture into a **single Node.js process**:
 
+- **Built-in Job Scheduler & Cron Engine (v2.7.0)**: App-scoped recurring task execution with 5-field cron syntax, standard macros, priority timer wheel, missed-run catchup policies (`skip`, `catch_up_once`, `catch_up_all`), and native multi-target dispatching to Functions, Flows, and Snapshots.
+- **Fail-Closed Multi-Database Resilience (v2.7.0)**: Strict fail-closed partition protection preventing split-brain corruption during network unreachability, dynamic external driver resolution (`DriverPackageLoader`), and safe migration target validation.
 - **Unified RBAC Engine & Permissions Tester (v2.6.0)**: Granular role-based and scope-based authorization across collections, records, flows, and serverless functions with automatic wildcard stripping on role downgrades, atomic quota enforcement, and built-in interactive permission testing tools in the Admin UI, CLI, and client SDK.
 - **Hardened Plugin Sandboxing (PoLP) (v2.6.0)**: Principle of Least Privilege plugin DI containers, safe service token allowlists, tenant configuration isolation, and fault-tolerant EventBus error boundaries.
 - **Multi-Database Support**: Native engine support for **PostgreSQL**, **Microsoft SQL Server**, and embedded **SQLite**, with zero-downtime live migrations, dynamic driver switching, per-schema storage tracking, and dual sync/async queue execution.

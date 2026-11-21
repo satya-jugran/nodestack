@@ -51,7 +51,7 @@
                 <div>
                   <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="font-weight: 800; font-size: 15px; color: var(--text-heading); letter-spacing: -0.02em;">NodeStack Core</span>
-                    <span class="version-tag version-tag-accent">v2.6.0</span>
+                    <span class="version-tag version-tag-accent">v2.7.0</span>
                     <span class="badge badge-get" style="font-size: 10.5px; display: inline-flex; align-items: center; gap: 5px;">
                       <span class="live-dot" style="width: 6px; height: 6px;"></span>
                       <span>Server Online</span>

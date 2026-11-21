@@ -189,3 +189,18 @@ GET /_/openapi.json
 | `POST` | `/api/api-keys/simulate` | Test/simulate permissions for a key against any subsystem, resource, or action (Superuser). |
 | `POST` | `/api/api-keys/:id/simulate` | Test/simulate permissions specifically for key `:id` (Superuser). |
 | Any | `/api/apps/:appId/api-keys/*` | Route API key operations or simulation to a specific application tenant. |
+
+### Scheduled Jobs & Cron (v2.7.0)
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/cron/preview` | Preview upcoming run slots and validate a cron expression (`cron:read`). |
+| `GET` | `/api/cron/stats` | Retrieve aggregate scheduler metrics and counts (`cron:read`). |
+| `GET` | `/api/cron/schedules` | List recurring schedules with status and target filters (`cron:read`). |
+| `POST` | `/api/cron/schedules` | Create a recurring schedule bound to Function, Flow, or Snapshot (`cron:write`). |
+| `GET` | `/api/cron/schedules/:id` | Retrieve schedule details and next execution timestamp (`cron:read`). |
+| `PATCH` | `/api/cron/schedules/:id` | Update schedule properties, timing, or toggle enabled state (`cron:write`). |
+| `DELETE` | `/api/cron/schedules/:id` | Delete a schedule and its execution history (`cron:write`). |
+| `POST` | `/api/cron/schedules/:id/trigger` | Trigger immediate manual execution of a schedule (`cron:run`). |
+| `GET` | `/api/cron/runs` | Retrieve paginated execution run logs and output diagnostics (`cron:read`). |
+| `DELETE` | `/api/cron/runs` | Clear historical execution logs (`cron:write`). |
+| Any | `/api/apps/:appId/cron/*` | Tenant-scoped routes for all scheduler operations. |
