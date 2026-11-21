@@ -268,6 +268,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
           auth: null,
         },
         event: hostServices.context.event || null,
+        cron: hostServices.context.cron || null,
         env: hostServices.context.env || {},
         auth: hostServices.context.auth || null,
       };
@@ -406,6 +407,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
             app: initialCtx.app,
             request: initialCtx.request,
             event: initialCtx.event,
+            cron: initialCtx.cron,
             env: initialCtx.env,
             auth: initialCtx.auth,
             queue: queueBridge
@@ -417,6 +419,7 @@ export class QuickJsWasmRuntime implements IFunctionRuntime {
             app: { get: function() { return globalThis.ctx.app; }, enumerable: true },
             request: { get: function() { return globalThis.ctx.request; }, enumerable: true },
             event: { get: function() { return globalThis.ctx.event; }, enumerable: true },
+            cron: { get: function() { return globalThis.ctx.cron; }, enumerable: true },
             env: { get: function() { return globalThis.ctx.env; }, enumerable: true },
             auth: { get: function() { return globalThis.ctx.auth; }, enumerable: true }
           });

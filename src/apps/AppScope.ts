@@ -26,6 +26,7 @@ import { FunctionService } from '../functions/FunctionService';
 import { FlowService } from '../flows/FlowService';
 import { QueueService } from '../queue/QueueService';
 import { SqliteQueueDriver } from '../queue/drivers/SqliteQueueDriver';
+import { CronService } from '../cron/CronService';
 import { AppRegistry } from './AppRegistry';
 import { IDatabaseDriver } from '../database/drivers/IDatabaseDriver';
 import { PostgresDriver } from '../database/drivers/PostgresDriver';
@@ -57,6 +58,7 @@ export class AppScope {
   public readonly functions: FunctionService;
   public readonly queue: QueueService;
   public readonly flows: FlowService;
+  public readonly cron: CronService;
   private initPromise?: Promise<void>;
 
   constructor(
@@ -192,6 +194,16 @@ export class AppScope {
     );
     this.functions.setFlowService(this.flows);
 
+    this.cron = new CronService(this.db, {
+      config: this.config,
+      eventBus: this.eventBus,
+      functionService: this.functions,
+      flowService: this.flows,
+      snapshotService: this.snapshots,
+    });
+    this.functions.setCronService(this.cron);
+    this.flows.setCronService(this.cron);
+
     this.templates = new TemplateService(
       this.db,
       this.schema,
@@ -202,14 +214,15 @@ export class AppScope {
       this.flows
     );
 
-    // Resync queues and flow queues after a snapshot restore / demo reset
+    // Resync queues, cron, and flow queues after a snapshot restore / demo reset
     this.eventBus.on('snapshot:restore', async () => {
       try {
         this.flows.initTables();
         await this.queue.resetAfterRestore();
         this.flows.syncAllFlowQueues();
+        await this.cron.resetAfterRestore();
       } catch (err: any) {
-        console.warn(`[AppScope] Failed to reconcile queues after snapshot:restore: ${err.message}`);
+        console.warn(`[AppScope] Failed to reconcile queues/cron after snapshot:restore: ${err.message}`);
       }
     });
 
@@ -279,6 +292,7 @@ export class AppScope {
     }
     await this.db.init();
     this.fts.refreshDriver();
+    this.cron?.onDriverSwitched(this.db);
     const cols = await this.schema.getAllCollections();
     await this.fts.syncAll(cols);
   }
@@ -439,6 +453,13 @@ export class AppScope {
       }
     }
     this.onCloseHandlers = [];
+
+    // 0.4 Dispose CronService
+    try {
+      await this.cron.dispose();
+    } catch {
+      // ignore
+    }
 
     // 0.5 Dispose QueueService
     try {

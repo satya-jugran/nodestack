@@ -29,6 +29,20 @@ export { AppService } from './services/AppService';
 export { FunctionService, FunctionConfig, FunctionExecutionResult } from './services/FunctionService';
 export { FlowService, FlowConfig, FlowExecution, FlowAsyncDispatchResponse } from './services/FlowService';
 export {
+  CronService,
+  CronSchedule,
+  CreateCronScheduleDto,
+  UpdateCronScheduleDto,
+  CronRunLog,
+  CronNextRunItem,
+  CronPreviewResult,
+  CronStats,
+  CronListRunsOptions,
+  CronTargetType,
+  MissedRunPolicy,
+  CronRunStatus,
+} from './services/CronService';
+export {
   QueueService,
   QueueMessage,
   QueueMessageStatus,

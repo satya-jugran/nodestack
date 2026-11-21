@@ -439,9 +439,12 @@ export class AppManager {
     this.appCache.set(appModel.slug, scope);
     this.appCache.set(appModel.id, scope);
 
-    // Start queue for this app scope as part of its lifecycle (including lazily opened scopes)
-    void scope.queue.start().catch((err: any) => {
-      console.warn(`[AppManager] Failed to start queue for app '${appModel.slug}': ${err.message}`);
+    // Start queue and cron only after scope initialization (database open, schema, migrations) completes
+    void scope.ensureInitialized().then(async () => {
+      await scope.queue.start();
+      await scope.cron.start();
+    }).catch((err: any) => {
+      console.warn(`[AppManager] Failed to start background services for app '${appModel.slug}': ${err?.message || err}`);
     });
 
     if (appModel.slug === 'default' || appModel.isDefault) {
@@ -474,6 +477,7 @@ export class AppManager {
     const appModel = await this.registry.createApp(dto);
     const scope = await this.getAsync(appModel.slug);
     await scope.queue.start();
+    await scope.cron.start();
 
     if (dto.template && dto.template.trim()) {
       try {

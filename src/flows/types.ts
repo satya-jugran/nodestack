@@ -1,4 +1,6 @@
-export type FlowTriggerType = 'http' | 'event' | 'manual';
+import { MissedRunPolicy } from '../cron/types';
+
+export type FlowTriggerType = 'http' | 'event' | 'manual' | 'cron';
 export type FlowAuthPolicy = 'public' | 'auth' | 'admin' | 'apiKey' | 'custom';
 export type FlowExecutionStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled' | 'aborted';
 export type FlowStateType = 'Task' | 'Choice' | 'Map' | 'Loop' | 'Parallel' | 'Pass' | 'Wait' | 'Succeed' | 'Fail';
@@ -135,6 +137,10 @@ export interface FlowConfig {
   authPolicy?: FlowAuthPolicy;
   invokeRule?: string | null;
   eventTrigger?: string | null;
+  cronSchedule?: string | null;
+  cronTimezone?: string | null;
+  cronMissedPolicy?: MissedRunPolicy | null;
+  cronInput?: any;
   maxConcurrentExecutions?: number | null;
   definition: FlowDefinition;
   created: string;

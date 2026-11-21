@@ -8,6 +8,21 @@ async function fetchDemoStatus() {
     state.demo = { hasSnapshot: false, snapshots: [], total: 0, maxLimit: 10, snapshot: null, activeSnapshot: null };
   }
 
+  // Also fetch scheduled snapshot backup if snapshot service is supported
+  if (state.demo && state.demo.supported !== false) {
+    try {
+      const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+      const cronUrl = slug && slug !== 'default' ? `/api/apps/${slug}/cron/schedules?targetType=snapshot` : '/api/cron/schedules?targetType=snapshot';
+      const cronRes = await api(cronUrl);
+      const schedules = Array.isArray(cronRes) ? cronRes : (cronRes && cronRes.schedules ? cronRes.schedules : []);
+      state.snapshotSchedule = schedules.length > 0 ? schedules[0] : null;
+    } catch (_) {
+      state.snapshotSchedule = null;
+    }
+  } else {
+    state.snapshotSchedule = null;
+  }
+
   updateDemoSidebarDot();
 
   if (state.activeNav === 'snapshots') {
@@ -262,6 +277,7 @@ function renderSnapshotsView() {
     <div style="max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.25rem; padding: 1rem 0;">
       ${headerHtml}
       ${activeCardHtml}
+      ${renderScheduledBackupsCardHtml()}
       ${listHtml}
       ${guideHtml}
     </div>
@@ -697,6 +713,317 @@ async function openClearAllSnapshotsModal() {
   }
 }
 
+// ==========================================
+// Automated Scheduled Backups (SQLite)
+// ==========================================
+
+function renderScheduledBackupsCardHtml() {
+  const sched = state.snapshotSchedule;
+  const isEnabled = sched && sched.enabled;
+  const nextRun = sched?.nextRunAt ? new Date(sched.nextRunAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Not scheduled';
+
+  return `
+    <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 1.1rem 1.25rem; display: flex; flex-direction: column; gap: 0.85rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 32px; height: 32px; border-radius: 6px; background: rgba(16, 185, 129, 0.12); display: flex; align-items: center; justify-content: center; font-size: 16px;">
+            ⏱️
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <h3 style="font-size: 14px; font-weight: 700; color: var(--text-heading); margin: 0;">Automated Scheduled Backups</h3>
+              ${isEnabled
+                ? `<span class="badge badge-success" style="font-size: 10.5px; padding: 2px 7px;">● Active</span>`
+                : `<span class="badge" style="font-size: 10.5px; padding: 2px 7px; background: var(--bg-input); color: var(--text-muted);">○ ${sched ? 'Paused' : 'Not Configured'}</span>`
+              }
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+              ${sched
+                ? `Recurring schedule: <code style="font-family: var(--font-mono); font-size: 11px; background: var(--bg-input); padding: 1px 5px; border-radius: 3px;">${escapeHtml(sched.cronExpression)}</code> (${escapeHtml(sched.timezone || 'UTC')}) • Next run: <strong>${nextRun}</strong>`
+                : 'Automatically capture point-in-time snapshots of database and storage files on a recurring schedule.'
+              }
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+          ${sched ? `
+            <button class="btn btn-secondary btn-sm" onclick="triggerSnapshotScheduleNow('${sched.id}')" style="font-size: 11.5px; padding: 5px 10px;" title="Trigger immediate backup">
+              ▶ Run Backup Now
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleSnapshotSchedule('${sched.id}', ${!isEnabled})" style="font-size: 11.5px; padding: 5px 10px;">
+              ${isEnabled ? 'Pause' : 'Resume'}
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="openSnapshotScheduleModal()" style="font-size: 11.5px; padding: 5px 10px; font-weight: 600;">
+              ⚙️ Configure
+            </button>
+          ` : `
+            <button class="btn btn-primary btn-sm" onclick="openSnapshotScheduleModal()" style="font-size: 12px; padding: 5px 12px; font-weight: 600;">
+              + Set Up Automated Backups
+            </button>
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function openSnapshotScheduleModal() {
+  const root = document.getElementById('modal-root');
+  if (!root) return;
+
+  const existing = state.snapshotSchedule;
+  const currentExpr = existing?.cronExpression || '0 2 * * *';
+  const currentTz = existing?.timezone || 'UTC';
+  const currentPolicy = existing?.missedRunPolicy || 'catch_up_once';
+  const isEnabled = existing ? existing.enabled : true;
+
+  let presetVal = 'custom';
+  if (currentExpr === '0 2 * * *') presetVal = 'daily_2am';
+  else if (currentExpr === '0 0 * * *') presetVal = 'daily_midnight';
+  else if (currentExpr === '0 3 * * 0') presetVal = 'weekly_sun';
+  else if (currentExpr === '0 * * * *') presetVal = 'hourly';
+
+  root.innerHTML = `
+    <div class="modal-backdrop" onclick="closeModal()">
+      <div class="modal" onclick="event.stopPropagation()" style="max-width: 520px; width: 100%;">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title" style="font-size: 16px;">Automated Backup Schedule</h2>
+            <span style="font-size: 11px; color: var(--text-muted);">Periodic SQLite database & storage snapshots</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+        </div>
+
+        <form onsubmit="saveSnapshotScheduleModal(event)">
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: 1rem;">
+            <div>
+              <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px;">Frequency Preset</label>
+              <select id="snap-sched-preset" class="form-select" onchange="handleSnapshotSchedulePresetChange(this.value)">
+                <option value="daily_2am" ${presetVal === 'daily_2am' ? 'selected' : ''}>Daily at 02:00 AM (Recommended)</option>
+                <option value="daily_midnight" ${presetVal === 'daily_midnight' ? 'selected' : ''}>Daily at Midnight (00:00)</option>
+                <option value="weekly_sun" ${presetVal === 'weekly_sun' ? 'selected' : ''}>Weekly on Sunday at 03:00 AM</option>
+                <option value="hourly" ${presetVal === 'hourly' ? 'selected' : ''}>Hourly (At minute 0)</option>
+                <option value="custom" ${presetVal === 'custom' ? 'selected' : ''}>Custom 5-Field Cron Expression</option>
+              </select>
+            </div>
+
+            <div id="snap-sched-custom-group" style="display: ${presetVal === 'custom' ? 'block' : 'none'};">
+              <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px;">Cron Expression</label>
+              <input type="text" id="snap-sched-expr" class="input" style="width: 100%; font-family: var(--font-mono); font-size: 12px;" value="${escapeHtml(currentExpr)}" placeholder="0 2 * * *" oninput="updateSnapshotScheduleModalPreview()">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px;">Timezone</label>
+                <input type="text" id="snap-sched-tz" class="input" list="iana-timezones-list" style="width: 100%; font-size: 12px;" value="${escapeHtml(currentTz)}" placeholder="UTC" oninput="updateSnapshotScheduleModalPreview()">
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px;">Missed Run Policy</label>
+                <select id="snap-sched-policy" class="form-select">
+                  <option value="catch_up_once" ${currentPolicy === 'catch_up_once' ? 'selected' : ''}>Catch-up once on reboot</option>
+                  <option value="skip" ${currentPolicy === 'skip' ? 'selected' : ''}>Skip missed backups</option>
+                  <option value="catch_up_all" ${currentPolicy === 'catch_up_all' ? 'selected' : ''}>Replay all missed (up to 10)</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.75rem 0.85rem;">
+              <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px;">Next Execution Preview</div>
+              <div id="snap-sched-preview" style="font-size: 12px; color: var(--accent-success); font-family: var(--font-mono);">Calculating...</div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <input type="checkbox" id="snap-sched-enabled" ${isEnabled ? 'checked' : ''} style="cursor: pointer;">
+              <label for="snap-sched-enabled" style="font-size: 12px; font-weight: 600; cursor: pointer;">Enable Automated Schedule</label>
+            </div>
+
+            <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.4; border-top: 1px solid var(--border-subtle); padding-top: 0.5rem;">
+              ℹ️ Backups automatically capture the SQLite database & file assets. When the 10-snapshot storage limit is reached, automated backups evict the oldest unprotected snapshot.
+            </div>
+          </div>
+
+          <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              ${existing ? `
+                <button type="button" class="btn btn-secondary btn-sm" onclick="deleteSnapshotSchedule('${existing.id}')" style="color: var(--accent-danger);">
+                  Remove Schedule
+                </button>
+              ` : '<span></span>'}
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+              <button type="submit" class="btn btn-primary" style="font-weight: 600;">Save Schedule</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  updateSnapshotScheduleModalPreview();
+}
+
+function handleSnapshotSchedulePresetChange(preset) {
+  const customGroup = document.getElementById('snap-sched-custom-group');
+  const exprInput = document.getElementById('snap-sched-expr');
+  if (!exprInput) return;
+
+  if (preset === 'daily_2am') {
+    exprInput.value = '0 2 * * *';
+    if (customGroup) customGroup.style.display = 'none';
+  } else if (preset === 'daily_midnight') {
+    exprInput.value = '0 0 * * *';
+    if (customGroup) customGroup.style.display = 'none';
+  } else if (preset === 'weekly_sun') {
+    exprInput.value = '0 3 * * 0';
+    if (customGroup) customGroup.style.display = 'none';
+  } else if (preset === 'hourly') {
+    exprInput.value = '0 * * * *';
+    if (customGroup) customGroup.style.display = 'none';
+  } else {
+    if (customGroup) customGroup.style.display = 'block';
+  }
+  updateSnapshotScheduleModalPreview();
+}
+
+let snapSchedPreviewTimer = null;
+function updateSnapshotScheduleModalPreview() {
+  clearTimeout(snapSchedPreviewTimer);
+  snapSchedPreviewTimer = setTimeout(async () => {
+    const previewEl = document.getElementById('snap-sched-preview');
+    const exprInput = document.getElementById('snap-sched-expr');
+    const tzInput = document.getElementById('snap-sched-tz');
+    if (!previewEl || !exprInput) return;
+
+    const expr = exprInput.value.trim();
+    const tz = tzInput ? tzInput.value.trim() || 'UTC' : 'UTC';
+
+    if (!expr || expr.split(/\s+/).length < 5) {
+      previewEl.textContent = 'Enter a valid 5-field cron expression';
+      previewEl.style.color = 'var(--text-muted)';
+      return;
+    }
+
+    try {
+      const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+      const url = slug && slug !== 'default' ? `/api/apps/${slug}/cron/preview` : '/api/cron/preview';
+      const res = await api(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cronExpression: expr, timezone: tz, count: 3 }),
+      });
+
+      if (res && res.valid && Array.isArray(res.nextRuns) && res.nextRuns.length > 0) {
+        previewEl.innerHTML = res.nextRuns.map((r, i) => `<div>${i + 1}. ${escapeHtml(r.zonedFormatted || r.formattedTz || '')} (${escapeHtml(r.isoUtc || r.formattedUtc || '')})</div>`).join('');
+        previewEl.style.color = 'var(--accent-success)';
+      } else {
+        previewEl.textContent = res?.error || 'Invalid cron expression';
+        previewEl.style.color = 'var(--accent-danger)';
+      }
+    } catch (_) {
+      previewEl.textContent = 'Invalid expression or timezone';
+      previewEl.style.color = 'var(--accent-danger)';
+    }
+  }, 300);
+}
+
+async function saveSnapshotScheduleModal(e) {
+  e.preventDefault();
+  const exprInput = document.getElementById('snap-sched-expr');
+  const tzInput = document.getElementById('snap-sched-tz');
+  const policyInput = document.getElementById('snap-sched-policy');
+  const enabledInput = document.getElementById('snap-sched-enabled');
+
+  const cronExpression = exprInput ? exprInput.value.trim() : '0 2 * * *';
+  const timezone = tzInput ? tzInput.value.trim() || 'UTC' : 'UTC';
+  const missedRunPolicy = policyInput ? policyInput.value : 'catch_up_once';
+  const enabled = enabledInput ? enabledInput.checked : true;
+
+  const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+  const baseUrl = slug && slug !== 'default' ? `/api/apps/${slug}/cron/schedules` : '/api/cron/schedules';
+
+  try {
+    if (state.snapshotSchedule && state.snapshotSchedule.id) {
+      await api(`${baseUrl}/${state.snapshotSchedule.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cronExpression,
+          timezone,
+          missedRunPolicy,
+          enabled,
+          payload: { evictOldest: true, description: 'Automated scheduled backup' },
+        }),
+      });
+      toast('Automated backup schedule updated', 'success');
+    } else {
+      await api(baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Automated Snapshot Backup',
+          targetType: 'snapshot',
+          targetId: 'snapshot_auto',
+          cronExpression,
+          timezone,
+          missedRunPolicy,
+          enabled,
+          payload: { evictOldest: true, description: 'Automated scheduled backup' },
+        }),
+      });
+      toast('Automated backup schedule created', 'success');
+    }
+    closeModal();
+    await fetchDemoStatus();
+  } catch (err) {
+    toast(`Failed to save schedule: ${err.message || String(err)}`, 'error');
+  }
+}
+
+async function toggleSnapshotSchedule(id, enable) {
+  try {
+    const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+    const baseUrl = slug && slug !== 'default' ? `/api/apps/${slug}/cron/schedules` : '/api/cron/schedules';
+    await api(`${baseUrl}/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: enable }),
+    });
+    toast(enable ? 'Automated backup schedule resumed' : 'Automated backup schedule paused', 'info');
+    await fetchDemoStatus();
+  } catch (err) {
+    toast(`Failed to toggle schedule: ${err.message || String(err)}`, 'error');
+  }
+}
+
+async function triggerSnapshotScheduleNow(id) {
+  try {
+    const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+    const baseUrl = slug && slug !== 'default' ? `/api/apps/${slug}/cron/schedules` : '/api/cron/schedules';
+    toast('Triggering snapshot backup...', 'info');
+    await api(`${baseUrl}/${id}/trigger`, { method: 'POST' });
+    toast('Snapshot backup completed successfully', 'success');
+    await fetchDemoStatus();
+  } catch (err) {
+    toast(`Failed to run backup: ${err.message || String(err)}`, 'error');
+  }
+}
+
+async function deleteSnapshotSchedule(id) {
+  if (!confirm('Are you sure you want to remove the automated snapshot schedule?')) return;
+  try {
+    const slug = typeof getActiveAppSlug === 'function' ? getActiveAppSlug() : 'default';
+    const baseUrl = slug && slug !== 'default' ? `/api/apps/${slug}/cron/schedules` : '/api/cron/schedules';
+    await api(`${baseUrl}/${id}`, { method: 'DELETE' });
+    toast('Automated backup schedule removed', 'info');
+    closeModal();
+    await fetchDemoStatus();
+  } catch (err) {
+    toast(`Failed to delete schedule: ${err.message || String(err)}`, 'error');
+  }
+}
+
 // Backwards compatibility aliases for existing buttons / triggers
 function openSnapshotDemoModal() {
   openCreateSnapshotModal();
@@ -713,4 +1040,15 @@ function openResetDemoModal() {
 
 function openClearDemoModal() {
   openClearAllSnapshotsModal();
+}
+
+if (typeof window !== 'undefined') {
+  window.renderScheduledBackupsCardHtml = renderScheduledBackupsCardHtml;
+  window.openSnapshotScheduleModal = openSnapshotScheduleModal;
+  window.handleSnapshotSchedulePresetChange = handleSnapshotSchedulePresetChange;
+  window.updateSnapshotScheduleModalPreview = updateSnapshotScheduleModalPreview;
+  window.saveSnapshotScheduleModal = saveSnapshotScheduleModal;
+  window.toggleSnapshotSchedule = toggleSnapshotSchedule;
+  window.triggerSnapshotScheduleNow = triggerSnapshotScheduleNow;
+  window.deleteSnapshotSchedule = deleteSnapshotSchedule;
 }

@@ -238,12 +238,17 @@ export class SnapshotService {
       return [];
     }
 
+    const diskMap = new Map<string, SnapshotMetadata>(diskSnapshots.map((d) => [d.id, d]));
     const cleanedManifestSnapshots: SnapshotMetadata[] = manifest.snapshots
       .filter((s) => validIds.has(s.id))
-      .map((s) => ({
-        ...s,
-        isActive: s.id === manifest.activeSnapshotId,
-      }));
+      .map((s) => {
+        const disk = diskMap.get(s.id);
+        return {
+          ...s,
+          ...(disk?.isProtected !== undefined ? { isProtected: disk.isProtected } : {}),
+          isActive: s.id === manifest.activeSnapshotId,
+        };
+      });
 
     for (const snap of diskSnapshots) {
       if (!cleanedManifestSnapshots.some((m) => m.id === snap.id)) {
@@ -308,14 +313,22 @@ export class SnapshotService {
             }
           );
         }
-        const oldest = currentSnapshots[0];
-        if (oldest.isProtected) {
+        const evictCount = currentSnapshots.length - this.maxSnapshots + 1;
+        const evictable = currentSnapshots.filter((s) => !s.isProtected);
+        if (evictable.length < evictCount) {
           throw new ConflictError(
-            `Snapshot limit reached (${this.maxSnapshots}) and oldest snapshot '${oldest.name}' is protected.`
+            evictable.length === 0
+              ? `Snapshot limit reached (${this.maxSnapshots}) and all existing snapshots are protected.`
+              : `Snapshot limit reached (${this.maxSnapshots}) and not enough unprotected snapshots are available to evict (need ${evictCount}, found ${evictable.length}).`,
+            {
+              code: 'SNAPSHOT_LIMIT_REACHED',
+              limit: this.maxSnapshots,
+              evictCount,
+              unprotectedCount: evictable.length,
+            }
           );
         }
-        const evictCount = currentSnapshots.length - this.maxSnapshots + 1;
-        toEvict = currentSnapshots.slice(0, evictCount);
+        toEvict = evictable.slice(0, evictCount);
       }
 
       await this.db.checkpoint();

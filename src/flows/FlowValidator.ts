@@ -1,6 +1,7 @@
 import { FlowDefinition, FlowState, ChoiceRule, FlowTriggerType, FlowCatchPolicy } from './types';
 import { AppError } from '../core/errors/AppError';
 import { FlowPathMapper } from './utils/FlowPathMapper';
+import { CronParser } from '../cron/CronParser';
 
 export class FlowValidator {
   public static validate(def: FlowDefinition, contextPath: string = ''): void {
@@ -114,12 +115,17 @@ export class FlowValidator {
     }
   }
 
-  public static validateTrigger(triggerType?: string, eventTrigger?: string | null): void {
+  public static validateTrigger(
+    triggerType?: string,
+    eventTrigger?: string | null,
+    cronSchedule?: string | null,
+    cronTimezone?: string | null
+  ): void {
     if (triggerType !== undefined) {
-      const validTriggers: FlowTriggerType[] = ['http', 'event', 'manual'];
+      const validTriggers: FlowTriggerType[] = ['http', 'event', 'manual', 'cron'];
       if (!validTriggers.includes(triggerType as FlowTriggerType)) {
         throw new AppError(
-          `Invalid triggerType '${triggerType}'. Allowed values: 'http', 'event', 'manual'`,
+          `Invalid triggerType '${triggerType}'. Allowed values: 'http', 'event', 'manual', 'cron'`,
           400
         );
       }
@@ -130,6 +136,16 @@ export class FlowValidator {
         throw new AppError("eventTrigger is required when triggerType is 'event'", 400);
       }
       this.validateEventPattern(eventTrigger.trim());
+    }
+
+    if (triggerType === 'cron') {
+      if (!cronSchedule || typeof cronSchedule !== 'string' || !cronSchedule.trim()) {
+        throw new AppError("cronSchedule is required when triggerType is 'cron'", 400);
+      }
+      const validation = CronParser.validate(cronSchedule, cronTimezone || undefined);
+      if (!validation.valid) {
+        throw new AppError(`Invalid cron expression: ${validation.error}`, 400);
+      }
     }
   }
 

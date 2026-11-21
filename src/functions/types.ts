@@ -1,7 +1,18 @@
 import { QueueMessage, EnqueueMessageDto, MessageFailResult } from '../queue/types';
+import { MissedRunPolicy } from '../cron/types';
 
 export type FunctionAuthPolicy = 'public' | 'auth' | 'admin' | 'apiKey' | 'custom';
 export type FunctionTriggerType = 'http' | 'hook' | 'cron' | 'queue';
+
+export interface FunctionCronContext {
+  scheduleId: string;
+  scheduleName: string;
+  cronExpression: string;
+  timezone: string;
+  scheduledAt: string;
+  triggeredAt: string;
+  isCatchUp: boolean;
+}
 
 export interface FunctionConfig {
   id: string;
@@ -13,6 +24,10 @@ export interface FunctionConfig {
   invokeRule?: string | null;
   methods: string[];
   eventTrigger?: string | null;
+  cronSchedule?: string | null;
+  cronTimezone?: string | null;
+  cronMissedPolicy?: MissedRunPolicy | null;
+  cronPayload?: any;
   timeoutMs: number;
   memoryLimitMb: number;
   allowedDomains: string[];
@@ -137,6 +152,7 @@ export interface FunctionContextData {
   };
   request?: FunctionRequestContext;
   event?: FunctionEventContext;
+  cron?: FunctionCronContext;
   env: Record<string, string>;
   auth?: any;
 }

@@ -281,6 +281,73 @@ describe('Generic Multi-Snapshot Application State & FIFO Retention Tests', () =
       releaseGate();
       await backgroundExclusive;
     });
+
+    it('should reject when at or over capacity and unprotected snapshots are insufficient to evict', async () => {
+      const list = app.snapshots.listSnapshots();
+      expect(list.length).toBe(10);
+
+      const snapshotsDir = app.snapshots.snapshotsDir;
+
+      // Mark all 10 snapshots as protected
+      for (const snap of list) {
+        const metaPath = path.join(snapshotsDir, snap.id, 'metadata.json');
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+        meta.isProtected = true;
+        fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+      }
+
+      // 1. All protected: evictCount = 1, evictable = 0
+      await expect(
+        app.snapshots.createSnapshot({ name: 'All Protected Test', evictOldest: true })
+      ).rejects.toThrow(/all existing snapshots are protected/i);
+
+      // 2. Unprotect 1 snapshot, but simulate over-capacity (11 total: 10 protected, 1 unprotected)
+      const fakeSnapId = 'snap_test_fake_extra';
+      const fakeSnapDir = path.join(snapshotsDir, fakeSnapId);
+      fs.mkdirSync(fakeSnapDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(fakeSnapDir, 'metadata.json'),
+        JSON.stringify({
+          id: fakeSnapId,
+          name: 'Fake Extra',
+          createdAt: new Date().toISOString(),
+          collections: [],
+          totalCollections: 0,
+          totalRecords: 0,
+          totalFiles: 0,
+          storageSizeBytes: 0,
+          dbSizeBytes: 0,
+          isProtected: true,
+        }, null, 2),
+        'utf8'
+      );
+
+      // Unprotect one of the existing snapshots
+      const firstMetaPath = path.join(snapshotsDir, list[0].id, 'metadata.json');
+      const firstMeta = JSON.parse(fs.readFileSync(firstMetaPath, 'utf8'));
+      firstMeta.isProtected = false;
+      fs.writeFileSync(firstMetaPath, JSON.stringify(firstMeta, null, 2), 'utf8');
+
+      // Now: 11 snapshots total (10 protected, 1 unprotected).
+      // evictCount = 11 - 10 + 1 = 2. But evictable.length = 1.
+      await expect(
+        app.snapshots.createSnapshot({ name: 'Over Capacity Test', evictOldest: true })
+      ).rejects.toThrow(/not enough unprotected snapshots are available to evict/i);
+
+      // Clean up fake extra snapshot and unprotect all snapshots
+      fs.rmSync(fakeSnapDir, { recursive: true, force: true });
+      for (const snap of list) {
+        const metaPath = path.join(snapshotsDir, snap.id, 'metadata.json');
+        if (fs.existsSync(metaPath)) {
+          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+          meta.isProtected = false;
+          fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+        }
+      }
+
+      // Verify list remains 10 and clean
+      expect(app.snapshots.listSnapshots().length).toBe(10);
+    });
   });
 
   describe('3. HTTP REST API Endpoints', () => {

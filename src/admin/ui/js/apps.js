@@ -157,6 +157,16 @@ async function selectApp(slugOrId) {
     apiKeysState.keys = [];
     if (typeof updateSidebarApiKeysBadge === 'function') updateSidebarApiKeysBadge([]);
   }
+  if (typeof cronState !== 'undefined') {
+    cronState.schedules = [];
+    cronState.runs = [];
+    cronState.functionsList = [];
+    cronState.flowsList = [];
+    cronState.stats = { totalSchedules: 0, activeSchedules: 0, successfulRuns: 0, failedRuns: 0, skippedRuns: 0, byTarget: { function: 0, flow: 0, snapshot: 0 } };
+  }
+  if (typeof closeScheduleDrawer === 'function') {
+    closeScheduleDrawer();
+  }
 
   try {
     if (typeof loadCollections === 'function') {
@@ -195,6 +205,12 @@ async function selectApp(slugOrId) {
     if (typeof loadApiKeys === 'function' && state.activeNav === 'api-keys') {
       await loadApiKeys();
     }
+    if (typeof loadCronStats === 'function') {
+      await loadCronStats();
+    }
+    if (typeof loadCronData === 'function' && state.activeNav === 'schedules') {
+      await loadCronData();
+    }
 
     // Refresh plugin catalog and nav items for the switched app
     try {
@@ -210,6 +226,8 @@ async function selectApp(slugOrId) {
 
     if (state.activeNav === 'home' && typeof renderHomeView === 'function') {
       renderHomeView();
+    } else if (state.activeNav === 'schedules' && typeof renderSchedulesView === 'function') {
+      renderSchedulesView();
     } else if (state.activeNav === 'snapshots' && typeof renderSnapshotsView === 'function') {
       renderSnapshotsView();
     } else if (state.activeNav === 'database' && typeof renderDatabaseView === 'function') {

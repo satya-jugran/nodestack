@@ -32,6 +32,7 @@ export interface FlowServiceOptions {
   recoveryStrategy?: 'abort' | 'resume';
   autoRecoverOnStartup?: boolean;
   queueService?: QueueService;
+  cronService?: any;
 }
 
 interface ExecutionWaiter {
@@ -45,6 +46,7 @@ export class FlowService {
   private ruleEngine: RuleEngine;
   private recoveryStrategy: 'abort' | 'resume';
   private queueService?: QueueService;
+  private cronService?: any;
   private activeAbortControllers = new Map<string, AbortController>();
   private activeExecutionClaims = new Set<string>();
   private pendingExecutionAdmissions = new Set<string>();
@@ -70,6 +72,7 @@ export class FlowService {
     this.ruleEngine = new RuleEngine();
     this.recoveryStrategy = options.recoveryStrategy || (process.env.FLOW_RECOVERY_STRATEGY as any) || 'abort';
     this.queueService = options.queueService;
+    this.cronService = options.cronService;
     this.initTables();
     this.bindEvents();
     this.syncAllFlowQueues();
@@ -79,6 +82,10 @@ export class FlowService {
         console.warn(`[FlowService] Startup recovery warning: ${err.message}`);
       });
     }
+  }
+
+  public setCronService(cronService: any): void {
+    this.cronService = cronService;
   }
 
   public static generateExecutionId(): string {
@@ -133,6 +140,22 @@ export class FlowService {
           {
             pg: `ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "invokeRule" ${textType}`,
             generic: this.db.dialect.addColumnSql('_flows', `invokeRule ${textType}`),
+          },
+          {
+            pg: `ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronSchedule" ${this.db.dialect.name === 'sqlite' ? 'TEXT' : 'VARCHAR(255)'}`,
+            generic: this.db.dialect.addColumnSql('_flows', `cronSchedule ${this.db.dialect.name === 'sqlite' ? 'TEXT' : 'VARCHAR(255)'}`),
+          },
+          {
+            pg: `ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronTimezone" ${this.db.dialect.name === 'sqlite' ? 'TEXT' : 'VARCHAR(100)'}`,
+            generic: this.db.dialect.addColumnSql('_flows', `cronTimezone ${this.db.dialect.name === 'sqlite' ? 'TEXT' : 'VARCHAR(100)'}`),
+          },
+          {
+            pg: `ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronMissedPolicy" ${this.db.dialect.name === 'sqlite' ? 'TEXT' : 'VARCHAR(50)'}`,
+            generic: this.db.dialect.addColumnSql('_flows', `cronMissedPolicy ${this.db.dialect.name === 'sqlite' ? 'TEXT' : 'VARCHAR(50)'}`),
+          },
+          {
+            pg: `ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronInput" ${textType}`,
+            generic: this.db.dialect.addColumnSql('_flows', `cronInput ${textType}`),
           },
         ];
         for (const colDef of columnsToEnsure) {
@@ -580,7 +603,9 @@ export class FlowService {
 
     const triggerType = dto.triggerType || 'http';
     const eventTrigger = triggerType === 'event' ? (dto.eventTrigger ? dto.eventTrigger.trim() : null) : null;
-    FlowValidator.validateTrigger(triggerType, eventTrigger);
+    const cronSchedule = triggerType === 'cron' ? (dto.cronSchedule ? dto.cronSchedule.trim() : null) : null;
+    const cronTimezone = triggerType === 'cron' ? (dto.cronTimezone ? dto.cronTimezone.trim() : 'UTC') : 'UTC';
+    FlowValidator.validateTrigger(triggerType, eventTrigger, cronSchedule, cronTimezone);
 
     const trimmedName = dto.name.trim();
     const existing = this.getFlowByName(trimmedName);
@@ -615,21 +640,49 @@ export class FlowService {
         : null;
     const definition = JSON.stringify(dto.definition);
 
+    const cronSchedule = triggerType === 'cron' ? (dto.cronSchedule ? dto.cronSchedule.trim() : null) : null;
+    const cronTimezone = triggerType === 'cron' ? (dto.cronTimezone ? dto.cronTimezone.trim() : 'UTC') : 'UTC';
+    const cronMissedPolicy = triggerType === 'cron' ? (dto.cronMissedPolicy || 'skip') : 'skip';
+    let cronInputStr: string | null = null;
+    if (triggerType === 'cron' && dto.cronInput !== undefined && dto.cronInput !== null) {
+      cronInputStr = typeof dto.cronInput === 'string' ? dto.cronInput : JSON.stringify(dto.cronInput);
+    }
+
     const res = this.db.run(`
-      INSERT INTO _flows (id, name, description, enabled, triggerType, authPolicy, invokeRule, eventTrigger, maxConcurrentExecutions, definition, created, updated)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, id, trimmedName, description, enabled, triggerType, authPolicy, invokeRule, eventTrigger, maxConcurrentExecutions, definition, now, now);
+      INSERT INTO _flows (
+        id, name, description, enabled, triggerType, authPolicy, invokeRule, eventTrigger,
+        cronSchedule, cronTimezone, cronMissedPolicy, cronInput,
+        maxConcurrentExecutions, definition, created, updated
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, id, trimmedName, description, enabled, triggerType, authPolicy, invokeRule, eventTrigger, cronSchedule, cronTimezone, cronMissedPolicy, cronInputStr, maxConcurrentExecutions, definition, now, now);
 
     if (res instanceof Promise) {
       return res.then(async () => {
         const created = await this.getFlowById(id);
         this.syncFlowQueue(created!);
+        if (this.cronService && created) {
+          await this.cronService.syncFlowSchedule(created);
+        }
         return created!;
       });
     }
 
     const created = this.getFlowById(id);
     this.syncFlowQueue(created!);
+    if (this.cronService && created) {
+      if (created instanceof Promise) {
+        return created.then(async (c: any) => {
+          if (c) await this.cronService.syncFlowSchedule(c);
+          return c!;
+        });
+      }
+      const syncRes = this.cronService.syncFlowSchedule(created);
+      if (syncRes instanceof Promise) {
+        void syncRes.catch((err: any) => {
+          console.warn(`[FlowService] Failed to sync cron schedule for flow '${created.name}':`, err);
+        });
+      }
+    }
     return created!;
   }
 
@@ -693,7 +746,18 @@ export class FlowService {
     } else if (eventTrigger) {
       eventTrigger = eventTrigger.trim();
     }
-    FlowValidator.validateTrigger(triggerType, eventTrigger);
+    const cronSchedule = triggerType === 'cron' ? (dto.cronSchedule !== undefined ? (dto.cronSchedule ? dto.cronSchedule.trim() : null) : (current.cronSchedule ?? null)) : null;
+    const cronTimezone = triggerType === 'cron' ? (dto.cronTimezone !== undefined ? (dto.cronTimezone ? dto.cronTimezone.trim() : 'UTC') : (current.cronTimezone ?? 'UTC')) : 'UTC';
+    const cronMissedPolicy = triggerType === 'cron' ? (dto.cronMissedPolicy !== undefined ? dto.cronMissedPolicy : (current.cronMissedPolicy ?? 'skip')) : 'skip';
+    let cronInputStr: string | null = null;
+    if (triggerType === 'cron') {
+      if (dto.cronInput !== undefined) {
+        cronInputStr = dto.cronInput !== null ? (typeof dto.cronInput === 'string' ? dto.cronInput : JSON.stringify(dto.cronInput)) : null;
+      } else if (current.cronInput !== undefined && current.cronInput !== null) {
+        cronInputStr = typeof current.cronInput === 'string' ? current.cronInput : JSON.stringify(current.cronInput);
+      }
+    }
+    FlowValidator.validateTrigger(triggerType, eventTrigger, cronSchedule, cronTimezone);
 
     const description = dto.description !== undefined ? dto.description : current.description;
     const enabled = dto.enabled !== undefined ? (dto.enabled ? 1 : 0) : (current.enabled ? 1 : 0);
@@ -708,20 +772,39 @@ export class FlowService {
 
     const res = this.db.run(`
       UPDATE _flows SET
-        name = ?, description = ?, enabled = ?, triggerType = ?, authPolicy = ?, invokeRule = ?, eventTrigger = ?, maxConcurrentExecutions = ?, definition = ?, updated = ?
+        name = ?, description = ?, enabled = ?, triggerType = ?, authPolicy = ?, invokeRule = ?,
+        eventTrigger = ?, cronSchedule = ?, cronTimezone = ?, cronMissedPolicy = ?, cronInput = ?,
+        maxConcurrentExecutions = ?, definition = ?, updated = ?
       WHERE id = ?
-    `, name, description, enabled, triggerType, authPolicy, invokeRule, eventTrigger, maxConcurrentExecutions, definition, now, id);
+    `, name, description, enabled, triggerType, authPolicy, invokeRule, eventTrigger, cronSchedule, cronTimezone, cronMissedPolicy, cronInputStr, maxConcurrentExecutions, definition, now, id);
 
     if (res instanceof Promise) {
       return res.then(async () => {
         const updated = await this.getFlowById(id);
         this.syncFlowQueue(updated!);
+        if (this.cronService && updated) {
+          await this.cronService.syncFlowSchedule(updated);
+        }
         return updated!;
       });
     }
 
     const updated = this.getFlowById(id);
     this.syncFlowQueue(updated!);
+    if (this.cronService && updated) {
+      if (updated instanceof Promise) {
+        return updated.then(async (u: any) => {
+          if (u) await this.cronService.syncFlowSchedule(u);
+          return u!;
+        });
+      }
+      const syncRes = this.cronService.syncFlowSchedule(updated);
+      if (syncRes instanceof Promise) {
+        void syncRes.catch((err: any) => {
+          console.warn(`[FlowService] Failed to sync cron schedule for flow '${updated.name}':`, err);
+        });
+      }
+    }
     return updated!;
   }
 
@@ -740,6 +823,9 @@ export class FlowService {
   }
 
   private finishDeleteFlow(id: string): any {
+    if (this.cronService) {
+      void Promise.resolve(this.cronService.removeTargetSchedules('flow', id)).catch(() => {});
+    }
     if (this.queueService) {
       const queueName = FlowService.getFlowQueueName(id);
       void this.queueService.deleteQueue(queueName).catch(() => {});
@@ -2194,6 +2280,15 @@ export class FlowService {
   }
 
   private mapRowToConfig(row: any): FlowConfig {
+    let cronInput: any = undefined;
+    if (row.cronInput !== null && row.cronInput !== undefined) {
+      try {
+        cronInput = typeof row.cronInput === 'string' ? JSON.parse(row.cronInput) : row.cronInput;
+      } catch {
+        cronInput = row.cronInput;
+      }
+    }
+
     return {
       id: row.id,
       name: row.name,
@@ -2203,6 +2298,10 @@ export class FlowService {
       authPolicy: (row.authPolicy as FlowAuthPolicy) || 'public',
       invokeRule: row.invokeRule ?? null,
       eventTrigger: row.eventTrigger,
+      cronSchedule: row.cronSchedule ?? null,
+      cronTimezone: row.cronTimezone ?? null,
+      cronMissedPolicy: row.cronMissedPolicy ?? null,
+      cronInput,
       maxConcurrentExecutions:
         row.maxConcurrentExecutions !== null && row.maxConcurrentExecutions !== undefined
           ? Number(row.maxConcurrentExecutions)

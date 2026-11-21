@@ -47,6 +47,8 @@ import { FlowService } from './flows/FlowService';
 import { FlowController } from './http/controllers/FlowController';
 import { QueueService } from './queue/QueueService';
 import { QueueController } from './http/controllers/QueueController';
+import { CronService } from './cron/CronService';
+import { CronController } from './http/controllers/CronController';
 import { DatabaseConfigService } from './database/config/DatabaseConfigService';
 import { DatabaseController } from './http/controllers/DatabaseController';
 import { DriverRegistry } from './database/drivers/DriverRegistry';
@@ -111,6 +113,8 @@ export class NodeStack {
   public readonly queueController: QueueController;
   public readonly flows: FlowService;
   public readonly flowController: FlowController;
+  public readonly cron: CronService;
+  public readonly cronController: CronController;
   public readonly registry: AppRegistry;
   public readonly apps: AppManager;
   public readonly defaultApp: AppScope;
@@ -290,6 +294,13 @@ export class NodeStack {
     this.flowController = new FlowController(this.flows);
     this.container.bindInstance(TOKENS.FlowController, this.flowController);
 
+    // 17.85 Native Cron & Scheduled Triggers ("NodeStack Cron Service")
+    this.cron = this.defaultApp.cron;
+    this.container.bindInstance(TOKENS.CronService, this.cron);
+
+    this.cronController = new CronController(this.cron);
+    this.container.bindInstance(TOKENS.CronController, this.cronController);
+
     // 17.8 Multi-App Management & Resolution
     this.appController = new AppController(this.apps);
     this.appResolution = new AppResolutionMiddleware(this.apps);
@@ -331,7 +342,8 @@ export class NodeStack {
       this.functionController,
       this.flowController,
       this.queueController,
-      this.databaseController
+      this.databaseController,
+      this.cronController
     );
     this.container.bindInstance(TOKENS.HttpServer, this.server);
 
@@ -514,8 +526,9 @@ export class NodeStack {
       try {
         const scope = await this.apps.getAsync(app.slug);
         await scope.queue.start();
+        await scope.cron.start();
       } catch (err: any) {
-        console.warn(`[NodeStack] Failed to start queue for app '${app.slug}': ${err.message}`);
+        console.warn(`[NodeStack] Failed to start services for app '${app.slug}': ${err.message}`);
       }
     }
 
@@ -568,6 +581,13 @@ export class NodeStack {
       const msg = `In-flight request drain timed out after 3000ms with ${activeCount} active request(s) remaining.`;
       console.warn(`[NodeStack] Warning: ${msg}`, err?.message || err);
       errors.push(new Error(msg));
+    }
+
+    // Phase 2.5: Drain & dispose CronService across all app scopes
+    try {
+      await this.cron.dispose();
+    } catch (err: any) {
+      errors.push(err);
     }
 
     // Phase 3: Drain & dispose QueueService across all app scopes

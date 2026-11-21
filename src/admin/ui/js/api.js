@@ -147,6 +147,9 @@
         if (typeof loadFlows === 'function') {
           loadFlows();
         }
+        if (typeof loadCronStats === 'function') {
+          loadCronStats();
+        }
         loadCollections().then(() => {
           if (state.activeCollection) {
             if (state.collectionTab === 'records') loadRecords();
@@ -239,6 +242,9 @@
       if (typeof loadQueueStats === 'function') {
         loadQueueStats();
       }
+      if (typeof loadCronStats === 'function') {
+        loadCronStats();
+      }
       try {
         const pRes = await fetch('/api/plugins');
         if (pRes.ok) {
@@ -328,6 +334,7 @@
         if (typeof loadFunctionStats === 'function') loadFunctionStats();
         if (typeof loadFlows === 'function') loadFlows();
         if (typeof loadQueueStats === 'function') loadQueueStats();
+        if (typeof loadCronStats === 'function') loadCronStats();
         initRealtime();
         if (typeof parseUrlAndNavigate === 'function') {
           await parseUrlAndNavigate(false);
@@ -402,6 +409,7 @@
         if (typeof loadFunctionStats === 'function') loadFunctionStats();
         if (typeof loadFlows === 'function') loadFlows();
         if (typeof loadQueueStats === 'function') loadQueueStats();
+        if (typeof loadCronStats === 'function') loadCronStats();
         initRealtime();
         if (typeof parseUrlAndNavigate === 'function') {
           await parseUrlAndNavigate(false);

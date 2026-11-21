@@ -40,6 +40,8 @@ export class LogicalSnapshotDriver implements ISnapshotDriver {
       '_queues',
       '_queue_messages',
       '_plugin_settings',
+      '_cron_schedules',
+      '_cron_runs',
     ];
 
     for (const table of systemTables) {

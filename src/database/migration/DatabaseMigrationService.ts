@@ -423,6 +423,8 @@ export class DatabaseMigrationService {
       '_queues',
       '_queue_messages',
       '_plugin_settings',
+      '_cron_schedules',
+      '_cron_runs',
     ];
 
     const totalTables = collections.length + systemTables.length;

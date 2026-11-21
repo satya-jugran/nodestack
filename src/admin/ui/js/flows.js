@@ -248,10 +248,13 @@ function renderFlowsListHtml() {
           <div class="webhook-stat-card" style="cursor: default;">
             <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem;">
               <div>
-                <h4 style="margin: 0 0 0.25rem 0; font-size: 1rem; color: var(--text-main); font-weight: 600;">
-                  ${escapeHtml(flow.name)}
-                </h4>
-                <p style="margin: 0; font-size: 0.8rem; color: var(--text-muted); min-height: 1.2rem;">
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                  <h4 style="margin: 0; font-size: 1rem; color: var(--text-main); font-weight: 600;">
+                    ${escapeHtml(flow.name)}
+                  </h4>
+                  <code style="font-size: 10px; color: var(--text-muted); background: var(--bg-card-hover); padding: 1px 5px; border-radius: 4px;" title="Unique Flow ID">${escapeHtml(flow.id)}</code>
+                </div>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--text-muted); min-height: 1.2rem;">
                   ${escapeHtml(flow.description || 'No description provided')}
                 </p>
               </div>
@@ -537,6 +540,7 @@ function openCreateFlowModal() {
               <select id="new-flow-trigger" class="form-select" onchange="toggleFlowTriggerInput(this.value)">
                 <option value="http">HTTP Endpoint (POST /api/flows/:id/execute)</option>
                 <option value="event">Database Event Hook (e.g. orders:create)</option>
+                <option value="cron">Cron Schedule (Recurring Interval)</option>
                 <option value="manual">Manual Execution Only</option>
               </select>
             </div>
@@ -558,6 +562,30 @@ function openCreateFlowModal() {
                 class="form-input"
                 placeholder="collection:action (e.g. orders:create, users:*)"
               />
+            </div>
+            <div class="form-group" id="flow-cron-field" style="display: none; flex-direction: column; gap: 8px;">
+              <label class="form-label" for="new-flow-cron">Cron Expression & Timezone</label>
+              <div style="display: flex; gap: 8px;">
+                <input
+                  type="text"
+                  id="new-flow-cron"
+                  class="form-input"
+                  placeholder="e.g. 0 * * * * or */15 * * * *"
+                  style="flex: 1; font-family: monospace;"
+                />
+                <input
+                  type="text"
+                  id="new-flow-timezone"
+                  class="form-input"
+                  placeholder="UTC"
+                  list="iana-timezones-list"
+                  value="UTC"
+                  style="width: 140px;"
+                />
+              </div>
+              <span style="font-size: 0.72rem; color: var(--text-muted);">
+                Standard 5-field cron expression. Schedules will coordinate via atomic DB leases.
+              </span>
             </div>
             <div class="form-group">
               <label class="form-label" for="new-flow-concurrency">Max Concurrent Executions (Optional)</label>
@@ -591,6 +619,8 @@ function toggleFlowTriggerInput(val) {
   if (field) field.style.display = val === 'event' ? 'flex' : 'none';
   const httpAuthField = document.getElementById('flow-http-auth-field');
   if (httpAuthField) httpAuthField.style.display = val === 'http' ? 'flex' : 'none';
+  const cronField = document.getElementById('flow-cron-field');
+  if (cronField) cronField.style.display = val === 'cron' ? 'flex' : 'none';
 }
 
 async function handleCreateFlowSubmit(e) {
@@ -600,6 +630,8 @@ async function handleCreateFlowSubmit(e) {
   const triggerInput = document.getElementById('new-flow-trigger');
   const authInput = document.getElementById('new-flow-auth-policy');
   const eventInput = document.getElementById('new-flow-event');
+  const cronInput = document.getElementById('new-flow-cron');
+  const tzInput = document.getElementById('new-flow-timezone');
   const concurrencyInput = document.getElementById('new-flow-concurrency');
 
   const name = nameInput ? nameInput.value.trim() : '';
@@ -609,6 +641,8 @@ async function handleCreateFlowSubmit(e) {
   const authPolicy = triggerType === 'http' && authInput ? authInput.value : 'admin';
   const invokeRule = triggerType === 'http' && authPolicy === 'custom' ? '@request.auth.id != ""' : null;
   const eventTrigger = triggerType === 'event' && eventInput ? eventInput.value.trim() : null;
+  const cronSchedule = triggerType === 'cron' && cronInput ? cronInput.value.trim() || null : null;
+  const cronTimezone = triggerType === 'cron' && tzInput ? tzInput.value.trim() || 'UTC' : 'UTC';
   const rawConcurrency = concurrencyInput ? concurrencyInput.value.trim() : '';
   const maxConcurrentExecutions = rawConcurrency !== '' ? parseInt(rawConcurrency, 10) : null;
 
@@ -620,6 +654,8 @@ async function handleCreateFlowSubmit(e) {
     authPolicy,
     invokeRule,
     eventTrigger,
+    cronSchedule,
+    cronTimezone,
     maxConcurrentExecutions,
     definition: {
       startAt: 'FirstStep',
@@ -648,6 +684,9 @@ async function handleCreateFlowSubmit(e) {
 }
 
 function formatFlowTriggerLabel(flow) {
+  if (flow.triggerType === 'cron') {
+    return `⏱️ Cron: ${flow.cronSchedule || ''} (${flow.cronTimezone || 'UTC'})`;
+  }
   if (flow.triggerType === 'event') {
     return `DB Event${flow.eventTrigger ? `: ${escapeHtml(flow.eventTrigger)}` : ''}`;
   }

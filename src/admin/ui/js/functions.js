@@ -353,9 +353,12 @@ function renderFunctionsTable(functions) {
           <div style="display: flex; align-items: center; gap: 8px;">
             <span class="status-indicator ${isEnabled ? 'status-active' : 'status-inactive'}" title="${isEnabled ? 'Active' : 'Disabled'}"></span>
             <div>
-              <a href="javascript:void(0)" onclick="openFunctionEditor('${fn.id}')" style="font-weight: 600; color: var(--accent-primary); text-decoration: none; font-size: 13.5px; font-family: monospace;">
-                ${escapeHtml(fn.name)}
-              </a>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <a href="javascript:void(0)" onclick="openFunctionEditor('${fn.id}')" style="font-weight: 600; color: var(--accent-primary); text-decoration: none; font-size: 13.5px; font-family: monospace;">
+                  ${escapeHtml(fn.name)}
+                </a>
+                <code style="font-size: 10px; color: var(--text-muted); background: var(--bg-card-hover); padding: 1px 5px; border-radius: 4px;" title="Unique Function ID">${escapeHtml(fn.id)}</code>
+              </div>
               ${fn.description ? `<div style="font-size: 11.5px; color: var(--text-muted); margin-top: 2px;">${escapeHtml(fn.description)}</div>` : ''}
             </div>
           </div>
