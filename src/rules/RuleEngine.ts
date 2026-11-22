@@ -265,7 +265,7 @@ export class RuleEngine {
 
   private evaluateComparison(comparisonStr: string, context: RuleEvaluationContext): boolean {
     // Supported operators in order of precedence
-    const operators = ['!=', '==', '>=', '<=', '=', '>', '<', '~'];
+    const operators = ['!=', '==', '>=', '<=', '=', '>', '<', '!~', '~'];
 
     for (const op of operators) {
       const idx = this.findOperatorIndex(comparisonStr, op);
@@ -322,6 +322,8 @@ export class RuleEngine {
             return Number(leftVal) <= Number(rightVal);
           case '~':
             return String(leftVal ?? '').toLowerCase().includes(String(rightVal ?? '').toLowerCase());
+          case '!~':
+            return !String(leftVal ?? '').toLowerCase().includes(String(rightVal ?? '').toLowerCase());
         }
       }
     }
@@ -442,8 +444,11 @@ export class RuleEngine {
         if (char === '(') depth++;
         else if (char === ')') depth--;
         else if (depth === 0 && str.startsWith(op, i)) {
-          // ensure not part of bigger operator (e.g. '=' inside '!=')
+          // ensure not part of bigger operator (e.g. '=' inside '!=', '~' inside '!~')
           if (op === '=' && (str[i - 1] === '!' || str[i - 1] === '<' || str[i - 1] === '>')) {
+            continue;
+          }
+          if (op === '~' && str[i - 1] === '!') {
             continue;
           }
           return i;

@@ -69,6 +69,19 @@ describe('RuleEngine', () => {
     expect(engine.evaluate('title ~ "architecture"', ctx)).toBe(true);
   });
 
+  it('should evaluate not-contains (!~) operator for strings', () => {
+    const ctx = {
+      auth: { email: 'alice@company.org', isAdmin: false },
+      record: { title: 'NodeStack Architecture Guide' },
+    };
+
+    expect(engine.evaluate('@request.auth.email !~ "@other.com"', ctx)).toBe(true);
+    expect(engine.evaluate('@request.auth.email !~ "@company.org"', ctx)).toBe(false);
+    expect(engine.evaluate('title !~ "confidential"', ctx)).toBe(true);
+    expect(engine.evaluate('title !~ "architecture"', ctx)).toBe(false);
+    expect(engine.evaluate('title !~ "GUIDE"', ctx)).toBe(false);
+  });
+
       it('should evaluate bare field identifiers against data payload when record is absent (create)', () => {
       const ctxValid = {
         auth: { id: 'usr_owner_1' },
