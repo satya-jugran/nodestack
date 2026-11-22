@@ -125,7 +125,7 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
       expect(products.items.length).toBe(20);
 
       // Demo User
-      const users = await scope.records.getList('users', { filter: "email = 'alex.vance@nodestack.dev'" });
+      const users = await scope.records.getList('users', { filter: "email = 'alex.vance@nodestack.dev'" }, { isAdmin: true });
       expect(users.items.length).toBe(1);
       expect(users.items[0].email).toBe('alex.vance@nodestack.dev');
 
