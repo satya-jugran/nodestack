@@ -100,51 +100,115 @@ export class WebhookService {
   }
 
   /**
-   * Ensures SQLite tables and indices for webhooks and deliveries exist.
+   * Ensures tables and indices for webhooks and deliveries exist across supported database dialects.
    */
-  public initTables(): void {
+  public initTables(): any {
     try {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS _webhooks (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          url TEXT NOT NULL,
-          event TEXT NOT NULL,
-          collection TEXT NOT NULL,
-          action TEXT NOT NULL DEFAULT '*',
-          method TEXT NOT NULL DEFAULT 'POST',
-          headers TEXT,
-          secret TEXT,
-          enabled INTEGER NOT NULL DEFAULT 1,
-          created TEXT NOT NULL,
-          updated TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_webhooks_collection ON _webhooks(collection);
-        CREATE INDEX IF NOT EXISTS idx_webhooks_enabled ON _webhooks(enabled);
+      const isSqlite = !this.db?.dialect || this.db.dialect.name === 'sqlite';
 
-        CREATE TABLE IF NOT EXISTS _webhook_deliveries (
-          id TEXT PRIMARY KEY,
-          webhookId TEXT NOT NULL,
-          webhookName TEXT NOT NULL,
-          url TEXT NOT NULL,
-          event TEXT NOT NULL,
-          collection TEXT NOT NULL,
-          recordId TEXT,
-          requestHeaders TEXT NOT NULL,
-          requestPayload TEXT NOT NULL,
-          responseStatus INTEGER NOT NULL DEFAULT 0,
-          responseHeaders TEXT,
-          responseBody TEXT,
-          durationMs INTEGER NOT NULL DEFAULT 0,
-          status TEXT NOT NULL,
-          error TEXT,
-          attempt INTEGER NOT NULL DEFAULT 1,
-          created TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_webhook_del_wh ON _webhook_deliveries(webhookId, created DESC);
-        CREATE INDEX IF NOT EXISTS idx_webhook_del_created ON _webhook_deliveries(created DESC);
-        CREATE INDEX IF NOT EXISTS idx_webhook_del_status ON _webhook_deliveries(status);
-      `);
+      if (isSqlite) {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS _webhooks (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            url TEXT NOT NULL,
+            event TEXT NOT NULL,
+            collection TEXT NOT NULL,
+            action TEXT NOT NULL DEFAULT '*',
+            method TEXT NOT NULL DEFAULT 'POST',
+            headers TEXT,
+            secret TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created TEXT NOT NULL,
+            updated TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_webhooks_collection ON _webhooks(collection);
+          CREATE INDEX IF NOT EXISTS idx_webhooks_enabled ON _webhooks(enabled);
+
+          CREATE TABLE IF NOT EXISTS _webhook_deliveries (
+            id TEXT PRIMARY KEY,
+            webhookId TEXT NOT NULL,
+            webhookName TEXT NOT NULL,
+            url TEXT NOT NULL,
+            event TEXT NOT NULL,
+            collection TEXT NOT NULL,
+            recordId TEXT,
+            requestHeaders TEXT NOT NULL,
+            requestPayload TEXT NOT NULL,
+            responseStatus INTEGER NOT NULL DEFAULT 0,
+            responseHeaders TEXT,
+            responseBody TEXT,
+            durationMs INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL,
+            error TEXT,
+            attempt INTEGER NOT NULL DEFAULT 1,
+            created TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_webhook_del_wh ON _webhook_deliveries(webhookId, created DESC);
+          CREATE INDEX IF NOT EXISTS idx_webhook_del_created ON _webhook_deliveries(created DESC);
+          CREATE INDEX IF NOT EXISTS idx_webhook_del_status ON _webhook_deliveries(status);
+        `);
+      } else {
+        const dialect = this.db.dialect;
+        const pk = dialect.mapFieldType('text', { isPrimaryKey: true });
+        const txt = dialect.textType();
+        const num = dialect.mapFieldType('number');
+        const date = dialect.mapFieldType('date', { isIndexed: true });
+        const idx = dialect.mapFieldType('text', { isIndexed: true });
+        const bool = dialect.mapFieldType('bool');
+        const boolDefault = dialect.booleanLiteral(true);
+
+        const ddlWebhooks = dialect.createTableIfNotExists('_webhooks', `
+          id ${pk} PRIMARY KEY,
+          name ${txt} NOT NULL,
+          url ${txt} NOT NULL,
+          event ${txt} NOT NULL,
+          collection ${idx} NOT NULL,
+          action ${txt} NOT NULL DEFAULT '*',
+          method ${txt} NOT NULL DEFAULT 'POST',
+          headers ${txt},
+          secret ${txt},
+          enabled ${bool} NOT NULL DEFAULT ${boolDefault},
+          created ${date} NOT NULL,
+          updated ${date} NOT NULL
+        `);
+
+        const ddlDeliveries = dialect.createTableIfNotExists('_webhook_deliveries', `
+          id ${pk} PRIMARY KEY,
+          webhookId ${idx} NOT NULL,
+          webhookName ${txt} NOT NULL,
+          url ${txt} NOT NULL,
+          event ${txt} NOT NULL,
+          collection ${txt} NOT NULL,
+          recordId ${txt},
+          requestHeaders ${txt} NOT NULL,
+          requestPayload ${txt} NOT NULL,
+          responseStatus ${num} NOT NULL DEFAULT 0,
+          responseHeaders ${txt},
+          responseBody ${txt},
+          durationMs ${num} NOT NULL DEFAULT 0,
+          status ${idx} NOT NULL,
+          error ${txt},
+          attempt ${num} NOT NULL DEFAULT 1,
+          created ${date} NOT NULL
+        `);
+
+        const p = (async () => {
+          await this.db.exec(ddlWebhooks);
+          await this.db.exec(dialect.createIndexIfNotExists('idx_webhooks_collection', '_webhooks', 'collection'));
+          await this.db.exec(dialect.createIndexIfNotExists('idx_webhooks_enabled', '_webhooks', 'enabled'));
+
+          await this.db.exec(ddlDeliveries);
+          await this.db.exec(dialect.createIndexIfNotExists('idx_webhook_del_wh', '_webhook_deliveries', 'webhookId, created DESC'));
+          await this.db.exec(dialect.createIndexIfNotExists('idx_webhook_del_created', '_webhook_deliveries', 'created DESC'));
+          await this.db.exec(dialect.createIndexIfNotExists('idx_webhook_del_status', '_webhook_deliveries', 'status'));
+        })();
+
+        if (p && typeof (p as any).catch === 'function') {
+          void p.catch(() => {});
+        }
+        return p;
+      }
     } catch {
       // Ignored if already initialized
     }

@@ -8,6 +8,8 @@ import { WebhookService } from '../src/webhooks/WebhookService';
 import { AdminUIBundler } from '../src/admin/AdminUIBundler';
 import { webhookPlugin } from '../src/plugins/webhooks';
 import { SsrfGuard, SsrfGuardError } from '../src/functions/security/SsrfGuard';
+import { PostgresDialect } from '../src/database/dialects/PostgresDialect';
+import { MssqlDialect } from '../src/database/dialects/MssqlDialect';
 
 describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
   const testDir = path.resolve(__dirname, '../.test_webhooks_nodestack_data');
@@ -1284,5 +1286,78 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       // Close drawer
       window.closeWebhookDrawer();
     }, 15000);
+  });
+
+  describe('6. WebhookService Multi-Database Dialect Compatibility (PostgreSQL & MSSQL)', () => {
+    it('should provision _webhooks and _webhook_deliveries tables and indices using PostgreSQL dialect DDL', async () => {
+      const executedStatements: string[] = [];
+      const mockDb: any = {
+        dialect: new PostgresDialect(),
+        exec: vi.fn(async (sql: string) => {
+          executedStatements.push(sql);
+        }),
+      };
+
+      const webhookService = new WebhookService(mockDb);
+      await webhookService.initTables();
+
+      expect(mockDb.exec).toHaveBeenCalled();
+      const allSql = executedStatements.join('\n');
+
+      // Verify PostgreSQL table creation
+      expect(allSql).toContain('CREATE TABLE IF NOT EXISTS "_webhooks"');
+      expect(allSql).toContain('"id" TEXT PRIMARY KEY');
+      expect(allSql).toContain('"collection" TEXT NOT NULL');
+      expect(allSql).toContain('"enabled" BOOLEAN NOT NULL DEFAULT TRUE');
+      expect(allSql).toContain('CREATE TABLE IF NOT EXISTS "_webhook_deliveries"');
+      expect(allSql).toContain('"webhookId" TEXT NOT NULL');
+
+      // Verify PostgreSQL index creation
+      expect(allSql).toContain('CREATE INDEX IF NOT EXISTS "idx_webhooks_collection" ON "_webhooks"("collection")');
+      expect(allSql).toContain('CREATE INDEX IF NOT EXISTS "idx_webhooks_enabled" ON "_webhooks"("enabled")');
+      expect(allSql).toContain('CREATE INDEX IF NOT EXISTS "idx_webhook_del_wh" ON "_webhook_deliveries"("webhookId", "created" DESC)');
+      expect(allSql).toContain('CREATE INDEX IF NOT EXISTS "idx_webhook_del_created" ON "_webhook_deliveries"("created" DESC)');
+      expect(allSql).toContain('CREATE INDEX IF NOT EXISTS "idx_webhook_del_status" ON "_webhook_deliveries"("status")');
+    });
+
+    it('should provision _webhooks and _webhook_deliveries tables and indices using MSSQL dialect DDL without syntax errors', async () => {
+      const executedStatements: string[] = [];
+      const mockDb: any = {
+        dialect: new MssqlDialect(),
+        exec: vi.fn(async (sql: string) => {
+          executedStatements.push(sql);
+        }),
+      };
+
+      const webhookService = new WebhookService(mockDb);
+      await webhookService.initTables();
+
+      expect(mockDb.exec).toHaveBeenCalled();
+      const allSql = executedStatements.join('\n');
+
+      // Verify MSSQL IF NOT EXISTS syntax instead of SQLite raw CREATE TABLE IF NOT EXISTS
+      expect(allSql).toContain('IF NOT EXISTS (SELECT * FROM sys.tables');
+      expect(allSql).toContain('CREATE TABLE [_webhooks]');
+      expect(allSql).toContain('id NVARCHAR(255) PRIMARY KEY');
+      expect(allSql).toContain('collection NVARCHAR(255) NOT NULL');
+      expect(allSql).toContain('enabled BIT NOT NULL DEFAULT 1');
+
+      // Verify MSSQL _webhook_deliveries syntax
+      expect(allSql).toContain('CREATE TABLE [_webhook_deliveries]');
+      expect(allSql).toContain('id NVARCHAR(255) PRIMARY KEY');
+      expect(allSql).toContain('webhookId NVARCHAR(255) NOT NULL');
+      expect(allSql).toContain('created NVARCHAR(255) NOT NULL');
+
+      // Verify MSSQL index creation syntax
+      expect(allSql).toContain("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_webhooks_collection'");
+      expect(allSql).toContain('CREATE INDEX [idx_webhooks_collection] ON [_webhooks](collection)');
+      expect(allSql).toContain('CREATE INDEX [idx_webhook_del_wh] ON [_webhook_deliveries](webhookId, created DESC)');
+      expect(allSql).toContain('CREATE INDEX [idx_webhook_del_created] ON [_webhook_deliveries](created DESC)');
+      expect(allSql).toContain('CREATE INDEX [idx_webhook_del_status] ON [_webhook_deliveries](status)');
+
+      // Verify that raw SQLite syntax is NOT executed on MSSQL
+      expect(allSql).not.toContain('CREATE TABLE IF NOT EXISTS _webhooks');
+      expect(allSql).not.toContain('id TEXT PRIMARY KEY');
+    });
   });
 });
