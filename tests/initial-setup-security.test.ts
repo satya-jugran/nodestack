@@ -80,13 +80,13 @@ describe('Initial Setup Security & Unauthenticated Bypass Prevention Tests', () 
       expect(data.message).toContain('super-admin');
     });
 
-    it('should REJECT unauthenticated POST /api/queues/:name/messages with 403 Forbidden', async () => {
+    it('should REJECT unauthenticated POST /api/queues/:name/messages with 401 Unauthorized', async () => {
       const res = await fetch(`${baseUrl}/api/queues/default/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ payload: { poison: true } }),
       });
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(401);
     });
 
     it('should REJECT unauthenticated GET /api/queues with 403 Forbidden', async () => {

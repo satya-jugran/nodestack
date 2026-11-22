@@ -650,7 +650,7 @@ describe('Schema Designer & Visual Rules Builder (schema.js & rules.js)', () => 
       const selectRow = rows[3] as HTMLElement;
       const selectConfig = selectRow.querySelector('.field-select-config');
       expect(selectConfig).not.toBeNull();
-      expect(selectConfig?.textContent).toContain('Allowed options:');
+      expect(selectConfig?.textContent).toContain('Options:');
 
       const optionsInput = selectConfig?.querySelector('.field-select-values-input') as HTMLInputElement;
       expect(optionsInput).not.toBeNull();

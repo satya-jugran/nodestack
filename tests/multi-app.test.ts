@@ -1437,7 +1437,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
           'x-nodestack-app': 'tenant-corp',
         },
       });
-      expect(jwtListApps.status).toBe(403);
+      expect(jwtListApps.status).toBe(401);
 
       // POST /api/apps
       const jwtCreateApp = await fetch(`http://127.0.0.1:${port}/api/apps`, {
@@ -1452,7 +1452,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
           slug: 'jwt-rogue-app',
         }),
       });
-      expect(jwtCreateApp.status).toBe(403);
+      expect(jwtCreateApp.status).toBe(401);
 
       // DELETE /api/apps/tenant-corp
       const jwtDeleteApp = await fetch(`http://127.0.0.1:${port}/api/apps/tenant-corp`, {
@@ -1461,7 +1461,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
           Authorization: `Bearer ${tenantJwt}`,
         },
       });
-      expect(jwtDeleteApp.status).toBe(403);
+      expect(jwtDeleteApp.status).toBe(401);
 
       // GET /api/system/database/status
       const jwtDbStatus = await fetch(`http://127.0.0.1:${port}/api/system/database/status`, {
@@ -1470,7 +1470,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
           'x-nodestack-app': 'tenant-corp',
         },
       });
-      expect(jwtDbStatus.status).toBe(403);
+      expect(jwtDbStatus.status).toBe(401);
 
       // POST /api/system/database/switch
       const jwtDbSwitch = await fetch(`http://127.0.0.1:${port}/api/system/database/switch`, {
@@ -1484,7 +1484,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
           config: { provider: 'sqlite', database: 'jwt_hacked.db' },
         }),
       });
-      expect(jwtDbSwitch.status).toBe(403);
+      expect(jwtDbSwitch.status).toBe(401);
 
       // POST /api/system/database/test
       const jwtDbTest = await fetch(`http://127.0.0.1:${port}/api/system/database/test`, {
@@ -1499,7 +1499,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
           database: 'test.db',
         }),
       });
-      expect(jwtDbTest.status).toBe(403);
+      expect(jwtDbTest.status).toBe(401);
 
       // 8. Verify Default-App Scoped (Non-Admin) API Key Cannot Access Tenant Collections (Cross-Tenant Isolation)
       // 8.1 Create a scoped API key in default app with narrow scopes

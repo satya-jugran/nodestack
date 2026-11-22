@@ -2980,14 +2980,18 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       const recordService = new RecordService(db, mockSchemaService);
 
       // 1. create() with string/numeric boolean inputs
-      const created = await recordService.create('users', {
-        email: 'pg@example.com',
-        password: 'password123',
-        emailVisibility: 'true',
-        verified: 1,
-        active: '1',
-        newsletter: undefined,
-      });
+      const created = await recordService.create(
+        'users',
+        {
+          email: 'pg@example.com',
+          password: 'password123',
+          emailVisibility: 'true',
+          verified: 1,
+          active: '1',
+          newsletter: undefined,
+        },
+        { isAdmin: true }
+      );
 
       expect(created.active).toBe(true);
       expect(created.newsletter).toBe(false);
@@ -3002,12 +3006,17 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(insertCall!.params[9]).toBe(false);
 
       // 2. update() toggling boolean values
-      const updated = await recordService.update('users', created.id, {
-        emailVisibility: false,
-        verified: 'false',
-        active: 0,
-        newsletter: 'true',
-      });
+      const updated = await recordService.update(
+        'users',
+        created.id,
+        {
+          emailVisibility: false,
+          verified: 'false',
+          active: 0,
+          newsletter: 'true',
+        },
+        { isAdmin: true }
+      );
 
       expect(updated.emailVisibility).toBe(false);
       expect(updated.verified).toBe(false);
@@ -3390,9 +3399,9 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(authSyncCall).toBeDefined();
       expect(authSyncCall!.sql).not.toContain('INSERT OR REPLACE');
       expect(authSyncCall!.sql).toContain('INSERT INTO "_admins"');
-      expect(authSyncCall!.sql).toContain('VALUES ($1, $2, $3, $4, $5, $6, $7)');
+      expect(authSyncCall!.sql).toContain('VALUES ($1, $2, $3, $4, $5, $6, $7, $8)');
       expect(authSyncCall!.sql).toContain('ON CONFLICT ("id") DO UPDATE SET');
-      expect(authSyncCall!.params).toEqual(['adm_pg1', 'pgadmin@nodestack.dev', passwordHash, 'tk_pg_1', null, now, now]);
+      expect(authSyncCall!.params).toEqual(['adm_pg1', 'pgadmin@nodestack.dev', passwordHash, 'tk_pg_1', null, 0, now, now]);
 
       // 2. verifyToken triggers registry sync on cache miss
       executedQueries.length = 0;
@@ -3403,7 +3412,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(verifySyncCall).toBeDefined();
       expect(verifySyncCall!.sql).not.toContain('INSERT OR REPLACE');
       expect(verifySyncCall!.sql).toContain('ON CONFLICT ("id") DO UPDATE SET');
-      expect(verifySyncCall!.params).toEqual(['adm_pg1', 'pgadmin@nodestack.dev', passwordHash, 'tk_pg_1', null, now, now]);
+      expect(verifySyncCall!.params).toEqual(['adm_pg1', 'pgadmin@nodestack.dev', passwordHash, 'tk_pg_1', null, 0, now, now]);
 
       await pgRegistryDriver.close();
       await appDb.close();
@@ -3480,7 +3489,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(authSyncCall).toBeDefined();
       expect(authSyncCall!.sql).not.toContain('INSERT OR REPLACE');
       expect(authSyncCall!.sql).toContain('MERGE INTO [control_plane].[_admins] AS target');
-      expect(authSyncCall!.sql).toContain('USING (VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7))');
+      expect(authSyncCall!.sql).toContain('USING (VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8))');
       expect(authSyncCall!.sql).toContain('WHEN MATCHED THEN UPDATE SET');
       expect(authSyncCall!.sql).not.toContain('[control_plane].[SET]');
       expect(authSyncCall!.sql).toContain('[passwordHash]');
@@ -3493,8 +3502,9 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
         p3: passwordHash,
         p4: 'tk_ms_1',
         p5: 'avatar.png',
-        p6: now,
+        p6: 0,
         p7: now,
+        p8: now,
       });
 
       // 2. verifyToken triggers registry sync on cache miss
