@@ -1327,124 +1327,124 @@ export class CronService {
     const totalAttempts = 1 + maxRetries;
     let attemptNumber = 1;
 
-    for (let attempt = 1; attempt <= totalAttempts; attempt++) {
-      attemptNumber = attempt;
-      status = 'succeeded';
-      error = null;
-      output = null;
-      executionRefId = null;
-
-      try {
-        if (schedule.targetType === 'function') {
-          if (!this.functionService) {
-            throw new Error('FunctionService not available');
-          }
-          const cronCtx: FunctionCronContext = {
-            scheduleId: schedule.id,
-            scheduleName: schedule.name,
-            cronExpression: schedule.cronExpression,
-            timezone: schedule.timezone,
-            scheduledAt: scheduledAtIso,
-            triggeredAt: startedAtIso,
-            isCatchUp,
-          };
-          const fnResult = await this.functionService.executeScheduledFunction(
-            schedule.targetId,
-            cronCtx,
-            schedule.payload
-          );
-          if (fnResult.status !== 'success' || fnResult.statusCode >= 400) {
-            status = 'failed';
-            error = fnResult.error || `Function returned status ${fnResult.statusCode}`;
-          }
-          output = fnResult.body !== undefined ? JSON.stringify(fnResult.body) : null;
-        } else if (schedule.targetType === 'flow') {
-          if (!this.flowService) {
-            throw new Error('FlowService not available');
-          }
-          const flowResult = await this.flowService.executeFlow(
-            schedule.targetId,
-            schedule.payload || {},
-            { id: `cron:${schedule.id}`, isAdmin: true },
-            { wait: true, trusted: true }
-          );
-          executionRefId = flowResult?.id || null;
-          if (flowResult && flowResult.status !== 'succeeded') {
-            status = 'failed';
-            error = flowResult.error || `Flow execution ended with status '${flowResult.status}'`;
-          }
-          output = flowResult?.output !== undefined ? JSON.stringify(flowResult.output) : null;
-        } else if (schedule.targetType === 'snapshot') {
-          if (!this.snapshotService) {
-            throw new Error('SnapshotService not available');
-          }
-          if (!this.snapshotService.isSupported()) {
-            const providerName = this.db.dialect.name === 'sqlite' ? 'SQLite' : (this.db.dialect.name === 'postgres' ? 'PostgreSQL' : 'SQL Server');
-            const errorMsg = `Scheduled snapshots are exclusive to embedded SQLite applications and are paused on ${providerName}.`;
-            await this.db.run(
-              'UPDATE _cron_schedules SET enabled = 0, lastStatus = ?, lastError = ? WHERE id = ?',
-              'failed',
-              errorMsg,
-              schedule.id
-            );
-            throw new AppError(errorMsg, 400);
-          }
-          const cleanSchedId = schedule.id.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-          const cleanNameSlug = schedule.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-          const cleanName = `cron-${cleanSchedId}-${cleanNameSlug}-${Date.now()}`;
-          const snap = await this.snapshotService.createSnapshot({
-            name: cleanName,
-            description: `Automated scheduled snapshot for '${schedule.name}' (${schedule.id})`,
-            evictOldest: true,
-          });
-          executionRefId = snap.id;
-          output = JSON.stringify({ snapshotId: snap.id, name: snap.name, size: snap.size });
-
-          // Rolling Snapshot Retention: keepLast (scoped to immutable schedule ID)
-          if (schedule.keepLast && schedule.keepLast > 0) {
-            try {
-              const prefix = `cron-${cleanSchedId}-`;
-              const allSnaps = await this.snapshotService.listSnapshots();
-              const matchingSnaps = (allSnaps || [])
-                .filter((s: any) => s.name && s.name.startsWith(prefix))
-                .sort((a: any, b: any) => new Date(b.created || b.createdAt || 0).getTime() - new Date(a.created || a.createdAt || 0).getTime());
-
-              if (matchingSnaps.length > schedule.keepLast) {
-                const toPrune = matchingSnaps.slice(schedule.keepLast);
-                for (const oldSnap of toPrune) {
-                  try {
-                    await this.snapshotService.deleteSnapshot(oldSnap.id);
-                  } catch {}
-                }
-              }
-            } catch (pruneErr) {
-              console.warn(`[CronService] Failed to prune snapshot retention for '${schedule.id}':`, pruneErr);
-            }
-          }
-        } else {
-          status = 'failed';
-          error = `Unsupported targetType '${schedule.targetType}'`;
-        }
-      } catch (err: any) {
-        status = 'failed';
-        error = err?.message || String(err);
-      }
-
-      if (status === 'succeeded') {
-        break;
-      }
-
-      // If we failed and have retries remaining, wait with backoff
-      if (attempt < totalAttempts && !this.isDisposed) {
-        const backoffMs = Math.min(300 * Math.pow(2, attempt - 1), 3000);
-        await new Promise((r) => setTimeout(r, backoffMs));
-      }
-    }
-
     try {
+      for (let attempt = 1; attempt <= totalAttempts; attempt++) {
+        attemptNumber = attempt;
+        status = 'succeeded';
+        error = null;
+        output = null;
+        executionRefId = null;
+
+        try {
+          if (schedule.targetType === 'function') {
+            if (!this.functionService) {
+              throw new Error('FunctionService not available');
+            }
+            const cronCtx: FunctionCronContext = {
+              scheduleId: schedule.id,
+              scheduleName: schedule.name,
+              cronExpression: schedule.cronExpression,
+              timezone: schedule.timezone,
+              scheduledAt: scheduledAtIso,
+              triggeredAt: startedAtIso,
+              isCatchUp,
+            };
+            const fnResult = await this.functionService.executeScheduledFunction(
+              schedule.targetId,
+              cronCtx,
+              schedule.payload
+            );
+            if (fnResult.status !== 'success' || fnResult.statusCode >= 400) {
+              status = 'failed';
+              error = fnResult.error || `Function returned status ${fnResult.statusCode}`;
+            }
+            output = fnResult.body !== undefined ? JSON.stringify(fnResult.body) : null;
+          } else if (schedule.targetType === 'flow') {
+            if (!this.flowService) {
+              throw new Error('FlowService not available');
+            }
+            const flowResult = await this.flowService.executeFlow(
+              schedule.targetId,
+              schedule.payload || {},
+              { id: `cron:${schedule.id}`, isAdmin: true },
+              { wait: true, trusted: true }
+            );
+            executionRefId = flowResult?.id || null;
+            if (flowResult && flowResult.status !== 'succeeded') {
+              status = 'failed';
+              error = flowResult.error || `Flow execution ended with status '${flowResult.status}'`;
+            }
+            output = flowResult?.output !== undefined ? JSON.stringify(flowResult.output) : null;
+          } else if (schedule.targetType === 'snapshot') {
+            if (!this.snapshotService) {
+              throw new Error('SnapshotService not available');
+            }
+            if (!this.snapshotService.isSupported()) {
+              const providerName = this.db.dialect.name === 'sqlite' ? 'SQLite' : (this.db.dialect.name === 'postgres' ? 'PostgreSQL' : 'SQL Server');
+              const errorMsg = `Scheduled snapshots are exclusive to embedded SQLite applications and are paused on ${providerName}.`;
+              await this.db.run(
+                'UPDATE _cron_schedules SET enabled = 0, lastStatus = ?, lastError = ? WHERE id = ?',
+                'failed',
+                errorMsg,
+                schedule.id
+              );
+              throw new AppError(errorMsg, 400);
+            }
+            const cleanSchedId = schedule.id.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+            const cleanNameSlug = schedule.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+            const cleanName = `cron-${cleanSchedId}-${cleanNameSlug}-${Date.now()}`;
+            const snap = await this.snapshotService.createSnapshot({
+              name: cleanName,
+              description: `Automated scheduled snapshot for '${schedule.name}' (${schedule.id})`,
+              evictOldest: true,
+            });
+            executionRefId = snap.id;
+            output = JSON.stringify({ snapshotId: snap.id, name: snap.name, size: snap.size });
+
+            // Rolling Snapshot Retention: keepLast (scoped to immutable schedule ID)
+            if (schedule.keepLast && schedule.keepLast > 0) {
+              try {
+                const prefix = `cron-${cleanSchedId}-`;
+                const allSnaps = await this.snapshotService.listSnapshots();
+                const matchingSnaps = (allSnaps || [])
+                  .filter((s: any) => s.name && s.name.startsWith(prefix))
+                  .sort((a: any, b: any) => new Date(b.created || b.createdAt || 0).getTime() - new Date(a.created || a.createdAt || 0).getTime());
+
+                if (matchingSnaps.length > schedule.keepLast) {
+                  const toPrune = matchingSnaps.slice(schedule.keepLast);
+                  for (const oldSnap of toPrune) {
+                    try {
+                      await this.snapshotService.deleteSnapshot(oldSnap.id);
+                    } catch {}
+                  }
+                }
+              } catch (pruneErr) {
+                console.warn(`[CronService] Failed to prune snapshot retention for '${schedule.id}':`, pruneErr);
+              }
+            }
+          } else {
+            status = 'failed';
+            error = `Unsupported targetType '${schedule.targetType}'`;
+          }
+        } catch (err: any) {
+          status = 'failed';
+          error = err?.message || String(err);
+        }
+
+        if (status === 'succeeded') {
+          break;
+        }
+
+        // If we failed and have retries remaining, wait with backoff
+        if (attempt < totalAttempts && !this.isDisposed) {
+          const backoffMs = Math.min(300 * Math.pow(2, attempt - 1), 3000);
+          await new Promise((r) => setTimeout(r, backoffMs));
+        }
+      }
+    } finally {
       clearInterval(renewalTimer);
       this.activeRenewals.delete(runId);
-    } catch {}
+    }
 
     const finishedAt = new Date();
     const finishedAtIso = finishedAt.toISOString();

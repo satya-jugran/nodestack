@@ -1179,5 +1179,83 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
         app.functions.executeScheduledFunction = originalExec;
       }
     });
+
+    it('should clean up lease renewal timer and activeRenewals in finally block even if execution throws an unhandled error', async () => {
+      const fn = await app.functions.createFunction({
+        name: 'timer-leak-fn',
+        code: `export default async function() { return { status: 200, body: 'ok' }; }`,
+        methods: ['POST'],
+        enabled: true,
+      });
+
+      const sched = await app.cron.createSchedule({
+        name: 'Unhandled Error Timer Leak Test',
+        targetType: 'function',
+        targetId: fn.id,
+        cronExpression: '*/1 * * * *',
+        enabled: true,
+      });
+
+      let observedActiveRenewals = 0;
+      const originalExec = app.functions.executeScheduledFunction.bind(app.functions);
+      app.functions.executeScheduledFunction = async (...args) => {
+        observedActiveRenewals = (app.cron as any).activeRenewals.size;
+        // Simulate an unhandled database disconnection or fatal error escaping the retry loop
+        throw new Error('Database connection lost during execution state updates');
+      };
+
+      try {
+        await app.cron.triggerSchedule(sched.id);
+      } finally {
+        app.functions.executeScheduledFunction = originalExec;
+      }
+
+      // During execution, activeRenewals had the timer registered
+      expect(observedActiveRenewals).toBe(1);
+      // After execution, the finally block ensured the timer was cleared and deleted
+      expect((app.cron as any).activeRenewals.size).toBe(0);
+    });
+
+    it('should invoke clearInterval and delete from activeRenewals even if an error is thrown in target execution', async () => {
+      const fn = await app.functions.createFunction({
+        name: 'spy-clearinterval-fn',
+        code: `export default async function() { return { status: 200, body: 'ok' }; }`,
+        methods: ['POST'],
+        enabled: true,
+      });
+
+      const sched = await app.cron.createSchedule({
+        name: 'Spy ClearInterval Leak Test',
+        targetType: 'function',
+        targetId: fn.id,
+        cronExpression: '*/1 * * * *',
+        enabled: true,
+      });
+
+      const originalClearInterval = global.clearInterval;
+      let clearedTimer: any = null;
+      global.clearInterval = ((timer: any) => {
+        clearedTimer = timer;
+        return originalClearInterval(timer);
+      }) as any;
+
+      const originalExec = app.functions.executeScheduledFunction.bind(app.functions);
+      let registeredTimer: any = null;
+      app.functions.executeScheduledFunction = async () => {
+        registeredTimer = Array.from((app.cron as any).activeRenewals.values())[0];
+        throw new Error('Unexpected crash during execution');
+      };
+
+      try {
+        await app.cron.triggerSchedule(sched.id);
+      } finally {
+        global.clearInterval = originalClearInterval;
+        app.functions.executeScheduledFunction = originalExec;
+      }
+
+      expect(registeredTimer).toBeDefined();
+      expect(clearedTimer).toBe(registeredTimer);
+      expect((app.cron as any).activeRenewals.size).toBe(0);
+    });
   });
 });
