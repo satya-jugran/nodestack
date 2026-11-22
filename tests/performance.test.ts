@@ -47,9 +47,9 @@ describe('Sprint 3 Performance & Architecture Tests', () => {
     schema.updateCollection('users', usersCol);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (db && db.isOpen()) {
-      db.close();
+      await db.close();
     }
     if (fs.existsSync(testDir)) {
       try {

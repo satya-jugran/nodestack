@@ -296,7 +296,7 @@ describe('TypeScript Definitions Generator (nodestack typegen)', () => {
         name: 'notes',
         schema: [{ id: 'f_text', name: 'text', type: 'text', required: true }],
       });
-      app.close();
+      await app.close();
 
       const outFile = path.join(cliTestDir, 'generated-types.ts');
 
@@ -319,7 +319,7 @@ describe('TypeScript Definitions Generator (nodestack typegen)', () => {
         name: 'snippets',
         schema: [{ id: 'f_code', name: 'code', type: 'text', required: true }],
       });
-      app.close();
+      await app.close();
 
       let stdoutOutput = '';
       const originalWrite = process.stdout.write;

@@ -503,7 +503,7 @@ export class AppScope {
 
     // 4. Checkpoint and close database driver
     try {
-      this.db.checkpoint();
+      await this.db.checkpoint();
       await this.db.close();
     } catch {
       // ignore

@@ -547,6 +547,6 @@ export class AppManager {
       } catch {}
     }
     this.appCache.clear();
-    this.registry.close();
+    await this.registry.close();
   }
 }

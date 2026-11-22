@@ -21,9 +21,9 @@ describe('DatabaseService & NodeSqliteDriver Transaction Tests', () => {
     db.init();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (db && db.isOpen()) {
-      db.close();
+      await db.close();
     }
     if (fs.existsSync(testDir)) {
       try {

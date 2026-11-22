@@ -961,7 +961,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       await stack.apps.closeAllAsync();
       for (const d of Object.values(factoryDrivers)) {
         try {
-          d.close();
+          await d.close();
         } catch {}
       }
     });

@@ -20,7 +20,7 @@ describe('CORS Security & Credentials Hardening', { timeout: 15000 }, () => {
         try {
           await app.stop();
         } catch {
-          app.close();
+          await app.close();
         }
       }
     }

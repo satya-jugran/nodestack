@@ -397,6 +397,6 @@ describe('PostgresDriver SSL & CA Certificate Hardening', () => {
     expect(saved).toBeDefined();
     expect(saved?.ssl).toBe(true);
     expect(saved?.ca).toBe(certFilePath);
-    app.close();
+    await app.close();
   });
 });

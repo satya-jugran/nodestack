@@ -59,9 +59,10 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
   // 1. DatabaseConfigService & AES-256-GCM Encryption Tests
   // ============================================================
   describe('DatabaseConfigService & Encryption', () => {
-    it('should encrypt and decrypt database credentials symmetrically using AES-256-GCM', () => {
+    it('should encrypt and decrypt database credentials symmetrically using AES-256-GCM', async () => {
       const config = new ConfigService({ dataDir: testDir, jwtSecret: 'super-secret-key-12345' });
-      const service = new DatabaseConfigService(config);
+      const systemDriver = new NodeSqliteDriver(':memory:');
+      const service = new DatabaseConfigService(config, systemDriver);
 
       const plainConfig: DatabaseConfig = {
         provider: 'postgres',
@@ -83,11 +84,14 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(decrypted.provider).toBe('postgres');
       expect(decrypted.password).toBe('TopSecretPassword!');
       expect(decrypted.database).toBe('production_db');
+
+      await systemDriver.close();
     });
 
-    it('should redact sensitive passwords and connection strings for safe public API exposure', () => {
+    it('should redact sensitive passwords and connection strings for safe public API exposure', async () => {
       const config = new ConfigService({ dataDir: testDir });
-      const service = new DatabaseConfigService(config);
+      const systemDriver = new NodeSqliteDriver(':memory:');
+      const service = new DatabaseConfigService(config, systemDriver);
 
       const rawConfig: DatabaseConfig = {
         provider: 'postgres',
@@ -108,6 +112,8 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(redacted.readReplicas).toBeDefined();
       expect(redacted.readReplicas![0]).toBe('postgres://app_user:••••••••@replica1.example.com:5432/nodestack');
       expect(redacted.readReplicas![1]).toBe('postgres://app_user:••••••••@replica2.example.com:5432/nodestack');
+
+      await systemDriver.close();
     });
 
     it('should initialize _db_configs table and return default SQLite config if none is active', async () => {
@@ -329,7 +335,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(json.availableProviders).toContain('postgres');
       expect(json.availableProviders).toContain('mssql');
 
-      app.close();
+      await app.close();
     });
 
     it('should test connections via /api/system/database/test including read replicas', async () => {
@@ -380,7 +386,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(failJson.replicas[0].ok).toBe(false);
       expect(failJson.error).toContain('One or more read replicas failed connection test');
 
-      app.close();
+      await app.close();
     });
   });
   // ============================================================
@@ -644,7 +650,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       const app = new NodeStack({ dataDir: testDir });
       expect(typeof app.loadActiveDatabaseDriver).toBe('function');
       await expect(app.loadActiveDatabaseDriver()).resolves.toBeUndefined();
-      app.close();
+      await app.close();
     });
 
     it('should fail closed with 503 and lock app scope when configured remote database is unreachable on startup', async () => {
@@ -683,7 +689,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(json.connected).toBe(false);
       expect(json.error).toContain('unreachable');
 
-      app.close();
+      await app.close();
     });
 
     // Finding 5: MaintenanceGate Lock during Switch
@@ -865,7 +871,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(res.statusCode).toBe(200);
       expect(elapsed).toBeLessThan(3000);
 
-      app.close();
+      await app.close();
     });
 
     // 3. Shared pool closure on driver switch or shutdown
@@ -1213,6 +1219,9 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       // Verify db driver on defaultScope is STILL PostgresDriver, NOT NodeSqliteDriver!
       expect(defaultScope.db.getRootDriver() instanceof PostgresDriver).toBe(true);
       expect(defaultScope.db.dialect.name).toBe('postgres');
+
+      await appManager.closeAllAsync();
+      await db.close();
     });
 
     // 9. PostgresDialect quotes and preserves camelCase column definitions
@@ -2317,7 +2326,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(json.percent).toBe(0);
       expect(json.message).toBe('Idle');
 
-      app.close();
+      await app.close();
     });
 
     it('should bundle Admin UI with migration progress bar elements', () => {
@@ -2366,7 +2375,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(metadata.name).toBe('Dual Engine Snapshot');
       expect(metadata.collections.some((c: any) => c.name === 'posts')).toBe(true);
 
-      app.close();
+      await app.close();
     });
 
     it('should restore logical snapshot.json into SQLite when restoring a PostgreSQL-originated snapshot', async () => {
@@ -2420,7 +2429,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(articles.length).toBe(1);
       expect(articles[0].headline).toBe('Article from Postgres Snapshot');
 
-      app.close();
+      await app.close();
     });
 
     it('should restore SQLite data.db snapshot into a remote database target via SqliteToRemoteSnapshotDriver', async () => {
@@ -2516,7 +2525,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(res3.statusCode).toBe(200);
       expect(res3.json().success).toBe(true);
 
-      app.close();
+      await app.close();
     });
 
     it('should switch only the requested application while other applications remain on SQLite', async () => {
@@ -2562,7 +2571,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       const defaultConfig = await app.databaseConfig.getActiveConfig('default');
       expect(defaultConfig.dbPath).toBe(app.config.getAppDbPath('default'));
 
-      app.close();
+      await app.close();
     });
 
     it('should reject switch with migrateData=true when target SQLite database is identical to active database', async () => {
@@ -2595,7 +2604,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(switchRes.statusCode).toBe(400);
       expect(switchRes.json().message).toContain('already running on this SQLite database');
 
-      app.close();
+      await app.close();
     });
 
     it('should reset snapshots post-migration and automatically capture a baseline when target is SQLite', async () => {
@@ -2629,7 +2638,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(postStatus.snapshots.some(s => s.id === preSnap.id)).toBe(false);
       expect(postStatus.snapshots.some(s => s.name === 'Post-Migration Baseline')).toBe(true);
 
-      app.close();
+      await app.close();
     });
   });
 
@@ -2809,7 +2818,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(ddlStatements).toContain('ALTER TABLE [items] ADD [cfg] NVARCHAR(MAX) NOT NULL DEFAULT \'{}\'');
     });
 
-    it('should execute SQLite CREATE TABLE and ALTER TABLE with valid type-specific defaults for required fields', () => {
+    it('should execute SQLite CREATE TABLE and ALTER TABLE with valid type-specific defaults for required fields', async () => {
       const config = new ConfigService({ dataDir: testDir });
       const db = new DatabaseService(config, new NodeSqliteDriver(':memory:'));
       db.init();
@@ -2852,7 +2861,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
         expect(row.extraBool).toBe(0);
         expect(row.extraJson).toBe('{}');
       } finally {
-        db.close();
+        await db.close();
       }
     });
   });
@@ -3073,7 +3082,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
         const parsedPgFilter = QueryFilterParser.parseFilter('active = true', new Set(['active']), undefined, new PostgresDialect());
         expect(parsedPgFilter.params).toEqual([true]);
       } finally {
-        db.close();
+        await db.close();
       }
     });
   });
@@ -3397,7 +3406,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(verifySyncCall!.params).toEqual(['adm_pg1', 'pgadmin@nodestack.dev', passwordHash, 'tk_pg_1', null, now, now]);
 
       await pgRegistryDriver.close();
-      appDb.close();
+      await appDb.close();
     });
 
     it('should use MSSQL MERGE INTO upsert without corrupting bracketed identifiers or UPDATE SET', async () => {
@@ -3499,7 +3508,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(verifySyncCall!.sql).toContain('WHEN MATCHED THEN UPDATE SET');
 
       await mssqlRegistryDriver.close();
-      appDb.close();
+      await appDb.close();
     });
 
     it('should synchronize and update admin records in SQLite AppRegistry using ON CONFLICT upsert', async () => {
@@ -3552,7 +3561,7 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       expect(claims.isSuperAdmin).toBe(true);
 
       await registry.getDriver().close();
-      appDb.close();
+      await appDb.close();
     });
   });
 
