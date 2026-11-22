@@ -62,6 +62,7 @@ export class MssqlDriver implements IDatabaseDriver {
       this.pool = new ConnectionPool(options);
       this.schemaName = 'dbo';
       this.connectPromise = this.pool.connect();
+      this.connectPromise?.catch(() => {});
     } else {
       if (options.isSharedPool || options.connectionPool) {
         this.isSharedPool = true;
@@ -96,6 +97,7 @@ export class MssqlDriver implements IDatabaseDriver {
       } else if (options.connectionString) {
         this.pool = new ConnectionPool(options.connectionString);
         this.connectPromise = this.pool.connect();
+        this.connectPromise?.catch(() => {});
       } else {
         const config = {
           server: options.server || 'localhost',
@@ -116,6 +118,7 @@ export class MssqlDriver implements IDatabaseDriver {
         };
         this.pool = new ConnectionPool(config);
         this.connectPromise = this.pool.connect();
+        this.connectPromise?.catch(() => {});
       }
     }
   }
@@ -226,6 +229,10 @@ export class MssqlDriver implements IDatabaseDriver {
       await Promise.all(this.replicaConnectPromises);
       this.replicaConnectPromises = [];
     }
+  }
+
+  public async connect(): Promise<void> {
+    await this.ensureConnected();
   }
 
   public getSchemaName(): string {
