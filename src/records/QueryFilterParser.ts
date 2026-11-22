@@ -175,8 +175,8 @@ export class QueryFilterParser {
           if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(baseField) || !subPath.every((s) => /^[a-zA-Z0-9_]+$/.test(s))) {
             throw new AppError(`Invalid field name '${fieldName}' in filter expression`, 400);
           }
-          if (allowedFields && !allowedFields.has(baseField)) {
-            return '';
+          if (allowedFields && !allowedFields.has(baseField) && !['id', 'created', 'updated'].includes(baseField)) {
+            throw new AppError(`Invalid filter field '${fieldName}'`, 400);
           }
           columnExpr = dialect.jsonExtractTextSql(`${prefix}${dialect.quoteIdentifier(baseField)}`, subPath.join('.'));
         } else {
@@ -186,7 +186,7 @@ export class QueryFilterParser {
           }
 
           if (allowedFields && !allowedFields.has(fieldName) && !['id', 'created', 'updated'].includes(fieldName)) {
-            return '';
+            throw new AppError(`Invalid filter field '${fieldName}'`, 400);
           }
           columnExpr = `${prefix}${dialect.quoteIdentifier(fieldName)}`;
         }

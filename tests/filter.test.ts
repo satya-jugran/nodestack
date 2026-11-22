@@ -141,10 +141,47 @@ describe('QueryFilterParser', () => {
       }).toThrow(/unclosed string literal/i);
     });
 
-    it('should ignore unallowed fields cleanly without exposing existence or erroring', () => {
-      const res = QueryFilterParser.parseFilter("secret_col = 'hacked'", allowed);
-      expect(res.clause).toBe('');
-      expect(res.params).toEqual([]);
+    it('should reject unallowed fields with 400 Bad Request', () => {
+      try {
+        QueryFilterParser.parseFilter("secret_col = 'hacked'", allowed);
+        expect.unreachable('Should have thrown AppError');
+      } catch (err: any) {
+        expect(err.statusCode).toBe(400);
+        expect(err.message).toBe("Invalid filter field 'secret_col'");
+      }
+    });
+
+    it('should reject compound filters with unallowed or misspelled fields', () => {
+      expect(() => {
+        QueryFilterParser.parseFilter("non_existent_field = 'secret' && status = 'published'", allowed);
+      }).toThrow("Invalid filter field 'non_existent_field'");
+
+      expect(() => {
+        QueryFilterParser.parseFilter("status = 'published' || unmapped = 1", allowed);
+      }).toThrow("Invalid filter field 'unmapped'");
+
+      expect(() => {
+        QueryFilterParser.parseFilter("(non_existent_field = 'secret') && (status = 'published')", allowed);
+      }).toThrow("Invalid filter field 'non_existent_field'");
+    });
+
+    it('should reject unallowed nested JSON fields with 400 Bad Request', () => {
+      expect(() => {
+        QueryFilterParser.parseFilter("unmapped_json.prop = 'val'", allowed);
+      }).toThrow("Invalid filter field 'unmapped_json.prop'");
+    });
+
+    it('should permit built-in fields (id, created, updated) even if not in allowedFields', () => {
+      const strictAllowed = new Set(['title']);
+      const resId = QueryFilterParser.parseFilter("id = 'rec_123'", strictAllowed);
+      expect(resId.clause).toBe('WHERE "id" = ?');
+      expect(resId.params).toEqual(['rec_123']);
+
+      const resCreated = QueryFilterParser.parseFilter("created > '2026-01-01'", strictAllowed);
+      expect(resCreated.clause).toBe('WHERE "created" > ?');
+
+      const resUpdated = QueryFilterParser.parseFilter("updated <= '2026-12-31'", strictAllowed);
+      expect(resUpdated.clause).toBe('WHERE "updated" <= ?');
     });
 
     it('should reject invalid field identifier syntax', () => {

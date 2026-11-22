@@ -297,11 +297,10 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
 
     it('should NOT allow non-admin requests to filter or sort by email on auth collection', async () => {
       // Non-admin request (public / unauthenticated)
-      // When non-admin tries to filter by email, 'email' is omitted from allowedFields
-      const nonAdminSearch = await app.records.getList('users', { filter: "email ~ 'aaron'" });
-      // The filter on email is ignored by QueryFilterParser, so it does not narrow down exclusively to aaron
-      // and thus does NOT reveal whether hidden emails exist through item counts
-      expect(nonAdminSearch.totalItems).toBeGreaterThan(1);
+      // When non-admin tries to filter by email, 'email' is omitted from allowedFields and rejected
+      await expect(
+        app.records.getList('users', { filter: "email ~ 'aaron'" })
+      ).rejects.toThrow(/invalid filter field 'email'/i);
 
       // When non-admin tries to sort by email, it falls back to created DESC
       const nonAdminSort = await app.records.getList('users', { sort: 'email' });
@@ -320,11 +319,10 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
       expect(parsedAdmin.length).toBe(1);
       expect(parsedAdmin[0].email).toBe('aaron@company.io');
 
-      // Non-admin export
-      const nonAdminExport = await app.records.exportRecords('users', 'json', { filter: "email ~ 'aaron'" });
-      const parsedNonAdmin = JSON.parse(nonAdminExport.data);
-      // Filter on email ignored, exports all allowed users
-      expect(parsedNonAdmin.length).toBeGreaterThan(1);
+      // Non-admin export is rejected
+      await expect(
+        app.records.exportRecords('users', 'json', { filter: "email ~ 'aaron'" })
+      ).rejects.toThrow(/invalid filter field 'email'/i);
     });
 
     it('should prevent hidden-email disclosure to non-admin callers on a public/listable auth collection with emailVisibility: false', async () => {
@@ -373,27 +371,28 @@ describe('Records Data Grid Usability (Backend & Service Integration)', () => {
       expect(publicUser?.email).toBe('open_user@classified.org'); // Visible due to emailVisibility: true
 
       // 2. Non-admin filtering by hidden email (exact match):
-      // The filter on 'email' must be rejected/ignored, returning all 3 records instead of 1.
+      // The filter on 'email' must be rejected with 400 Bad Request.
       // This prevents using result count as an oracle to discover if 'secret_victim@classified.org' exists.
-      const nonAdminFilterHidden = await app.records.getList('public_members', {
-        filter: "email = 'secret_victim@classified.org'",
-      });
-      expect(nonAdminFilterHidden.totalItems).toBe(3);
-      expect(nonAdminFilterHidden.items.length).toBe(3);
+      await expect(
+        app.records.getList('public_members', {
+          filter: "email = 'secret_victim@classified.org'",
+        })
+      ).rejects.toThrow(/invalid filter field 'email'/i);
 
       // 3. Non-admin filtering by non-existent email:
-      // Ignored just like existing email, yielding identical totalItems count (3)
-      const nonAdminFilterNonexistent = await app.records.getList('public_members', {
-        filter: "email = 'nonexistent_account@nowhere.com'",
-      });
-      expect(nonAdminFilterNonexistent.totalItems).toBe(3);
-      expect(nonAdminFilterNonexistent.totalItems).toBe(nonAdminFilterHidden.totalItems);
+      // Rejected with 400 Bad Request identically
+      await expect(
+        app.records.getList('public_members', {
+          filter: "email = 'nonexistent_account@nowhere.com'",
+        })
+      ).rejects.toThrow(/invalid filter field 'email'/i);
 
       // 4. Non-admin filtering by hidden email with like (~):
-      const nonAdminLikeFilter = await app.records.getList('public_members', {
-        filter: "email ~ 'secret_victim'",
-      });
-      expect(nonAdminLikeFilter.totalItems).toBe(3);
+      await expect(
+        app.records.getList('public_members', {
+          filter: "email ~ 'secret_victim'",
+        })
+      ).rejects.toThrow(/invalid filter field 'email'/i);
 
       // 5. Non-admin sorting by email:
       // Sort on email is rejected and falls back to default created DESC
