@@ -9,7 +9,7 @@ describe('DatabaseService & NodeSqliteDriver Transaction Tests', () => {
   let config: ConfigService;
   let db: DatabaseService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     if (fs.existsSync(testDir)) {
       try {
         fs.rmSync(testDir, { recursive: true, force: true });
@@ -18,7 +18,7 @@ describe('DatabaseService & NodeSqliteDriver Transaction Tests', () => {
     fs.mkdirSync(testDir, { recursive: true });
     config = new ConfigService({ dataDir: testDir });
     db = new DatabaseService(config);
-    db.init();
+    await db.init();
   });
 
   afterEach(async () => {
@@ -32,95 +32,95 @@ describe('DatabaseService & NodeSqliteDriver Transaction Tests', () => {
     }
   });
 
-  it('should support nested transactions using savepoints with successful commit', () => {
-    db.exec('CREATE TABLE test_items (id TEXT PRIMARY KEY, val TEXT);');
+  it('should support nested transactions using savepoints with successful commit', async () => {
+    await db.exec('CREATE TABLE test_items (id TEXT PRIMARY KEY, val TEXT);');
 
-    db.transaction(() => {
-      db.run('INSERT INTO test_items VALUES (?, ?)', '1', 'outer');
+    await db.transaction(async () => {
+      await db.run('INSERT INTO test_items VALUES (?, ?)', '1', 'outer');
 
-      db.transaction(() => {
-        db.run('INSERT INTO test_items VALUES (?, ?)', '2', 'inner1');
+      await db.transaction(async () => {
+        await db.run('INSERT INTO test_items VALUES (?, ?)', '2', 'inner1');
 
-        db.transaction(() => {
-          db.run('INSERT INTO test_items VALUES (?, ?)', '3', 'inner2');
+        await db.transaction(async () => {
+          await db.run('INSERT INTO test_items VALUES (?, ?)', '3', 'inner2');
         });
       });
     });
 
-    const all = db.all<{ id: string; val: string }>('SELECT * FROM test_items ORDER BY id ASC');
+    const all = await db.all<{ id: string; val: string }>('SELECT * FROM test_items ORDER BY id ASC');
     expect(all).toHaveLength(3);
     expect(all.map((r) => r.id)).toEqual(['1', '2', '3']);
   });
 
-  it('should rollback inner savepoint without aborting outer transaction when error is handled', () => {
-    db.exec('CREATE TABLE test_items (id TEXT PRIMARY KEY, val TEXT);');
+  it('should rollback inner savepoint without aborting outer transaction when error is handled', async () => {
+    await db.exec('CREATE TABLE test_items (id TEXT PRIMARY KEY, val TEXT);');
 
-    db.transaction(() => {
-      db.run('INSERT INTO test_items VALUES (?, ?)', '1', 'outer_kept');
+    await db.transaction(async () => {
+      await db.run('INSERT INTO test_items VALUES (?, ?)', '1', 'outer_kept');
 
       try {
-        db.transaction(() => {
-          db.run('INSERT INTO test_items VALUES (?, ?)', '2', 'inner_rolled_back');
+        await db.transaction(async () => {
+          await db.run('INSERT INTO test_items VALUES (?, ?)', '2', 'inner_rolled_back');
           throw new Error('Inner failure');
         });
       } catch (err: any) {
         expect(err.message).toBe('Inner failure');
       }
 
-      db.run('INSERT INTO test_items VALUES (?, ?)', '3', 'outer_after_inner');
+      await db.run('INSERT INTO test_items VALUES (?, ?)', '3', 'outer_after_inner');
     });
 
-    const all = db.all<{ id: string; val: string }>('SELECT * FROM test_items ORDER BY id ASC');
+    const all = await db.all<{ id: string; val: string }>('SELECT * FROM test_items ORDER BY id ASC');
     expect(all).toHaveLength(2);
     expect(all.map((r) => r.id)).toEqual(['1', '3']);
   });
 
-  it('should rollback entire transaction if top-level throws', () => {
-    db.exec('CREATE TABLE test_items (id TEXT PRIMARY KEY, val TEXT);');
+  it('should rollback entire transaction if top-level throws', async () => {
+    await db.exec('CREATE TABLE test_items (id TEXT PRIMARY KEY, val TEXT);');
 
-    expect(() => {
-      db.transaction(() => {
-        db.run('INSERT INTO test_items VALUES (?, ?)', '1', 'first');
-        db.transaction(() => {
-          db.run('INSERT INTO test_items VALUES (?, ?)', '2', 'second');
+    await expect(
+      db.transaction(async () => {
+        await db.run('INSERT INTO test_items VALUES (?, ?)', '1', 'first');
+        await db.transaction(async () => {
+          await db.run('INSERT INTO test_items VALUES (?, ?)', '2', 'second');
         });
         throw new Error('Top-level boom');
-      });
-    }).toThrow('Top-level boom');
+      })
+    ).rejects.toThrow('Top-level boom');
 
-    const all = db.all<{ id: string; val: string }>('SELECT * FROM test_items');
+    const all = await db.all<{ id: string; val: string }>('SELECT * FROM test_items');
     expect(all).toHaveLength(0);
   });
 
-  it('should reject async functions passed to transaction before invocation', () => {
-    db.exec('CREATE TABLE test_items (id TEXT PRIMARY KEY, val TEXT);');
+  it('should support async functions and await inside transaction with commit', async () => {
+    await db.exec('CREATE TABLE test_items (id TEXT PRIMARY KEY, val TEXT);');
 
     let invoked = false;
-    expect(() => {
-      db.transaction((async () => {
-        invoked = true;
-        db.run('INSERT INTO test_items VALUES (?, ?)', '1', 'async');
-        await Promise.resolve();
-        db.run('INSERT INTO test_items VALUES (?, ?)', '2', 'after_await');
-      }) as any);
-    }).toThrow(/asynchronous functions cannot be used/i);
+    await db.transaction(async () => {
+      invoked = true;
+      await db.run('INSERT INTO test_items VALUES (?, ?)', '1', 'async');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await db.run('INSERT INTO test_items VALUES (?, ?)', '2', 'after_await');
+    });
 
-    expect(invoked).toBe(false);
-    const all = db.all<{ id: string; val: string }>('SELECT * FROM test_items');
-    expect(all).toHaveLength(0);
+    expect(invoked).toBe(true);
+    const all = await db.all<{ id: string; val: string }>('SELECT * FROM test_items ORDER BY id ASC');
+    expect(all).toHaveLength(2);
+    expect(all.map((r) => r.val)).toEqual(['async', 'after_await']);
   });
 
-  it('should reject functions returning a Promise to prevent unmanaged async execution', () => {
-    db.exec('CREATE TABLE test_items (id TEXT PRIMARY KEY, val TEXT);');
+  it('should rollback async transaction when error occurs after an await', async () => {
+    await db.exec('CREATE TABLE test_items (id TEXT PRIMARY KEY, val TEXT);');
 
-    expect(() => {
-      db.transaction((() => {
-        db.run('INSERT INTO test_items VALUES (?, ?)', '1', 'promise');
-        return Promise.resolve('delayed');
-      }) as any);
-    }).toThrow(/asynchronous functions|promise-returning/i);
+    await expect(
+      db.transaction(async () => {
+        await db.run('INSERT INTO test_items VALUES (?, ?)', '1', 'promise');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        throw new Error('Async failure after await');
+      })
+    ).rejects.toThrow('Async failure after await');
 
-    const all = db.all<{ id: string; val: string }>('SELECT * FROM test_items');
+    const all = await db.all<{ id: string; val: string }>('SELECT * FROM test_items');
     expect(all).toHaveLength(0);
   });
 

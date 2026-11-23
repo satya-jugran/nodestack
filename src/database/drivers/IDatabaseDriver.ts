@@ -6,21 +6,21 @@ export interface RunResult {
 }
 
 export interface IPreparedStatement {
-  all<T = any>(...params: any[]): Promise<T[]> | T[];
-  get<T = any>(...params: any[]): Promise<T | undefined> | (T | undefined);
-  run(...params: any[]): Promise<RunResult> | RunResult;
+  all<T = any>(...params: any[]): Promise<T[]>;
+  get<T = any>(...params: any[]): Promise<T | undefined>;
+  run(...params: any[]): Promise<RunResult>;
 }
 
 export interface IDatabaseDriver {
   readonly dialect: ISqlDialect;
   prepare(sql: string): IPreparedStatement;
-  exec(sql: string): Promise<void> | void;
-  transaction<T>(fn: (txDriver: IDatabaseDriver) => Promise<T> | T): Promise<T> | T;
+  exec(sql: string): Promise<void>;
+  transaction<T>(fn: (txDriver: IDatabaseDriver) => Promise<T> | T): Promise<T>;
   withSchema(schemaName: string): Promise<IDatabaseDriver>;
   ping(): Promise<boolean>;
   close(): Promise<void>;
   isOpen(): boolean;
   clone?(): IDatabaseDriver;
   getSchemaName?(): string;
-  connect?(): Promise<void> | void;
+  connect?(): Promise<void>;
 }

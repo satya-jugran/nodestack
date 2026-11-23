@@ -648,73 +648,51 @@ export class CronService {
     return updated!;
   }
 
-  public deleteSchedule(id: string, actor?: any): any {
-    const row = this.db.get<any>('SELECT * FROM _cron_schedules WHERE id = ?', id);
-    if (row instanceof Promise) {
-      return row.then((r) => {
-        if (!r) return false;
-        return this.finishDeleteSchedule(id, r);
-      });
-    }
+  public async deleteSchedule(id: string, actor?: any): Promise<boolean> {
+    const row = await this.db.get<any>('SELECT * FROM _cron_schedules WHERE id = ?', id);
     if (!row) {
       return false;
     }
-    return this.finishDeleteSchedule(id, row);
+    return await this.finishDeleteSchedule(id, row);
   }
 
-  private finishDeleteSchedule(id: string, existing?: any): any {
-    const promises: Promise<any>[] = [];
-
+  private async finishDeleteSchedule(id: string, existing?: any): Promise<boolean> {
     // If deleting a system-bound schedule, clear cron on the parent function / flow
     if (existing && (existing.isSystemBound || id.startsWith('inline_fn_') || id.startsWith('inline_flow_'))) {
       const nowIso = new Date().toISOString();
       if (existing.targetType === 'function') {
-        const pFn = this.db.run(
+        await this.db.run(
           'UPDATE _functions SET cronSchedule = NULL, updated = ? WHERE id = ?',
           nowIso,
           existing.targetId
         );
-        if (pFn instanceof Promise) promises.push(pFn);
       } else if (existing.targetType === 'flow') {
-        const pFlow = this.db.run(
+        await this.db.run(
           "UPDATE _flows SET triggerType = 'manual', cronSchedule = NULL, updated = ? WHERE id = ?",
           nowIso,
           existing.targetId
         );
-        if (pFlow instanceof Promise) promises.push(pFlow);
       }
     }
 
-    const del1 = this.db.run('DELETE FROM _cron_runs WHERE scheduleId = ?', id);
-    const del2 = this.db.run('DELETE FROM _cron_schedules WHERE id = ?', id);
+    await this.db.run('DELETE FROM _cron_runs WHERE scheduleId = ?', id);
+    const del2 = await this.db.run('DELETE FROM _cron_schedules WHERE id = ?', id);
     this.scheduleNextWake();
 
-    if (del1 instanceof Promise) promises.push(del1);
-    if (del2 instanceof Promise) promises.push(del2);
-
-    if (promises.length > 0) {
-      return Promise.all(promises).then((results) => {
-        const last = results[results.length - 1];
-        return Number((last as any)?.changes || 0) > 0;
-      });
-    }
-    return Number((del2 as any)?.changes || 0) > 0;
+    return Number(del2?.changes || 0) > 0;
   }
 
   // ==========================================
   // Target Synchronization (Inline 1:1 bindings)
   // ==========================================
 
-  public syncFunctionSchedule(fn: FunctionConfig): any {
+  public async syncFunctionSchedule(fn: FunctionConfig): Promise<void> {
     const scheduleId = `inline_fn_${fn.id}`;
-    const row = this.db.get<any>('SELECT * FROM _cron_schedules WHERE id = ?', scheduleId);
-    if (row instanceof Promise) {
-      return row.then((r) => this.finishSyncFunctionSchedule(fn, scheduleId, r ? this.mapRowToSchedule(r) : null));
-    }
-    return this.finishSyncFunctionSchedule(fn, scheduleId, row ? this.mapRowToSchedule(row) : null);
+    const row = await this.db.get<any>('SELECT * FROM _cron_schedules WHERE id = ?', scheduleId);
+    return await this.finishSyncFunctionSchedule(fn, scheduleId, row ? this.mapRowToSchedule(row) : null);
   }
 
-  private finishSyncFunctionSchedule(fn: FunctionConfig, scheduleId: string, existing: CronSchedule | null): any {
+  private async finishSyncFunctionSchedule(fn: FunctionConfig, scheduleId: string, existing: CronSchedule | null): Promise<void> {
     if (fn.cronSchedule && fn.cronSchedule.trim() && fn.enabled) {
       const tz = fn.cronTimezone?.trim() || 'UTC';
       const validation = CronParser.validate(fn.cronSchedule.trim(), tz);
@@ -736,9 +714,8 @@ export class CronService {
       }
       const nowIso = now.toISOString();
 
-      let runRes: any;
       if (existing) {
-        runRes = this.db.run(
+        await this.db.run(
           `UPDATE _cron_schedules SET
             name = ?, cronExpression = ?, timezone = ?, missedRunPolicy = ?,
             payload = ?, enabled = 1, nextRunAt = ?, updated = ?
@@ -753,7 +730,7 @@ export class CronService {
           scheduleId
         );
       } else {
-        runRes = this.db.run(
+        await this.db.run(
           `INSERT INTO _cron_schedules (
             id, name, targetType, targetId, cronExpression, timezone, missedRunPolicy,
             payload, isSystemBound, enabled, nextRunAt, lastRunAt, lastStatus, lastError,
@@ -772,27 +749,20 @@ export class CronService {
         );
       }
       this.scheduleNextWake();
-      if (runRes instanceof Promise) {
-        return runRes.then(() => {});
-      }
-      return;
     } else {
       if (existing) {
-        return this.deleteSchedule(scheduleId);
+        await this.deleteSchedule(scheduleId);
       }
     }
   }
 
-  public syncFlowSchedule(flow: FlowConfig): any {
+  public async syncFlowSchedule(flow: FlowConfig): Promise<void> {
     const scheduleId = `inline_flow_${flow.id}`;
-    const row = this.db.get<any>('SELECT * FROM _cron_schedules WHERE id = ?', scheduleId);
-    if (row instanceof Promise) {
-      return row.then((r) => this.finishSyncFlowSchedule(flow, scheduleId, r ? this.mapRowToSchedule(r) : null));
-    }
-    return this.finishSyncFlowSchedule(flow, scheduleId, row ? this.mapRowToSchedule(row) : null);
+    const row = await this.db.get<any>('SELECT * FROM _cron_schedules WHERE id = ?', scheduleId);
+    return await this.finishSyncFlowSchedule(flow, scheduleId, row ? this.mapRowToSchedule(row) : null);
   }
 
-  private finishSyncFlowSchedule(flow: FlowConfig, scheduleId: string, existing: CronSchedule | null): any {
+  private async finishSyncFlowSchedule(flow: FlowConfig, scheduleId: string, existing: CronSchedule | null): Promise<void> {
     if (flow.triggerType === 'cron' && flow.cronSchedule && flow.cronSchedule.trim() && flow.enabled) {
       const tz = flow.cronTimezone?.trim() || 'UTC';
       const validation = CronParser.validate(flow.cronSchedule.trim(), tz);
@@ -814,9 +784,8 @@ export class CronService {
       }
       const nowIso = now.toISOString();
 
-      let runRes: any;
       if (existing) {
-        runRes = this.db.run(
+        await this.db.run(
           `UPDATE _cron_schedules SET
             name = ?, cronExpression = ?, timezone = ?, missedRunPolicy = ?,
             payload = ?, enabled = 1, nextRunAt = ?, updated = ?
@@ -831,7 +800,7 @@ export class CronService {
           scheduleId
         );
       } else {
-        runRes = this.db.run(
+        await this.db.run(
           `INSERT INTO _cron_schedules (
             id, name, targetType, targetId, cronExpression, timezone, missedRunPolicy,
             payload, isSystemBound, enabled, nextRunAt, lastRunAt, lastStatus, lastError,
@@ -850,33 +819,21 @@ export class CronService {
         );
       }
       this.scheduleNextWake();
-      if (runRes instanceof Promise) {
-        return runRes.then(() => {});
-      }
-      return;
     } else {
       if (existing) {
-        return this.deleteSchedule(scheduleId);
+        await this.deleteSchedule(scheduleId);
       }
     }
   }
 
-  public removeTargetSchedules(targetType: CronTargetType, targetId: string): any {
-    const rows = this.db.all<any>(
+  public async removeTargetSchedules(targetType: CronTargetType, targetId: string): Promise<void> {
+    const rows = await this.db.all<any>(
       'SELECT id FROM _cron_schedules WHERE targetType = ? AND targetId = ?',
       targetType,
       targetId
     );
-    if (rows instanceof Promise) {
-      return rows.then(async (rList) => {
-        for (const s of rList || []) {
-          await this.deleteSchedule(s.id);
-        }
-      });
-    }
     for (const s of rows || []) {
-      const d = this.deleteSchedule(s.id);
-      if (d instanceof Promise) void d.catch(() => {});
+      await this.deleteSchedule(s.id);
     }
   }
 

@@ -254,27 +254,15 @@ export class TemplateService {
           .map((c) => this.db.dialect.quoteIdentifier(c))
           .join(', ')}) VALUES (${placeholders})`;
 
-        if (this.db.dialect.name === 'sqlite') {
-          const insertStmt = this.db.prepare(insertSql);
-          this.db.transaction(() => {
-            for (const row of preparedRows) {
-              const values = columns.map((colName) =>
-                row[colName] !== undefined ? row[colName] : null
-              );
-              insertStmt.run(...values);
-            }
-          });
-        } else {
-          await this.db.transaction(async (tx) => {
-            const insertStmt = tx.prepare(insertSql);
-            for (const row of preparedRows) {
-              const values = columns.map((colName) =>
-                row[colName] !== undefined ? row[colName] : null
-              );
-              await insertStmt.run(...values);
-            }
-          });
-        }
+        await this.db.transaction(async (tx) => {
+          const insertStmt = tx.prepare(insertSql);
+          for (const row of preparedRows) {
+            const values = columns.map((colName) =>
+              row[colName] !== undefined ? row[colName] : null
+            );
+            await insertStmt.run(...values);
+          }
+        });
 
         // Trigger events & SSE broadcast
         for (const rec of preparedRows) {

@@ -281,7 +281,7 @@ describe('Initial Setup Security & Unauthenticated Bypass Prevention Tests', () 
       expect(failures.length).toBe(5);
 
       // Verify that in the database, exactly 1 admin exists
-      const dbAdmins = (raceApp as any).db.prepare('SELECT id, email FROM _admins').all();
+      const dbAdmins = await (raceApp as any).db.prepare('SELECT id, email FROM _admins').all();
       expect(dbAdmins.length).toBe(1);
     });
   });
@@ -355,11 +355,11 @@ describe('Initial Setup Security & Unauthenticated Bypass Prevention Tests', () 
       expect(afterData.hasAdmins).toBe(true);
 
       // 6. Global admins list must NOT contain tenant_admin@alpha.com
-      const globalAdmins = (app as any).db.prepare('SELECT email FROM _admins WHERE email = ?').all('tenant_admin@alpha.com');
+      const globalAdmins = await (app as any).db.prepare('SELECT email FROM _admins WHERE email = ?').all('tenant_admin@alpha.com');
       expect(globalAdmins.length).toBe(0);
 
       // 7. Tenant DB must contain tenant_admin@alpha.com
-      const tenantAdmins = tenantScope.db.prepare('SELECT email FROM _admins WHERE email = ?').all('tenant_admin@alpha.com');
+      const tenantAdmins = await tenantScope.db.prepare('SELECT email FROM _admins WHERE email = ?').all('tenant_admin@alpha.com');
       expect(tenantAdmins.length).toBe(1);
     });
   });

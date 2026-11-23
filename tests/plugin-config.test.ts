@@ -229,7 +229,7 @@ TEST_PLUGIN_DISCORD_URL=https://discord.com/api/webhooks/test
     expect(hotUpdatedConfig.enabled).toBe(true);
 
     // Verify persistence in SQLite _plugin_settings table directly
-    const row = app.db.get<any>('SELECT settings FROM _plugin_settings WHERE pluginName = ?', [
+    const row = await app.db.get<any>('SELECT settings FROM _plugin_settings WHERE pluginName = ?', [
       'test-editable-plugin',
     ]);
     expect(row).toBeDefined();
@@ -443,7 +443,7 @@ TEST_PLUGIN_DISCORD_URL=https://discord.com/api/webhooks/test
     expect(body.plugin).toBe('chat-notifications');
 
     // 3. Fallback database settings reading when saved under alias
-    app.db.prepare(`
+    await app.db.prepare(`
       INSERT INTO _plugin_settings (pluginName, settings, updatedAt)
       VALUES (?, ?, ?)
     `).run('webhooks', JSON.stringify({ discordWebhookUrl: 'https://discord.com/from-alias-db' }), new Date().toISOString());

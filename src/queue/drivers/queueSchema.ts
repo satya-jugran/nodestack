@@ -4,7 +4,7 @@ export async function ensureQueueSchema(db: DatabaseService): Promise<void> {
   const isSqlite = db.dialect.name === 'sqlite';
 
   if (isSqlite) {
-    db.exec(`
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS _queues (
         name TEXT PRIMARY KEY,
         concurrency INTEGER NOT NULL DEFAULT 0,
@@ -50,7 +50,7 @@ export async function ensureQueueSchema(db: DatabaseService): Promise<void> {
     `);
 
     try {
-      db.exec(`
+      await db.exec(`
         CREATE VIEW IF NOT EXISTS _queue_jobs AS SELECT * FROM _queue_messages;
         CREATE TRIGGER IF NOT EXISTS trg_queue_jobs_insert
         INSTEAD OF INSERT ON _queue_jobs
@@ -64,14 +64,14 @@ export async function ensureQueueSchema(db: DatabaseService): Promise<void> {
       `);
     } catch {}
 
-    try { db.exec(`ALTER TABLE _queues ADD COLUMN strictOrder INTEGER NOT NULL DEFAULT 0;`); } catch {}
-    try { db.exec(`ALTER TABLE _queues ADD COLUMN isSystem INTEGER NOT NULL DEFAULT 0;`); } catch {}
-    try { db.exec(`UPDATE _queues SET isSystem = 1 WHERE name LIKE '_system:%' AND isSystem = 0;`); } catch {}
-    try { db.exec(`ALTER TABLE _queue_messages ADD COLUMN claimToken TEXT DEFAULT NULL;`); } catch {}
-    try { db.exec(`ALTER TABLE _queue_messages ADD COLUMN originalMessageId TEXT DEFAULT NULL;`); } catch {}
-    try { db.exec(`ALTER TABLE _queue_messages ADD COLUMN forwardedToMessageId TEXT DEFAULT NULL;`); } catch {}
-    try { db.exec(`CREATE INDEX IF NOT EXISTS idx_qmsg_orig_job ON _queue_messages(originalMessageId);`); } catch {}
-    try { db.exec(`CREATE INDEX IF NOT EXISTS idx_qmsg_forwarded_to ON _queue_messages(forwardedToMessageId);`); } catch {}
+    try { await db.exec(`ALTER TABLE _queues ADD COLUMN strictOrder INTEGER NOT NULL DEFAULT 0;`); } catch {}
+    try { await db.exec(`ALTER TABLE _queues ADD COLUMN isSystem INTEGER NOT NULL DEFAULT 0;`); } catch {}
+    try { await db.exec(`UPDATE _queues SET isSystem = 1 WHERE name LIKE '_system:%' AND isSystem = 0;`); } catch {}
+    try { await db.exec(`ALTER TABLE _queue_messages ADD COLUMN claimToken TEXT DEFAULT NULL;`); } catch {}
+    try { await db.exec(`ALTER TABLE _queue_messages ADD COLUMN originalMessageId TEXT DEFAULT NULL;`); } catch {}
+    try { await db.exec(`ALTER TABLE _queue_messages ADD COLUMN forwardedToMessageId TEXT DEFAULT NULL;`); } catch {}
+    try { await db.exec(`CREATE INDEX IF NOT EXISTS idx_qmsg_orig_job ON _queue_messages(originalMessageId);`); } catch {}
+    try { await db.exec(`CREATE INDEX IF NOT EXISTS idx_qmsg_forwarded_to ON _queue_messages(forwardedToMessageId);`); } catch {}
   } else {
     const dialect = db.dialect;
     const pk = dialect.mapFieldType('text', { isPrimaryKey: true });

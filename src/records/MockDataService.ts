@@ -182,35 +182,19 @@ export class MockDataService {
     // 4. Insert records into database within a transaction for maximum speed
     const insertedRecords: Array<Record<string, any>> = [];
     const qTable = this.db.dialect.quoteIdentifier(col.name);
-    if (this.db.dialect.name === 'sqlite') {
-      this.db.transaction(() => {
-        for (const item of preparedRecords) {
-          const data = item.insertData;
-          const columns = Object.keys(data).map((k) => this.db.dialect.quoteIdentifier(k));
-          const placeholders = Object.keys(data).map(() => '?');
-          const values = Object.values(data);
+    await this.db.transaction(async (tx) => {
+      for (const item of preparedRecords) {
+        const data = item.insertData;
+        const columns = Object.keys(data).map((k) => this.db.dialect.quoteIdentifier(k));
+        const placeholders = Object.keys(data).map(() => '?');
+        const values = Object.values(data);
 
-          const sql = `INSERT INTO ${qTable} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
-          this.db.run(sql, ...values);
+        const sql = `INSERT INTO ${qTable} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+        await tx.prepare(sql).run(...values);
 
-          insertedRecords.push(this.sanitizeRecord(data, col));
-        }
-      });
-    } else {
-      await this.db.transaction(async (tx) => {
-        for (const item of preparedRecords) {
-          const data = item.insertData;
-          const columns = Object.keys(data).map((k) => this.db.dialect.quoteIdentifier(k));
-          const placeholders = Object.keys(data).map(() => '?');
-          const values = Object.values(data);
-
-          const sql = `INSERT INTO ${qTable} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
-          await tx.prepare(sql).run(...values);
-
-          insertedRecords.push(this.sanitizeRecord(data, col));
-        }
-      });
-    }
+        insertedRecords.push(this.sanitizeRecord(data, col));
+      }
+    });
 
     // 5. Broadcast realtime events & trigger hooks asynchronously
     for (const rec of insertedRecords) {

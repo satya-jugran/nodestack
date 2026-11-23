@@ -196,7 +196,7 @@ export class FunctionService {
   // Function CRUD
   // ==========================================
 
-  public getAllFunctions(options?: { search?: string; enabled?: boolean }): any {
+  public async getAllFunctions(options?: { search?: string; enabled?: boolean }): Promise<FunctionConfig[]> {
     let sql = 'SELECT * FROM _functions WHERE 1=1';
     const params: any[] = [];
 
@@ -213,30 +213,21 @@ export class FunctionService {
 
     sql += ' ORDER BY name ASC';
 
-    const rows = this.db.all<any>(sql, ...params);
-    if (rows instanceof Promise) {
-      return rows.then((r: any[]) => (r || []).map((row: any) => this.mapRowToConfig(row)));
-    }
-    return (rows || []).map((r: any) => this.mapRowToConfig(r));
+    const rows = await this.db.all<any>(sql, ...params);
+    return (rows || []).map((row: any) => this.mapRowToConfig(row));
   }
 
-  public getFunctionById(id: string): any {
-    const row = this.db.get<any>('SELECT * FROM _functions WHERE id = ?', id);
-    if (row instanceof Promise) {
-      return row.then((r) => (r ? this.mapRowToConfig(r) : null));
-    }
+  public async getFunctionById(id: string): Promise<FunctionConfig | null> {
+    const row = await this.db.get<any>('SELECT * FROM _functions WHERE id = ?', id);
     return row ? this.mapRowToConfig(row) : null;
   }
 
-  public getFunctionByName(name: string): any {
-    const row = this.db.get<any>('SELECT * FROM _functions WHERE name = ?', name);
-    if (row instanceof Promise) {
-      return row.then((r) => (r ? this.mapRowToConfig(r) : null));
-    }
+  public async getFunctionByName(name: string): Promise<FunctionConfig | null> {
+    const row = await this.db.get<any>('SELECT * FROM _functions WHERE name = ?', name);
     return row ? this.mapRowToConfig(row) : null;
   }
 
-  public createFunction(dto: CreateFunctionDto, actor?: any): any {
+  public async createFunction(dto: CreateFunctionDto, actor?: any): Promise<FunctionConfig> {
     if (!dto.name || !dto.name.trim()) {
       throw new ValidationError('Function name cannot be blank');
     }
@@ -261,20 +252,14 @@ export class FunctionService {
     }
 
     const cleanName = dto.name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-    const existing = this.getFunctionByName(cleanName);
-    if (existing instanceof Promise) {
-      return existing.then((ex) => {
-        if (ex) throw new ConflictError(`Function with name '${cleanName}' already exists`);
-        return this.finishCreateFunction(cleanName, dto, actor);
-      });
-    }
+    const existing = await this.getFunctionByName(cleanName);
     if (existing) {
       throw new ConflictError(`Function with name '${cleanName}' already exists`);
     }
-    return this.finishCreateFunction(cleanName, dto, actor);
+    return await this.finishCreateFunction(cleanName, dto, actor);
   }
 
-  private finishCreateFunction(cleanName: string, dto: CreateFunctionDto, actor?: any): any {
+  private async finishCreateFunction(cleanName: string, dto: CreateFunctionDto, actor?: any): Promise<FunctionConfig> {
     const id = dto.id || `fn_${crypto.randomBytes(6).toString('hex')}`;
     const now = new Date().toISOString();
     const methods = Array.isArray(dto.methods) && dto.methods.length > 0 ? dto.methods.join(',') : 'GET,POST';
@@ -290,7 +275,7 @@ export class FunctionService {
       cronPayloadStr = typeof dto.cronPayload === 'string' ? dto.cronPayload : JSON.stringify(dto.cronPayload);
     }
 
-    const res = this.db.run(`
+    await this.db.run(`
       INSERT INTO _functions (
         id, name, description, code, enabled, authPolicy, invokeRule, methods,
         eventTrigger, cronSchedule, cronTimezone, cronMissedPolicy, cronPayload,
@@ -320,35 +305,14 @@ export class FunctionService {
       now
     );
 
-    if (res instanceof Promise) {
-      return res.then(async () => {
-        const created = await this.getFunctionById(id);
-        if (this.cronService && created) {
-          await this.cronService.syncFunctionSchedule(created);
-        }
-        return created!;
-      });
-    }
-
-    const created = this.getFunctionById(id);
+    const created = await this.getFunctionById(id);
     if (this.cronService && created) {
-      if (created instanceof Promise) {
-        return created.then(async (c: any) => {
-          if (c) await this.cronService.syncFunctionSchedule(c);
-          return c!;
-        });
-      }
-      const syncRes = this.cronService.syncFunctionSchedule(created);
-      if (syncRes instanceof Promise) {
-        void syncRes.catch((err: any) => {
-          console.warn(`[FunctionService] Failed to sync cron schedule for function '${created.name}':`, err);
-        });
-      }
+      await this.cronService.syncFunctionSchedule(created);
     }
     return created!;
   }
 
-  public updateFunction(id: string, dto: UpdateFunctionDto, actor?: any): any {
+  public async updateFunction(id: string, dto: UpdateFunctionDto, actor?: any): Promise<FunctionConfig> {
     if (dto.authPolicy !== undefined) {
       if (!ALLOWED_AUTH_POLICIES.includes(dto.authPolicy as FunctionAuthPolicy)) {
         throw new ValidationError(
@@ -368,39 +332,27 @@ export class FunctionService {
       }
     }
 
-    const current = this.getFunctionById(id);
-    if (current instanceof Promise) {
-      return current.then((curr) => {
-        if (!curr) throw new NotFoundError(`Function '${id}' not found`);
-        return this.finishUpdateFunction(id, curr, dto, actor);
-      });
-    }
+    const current = await this.getFunctionById(id);
     if (!current) {
       throw new NotFoundError(`Function '${id}' not found`);
     }
-    return this.finishUpdateFunction(id, current, dto, actor);
+    return await this.finishUpdateFunction(id, current, dto, actor);
   }
 
-  private finishUpdateFunction(id: string, current: FunctionConfig, dto: UpdateFunctionDto, actor?: any): any {
+  private async finishUpdateFunction(id: string, current: FunctionConfig, dto: UpdateFunctionDto, actor?: any): Promise<FunctionConfig> {
     let name = current.name;
     if (dto.name && dto.name.trim() !== current.name) {
       const cleanName = dto.name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-      const conflict = this.getFunctionByName(cleanName);
-      if (conflict instanceof Promise) {
-        return conflict.then((conf) => {
-          if (conf && conf.id !== id) throw new ConflictError(`Function with name '${cleanName}' already exists`);
-          return this.applyUpdateFunction(id, current, cleanName, dto, actor);
-        });
-      }
+      const conflict = await this.getFunctionByName(cleanName);
       if (conflict && conflict.id !== id) {
         throw new ConflictError(`Function with name '${cleanName}' already exists`);
       }
       name = cleanName;
     }
-    return this.applyUpdateFunction(id, current, name, dto, actor);
+    return await this.applyUpdateFunction(id, current, name, dto, actor);
   }
 
-  private applyUpdateFunction(id: string, current: FunctionConfig, name: string, dto: UpdateFunctionDto, actor?: any): any {
+  private async applyUpdateFunction(id: string, current: FunctionConfig, name: string, dto: UpdateFunctionDto, actor?: any): Promise<FunctionConfig> {
     const description = dto.description !== undefined ? dto.description : current.description;
     const code = dto.code !== undefined ? dto.code : current.code;
     const enabled = dto.enabled !== undefined ? (dto.enabled ? 1 : 0) : (current.enabled ? 1 : 0);
@@ -435,7 +387,7 @@ export class FunctionService {
     const env = dto.env ? JSON.stringify(dto.env) : JSON.stringify(current.env);
     const now = new Date().toISOString();
 
-    const res = this.db.run(`
+    await this.db.run(`
       UPDATE _functions SET
         name = ?, description = ?, code = ?, enabled = ?, authPolicy = ?, invokeRule = ?,
         methods = ?, eventTrigger = ?, cronSchedule = ?, cronTimezone = ?, cronMissedPolicy = ?, cronPayload = ?,
@@ -463,91 +415,39 @@ export class FunctionService {
       id
     );
 
-    const cascadeRes = this.cascadeRenames(current.name, name, now);
+    await this.cascadeRenames(current.name, name, now);
 
-    if (res instanceof Promise || cascadeRes instanceof Promise) {
-      return Promise.all([res, cascadeRes]).then(async () => {
-        const updated = await this.getFunctionById(id);
-        if (this.cronService && updated) {
-          await this.cronService.syncFunctionSchedule(updated);
-        }
-        return updated!;
-      });
-    }
-
-    const updated = this.getFunctionById(id);
+    const updated = await this.getFunctionById(id);
     if (this.cronService && updated) {
-      if (updated instanceof Promise) {
-        return updated.then(async (u: any) => {
-          if (u) await this.cronService.syncFunctionSchedule(u);
-          return u!;
-        });
-      }
-      const syncRes = this.cronService.syncFunctionSchedule(updated);
-      if (syncRes instanceof Promise) {
-        void syncRes.catch((err: any) => {
-          console.warn(`[FunctionService] Failed to sync cron schedule for function '${updated.name}':`, err);
-        });
-      }
+      await this.cronService.syncFunctionSchedule(updated);
     }
     return updated!;
   }
 
-  private cascadeRenames(currentName: string, newName: string, now: string): void | Promise<void> {
+  private async cascadeRenames(currentName: string, newName: string, now: string): Promise<void> {
     if (newName === currentName) return;
 
-    const doQueues = () => {
-      try {
-        const q = this.db.run('UPDATE _queues SET targetFunction = ? WHERE targetFunction = ?', newName, currentName);
-        if (q instanceof Promise) return q.catch(() => {});
-      } catch {}
-    };
+    try {
+      await this.db.run('UPDATE _queues SET targetFunction = ? WHERE targetFunction = ?', newName, currentName);
+    } catch {}
 
-    const doFlows = () => {
-      try {
-        const rows = this.db.all<any>('SELECT id, definition FROM _flows');
-        if (rows instanceof Promise) {
-          return rows.then(async (rList) => {
-            for (const row of rList || []) {
-              try {
-                const def = JSON.parse(row.definition);
-                const renamed = FlowValidator.renameReferencedFunction(def, currentName, newName);
-                if (renamed) {
-                  await this.db.run(
-                    'UPDATE _flows SET definition = ?, updated = ? WHERE id = ?',
-                    JSON.stringify(def),
-                    now,
-                    row.id
-                  );
-                }
-              } catch {}
-            }
-          }).catch(() => {});
-        }
-
-        for (const row of rows || []) {
-          try {
-            const def = JSON.parse(row.definition);
-            const renamed = FlowValidator.renameReferencedFunction(def, currentName, newName);
-            if (renamed) {
-              const r = this.db.run(
-                'UPDATE _flows SET definition = ?, updated = ? WHERE id = ?',
-                JSON.stringify(def),
-                now,
-                row.id
-              );
-              if (r instanceof Promise) void r.catch(() => {});
-            }
-          } catch {}
-        }
-      } catch {}
-    };
-
-    const qRes = doQueues();
-    if (qRes instanceof Promise) {
-      return qRes.then(() => doFlows());
-    }
-    return doFlows();
+    try {
+      const rows = await this.db.all<any>('SELECT id, definition FROM _flows');
+      for (const row of rows || []) {
+        try {
+          const def = JSON.parse(row.definition);
+          const renamed = FlowValidator.renameReferencedFunction(def, currentName, newName);
+          if (renamed) {
+            await this.db.run(
+              'UPDATE _flows SET definition = ?, updated = ? WHERE id = ?',
+              JSON.stringify(def),
+              now,
+              row.id
+            );
+          }
+        } catch {}
+      }
+    } catch {}
   }
 
   public setFlowService(flowService: FlowService): void {
@@ -570,21 +470,13 @@ export class FunctionService {
    * Finds all flows that reference a function by name or ID.
    * Uses wired FlowService if available, or falls back to direct query on _flows table.
    */
-  public getDependentFlows(functionName: string, functionId?: string): any {
+  public async getDependentFlows(functionName: string, functionId?: string): Promise<Array<{ id: string; name: string }>> {
     if (this.flowService) {
-      const res = this.flowService.getFlowsReferencingFunction(functionName, functionId);
-      if (res instanceof Promise) {
-        return res.then((flows: any[]) => flows.map((f) => ({ id: f.id, name: f.name })));
-      }
-      return (res || []).map((f: any) => ({ id: f.id, name: f.name }));
+      const flows = await this.flowService.getFlowsReferencingFunction(functionName, functionId);
+      return (flows || []).map((f: any) => ({ id: f.id, name: f.name }));
     }
 
-    const rows = typeof (this.db as any).prepare === 'function'
-      ? (this.db as any).prepare('SELECT id, name, definition FROM _flows').all()
-      : this.db.all<{ id: string; name: string; definition: string }>('SELECT id, name, definition FROM _flows');
-    if (rows instanceof Promise) {
-      return rows.then((r: any) => this.filterDependentFlows(r, functionName, functionId));
-    }
+    const rows = await this.db.all<{ id: string; name: string; definition: string }>('SELECT id, name, definition FROM _flows');
     return this.filterDependentFlows(rows, functionName, functionId);
   }
 
@@ -620,12 +512,9 @@ export class FunctionService {
   /**
    * Finds all queues that bind this function as their targetFunction worker.
    */
-  public getDependentQueues(functionName: string, functionId?: string): any {
+  public async getDependentQueues(functionName: string, functionId?: string): Promise<Array<{ name: string }>> {
     try {
-      const rows = this.db.all<{ name: string; targetFunction: string }>('SELECT name, targetFunction FROM _queues WHERE targetFunction IS NOT NULL');
-      if (rows instanceof Promise) {
-        return rows.then((r) => this.filterDependentQueues(r, functionName, functionId)).catch(() => []);
-      }
+      const rows = await this.db.all<{ name: string; targetFunction: string }>('SELECT name, targetFunction FROM _queues WHERE targetFunction IS NOT NULL');
       return this.filterDependentQueues(rows, functionName, functionId);
     } catch {
       return [];
@@ -640,72 +529,43 @@ export class FunctionService {
       .map((r) => ({ name: r.name }));
   }
 
-  public deleteFunction(id: string, actor?: any, options?: { force?: boolean }): any {
-    const current = this.getFunctionById(id) || this.getFunctionByName(id);
-    if (current instanceof Promise) {
-      return current.then((curr) => {
-        if (!curr) throw new NotFoundError(`Function '${id}' not found`);
-        return this.finishDeleteFunction(curr, actor, options);
-      });
-    }
+  public async deleteFunction(id: string, actor?: any, options?: { force?: boolean }): Promise<boolean> {
+    const current = (await this.getFunctionById(id)) || (await this.getFunctionByName(id));
     if (!current) {
       throw new NotFoundError(`Function '${id}' not found`);
     }
-    return this.finishDeleteFunction(current, actor, options);
+    return await this.finishDeleteFunction(current, actor, options);
   }
 
-  private finishDeleteFunction(current: FunctionConfig, actor?: any, options?: { force?: boolean }): any {
-    const doDelete = () => {
-      if (this.cronService) {
-        void Promise.resolve(this.cronService.removeTargetSchedules('function', current.id)).catch(() => {});
+  private async finishDeleteFunction(current: FunctionConfig, actor?: any, options?: { force?: boolean }): Promise<boolean> {
+    if (!options?.force) {
+      const [dependent, dependentQueues] = await Promise.all([
+        this.getDependentFlows(current.name, current.id),
+        this.getDependentQueues(current.name, current.id),
+      ]);
+
+      if (dependent.length > 0) {
+        const flowList = dependent.map((f: any) => `'${f.name}'`).join(', ');
+        throw new ConflictError(
+          `Cannot delete function '${current.name}': referenced by ${dependent.length} flow(s) (${flowList})`
+        );
       }
-      const del1 = this.db.run('DELETE FROM _function_logs WHERE functionId = ?', current.id);
-      const del2 = this.db.run('DELETE FROM _functions WHERE id = ?', current.id);
-      if (del1 instanceof Promise || del2 instanceof Promise) {
-        return Promise.all([del1, del2]).then(() => true);
+      if (dependentQueues.length > 0) {
+        const queueList = dependentQueues.map((q: any) => `'${q.name}'`).join(', ');
+        throw new ConflictError(
+          `Cannot delete function '${current.name}': bound as targetFunction by ${dependentQueues.length} queue(s) (${queueList})`
+        );
       }
-      return true;
-    };
-
-    if (options?.force) {
-      return doDelete();
     }
 
-    const deps = this.getDependentFlows(current.name, current.id);
-    const queues = this.getDependentQueues(current.name, current.id);
-
-    if (deps instanceof Promise || queues instanceof Promise) {
-      return Promise.all([deps, queues]).then(([dependent, dependentQueues]) => {
-        if (dependent.length > 0) {
-          const flowList = dependent.map((f: any) => `'${f.name}'`).join(', ');
-          throw new ConflictError(
-            `Cannot delete function '${current.name}': referenced by ${dependent.length} flow(s) (${flowList})`
-          );
-        }
-        if (dependentQueues.length > 0) {
-          const queueList = dependentQueues.map((q: any) => `'${q.name}'`).join(', ');
-          throw new ConflictError(
-            `Cannot delete function '${current.name}': bound as targetFunction by ${dependentQueues.length} queue(s) (${queueList})`
-          );
-        }
-        return doDelete();
-      });
+    if (this.cronService) {
+      try {
+        await this.cronService.removeTargetSchedules('function', current.id);
+      } catch {}
     }
-
-    if (deps && deps.length > 0) {
-      const flowList = deps.map((f: any) => `'${f.name}'`).join(', ');
-      throw new ConflictError(
-        `Cannot delete function '${current.name}': referenced by ${deps.length} flow(s) (${flowList})`
-      );
-    }
-    if (queues && queues.length > 0) {
-      const queueList = queues.map((q: any) => `'${q.name}'`).join(', ');
-      throw new ConflictError(
-        `Cannot delete function '${current.name}': bound as targetFunction by ${queues.length} queue(s) (${queueList})`
-      );
-    }
-
-    return doDelete();
+    await this.db.run('DELETE FROM _function_logs WHERE functionId = ?', current.id);
+    await this.db.run('DELETE FROM _functions WHERE id = ?', current.id);
+    return true;
   }
 
   // ==========================================
@@ -1379,10 +1239,10 @@ export class FunctionService {
   // Logs & Statistics
   // ==========================================
 
-  public getLogs(
+  public async getLogs(
     functionId?: string,
     options: { page?: number; perPage?: number; status?: string } = {}
-  ): any {
+  ): Promise<{ items: any[]; totalItems: number; totalPages: number; page: number; perPage: number }> {
     const page = Math.max(1, options.page || 1);
     const perPage = Math.max(1, Math.min(options.perPage || 25, 100));
     const offset = (page - 1) * perPage;
@@ -1400,50 +1260,35 @@ export class FunctionService {
       params.push(options.status);
     }
 
-    const countRow = this.db.get<any>(`SELECT COUNT(*) as count FROM _function_logs ${whereClause}`, ...params);
+    const countRow = await this.db.get<any>(`SELECT COUNT(*) as count FROM _function_logs ${whereClause}`, ...params);
     const baseSql = `SELECT * FROM _function_logs ${whereClause} ORDER BY timestamp DESC`;
     const paginatedSql = this.db.dialect.paginate(baseSql, perPage, offset);
-
-    if (countRow instanceof Promise) {
-      return Promise.all([countRow, this.db.all<any>(paginatedSql, ...params)]).then(([cRow, rows]) => {
-        const totalItems = cRow?.count || 0;
-        const totalPages = Math.ceil(totalItems / perPage) || 1;
-        return { items: rows, totalItems, totalPages, page, perPage };
-      });
-    }
+    const rows = await this.db.all<any>(paginatedSql, ...params);
 
     const totalItems = countRow?.count || 0;
     const totalPages = Math.ceil(totalItems / perPage) || 1;
-    const rows = this.db.all<any>(paginatedSql, ...params);
-    if (rows instanceof Promise) {
-      return rows.then((r) => ({ items: r, totalItems, totalPages, page, perPage }));
-    }
-    return { items: rows, totalItems, totalPages, page, perPage };
+    return { items: rows || [], totalItems, totalPages, page, perPage };
   }
 
-  public clearLogs(functionId?: string): any {
+  public async clearLogs(functionId?: string): Promise<void> {
     if (functionId) {
-      const res = this.db.run('DELETE FROM _function_logs WHERE functionId = ?', functionId);
-      if (res instanceof Promise) return res.then(() => {});
+      await this.db.run('DELETE FROM _function_logs WHERE functionId = ?', functionId);
       return;
     }
-    const res = this.db.run('DELETE FROM _function_logs');
-    if (res instanceof Promise) return res.then(() => {});
+    await this.db.run('DELETE FROM _function_logs');
   }
 
-  public getStats(): any {
-    const fns = this.db.get<any>('SELECT COUNT(*) as total, SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as active FROM _functions');
-    const logs = this.db.get<any>(`
-      SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
-        SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) as failed
-      FROM _function_logs
-    `);
-
-    if (fns instanceof Promise || logs instanceof Promise) {
-      return Promise.all([fns, logs]).then(([f, l]) => this.calculateStatsFromRows(f, l));
-    }
+  public async getStats(): Promise<any> {
+    const [fns, logs] = await Promise.all([
+      this.db.get<any>('SELECT COUNT(*) as total, SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as active FROM _functions'),
+      this.db.get<any>(`
+        SELECT
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
+          SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) as failed
+        FROM _function_logs
+      `)
+    ]);
     return this.calculateStatsFromRows(fns, logs);
   }
 

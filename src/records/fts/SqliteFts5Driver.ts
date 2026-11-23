@@ -14,27 +14,18 @@ import {
 export class SqliteFts5Driver implements IFtsDriver {
   constructor(private db: DatabaseService) {}
 
-  public hasFtsIndex(collectionName: string): any {
+  public hasFtsIndex(collectionName: string): boolean {
     const tableName = getFtsTableName(collectionName);
-    const row = this.db.get<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
-      tableName
-    );
-    if (row && typeof (row as any).then === 'function') {
-      return (row as any).then((r: any) => Boolean(r?.name));
-    }
+    const row = this.db.prepareSync(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?"
+    ).get<{ name: string }>(tableName);
     return Boolean(row?.name);
   }
 
-  public getFtsIndexColumns(collectionName: string): any {
+  public getFtsIndexColumns(collectionName: string): string[] {
     const tableName = getFtsTableName(collectionName);
     try {
-      const rows = this.db.all<{ name: string }>(`PRAGMA table_info("${tableName}")`);
-      if (rows && typeof (rows as any).then === 'function') {
-        return (rows as any).then((rawRows: any[]) =>
-          (rawRows || []).map((r: any) => r.name).filter((n: any) => n !== 'id')
-        );
-      }
+      const rows = this.db.prepareSync(`PRAGMA table_info("${tableName}")`).all<{ name: string }>();
       return (rows || []).map((r: any) => r.name).filter((n: any) => n !== 'id');
     } catch {
       return [];
@@ -46,28 +37,21 @@ export class SqliteFts5Driver implements IFtsDriver {
     return String(rawTokenizer).replace(/[^a-zA-Z0-9_\s]/g, '').trim() || 'porter unicode61';
   }
 
-  public getFtsTokenizer(collectionName: string): any {
+  public getFtsTokenizer(collectionName: string): string | null {
     const tableName = getFtsTableName(collectionName);
     try {
-      const row = this.db.get<{ sql: string }>(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
-        tableName
-      );
-      const extract = (rawSql?: string) => {
-        if (!rawSql) return null;
-        const match = rawSql.match(/tokenize\s*=\s*['"]?([^'",\)]+?)['"]?(?:\s*[,)]|$)/i);
-        return match ? match[1].trim() : null;
-      };
-      if (row && typeof (row as any).then === 'function') {
-        return (row as any).then((r: any) => extract(r?.sql));
-      }
-      return extract(row?.sql);
+      const row = this.db.prepareSync(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?"
+      ).get<{ sql: string }>(tableName);
+      if (!row?.sql) return null;
+      const match = row.sql.match(/tokenize\s*=\s*['"]?([^'",\)]+?)['"]?(?:\s*[,)]|$)/i);
+      return match ? match[1].trim() : null;
     } catch {
       return null;
     }
   }
 
-  public syncCollection(col: CollectionModel): any {
+  public syncCollection(col: CollectionModel): void {
     const ftsFields = getFtsFields(col);
     const ftsTable = getFtsTableName(col.name);
 
@@ -98,7 +82,7 @@ export class SqliteFts5Driver implements IFtsDriver {
       return;
     }
 
-    this.db.transaction(() => {
+    this.db.transactionSync(() => {
       this.dropCollectionFts(col.name);
       this.createFtsTableAndTriggers(col.name, ftsTable, fieldNames, col.options);
     });
@@ -106,17 +90,16 @@ export class SqliteFts5Driver implements IFtsDriver {
 
   public reconcile(collectionName: string, ftsTable?: string, fieldNames?: string[]): { drifted: boolean; repaired: boolean } {
     const table = ftsTable || getFtsTableName(collectionName);
-    const cols = fieldNames || (this.getFtsIndexColumns(collectionName) as string[]);
+    const cols = fieldNames || this.getFtsIndexColumns(collectionName);
     if (!cols || cols.length === 0) return { drifted: false, repaired: false };
 
     try {
-      const baseCountRow = this.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM "${collectionName}"`);
-      const ftsCountRow = this.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM "${table}"`);
+      const baseCountRow = this.db.prepareSync(`SELECT COUNT(*) as count FROM "${collectionName}"`).get<{ count: number }>();
+      const ftsCountRow = this.db.prepareSync(`SELECT COUNT(*) as count FROM "${table}"`).get<{ count: number }>();
       const baseCount = Number(baseCountRow?.count || 0);
       const ftsCount = Number(ftsCountRow?.count || 0);
 
       if (baseCount !== ftsCount) {
-        // Drift detected: perform atomic repair/rebuild
         this.rebuildIndex(collectionName);
         return { drifted: true, repaired: true };
       }
@@ -124,9 +107,9 @@ export class SqliteFts5Driver implements IFtsDriver {
       if (baseCount > 0) {
         const colConditions = cols.map((c) => `(b."${c}" IS NOT f."${c}")`);
         const whereClause = ['f.id IS NULL', ...colConditions].join(' OR ');
-        const mismatch = this.db.get(
+        const mismatch = this.db.prepareSync(
           `SELECT 1 as mismatch FROM "${collectionName}" b LEFT JOIN "${table}" f ON b.id = f.id WHERE ${whereClause} LIMIT 1`
-        );
+        ).get<{ mismatch: number }>();
 
         if (mismatch) {
           this.rebuildIndex(collectionName);
@@ -139,27 +122,27 @@ export class SqliteFts5Driver implements IFtsDriver {
     return { drifted: false, repaired: false };
   }
 
-  public dropCollectionFts(collectionName: string): any {
+  public dropCollectionFts(collectionName: string): void {
     const ftsTable = getFtsTableName(collectionName);
     try {
-      this.db.exec(`DROP TRIGGER IF EXISTS "${ftsTable}_ai";`);
-      this.db.exec(`DROP TRIGGER IF EXISTS "${ftsTable}_au";`);
-      this.db.exec(`DROP TRIGGER IF EXISTS "${ftsTable}_ad";`);
-      this.db.exec(`DROP TABLE IF EXISTS "${ftsTable}";`);
+      this.db.execSync(`DROP TRIGGER IF EXISTS "${ftsTable}_ai";`);
+      this.db.execSync(`DROP TRIGGER IF EXISTS "${ftsTable}_au";`);
+      this.db.execSync(`DROP TRIGGER IF EXISTS "${ftsTable}_ad";`);
+      this.db.execSync(`DROP TABLE IF EXISTS "${ftsTable}";`);
     } catch {
       // ignore
     }
   }
 
-  public rebuildIndex(collectionName: string): any {
+  public rebuildIndex(collectionName: string): void {
     const ftsTable = getFtsTableName(collectionName);
     const existingColumns = this.getFtsIndexColumns(collectionName);
     if (existingColumns.length === 0) return;
 
     const quotedCols = existingColumns.map((c: any) => `"${c}"`).join(', ');
-    this.db.transaction(() => {
-      this.db.exec(`DELETE FROM "${ftsTable}";`);
-      this.db.exec(`
+    this.db.transactionSync(() => {
+      this.db.execSync(`DELETE FROM "${ftsTable}";`);
+      this.db.execSync(`
         INSERT INTO "${ftsTable}" (id, ${quotedCols})
         SELECT id, ${quotedCols} FROM "${collectionName}";
       `);
@@ -217,8 +200,8 @@ export class SqliteFts5Driver implements IFtsDriver {
     const quotedCols = fieldNames.map((c) => `"${c}"`).join(', ');
     const safeTokenizer = this.resolveTokenizer(options);
 
-    this.db.transaction(() => {
-      this.db.exec(`
+    this.db.transactionSync(() => {
+      this.db.execSync(`
         CREATE VIRTUAL TABLE IF NOT EXISTS "${ftsTable}" USING fts5(
           id UNINDEXED,
           ${quotedCols},
@@ -226,7 +209,7 @@ export class SqliteFts5Driver implements IFtsDriver {
         );
       `);
 
-      this.db.exec(`
+      this.db.execSync(`
         INSERT INTO "${ftsTable}" (id, ${quotedCols})
         SELECT id, ${quotedCols} FROM "${collectionName}";
       `);
@@ -243,19 +226,19 @@ export class SqliteFts5Driver implements IFtsDriver {
     const quotedCols = fieldNames.map((c) => `"${c}"`).join(', ');
     const newQuotedCols = fieldNames.map((c) => `new."${c}"`).join(', ');
 
-    this.db.exec(`
+    this.db.execSync(`
       CREATE TRIGGER IF NOT EXISTS "${ftsTable}_ai" AFTER INSERT ON "${collectionName}" BEGIN
         INSERT INTO "${ftsTable}" (id, ${quotedCols}) VALUES (new.id, ${newQuotedCols});
       END;
     `);
 
-    this.db.exec(`
+    this.db.execSync(`
       CREATE TRIGGER IF NOT EXISTS "${ftsTable}_ad" AFTER DELETE ON "${collectionName}" BEGIN
         DELETE FROM "${ftsTable}" WHERE id = old.id;
       END;
     `);
 
-    this.db.exec(`
+    this.db.execSync(`
       CREATE TRIGGER IF NOT EXISTS "${ftsTable}_au" AFTER UPDATE ON "${collectionName}" BEGIN
         DELETE FROM "${ftsTable}" WHERE id = old.id;
         INSERT INTO "${ftsTable}" (id, ${quotedCols}) VALUES (new.id, ${newQuotedCols});

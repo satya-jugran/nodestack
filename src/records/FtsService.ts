@@ -136,40 +136,28 @@ export class FtsService {
     return this.getFtsDriver().getFtsIndexColumns(collectionName);
   }
 
-  private isAsyncDriver(): boolean {
-    return Boolean(this.db.dialect && this.db.dialect.name !== 'sqlite');
-  }
-
-  public syncCollection(col: CollectionModel): void;
-  public syncCollection(col: CollectionModel): Promise<void>;
-  public syncCollection(col: CollectionModel): any {
-    const key = (col.name || '').toLowerCase().trim();
-    if (!this.isAsyncDriver()) {
-      // Preserve synchronous exception propagation for synchronous drivers (e.g. SQLite)
-      // so that provisioning failures trigger transaction rollback in SchemaService.
-      this.rebuildLocks.delete(key);
-      return this.getFtsDriver().syncCollection(col);
-    }
-
-    const task = (async () => {
+  public syncCollection(col: CollectionModel): Promise<void> | void {
+    const res = this.getFtsDriver().syncCollection(col);
+    if (res instanceof Promise) {
+      const key = (col.name || '').toLowerCase().trim();
       const existingLock = this.rebuildLocks.get(key);
-      if (existingLock) {
-        try {
-          await existingLock;
-        } catch {
-          // ignore previous lock failure
+      const task = (async () => {
+        if (existingLock) {
+          try {
+            await existingLock;
+          } catch {
+            // ignore previous lock failure
+          }
         }
-      }
-
-      try {
-        return await Promise.resolve(this.getFtsDriver().syncCollection(col));
-      } finally {
-        this.rebuildLocks.delete(key);
-      }
-    })();
-
-    this.rebuildLocks.set(key, task);
-    return task;
+        try {
+          await res;
+        } finally {
+          this.rebuildLocks.delete(key);
+        }
+      })();
+      this.rebuildLocks.set(key, task);
+      return task;
+    }
   }
 
   public async syncAll(collections: CollectionModel[]): Promise<void> {

@@ -212,10 +212,10 @@ export class AlgoliaSyncService {
       let items: any[] = [];
       try {
         items =
-          app.db.all(
+          (await app.db.all(
             `SELECT * FROM "${queueCollection}" WHERE status IN ('queued', 'failed') ORDER BY created ASC LIMIT ?`,
             [limit]
-          ) || [];
+          )) || [];
       } catch {
         return { processed: 0, succeeded: 0, failed: 0 };
       }
@@ -227,7 +227,7 @@ export class AlgoliaSyncService {
         let record: any = null;
         if (item.operation !== 'delete') {
           try {
-            record = app.db.get(`SELECT * FROM "${item.collection}" WHERE id = ?`, [item.objectId]);
+            record = await app.db.get(`SELECT * FROM "${item.collection}" WHERE id = ?`, [item.objectId]);
             if (!record) {
               item.operation = 'delete';
             }
@@ -573,7 +573,7 @@ export function algoliaPlugin(options: AlgoliaPluginOptions = {}): INodeStackPlu
             });
           }
 
-          const records = (targetDb as any).all(`SELECT * FROM "${col}"`) || [];
+          const records = (await (targetDb as any).all(`SELECT * FROM "${col}"`)) || [];
           const indexName = activeAlgolia.getIndexName(col);
 
           if (records.length === 0) {

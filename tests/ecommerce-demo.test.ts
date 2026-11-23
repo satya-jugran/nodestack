@@ -44,7 +44,7 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
 
   describe('1. Provisioning & Immutability', () => {
     it('should pre-seed both default and ecommerce-demo apps out of the box', async () => {
-      const apps = server.apps.list();
+      const apps = await server.apps.list();
       expect(apps.length).toBeGreaterThanOrEqual(2);
 
       const defaultApp = apps.find((a) => a.slug === 'default');
@@ -67,14 +67,14 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
       await expect(server.apps.delete('default')).rejects.toThrow(
         /Cannot delete the default application/
       );
-      expect(() => (server.apps as any).registry.deleteApp('default')).toThrow(
+      await expect((server.apps as any).registry.deleteApp('default')).rejects.toThrow(
         /Cannot delete the default application/
       );
 
       // 2. Deleting ecommerce-demo must succeed
       await server.apps.delete('ecommerce-demo');
       expect(server.apps.has('ecommerce-demo')).toBe(false);
-      const appsAfterDelete = server.apps.list();
+      const appsAfterDelete = await server.apps.list();
       expect(appsAfterDelete.some((a) => a.slug === 'ecommerce-demo')).toBe(false);
 
       // 3. Re-running demo initialization idempotently restores the deleted application
@@ -82,7 +82,7 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
       expect(restoredScope).toBeDefined();
       expect(server.apps.has('ecommerce-demo')).toBe(true);
 
-      const appsAfterRestore = server.apps.list();
+      const appsAfterRestore = await server.apps.list();
       const restoredApp = appsAfterRestore.find((a) => a.slug === 'ecommerce-demo');
       expect(restoredApp).toBeDefined();
       expect(restoredApp?.name).toBe('E-Commerce Demo');
@@ -145,15 +145,15 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
 
       // Simulate an older or partially initialized demo scope that already has products
       // but where a flow, function, or baseline snapshot is missing
-      const flow = scope.flows.getFlowByName('OrderFulfillmentFlow');
+      const flow = await scope.flows.getFlowByName('OrderFulfillmentFlow');
       expect(flow).toBeDefined();
       await scope.flows.deleteFlow(flow!.id);
-      expect(scope.flows.getFlowByName('OrderFulfillmentFlow')).toBeNull();
+      expect(await scope.flows.getFlowByName('OrderFulfillmentFlow')).toBeNull();
 
-      const fn = scope.functions.getFunctionByName('validate-order');
+      const fn = await scope.functions.getFunctionByName('validate-order');
       expect(fn).toBeDefined();
       await scope.functions.deleteFunction(fn!.id);
-      expect(scope.functions.getFunctionByName('validate-order')).toBeNull();
+      expect(await scope.functions.getFunctionByName('validate-order')).toBeNull();
 
       await scope.snapshots.clearAllSnapshots();
       expect(scope.snapshots.hasSnapshot()).toBe(false);
@@ -162,8 +162,8 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
       await server.apps.ensureDemoAppInitialized(true);
 
       // Verify that missing flow, function, and baseline snapshot were repaired
-      expect(scope.flows.getFlowByName('OrderFulfillmentFlow')).not.toBeNull();
-      expect(scope.functions.getFunctionByName('validate-order')).not.toBeNull();
+      expect(await scope.flows.getFlowByName('OrderFulfillmentFlow')).not.toBeNull();
+      expect(await scope.functions.getFunctionByName('validate-order')).not.toBeNull();
       expect(scope.snapshots.hasSnapshot()).toBe(true);
       const repairedSnapshots = await scope.snapshots.listSnapshots();
       expect(repairedSnapshots.some((s) => s.name === 'ecommerce-demo-baseline')).toBe(true);
@@ -171,9 +171,9 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
   });
 
   describe('3. Serverless Functions (Lambdas)', () => {
-    it('should register all 6 e-commerce serverless functions', () => {
+    it('should register all 6 e-commerce serverless functions', async () => {
       const scope = server.apps.get('ecommerce-demo');
-      const functions = scope.functions.getAllFunctions();
+      const functions = await scope.functions.getAllFunctions();
       const fnNames = functions.map((f) => f.name);
 
       expect(fnNames).toContain('calculate-discount');
@@ -316,20 +316,20 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
   });
 
   describe('4. Step-Function Flows', () => {
-    it('should register OrderFulfillmentFlow and CheckoutPromotionFlow', () => {
+    it('should register OrderFulfillmentFlow and CheckoutPromotionFlow', async () => {
       const scope = server.apps.get('ecommerce-demo');
-      const flows = scope.flows.getAllFlows();
+      const flows = await scope.flows.getAllFlows();
       const flowNames = flows.map((f) => f.name);
 
       expect(flowNames).toContain('OrderFulfillmentFlow');
       expect(flowNames).toContain('CheckoutPromotionFlow');
 
-      const fulfillment = scope.flows.getFlowByName('OrderFulfillmentFlow');
+      const fulfillment = await scope.flows.getFlowByName('OrderFulfillmentFlow');
       expect(fulfillment).toBeDefined();
       expect(fulfillment?.triggerType).toBe('event');
       expect(fulfillment?.eventTrigger).toBe('orders:create');
 
-      const promo = scope.flows.getFlowByName('CheckoutPromotionFlow');
+      const promo = await scope.flows.getFlowByName('CheckoutPromotionFlow');
       expect(promo).toBeDefined();
       expect(promo?.triggerType).toBe('http');
     });
@@ -387,12 +387,12 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
 
       // 3. Wait for background async flow execution to complete
       let executionFinished = false;
-      const flow = scope.flows.getFlowByName('OrderFulfillmentFlow');
+      const flow = await scope.flows.getFlowByName('OrderFulfillmentFlow');
       expect(flow).toBeDefined();
 
       for (let attempt = 0; attempt < 25; attempt++) {
         await new Promise((r) => setTimeout(r, 200));
-        const executions = scope.flows.getExecutions({ flowId: flow!.id });
+        const executions = await scope.flows.getExecutions({ flowId: flow!.id });
         if (executions.items.length > 0 && executions.items[0].status === 'succeeded') {
           executionFinished = true;
           break;

@@ -260,7 +260,7 @@ describe('"Paste JSON → Instant API" (Schema Auto-Inference) Tests', () => {
       expect(res.records).toHaveLength(1);
 
       // Verify created SQLite table and columns
-      const tableInfo = app.db.all<any>('PRAGMA table_info("announcements")');
+      const tableInfo = await app.db.all<any>('PRAGMA table_info("announcements")');
       const colNames = tableInfo.map((c) => c.name);
       expect(colNames).toContain('id');
       expect(colNames).toContain('title');
@@ -307,7 +307,7 @@ describe('"Paste JSON → Instant API" (Schema Auto-Inference) Tests', () => {
       expect(duration).toBeLessThan(1000);
       expect(res.recordCount).toBe(100);
 
-      const countRow = app.db.get<any>('SELECT COUNT(*) as cnt FROM "inventory_items"');
+      const countRow = await app.db.get<any>('SELECT COUNT(*) as cnt FROM "inventory_items"');
       expect(countRow.cnt).toBe(100);
 
       // Verify boolean and JSON conversions
@@ -369,7 +369,7 @@ describe('"Paste JSON → Instant API" (Schema Auto-Inference) Tests', () => {
       expect(res.records[1].age).toBe(35);
 
       // Verify in SQLite database directly
-      const rows = app.db.all<any>('SELECT "id", "full_name", "age", "raw_city" FROM "staff_members" ORDER BY "age" ASC');
+      const rows = await app.db.all<any>('SELECT "id", "full_name", "age", "raw_city" FROM "staff_members" ORDER BY "age" ASC');
       expect(rows).toHaveLength(2);
       expect(rows[0].full_name).toBe('Alice Wonderland');
       expect(rows[0].age).toBe(28);
@@ -607,13 +607,13 @@ describe('"Paste JSON → Instant API" (Schema Auto-Inference) Tests', () => {
       expect(json.records[0].tokenKey).toBeUndefined();
 
       // Verify SQLite row contains valid passwordHash and tokenKey
-      const rawAlice = app.db.get<any>('SELECT * FROM "imported_members" WHERE id = ?', ['user_alice']);
+      const rawAlice = await app.db.get<any>('SELECT * FROM "imported_members" WHERE id = ?', ['user_alice']);
       expect(rawAlice.email).toBe('alice@example.com');
       expect(rawAlice.passwordHash).toBeDefined();
       expect(rawAlice.passwordHash.startsWith('$2')).toBe(true);
       expect(rawAlice.tokenKey).toBeDefined();
 
-      const rawBob = app.db.get<any>('SELECT * FROM "imported_members" WHERE id = ?', ['user_bob']);
+      const rawBob = await app.db.get<any>('SELECT * FROM "imported_members" WHERE id = ?', ['user_bob']);
       expect(rawBob.email).toBe('bob@example.com');
       expect(rawBob.passwordHash).toBeDefined();
       expect(rawBob.passwordHash.startsWith('$2')).toBe(true);

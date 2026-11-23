@@ -45,7 +45,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
 
     // 3. Register serverless functions for tasks
-    app.functions.createFunction({
+    await app.functions.createFunction({
       name: 'calculate-tax',
       code: `
         export default async function(core, context) {
@@ -66,7 +66,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       env: {},
     });
 
-    app.functions.createFunction({
+    await app.functions.createFunction({
       name: 'apply-discount',
       code: `
         export default async function(core, context) {
@@ -87,7 +87,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       env: {},
     });
 
-    app.functions.createFunction({
+    await app.functions.createFunction({
       name: 'square-item',
       code: `
         export default async function(core, context) {
@@ -107,7 +107,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       env: {},
     });
 
-    app.functions.createFunction({
+    await app.functions.createFunction({
       name: 'failing-task',
       code: `
         export default async function(core, context) {
@@ -1139,8 +1139,8 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
   describe('FlowService', () => {
     let flowId = '';
 
-    it('should create and retrieve a Flow config', () => {
-      const created = app.flows.createFlow({
+    it('should create and retrieve a Flow config', async () => {
+      const created = await app.flows.createFlow({
         name: 'OrderFlow',
         description: 'Processes incoming orders',
         triggerType: 'http',
@@ -1162,7 +1162,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(created.name).toBe('OrderFlow');
       flowId = created.id;
 
-      const retrieved = app.flows.getFlowById(flowId);
+      const retrieved = await app.flows.getFlowById(flowId);
       expect(retrieved).not.toBeNull();
       expect(retrieved?.name).toBe('OrderFlow');
     });
@@ -1173,7 +1173,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(execution.status).toBe('succeeded');
       expect(execution.output.step1.processed).toBe(true);
 
-      const history = app.flows.getExecutions({ flowId });
+      const history = await app.flows.getExecutions({ flowId });
       expect(history.totalItems).toBeGreaterThanOrEqual(1);
       expect(history.items[0].flowId).toBe(flowId);
       expect(history.items[0].output.step1.processed).toBe(true);
@@ -1181,7 +1181,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
     it('should trigger flow automatically on database record event', async () => {
       // Create flow listening to "orders:create"
-      app.flows.createFlow({
+      await app.flows.createFlow({
         name: 'AutoOrderNotification',
         triggerType: 'event',
         eventTrigger: 'orders:create',
@@ -1209,17 +1209,17 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       // Allow async event trigger execution to complete
       await new Promise((r) => setTimeout(r, 100));
 
-      const flow = app.flows.getFlowByName('AutoOrderNotification');
+      const flow = await app.flows.getFlowByName('AutoOrderNotification');
       expect(flow).not.toBeNull();
 
-      const executions = app.flows.getExecutions({ flowId: flow!.id });
+      const executions = await app.flows.getExecutions({ flowId: flow!.id });
       expect(executions.totalItems).toBeGreaterThanOrEqual(1);
       expect(executions.items[0].status).toBe('succeeded');
     });
 
     it('should enforce function authPolicy for non-admin actors in task execution unless elevated is explicitly set', async () => {
       // 1. Create a function with authPolicy: 'admin'
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'privileged-admin-task',
         code: `export default async function() { return { status: 200, body: { secure: true } }; }`,
         enabled: true,
@@ -1233,7 +1233,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       });
 
       // 2. Create a flow invoking privileged-admin-task WITHOUT elevated flag
-      const defaultFlow = app.flows.createFlow({
+      const defaultFlow = await app.flows.createFlow({
         name: 'StrictAuthFlow',
         triggerType: 'manual',
         enabled: true,
@@ -1262,7 +1262,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(successAdminExec.output).toEqual({ secure: true });
 
       // 5. Create a flow with intentional elevated / service-role configuration
-      const elevatedFlow = app.flows.createFlow({
+      const elevatedFlow = await app.flows.createFlow({
         name: 'ElevatedServiceFlow',
         triggerType: 'manual',
         enabled: true,
@@ -1294,62 +1294,62 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       };
 
       // 1. Reject invalid triggerType on create
-      expect(() => {
+      await expect(
         app.flows.createFlow({
           name: 'InvalidTriggerFlow',
           triggerType: 'webhook' as any,
           definition: dummyDef,
-        });
-      }).toThrow(/Invalid triggerType 'webhook'/);
+        })
+      ).rejects.toThrow(/Invalid triggerType 'webhook'/);
 
       // 2. Reject event trigger without eventTrigger pattern
-      expect(() => {
+      await expect(
         app.flows.createFlow({
           name: 'MissingEventTriggerFlow',
           triggerType: 'event',
           definition: dummyDef,
-        });
-      }).toThrow(/eventTrigger is required when triggerType is 'event'/);
+        })
+      ).rejects.toThrow(/eventTrigger is required when triggerType is 'event'/);
 
-      expect(() => {
+      await expect(
         app.flows.createFlow({
           name: 'EmptyEventTriggerFlow',
           triggerType: 'event',
           eventTrigger: '   ',
           definition: dummyDef,
-        });
-      }).toThrow(/eventTrigger is required when triggerType is 'event'/);
+        })
+      ).rejects.toThrow(/eventTrigger is required when triggerType is 'event'/);
 
       // 3. Reject invalid eventTrigger patterns
-      expect(() => {
+      await expect(
         app.flows.createFlow({
           name: 'NoColonFlow',
           triggerType: 'event',
           eventTrigger: 'orders',
           definition: dummyDef,
-        });
-      }).toThrow(/Invalid eventTrigger 'orders'/);
+        })
+      ).rejects.toThrow(/Invalid eventTrigger 'orders'/);
 
-      expect(() => {
+      await expect(
         app.flows.createFlow({
           name: 'BeforeHookFlow',
           triggerType: 'event',
           eventTrigger: 'orders:beforeCreate',
           definition: dummyDef,
-        });
-      }).toThrow(/only support post-commit lifecycle actions/);
+        })
+      ).rejects.toThrow(/only support post-commit lifecycle actions/);
 
-      expect(() => {
+      await expect(
         app.flows.createFlow({
           name: 'BadActionFlow',
           triggerType: 'event',
           eventTrigger: 'orders:read',
           definition: dummyDef,
-        });
-      }).toThrow(/Invalid action 'read'/);
+        })
+      ).rejects.toThrow(/Invalid action 'read'/);
 
       // 4. Accept valid patterns: orders:create, users:*, *:delete, *, *:*, orders:afterCreate
-      const validFlow = app.flows.createFlow({
+      const validFlow = await app.flows.createFlow({
         name: 'ValidEventFlow',
         triggerType: 'event',
         eventTrigger: 'orders:create',
@@ -1359,21 +1359,21 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(validFlow.eventTrigger).toBe('orders:create');
 
       // 5. Reject invalid triggerType on update
-      expect(() => {
-        app.flows.updateFlow(validFlow.id, { triggerType: 'webhook' as any });
-      }).toThrow(/Invalid triggerType 'webhook'/);
+      await expect(
+        app.flows.updateFlow(validFlow.id, { triggerType: 'webhook' as any })
+      ).rejects.toThrow(/Invalid triggerType 'webhook'/);
 
       // 6. Reject invalid event pattern on update
-      expect(() => {
-        app.flows.updateFlow(validFlow.id, { eventTrigger: 'bad:pattern:extra' });
-      }).toThrow(/Invalid eventTrigger/);
+      await expect(
+        app.flows.updateFlow(validFlow.id, { eventTrigger: 'bad:pattern:extra' })
+      ).rejects.toThrow(/Invalid eventTrigger/);
 
       // 7. Update to valid pattern
-      const updatedPattern = app.flows.updateFlow(validFlow.id, { eventTrigger: 'users:*' });
+      const updatedPattern = await app.flows.updateFlow(validFlow.id, { eventTrigger: 'users:*' });
       expect(updatedPattern.eventTrigger).toBe('users:*');
 
       // 8. Switching from event to http clears eventTrigger to null
-      const switchedToHttp = app.flows.updateFlow(validFlow.id, { triggerType: 'http' });
+      const switchedToHttp = await app.flows.updateFlow(validFlow.id, { triggerType: 'http' });
       expect(switchedToHttp.triggerType).toBe('http');
       expect(switchedToHttp.eventTrigger).toBeNull();
 
@@ -1395,28 +1395,28 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(apiCreateData.message).toContain("Invalid triggerType 'webhook'");
 
       // 10. Reject blank names on create
-      expect(() => {
+      await expect(
         app.flows.createFlow({
           name: '   ',
           definition: dummyDef,
-        });
-      }).toThrow(/Flow name is required/);
+        })
+      ).rejects.toThrow(/Flow name is required/);
 
-      expect(() => {
+      await expect(
         app.flows.createFlow({
           name: '',
           definition: dummyDef,
-        });
-      }).toThrow(/Flow name is required/);
+        })
+      ).rejects.toThrow(/Flow name is required/);
 
       // 11. Reject blank names on update
-      expect(() => {
-        app.flows.updateFlow(validFlow.id, { name: '   ' });
-      }).toThrow(/Flow name cannot be blank/);
+      await expect(
+        app.flows.updateFlow(validFlow.id, { name: '   ' })
+      ).rejects.toThrow(/Flow name cannot be blank/);
 
-      expect(() => {
-        app.flows.updateFlow(validFlow.id, { name: '' });
-      }).toThrow(/Flow name cannot be blank/);
+      await expect(
+        app.flows.updateFlow(validFlow.id, { name: '' })
+      ).rejects.toThrow(/Flow name cannot be blank/);
 
       // 12. Verify REST API rejects blank name on PATCH
       const apiPatchRes = await fetch(`http://localhost:8197/api/flows/${validFlow.id}`, {
@@ -1432,7 +1432,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(apiPatchData.message).toContain('Flow name cannot be blank');
 
       // 13. Verify valid trimmed update succeeds
-      const trimmedUpdate = app.flows.updateFlow(validFlow.id, { name: '  CleanRenamedFlow  ' });
+      const trimmedUpdate = await app.flows.updateFlow(validFlow.id, { name: '  CleanRenamedFlow  ' });
       expect(trimmedUpdate.name).toBe('CleanRenamedFlow');
     });
   });
@@ -1451,7 +1451,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(Array.isArray(listData)).toBe(true);
 
       // 2. POST /api/flows/:id/execute?wait=true
-      const flow = app.flows.getFlowByName('OrderFlow')!;
+      const flow = (await app.flows.getFlowByName('OrderFlow'))!;
       const execRes = await fetch(`http://localhost:8197/api/flows/${flow.id}/execute?wait=true`, {
         method: 'POST',
         headers: {
@@ -1476,7 +1476,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
 
     it('should dispatch flow asynchronously with 202 Accepted, executionId, and pollUrl', async () => {
-      const flow = app.flows.getFlowByName('OrderFlow')!;
+      const flow = (await app.flows.getFlowByName('OrderFlow'))!;
       const asyncRes = await fetch(`http://localhost:8197/api/flows/${flow.id}/execute`, {
         method: 'POST',
         headers: {
@@ -1524,7 +1524,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
 
     it('should support client-provided executionId in asynchronous dispatch', async () => {
-      const flow = app.flows.getFlowByName('OrderFlow')!;
+      const flow = (await app.flows.getFlowByName('OrderFlow'))!;
       const customExecId = `exec_custom_${Date.now()}_test`;
       const asyncRes = await fetch(`http://localhost:8197/api/flows/${flow.name}/execute`, {
         method: 'POST',
@@ -1669,7 +1669,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       win.flowsState.flows = [mockFlow];
       try {
-        app.flows.createFlow(mockFlow);
+        await app.flows.createFlow(mockFlow);
       } catch (e) {}
 
       // Open designer
@@ -2381,14 +2381,14 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
     it('should prevent deleting a function referenced in a top-level flow task (ConflictError 409)', async () => {
       // 1. Create dedicated function
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'flow-guarded-fn',
         code: 'export default async function() { return { ok: true }; }',
         enabled: true,
       });
 
       // 2. Create flow referencing this function
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'GuardedTaskFlow',
         triggerType: 'http',
         definition: {
@@ -2404,12 +2404,12 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       });
 
       // 3. Attempt to delete function without force - should throw ConflictError (409)
-      expect(() => {
-        app.functions.deleteFunction(fn.id);
-      }).toThrow(/Cannot delete function 'flow-guarded-fn': referenced by 1 flow\(s\) \('GuardedTaskFlow'\)/);
+      await expect(
+        app.functions.deleteFunction(fn.id)
+      ).rejects.toThrow(/Cannot delete function 'flow-guarded-fn': referenced by 1 flow\(s\) \('GuardedTaskFlow'\)/);
 
       // Verify function was NOT deleted
-      expect(app.functions.getFunctionById(fn.id)).not.toBeNull();
+      expect(await app.functions.getFunctionById(fn.id)).not.toBeNull();
 
       // 4. Test REST API DELETE /api/functions/:id - should return 409
       const delRes = await app.server.inject({
@@ -2421,25 +2421,25 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(delRes.json().message).toContain("Cannot delete function 'flow-guarded-fn': referenced by 1 flow(s) ('GuardedTaskFlow')");
 
       // 5. Delete flow, then delete function without force - should now succeed
-      app.flows.deleteFlow(flow.id);
-      expect(app.functions.deleteFunction(fn.id)).toBe(true);
-      expect(app.functions.getFunctionById(fn.id)).toBeNull();
+      await app.flows.deleteFlow(flow.id);
+      expect(await app.functions.deleteFunction(fn.id)).toBe(true);
+      expect(await app.functions.getFunctionById(fn.id)).toBeNull();
     });
 
     it('should prevent deleting a function referenced in nested Map or Parallel states', async () => {
-      const mapFn = app.functions.createFunction({
+      const mapFn = await app.functions.createFunction({
         name: 'nested-map-fn',
         code: 'export default async function() { return { ok: true }; }',
         enabled: true,
       });
 
-      const parallelFn = app.functions.createFunction({
+      const parallelFn = await app.functions.createFunction({
         name: 'nested-parallel-fn',
         code: 'export default async function() { return { ok: true }; }',
         enabled: true,
       });
 
-      const complexFlow = app.flows.createFlow({
+      const complexFlow = await app.flows.createFlow({
         name: 'NestedIntegrityFlow',
         triggerType: 'http',
         definition: {
@@ -2481,13 +2481,13 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       });
 
       // Both nested functions should be protected
-      expect(() => {
-        app.functions.deleteFunction(mapFn.id);
-      }).toThrow(/Cannot delete function 'nested-map-fn': referenced by 1 flow\(s\)/);
+      await expect(
+        app.functions.deleteFunction(mapFn.id)
+      ).rejects.toThrow(/Cannot delete function 'nested-map-fn': referenced by 1 flow\(s\)/);
 
-      expect(() => {
-        app.functions.deleteFunction(parallelFn.id);
-      }).toThrow(/Cannot delete function 'nested-parallel-fn': referenced by 1 flow\(s\)/);
+      await expect(
+        app.functions.deleteFunction(parallelFn.id)
+      ).rejects.toThrow(/Cannot delete function 'nested-parallel-fn': referenced by 1 flow\(s\)/);
 
       // Force delete nested-map-fn via API with ?force=true
       const forceRes = await app.server.inject({
@@ -2497,21 +2497,21 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       });
       expect(forceRes.statusCode).toBe(200);
       expect(forceRes.json().success).toBe(true);
-      expect(app.functions.getFunctionById(mapFn.id)).toBeNull();
+      expect(await app.functions.getFunctionById(mapFn.id)).toBeNull();
 
       // Clean up flow and remaining parallelFn
-      app.flows.deleteFlow(complexFlow.id);
-      expect(app.functions.deleteFunction(parallelFn.id)).toBe(true);
+      await app.flows.deleteFlow(complexFlow.id);
+      expect(await app.functions.deleteFunction(parallelFn.id)).toBe(true);
     });
 
     it('should list all referencing flows when a function is referenced by multiple flows', async () => {
-      const sharedFn = app.functions.createFunction({
+      const sharedFn = await app.functions.createFunction({
         name: 'shared-utility-fn',
         code: 'export default async function() { return { ok: true }; }',
         enabled: true,
       });
 
-      const flowA = app.flows.createFlow({
+      const flowA = await app.flows.createFlow({
         name: 'FlowAlpha',
         triggerType: 'http',
         definition: {
@@ -2526,7 +2526,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         },
       });
 
-      const flowB = app.flows.createFlow({
+      const flowB = await app.flows.createFlow({
         name: 'FlowBeta',
         triggerType: 'http',
         definition: {
@@ -2541,26 +2541,26 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         },
       });
 
-      expect(() => {
-        app.functions.deleteFunction(sharedFn.id);
-      }).toThrow("Cannot delete function 'shared-utility-fn': referenced by 2 flow(s)");
+      await expect(
+        app.functions.deleteFunction(sharedFn.id)
+      ).rejects.toThrow("Cannot delete function 'shared-utility-fn': referenced by 2 flow(s)");
 
       // Force delete with options { force: true }
-      expect(app.functions.deleteFunction(sharedFn.id, undefined, { force: true })).toBe(true);
-      expect(app.functions.getFunctionById(sharedFn.id)).toBeNull();
+      expect(await app.functions.deleteFunction(sharedFn.id, undefined, { force: true })).toBe(true);
+      expect(await app.functions.getFunctionById(sharedFn.id)).toBeNull();
 
-      app.flows.deleteFlow(flowA.id);
-      app.flows.deleteFlow(flowB.id);
+      await app.flows.deleteFlow(flowA.id);
+      await app.flows.deleteFlow(flowB.id);
     });
 
     it('should preserve referential integrity when referenced by function ID instead of name', async () => {
-      const fnById = app.functions.createFunction({
+      const fnById = await app.functions.createFunction({
         name: 'id-referenced-fn',
         code: 'export default async function() { return { ok: true }; }',
         enabled: true,
       });
 
-      const flowWithId = app.flows.createFlow({
+      const flowWithId = await app.flows.createFlow({
         name: 'FlowReferencingId',
         triggerType: 'http',
         definition: {
@@ -2575,22 +2575,22 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         },
       });
 
-      expect(() => {
-        app.functions.deleteFunction(fnById.id);
-      }).toThrow("Cannot delete function 'id-referenced-fn': referenced by 1 flow(s) ('FlowReferencingId')");
+      await expect(
+        app.functions.deleteFunction(fnById.id)
+      ).rejects.toThrow("Cannot delete function 'id-referenced-fn': referenced by 1 flow(s) ('FlowReferencingId')");
 
-      app.flows.deleteFlow(flowWithId.id);
-      expect(app.functions.deleteFunction(fnById.id)).toBe(true);
+      await app.flows.deleteFlow(flowWithId.id);
+      expect(await app.functions.deleteFunction(fnById.id)).toBe(true);
     });
 
     it('should support direct SQLite fallback when FlowService is unassigned', async () => {
-      const isolatedFn = app.functions.createFunction({
+      const isolatedFn = await app.functions.createFunction({
         name: 'isolated-check-fn',
         code: 'export default async function() { return { ok: true }; }',
         enabled: true,
       });
 
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'IsolatedFlowTest',
         triggerType: 'http',
         definition: {
@@ -2610,29 +2610,29 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       (app.functions as any).flowService = undefined;
 
       try {
-        const dependent = app.functions.getDependentFlows('isolated-check-fn', isolatedFn.id);
+        const dependent = await app.functions.getDependentFlows('isolated-check-fn', isolatedFn.id);
         expect(dependent.length).toBe(1);
         expect(dependent[0].name).toBe('IsolatedFlowTest');
 
-        expect(() => {
-          app.functions.deleteFunction(isolatedFn.id);
-        }).toThrow("Cannot delete function 'isolated-check-fn': referenced by 1 flow(s) ('IsolatedFlowTest')");
+        await expect(
+          app.functions.deleteFunction(isolatedFn.id)
+        ).rejects.toThrow("Cannot delete function 'isolated-check-fn': referenced by 1 flow(s) ('IsolatedFlowTest')");
       } finally {
         (app.functions as any).flowService = originalFlowService;
-        app.flows.deleteFlow(flow.id);
-        app.functions.deleteFunction(isolatedFn.id);
+        await app.flows.deleteFlow(flow.id);
+        await app.functions.deleteFunction(isolatedFn.id);
       }
     });
 
     it('should fail closed and block function deletion when fallback encounters a malformed flow definition in _flows', async () => {
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'fail-closed-check-fn',
         code: 'export default async function() { return {}; }',
         enabled: true,
       });
 
       // Insert a corrupted row in _flows
-      (app as any).db.prepare(`
+      await (app as any).db.prepare(`
         INSERT INTO _flows (id, name, description, triggerType, enabled, definition, created, updated)
         VALUES ('flow_corrupt_test', 'CorruptFlow', '', 'http', 1, 'INVALID_JSON_CORRUPT{', datetime('now'), datetime('now'))
       `).run();
@@ -2642,24 +2642,24 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       try {
         // Attempting to delete function without force must fail closed (throwing AppError)
-        expect(() => {
-          app.functions.deleteFunction(fn.id);
-        }).toThrow("Failed to inspect flow dependencies: malformed definition in flow 'CorruptFlow'");
+        await expect(
+          app.functions.deleteFunction(fn.id)
+        ).rejects.toThrow("Failed to inspect flow dependencies: malformed definition in flow 'CorruptFlow'");
 
         // Function must NOT be deleted
-        expect(app.functions.getFunctionById(fn.id)).not.toBeNull();
+        expect(await app.functions.getFunctionById(fn.id)).not.toBeNull();
 
         // With force: true, deletion succeeds
-        expect(app.functions.deleteFunction(fn.id, undefined, { force: true })).toBe(true);
-        expect(app.functions.getFunctionById(fn.id)).toBeNull();
+        expect(await app.functions.deleteFunction(fn.id, undefined, { force: true })).toBe(true);
+        expect(await app.functions.getFunctionById(fn.id)).toBeNull();
       } finally {
         (app.functions as any).flowService = originalFlowService;
-        (app as any).db.prepare("DELETE FROM _flows WHERE id = 'flow_corrupt_test'").run();
+        await (app as any).db.prepare("DELETE FROM _flows WHERE id = 'flow_corrupt_test'").run();
       }
     });
 
     it('should fail closed and block function deletion when fallback encounters a database read error on _flows', async () => {
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'db-err-check-fn',
         code: 'export default async function() { return {}; }',
         enabled: true,
@@ -2678,16 +2678,16 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       };
 
       try {
-        expect(() => {
-          app.functions.deleteFunction(fn.id);
-        }).toThrow('SQLite database disk I/O error');
+        await expect(
+          app.functions.deleteFunction(fn.id)
+        ).rejects.toThrow('SQLite database disk I/O error');
 
         // Function must NOT be deleted
-        expect(app.functions.getFunctionById(fn.id)).not.toBeNull();
+        expect(await app.functions.getFunctionById(fn.id)).not.toBeNull();
       } finally {
         (app.functions as any).db.prepare = originalPrepare;
         (app.functions as any).flowService = originalFlowService;
-        app.functions.deleteFunction(fn.id);
+        await app.functions.deleteFunction(fn.id);
       }
     });
 
@@ -2697,13 +2697,13 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         slug: 'tenant-crm',
       });
 
-      const tenantFn = tenantScope.functions.createFunction({
+      const tenantFn = await tenantScope.functions.createFunction({
         name: 'tenant-mailer',
         code: 'export default async function() { return { mailed: true }; }',
         enabled: true,
       });
 
-      const tenantFlow = tenantScope.flows.createFlow({
+      const tenantFlow = await tenantScope.flows.createFlow({
         name: 'TenantWorkflow',
         triggerType: 'http',
         definition: {
@@ -2735,10 +2735,10 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       });
       expect(forceRes.statusCode).toBe(200);
       expect(forceRes.json().success).toBe(true);
-      expect(tenantScope.functions.getFunctionById(tenantFn.id)).toBeNull();
+      expect(await tenantScope.functions.getFunctionById(tenantFn.id)).toBeNull();
 
       // Clean up tenant flow and app
-      tenantScope.flows.deleteFlow(tenantFlow.id);
+      await tenantScope.flows.deleteFlow(tenantFlow.id);
       await app.apps.delete('tenant-crm');
     });
 
@@ -2956,7 +2956,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
   describe('Step-by-Step Checkpointing & Crash Recovery', () => {
     it('should atomically persist step logs to SQLite after each state transition', async () => {
       // Create a flow with Step1 (Task) -> Step2 (Wait 1s) -> Step3 (Task)
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'CheckpointPipeline',
         definition: {
           startAt: 'Step1',
@@ -2993,7 +2993,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       // Wait 300ms: Step 1 will have completed, and Step 2 (Wait) is actively running
       await new Promise((r) => setTimeout(r, 300));
 
-      const intermediate = app.flows.getExecutionById(execId)!;
+      const intermediate = (await app.flows.getExecutionById(execId))!;
       expect(intermediate).not.toBeNull();
       expect(intermediate.status).toBe('running');
       expect(intermediate.stepLogs.length).toBeGreaterThanOrEqual(1);
@@ -3012,7 +3012,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
     it('should fail orphaned running flows gracefully with status "aborted" on recovery', async () => {
       // Simulate an orphaned flow that was left running when a crash/restart happened
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'CrashOrphanFlow',
         definition: {
           startAt: 'InitialStep',
@@ -3039,7 +3039,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const orphanedId = 'exec_crash_orphan_99';
       // Insert a simulated orphaned record directly into _flow_executions
       const db = (app.flows as any).db;
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
@@ -3073,7 +3073,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       );
 
       // Verify it is currently 'running'
-      const beforeRecovery = app.flows.getExecutionById(orphanedId)!;
+      const beforeRecovery = (await app.flows.getExecutionById(orphanedId))!;
       expect(beforeRecovery.status).toBe('running');
       expect(beforeRecovery.stepLogs.length).toBe(1);
 
@@ -3085,7 +3085,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(found!.error).toContain('Execution aborted due to server restart');
 
       // Verify the persisted state in DB
-      const afterRecovery = app.flows.getExecutionById(orphanedId)!;
+      const afterRecovery = (await app.flows.getExecutionById(orphanedId))!;
       expect(afterRecovery.status).toBe('aborted');
       // Previous step logs and intermediate output must be preserved!
       expect(afterRecovery.stepLogs.length).toBe(1);
@@ -3095,7 +3095,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
 
     it('should resume orphaned running flows from the last completed checkpoint', async () => {
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'ResumablePipelineFlow',
         definition: {
           startAt: 'Stage1',
@@ -3127,7 +3127,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const orphanId = 'exec_resumable_checkpoint_1';
       const db = (app.flows as any).db;
       // Simulate that Stage1 completed, and server crashed right before Stage2
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
@@ -3171,14 +3171,14 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(resumedResult.stepLogs[2].step).toBe('Stage3');
 
       // Check SQLite record
-      const dbRecord = app.flows.getExecutionById(orphanId)!;
+      const dbRecord = (await app.flows.getExecutionById(orphanId))!;
       expect(dbRecord.status).toBe('succeeded');
       expect(dbRecord.stepLogs.length).toBe(3);
       expect(dbRecord.finishedAt).toBeDefined();
     });
 
     it('should support REST API endpoints for resume, abort, and recover', async () => {
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'RestRecoveryFlow',
         definition: {
           startAt: 'StepA',
@@ -3200,7 +3200,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       // 1. Test POST /api/flows/executions/:id/abort
       const execAbortId = 'exec_rest_abort_1';
       const db = (app.flows as any).db;
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
         VALUES (?, ?, ?, 'running', '{}', '{}', 0, '[]', ?, ?)
       `).run(execAbortId, flow.id, flow.name, new Date().toISOString(), JSON.stringify({ currentStateName: 'StepA', updatedAt: new Date().toISOString() }));
@@ -3218,7 +3218,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       // 2. Test POST /api/flows/executions/:id/resume
       const execResumeId = 'exec_rest_resume_1';
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
         VALUES (?, ?, ?, 'running', '{}', '{"stepA":true}', 0, '[]', ?, ?)
       `).run(execResumeId, flow.id, flow.name, new Date().toISOString(), JSON.stringify({ currentStateName: 'StepB', currentPayload: { stepA: true }, updatedAt: new Date().toISOString() }));
@@ -3235,7 +3235,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       // 3. Test POST /api/flows/executions/recover
       const orphanBatchId = 'exec_orphan_batch_1';
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
         VALUES (?, ?, ?, 'running', '{}', '{}', 0, '[]', ?, ?)
       `).run(orphanBatchId, flow.id, flow.name, new Date().toISOString(), JSON.stringify({ currentStateName: 'StepA', updatedAt: new Date().toISOString() }));
@@ -3281,7 +3281,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
 
     it('should isolate subFlowExecutor checkpoints and prevent child Map/Parallel steps from overwriting parent execution', async () => {
-      const parentFlow = app.flows.createFlow({
+      const parentFlow = await app.flows.createFlow({
         name: 'NestedMapCheckpointFlow',
         definition: {
           startAt: 'PreMap',
@@ -3355,7 +3355,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
 
     it('should keep failed state and pre-step payload in checkpoint so recovery retries that state instead of skipping', async () => {
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'flaky-network-task',
         code: `
           export default async function(core, context) {
@@ -3379,7 +3379,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         env: {},
       });
 
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'RetryableOutageFlow',
         definition: {
           startAt: 'InitialSetup',
@@ -3439,7 +3439,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       // Now simulate crash recovery: insert into DB as orphaned 'running' with this checkpoint
       const db = (app.flows as any).db;
       const crashedExecId = 'exec_crash_during_task_failure_1';
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
         VALUES (?, ?, ?, 'running', '{}', ?, ?, 50, ?, ?, ?)
       `).run(
@@ -3454,8 +3454,8 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       );
 
       // Update function to succeed (simulating transient outage fixed)
-      const flakyFn = app.functions.getFunctionByName('flaky-network-task')!;
-      app.functions.updateFunction(flakyFn.id, {
+      const flakyFn = (await app.functions.getFunctionByName('flaky-network-task'))!;
+      await app.functions.updateFunction(flakyFn.id, {
         code: `
           export default async function(core, context) {
             return {
@@ -3483,7 +3483,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
 
     it('should persist terminal failed status in persistCheckpoint and recognize terminal failed transition during resume', async () => {
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'terminal-failure-task',
         code: `
           export default async function(core, context) {
@@ -3500,7 +3500,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         env: {},
       });
 
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'TerminalFailureCheckpointFlow',
         definition: {
           startAt: 'StepOne',
@@ -3539,7 +3539,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(execResult.error).toContain('Fatal database connection refused');
 
       // 2. Verify that in SQLite, the row is recorded with status = 'failed' (NOT left as 'running')
-      const row = db.prepare('SELECT * FROM _flow_executions WHERE id = ?').get(execId);
+      const row = await db.prepare('SELECT * FROM _flow_executions WHERE id = ?').get(execId);
       expect(row).toBeDefined();
       expect(row.status).toBe('failed');
       expect(row.error).toContain('Fatal database connection refused');
@@ -3549,13 +3549,13 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       // 3. Test that persistCheckpoint directly updates SQLite row terminal status
       const syntheticExecId = 'exec_synthetic_terminal_test';
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
         VALUES (?, ?, ?, 'running', '{}', '{}', NULL, 0, '[]', ?, ?)
       `).run(syntheticExecId, flow.id, flow.name, new Date().toISOString(), JSON.stringify({ currentStateName: 'FailingStep' }));
 
       // Trigger persistCheckpoint with terminal failed event
-      app.flows.persistCheckpoint(syntheticExecId, {
+      await app.flows.persistCheckpoint(syntheticExecId, {
         executionId: syntheticExecId,
         flowId: flow.id,
         flowName: flow.name,
@@ -3591,14 +3591,14 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         },
       });
 
-      const syntheticRow = db.prepare('SELECT * FROM _flow_executions WHERE id = ?').get(syntheticExecId);
+      const syntheticRow = await db.prepare('SELECT * FROM _flow_executions WHERE id = ?').get(syntheticExecId);
       expect(syntheticRow.status).toBe('failed');
       expect(syntheticRow.error).toContain('Fatal database connection refused');
       expect(syntheticRow.finishedAt).not.toBeNull();
 
       // 4. Verify recovery recognizes terminal failed transition even when checkpoint currentStateName is null
       const orphanNullCpId = 'exec_orphan_null_cp_failed_step';
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
         VALUES (?, ?, ?, 'running', '{}', '{}', NULL, 10, ?, ?, ?)
       `).run(
@@ -3621,8 +3621,8 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       );
 
       // Fix the task function
-      const taskFn = app.functions.getFunctionByName('terminal-failure-task')!;
-      app.functions.updateFunction(taskFn.id, {
+      const taskFn = (await app.functions.getFunctionByName('terminal-failure-task'))!;
+      await app.functions.updateFunction(taskFn.id, {
         code: `
           export default async function(core, context) {
             return { fixed: true, received: context.request?.body?.startParam };
@@ -3648,7 +3648,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     it('should propagate checkpoint persistence failure and halt flow execution without stale checkpoint replay', async () => {
       let stepTwoExecuted = false;
 
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'checkpoint-test-step2-fn',
         code: `
           export default async function(core, context) {
@@ -3665,7 +3665,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         env: {},
       });
 
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'CheckpointFailureHaltFlow',
         definition: {
           startAt: 'Step1',
@@ -3720,7 +3720,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
 
     it('should cancel active in-memory execution on abort and prevent subsequent writes from overwriting aborted state', async () => {
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'ActiveAbortCancellationFlow',
         definition: {
           startAt: 'WaitStep',
@@ -3749,12 +3749,12 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Verify it is currently in 'running' state in DB
-      const beforeAbort = app.flows.getExecutionById(execId);
+      const beforeAbort = await app.flows.getExecutionById(execId);
       expect(beforeAbort).not.toBeNull();
       expect(beforeAbort?.status).toBe('running');
 
       // Abort the active running execution
-      const abortResult = app.flows.abortExecution(execId, 'Aborted mid-flight by test');
+      const abortResult = await app.flows.abortExecution(execId, 'Aborted mid-flight by test');
       expect(abortResult.status).toBe('aborted');
 
       // Wait for runPromise to settle
@@ -3765,7 +3765,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(elapsed).toBeLessThan(2000);
 
       // Verify the final persisted state in SQLite was NOT overwritten with 'running' or 'succeeded'
-      const finalDbRecord = app.flows.getExecutionById(execId);
+      const finalDbRecord = await app.flows.getExecutionById(execId);
       expect(finalDbRecord).not.toBeNull();
       expect(finalDbRecord?.status).toBe('aborted');
       expect(finalDbRecord?.error).toBe('Aborted mid-flight by test');
@@ -3777,7 +3777,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     it('should atomically claim execution and prevent racing resume requests from running duplicate tasks', async () => {
       let sideEffectCount = 0;
 
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'atomic-claim-side-effect-fn',
         code: `
           export default async function(core, context) {
@@ -3806,7 +3806,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       };
 
       try {
-        const flow = app.flows.createFlow({
+        const flow = await app.flows.createFlow({
           name: 'AtomicClaimResumeFlow',
           definition: {
             startAt: 'SideEffectTask',
@@ -3823,7 +3823,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         const raceExecId = FlowEngine.generateExecutionId();
         const db = (app.flows as any).db;
 
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
@@ -3871,7 +3871,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         expect(successVal.status).toBe('succeeded');
 
         // DB record should be 'succeeded' and claimToken released (null)
-        const dbRecord = app.flows.getExecutionById(raceExecId);
+        const dbRecord = await app.flows.getExecutionById(raceExecId);
         expect(dbRecord?.status).toBe('succeeded');
         expect(dbRecord?.claimToken).toBeNull();
       } finally {
@@ -3880,7 +3880,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
 
     it('should reject resume request with 409 Conflict when execution is claimed by another runner in DB', async () => {
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'ForeignClaimResumeFlow',
         definition: {
           startAt: 'SimpleStep',
@@ -3897,7 +3897,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const foreignExecId = FlowEngine.generateExecutionId();
       const db = (app.flows as any).db;
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint, claimToken)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
@@ -3927,12 +3927,12 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       );
 
       // Verify the claim was NOT overwritten
-      const row = db.prepare('SELECT claimToken FROM _flow_executions WHERE id = ?').get(foreignExecId) as any;
+      const row = await db.prepare('SELECT claimToken FROM _flow_executions WHERE id = ?').get(foreignExecId) as any;
       expect(row.claimToken).toBe('foreign-process-uuid-token');
     });
 
     it('should correctly recover legacy running execution at Choice state without treating it as completed', async () => {
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'choice-branch-test-fn',
         code: `
           export default async function(core, context) {
@@ -3949,7 +3949,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         env: {},
       });
 
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'LegacyChoiceRecoveryFlow',
         definition: {
           startAt: 'EvaluateChoice',
@@ -3984,7 +3984,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const db = (app.flows as any).db;
 
       // Simulate legacy execution row: no checkpoint (null), last step logged was EvaluateChoice with score: 85
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
@@ -4022,7 +4022,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
 
     it('should abort legacy running row when next state cannot be reconstructed instead of marking succeeded', async () => {
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'UnreconstructableLegacyFlow',
         definition: {
           startAt: 'StepA',
@@ -4045,7 +4045,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const db = (app.flows as any).db;
 
       // Simulate a legacy row where last logged step was 'NonExistentOrDeletedStep' which does not exist in flow
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, startedAt, checkpoint)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
@@ -4077,14 +4077,14 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         /Cannot reconstruct next state/i
       );
 
-      const finalRecord = app.flows.getExecutionById(legacyInvalidExecId);
+      const finalRecord = await app.flows.getExecutionById(legacyInvalidExecId);
       expect(finalRecord?.status).toBe('aborted');
       expect(finalRecord?.error).toMatch(/no longer exists|Cannot reconstruct/i);
     });
 
     it('should preserve and reconstruct authorization context (isAdmin) on recovery for authPolicy: admin tasks', async () => {
       // 1. Create a function that strictly requires admin authorization
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'admin-auth-task-fn',
         code: `
           export default async function(core, context) {
@@ -4102,7 +4102,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       });
 
       // 2. Create flow with Step1 (Pass) and Step2 (Admin Task)
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'AdminAuthRecoveryFlow',
         definition: {
           startAt: 'Step1',
@@ -4127,7 +4127,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const db = (app.flows as any).db;
 
       // Simulate a crashed execution where Step1 passed under adminActor, and server crashed right before AdminTask
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, error, durationMs, stepLogs, actorId, actor, startedAt, checkpoint)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
@@ -4178,7 +4178,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
   // ==========================================
   describe('Flow Concurrency Throttling (maxConcurrentExecutions & Per-Flow System Queues)', () => {
     it('should validate maxConcurrentExecutions on flow create and update', async () => {
-      expect(() =>
+      await expect(
         app.flows.createFlow({
           name: 'InvalidConcurrencyZero',
           maxConcurrentExecutions: 0,
@@ -4187,9 +4187,9 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
             states: { Step1: { type: 'Pass', end: true } },
           },
         })
-      ).toThrowError(/maxConcurrentExecutions/i);
+      ).rejects.toThrowError(/maxConcurrentExecutions/i);
 
-      expect(() =>
+      await expect(
         app.flows.createFlow({
           name: 'InvalidConcurrencyFloat',
           maxConcurrentExecutions: 2.5,
@@ -4198,9 +4198,9 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
             states: { Step1: { type: 'Pass', end: true } },
           },
         })
-      ).toThrowError(/maxConcurrentExecutions/i);
+      ).rejects.toThrowError(/maxConcurrentExecutions/i);
 
-      const validFlow = app.flows.createFlow({
+      const validFlow = await app.flows.createFlow({
         name: 'ValidThrottledFlow',
         maxConcurrentExecutions: 3,
         definition: {
@@ -4217,7 +4217,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(sysQueue?.concurrency).toBe(3);
       expect(sysQueue?.isSystem).toBe(true);
 
-      const unbounded = app.flows.updateFlow(validFlow.id, {
+      const unbounded = await app.flows.updateFlow(validFlow.id, {
         maxConcurrentExecutions: null,
       });
       expect(unbounded.maxConcurrentExecutions).toBeNull();
@@ -4225,11 +4225,11 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const deletedSysQueue = await app.queue.getQueue(`_system:flow:${validFlow.id}`);
       expect(deletedSysQueue).toBeNull();
 
-      app.flows.deleteFlow(validFlow.id);
+      await app.flows.deleteFlow(validFlow.id);
     });
 
     it('should drain pending queued executions when maxConcurrentExecutions is removed instead of stranding them', async () => {
-      const throttledFlow = app.flows.createFlow({
+      const throttledFlow = await app.flows.createFlow({
         name: 'DrainOnConcurrencyRemovalFlow',
         enabled: true,
         maxConcurrentExecutions: 1,
@@ -4255,15 +4255,15 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(exec3.status).toBe('queued');
 
       // Now remove maxConcurrentExecutions while exec2 and exec3 are still queued
-      app.flows.updateFlow(throttledFlow.id, {
+      await app.flows.updateFlow(throttledFlow.id, {
         maxConcurrentExecutions: null,
       });
 
       // Poll until all executions complete under the new unlimited setting
       await vi.waitFor(async () => {
-        const e1 = app.flows.getExecutionById(exec1.id);
-        const e2 = app.flows.getExecutionById(exec2.id);
-        const e3 = app.flows.getExecutionById(exec3.id);
+        const e1 = await app.flows.getExecutionById(exec1.id);
+        const e2 = await app.flows.getExecutionById(exec2.id);
+        const e3 = await app.flows.getExecutionById(exec3.id);
         expect(e1?.status).toBe('succeeded');
         expect(e2?.status).toBe('succeeded');
         expect(e3?.status).toBe('succeeded');
@@ -4275,11 +4275,11 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         expect(q).toBeNull();
       }, { timeout: 4000, interval: 50 });
 
-      app.flows.deleteFlow(throttledFlow.id);
+      await app.flows.deleteFlow(throttledFlow.id);
     });
 
     it('should acquire system queue slot when resuming a failed execution on a throttled flow (maxConcurrentExecutions = 1)', async () => {
-      const throttledFlow = app.flows.createFlow({
+      const throttledFlow = await app.flows.createFlow({
         name: 'ResumeThrottledFlow',
         enabled: true,
         maxConcurrentExecutions: 1,
@@ -4298,7 +4298,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       // Prepare a failed execution in SQLite for this flow
       const failedExecId = 'exec_failed_to_resume_1';
       const db = (app.flows as any).db;
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
         VALUES (?, ?, ?, 'failed', '{"test":true}', null, 100, '[]', ?, ?)
       `).run(
@@ -4318,7 +4318,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(resumedExec.status).toBe('queued');
 
       // Verify that while runningExec is active, countRunningExecutions never exceeds 1
-      const runningCount = app.flows.countRunningExecutions(throttledFlow.id);
+      const runningCount = await app.flows.countRunningExecutions(throttledFlow.id);
       expect(runningCount).toBeLessThanOrEqual(1);
 
       // Verify that resumedExec has an active job in the system queue
@@ -4328,17 +4328,17 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       // Wait until both executions finish in sequence
       await vi.waitFor(async () => {
-        const r1 = app.flows.getExecutionById(runningExec.id);
-        const r2 = app.flows.getExecutionById(failedExecId);
+        const r1 = await app.flows.getExecutionById(runningExec.id);
+        const r2 = await app.flows.getExecutionById(failedExecId);
         expect(r1?.status).toBe('succeeded');
         expect(r2?.status).toBe('succeeded');
       }, { timeout: 4000, interval: 50 });
 
-      app.flows.deleteFlow(throttledFlow.id);
+      await app.flows.deleteFlow(throttledFlow.id);
     });
 
     it('should route orphaned executions through queue admission when recovering with strategy resume on a throttled flow', async () => {
-      const throttledFlow = app.flows.createFlow({
+      const throttledFlow = await app.flows.createFlow({
         name: 'RecoverThrottledFlow',
         enabled: true,
         maxConcurrentExecutions: 1,
@@ -4356,7 +4356,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       const orphanId = 'exec_orphan_throttled_1';
       const db = (app.flows as any).db;
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, output, durationMs, stepLogs, startedAt, checkpoint)
         VALUES (?, ?, ?, 'running', '{}', '{}', 0, '[]', ?, ?)
       `).run(
@@ -4375,15 +4375,15 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       // Poll until the queue worker executes and completes the resumed execution
       await vi.waitFor(async () => {
-        const item = app.flows.getExecutionById(orphanId);
+        const item = await app.flows.getExecutionById(orphanId);
         expect(item?.status).toBe('succeeded');
       }, { timeout: 4000, interval: 50 });
 
-      app.flows.deleteFlow(throttledFlow.id);
+      await app.flows.deleteFlow(throttledFlow.id);
     });
 
     it('should atomically reserve admission before yielding so concurrent executeFlow calls with identical executionId reject cleanly without overwriting waiters or failing queue unique constraints', async () => {
-      const throttledFlow = app.flows.createFlow({
+      const throttledFlow = await app.flows.createFlow({
         name: 'ConcurrentIdFlow',
         enabled: true,
         maxConcurrentExecutions: 1,
@@ -4430,11 +4430,11 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(errorResult.statusCode).toBe(409);
       expect(errorResult.message).toMatch(/already running|currently running/i);
 
-      app.flows.deleteFlow(throttledFlow.id);
+      await app.flows.deleteFlow(throttledFlow.id);
     });
 
     it('should reject executeFlow with 409 Conflict if supplied executionId already exists (e.g. completed)', async () => {
-      const throttledFlow = app.flows.createFlow({
+      const throttledFlow = await app.flows.createFlow({
         name: 'CompletedIdReuseFlow',
         enabled: true,
         maxConcurrentExecutions: 1,
@@ -4468,14 +4468,14 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       ).rejects.toThrowError(/already exists/i);
 
       // Verify original succeeded record was NOT overwritten or corrupted
-      const check = app.flows.getExecutionById(fixedExecutionId);
+      const check = await app.flows.getExecutionById(fixedExecutionId);
       expect(check?.status).toBe('succeeded');
 
-      app.flows.deleteFlow(throttledFlow.id);
+      await app.flows.deleteFlow(throttledFlow.id);
     });
 
     it('should clean up waiter/timer and mark execution failed on queue dispatch failure without unhandled rejections', async () => {
-      const throttledFlow = app.flows.createFlow({
+      const throttledFlow = await app.flows.createFlow({
         name: 'DispatchFailureCleanupFlow',
         enabled: true,
         maxConcurrentExecutions: 1,
@@ -4517,7 +4517,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(waiters.has(testExecId)).toBe(false);
 
       // Execution in DB must NOT be stranded as 'queued'; it should be marked as 'failed'
-      const record = app.flows.getExecutionById(testExecId);
+      const record = await app.flows.getExecutionById(testExecId);
       expect(record?.status).toBe('failed');
       expect(record?.error).toContain('Dispatch failed');
 
@@ -4527,11 +4527,11 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       // Wait beyond the 100ms timeout to ensure no unhandled promise rejection or orphaned timer fires
       await new Promise((r) => setTimeout(r, 200));
 
-      app.flows.deleteFlow(throttledFlow.id);
+      await app.flows.deleteFlow(throttledFlow.id);
     });
 
     it('should renew lease for remaining execution budget and maintain heartbeat so long steps (Pass -> Wait) do not lose their lease or concurrency slot', async () => {
-      const longBudgetFlow = app.flows.createFlow({
+      const longBudgetFlow = await app.flows.createFlow({
         name: 'LongBudgetLeaseFlow',
         enabled: true,
         maxConcurrentExecutions: 1,
@@ -4561,7 +4561,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       // Wait 80ms for FastPass to complete and HoldStep to be active
       await new Promise((r) => setTimeout(r, 80));
 
-      const exec1 = app.flows.getExecutionById(execId1);
+      const exec1 = await app.flows.getExecutionById(execId1);
       expect(exec1).not.toBeNull();
       expect(exec1?.status).toBe('running');
       expect(exec1?.jobId).toBeDefined();
@@ -4585,15 +4585,15 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       // Wait for queued exec2 to be claimed and complete
       await vi.waitFor(async () => {
-        const check2 = app.flows.getExecutionById(exec2.id);
+        const check2 = await app.flows.getExecutionById(exec2.id);
         expect(check2?.status).toBe('succeeded');
       }, { timeout: 3000, interval: 50 });
 
-      app.flows.deleteFlow(longBudgetFlow.id);
+      await app.flows.deleteFlow(longBudgetFlow.id);
     });
 
     it('should reconcile non-queued job states on startup and restore claimable job when execution is queued', async () => {
-      const throttledFlow = app.flows.createFlow({
+      const throttledFlow = await app.flows.createFlow({
         name: 'CrashReconciliationFlow',
         enabled: true,
         maxConcurrentExecutions: 1,
@@ -4617,12 +4617,12 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       // 1. Simulate process crashing right after QueueService claimed the job but BEFORE execution became 'running':
       // Execution is still 'queued', while QueueJob is in 'processing' with attempts=1
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, durationMs, stepLogs, queuedAt, startedAt, jobId)
         VALUES (?, ?, ?, 'queued', '{}', 0, '[]', ?, ?, ?)
       `).run(executionId, throttledFlow.id, throttledFlow.name, now, now, jobId);
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _queue_jobs (id, queue, groupKey, status, payload, attempts, maxAttempts, claimedBy, leaseExpiresAt, availableAt, created, updated)
         VALUES (?, ?, ?, 'processing', ?, 1, 1, 'dead_worker_pid', ?, ?, ?, ?)
       `).run(
@@ -4637,7 +4637,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       );
 
       // Verify simulated pre-conditions
-      const preExec = app.flows.getExecutionById(executionId);
+      const preExec = await app.flows.getExecutionById(executionId);
       expect(preExec?.status).toBe('queued');
       const preJob = await app.queue.getJob(jobId);
       expect(preJob?.status).toBe('processing');
@@ -4647,7 +4647,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       // 3. Worker must have been woken, claimed the restored job, and executed the flow to 'succeeded'
       await vi.waitFor(async () => {
-        const postExec = app.flows.getExecutionById(executionId);
+        const postExec = await app.flows.getExecutionById(executionId);
         expect(postExec?.status).toBe('succeeded');
         expect(postExec?.output).toEqual({ crashRecovered: true });
       }, { timeout: 4000, interval: 50 });
@@ -4660,12 +4660,12 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       const deadExecId = `exec_dead_letter_sim_${Date.now()}`;
       const deadJobId = `job_${deadExecId}`;
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, input, durationMs, stepLogs, queuedAt, startedAt, jobId)
         VALUES (?, ?, ?, 'queued', '{}', 0, '[]', ?, ?, ?)
       `).run(deadExecId, throttledFlow.id, throttledFlow.name, now, now, deadJobId);
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO _queue_jobs (id, queue, groupKey, status, payload, attempts, maxAttempts, claimedBy, leaseExpiresAt, availableAt, created, updated)
         VALUES (?, ?, ?, 'dead_letter', ?, 1, 1, NULL, NULL, ?, ?, ?)
       `).run(
@@ -4683,15 +4683,15 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       // Must be restored from dead_letter and successfully executed
       await vi.waitFor(async () => {
-        const recoveredDeadExec = app.flows.getExecutionById(deadExecId);
+        const recoveredDeadExec = await app.flows.getExecutionById(deadExecId);
         expect(recoveredDeadExec?.status).toBe('succeeded');
       }, { timeout: 4000, interval: 50 });
 
-      app.flows.deleteFlow(throttledFlow.id);
+      await app.flows.deleteFlow(throttledFlow.id);
     });
 
     it('should throttle bulk database event triggers (e.g. 12 concurrent events with maxConcurrentExecutions = 2) and execute all in FIFO without dropping', async () => {
-      app.schema.createCollection({
+      await app.schema.createCollection({
         name: 'bulk_throttle_items',
         type: 'base',
         schema: [
@@ -4699,7 +4699,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         ],
       });
 
-      const throttledFlow = app.flows.createFlow({
+      const throttledFlow = await app.flows.createFlow({
         name: 'BulkEventThrottledFlow',
         enabled: true,
         triggerType: 'event',
@@ -4731,7 +4731,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       }
 
       await new Promise((r) => setTimeout(r, 20));
-      const midExecs = app.flows.getExecutions({ flowId: throttledFlow.id, perPage: 50, page: 1 });
+      const midExecs = await app.flows.getExecutions({ flowId: throttledFlow.id, perPage: 50, page: 1 });
       const runningMid = midExecs.items.filter((e) => e.status === 'running');
       const queuedMid = midExecs.items.filter((e) => e.status === 'queued');
 
@@ -4739,7 +4739,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(queuedMid.length).toBeGreaterThanOrEqual(4);
 
       for (let attempt = 0; attempt < 60; attempt++) {
-        const current = app.flows.getExecutions({ flowId: throttledFlow.id, perPage: 50, page: 1 });
+        const current = await app.flows.getExecutions({ flowId: throttledFlow.id, perPage: 50, page: 1 });
         const completedCount = current.items.filter((e) => e.status === 'succeeded').length;
         const activeCount = current.items.filter((e) => e.status === 'running').length;
         expect(activeCount).toBeLessThanOrEqual(2);
@@ -4747,15 +4747,15 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         await new Promise((r) => setTimeout(r, 50));
       }
 
-      const finalExecs = app.flows.getExecutions({ flowId: throttledFlow.id, perPage: 50, page: 1 });
+      const finalExecs = await app.flows.getExecutions({ flowId: throttledFlow.id, perPage: 50, page: 1 });
       expect(finalExecs.items.length).toBe(totalItems);
       expect(finalExecs.items.every((e) => e.status === 'succeeded')).toBe(true);
 
-      app.flows.deleteFlow(throttledFlow.id);
+      await app.flows.deleteFlow(throttledFlow.id);
     });
 
     it('should isolate per-flow queues so a backlogged Flow A (maxConcurrentExecutions=1) never blocks Flow B', async () => {
-      const flowA = app.flows.createFlow({
+      const flowA = await app.flows.createFlow({
         name: 'SlowIsolatedFlowA',
         enabled: true,
         triggerType: 'http',
@@ -4772,7 +4772,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         },
       });
 
-      const flowB = app.flows.createFlow({
+      const flowB = await app.flows.createFlow({
         name: 'FastIsolatedFlowB',
         enabled: true,
         triggerType: 'http',
@@ -4805,12 +4805,12 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(elapsedB).toBeLessThan(300);
 
       await new Promise((r) => setTimeout(r, 1300));
-      app.flows.deleteFlow(flowA.id);
-      app.flows.deleteFlow(flowB.id);
+      await app.flows.deleteFlow(flowA.id);
+      await app.flows.deleteFlow(flowB.id);
     });
 
     it('should support HTTP wait=false (202 Accepted with status: queued), wait=true (blocks until slot finishes), and 408 Request Timeout when timeoutMs expires in queue', async () => {
-      const httpFlow = app.flows.createFlow({
+      const httpFlow = await app.flows.createFlow({
         name: 'HttpThrottledFlow',
         enabled: true,
         triggerType: 'http',
@@ -4881,11 +4881,11 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(syncExec.status).toBe('succeeded');
       expect(syncExec.output).toEqual({ completedViaQueue: true });
 
-      app.flows.deleteFlow(httpFlow.id);
+      await app.flows.deleteFlow(httpFlow.id);
     });
 
     it('should cancel the underlying queue job and prevent execution when abortExecution() is called on a queued flow execution', async () => {
-      const abortFlow = app.flows.createFlow({
+      const abortFlow = await app.flows.createFlow({
         name: 'AbortQueuedFlow',
         enabled: true,
         triggerType: 'http',
@@ -4909,7 +4909,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(exec2.status).toBe('queued');
       expect(exec2.jobId).toBeDefined();
 
-      const aborted = app.flows.abortExecution(exec2.id);
+      const aborted = await app.flows.abortExecution(exec2.id);
       expect(aborted.status).toBe('aborted');
 
       await new Promise((r) => setTimeout(r, 20));
@@ -4917,11 +4917,11 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(cancelledJob).toBeNull();
 
       await new Promise((r) => setTimeout(r, 550));
-      const exec2After = app.flows.getExecutionById(exec2.id)!;
+      const exec2After = (await app.flows.getExecutionById(exec2.id))!;
       expect(exec2After.status).toBe('aborted');
       expect(exec2After.stepLogs.length).toBe(0);
 
-      app.flows.deleteFlow(abortFlow.id);
+      await app.flows.deleteFlow(abortFlow.id);
     });
 
     it('should render maxConcurrentExecutions controls in Admin UI (Create Flow modal, Flow cards, Designer toolbar, and Execution status filter)', async () => {
@@ -5411,13 +5411,13 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       (flowService as any).activeExecutionClaims.add(testClaimId);
 
       // Insert mock DB records: one actively claimed, one genuinely orphaned
-      (flowService as any).db.prepare(`
+      await (flowService as any).db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, startedAt, durationMs, claimToken)
         VALUES (?, 'f1', 'Flow1', 'running', ?, 0, 'token-123')
       `).run(testClaimId, new Date().toISOString());
 
       const orphanId = 'exec_truly_orphaned_restart_test';
-      (flowService as any).db.prepare(`
+      await (flowService as any).db.prepare(`
         INSERT INTO _flow_executions (id, flowId, flowName, status, startedAt, durationMs, claimToken)
         VALUES (?, 'f1', 'Flow1', 'running', ?, 0, 'token-456')
       `).run(orphanId, new Date().toISOString());
@@ -5428,12 +5428,12 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
         expect(recovered.some(e => e.id === testClaimId)).toBe(false);
 
         // Verify active claimed execution still has its status and claim in DB
-        const activeRow = (flowService as any).db.prepare('SELECT status, claimToken FROM _flow_executions WHERE id = ?').get(testClaimId);
+        const activeRow = await (flowService as any).db.prepare('SELECT status, claimToken FROM _flow_executions WHERE id = ?').get(testClaimId);
         expect(activeRow.status).toBe('running');
         expect(activeRow.claimToken).toBe('token-123');
       } finally {
         (flowService as any).activeExecutionClaims.delete(testClaimId);
-        (flowService as any).db.prepare('DELETE FROM _flow_executions WHERE id IN (?, ?)').run(testClaimId, orphanId);
+        await (flowService as any).db.prepare('DELETE FROM _flow_executions WHERE id IN (?, ?)').run(testClaimId, orphanId);
       }
     });
 
@@ -5489,7 +5489,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
 
     it('should abort queued executions and immediately settle waiters when clearExecutions is called', async () => {
-      const throttledFlow = app.flows.createFlow({
+      const throttledFlow = await app.flows.createFlow({
         name: 'ClearExecutionsQueuedFlow',
         enabled: true,
         triggerType: 'http',
@@ -5518,7 +5518,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       const startTime = Date.now();
       // 3. Clear executions
-      app.flows.clearExecutions(throttledFlow.id);
+      await app.flows.clearExecutions(throttledFlow.id);
 
       // Waiter must reject promptly with aborted error (499) rather than waiting 10s for timeout
       let thrownErr: any;
@@ -5533,14 +5533,14 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(elapsed).toBeLessThan(1500);
 
       // Verify execution records were removed
-      const remaining = app.flows.getExecutions({ flowId: throttledFlow.id });
+      const remaining = await app.flows.getExecutions({ flowId: throttledFlow.id });
       expect(remaining.totalItems).toBe(0);
 
-      app.flows.deleteFlow(throttledFlow.id);
+      await app.flows.deleteFlow(throttledFlow.id);
     });
 
     it('should abort queued executions and immediately settle waiters when deleteFlow is called', async () => {
-      const throttledFlow = app.flows.createFlow({
+      const throttledFlow = await app.flows.createFlow({
         name: 'DeleteFlowQueuedFlow',
         enabled: true,
         triggerType: 'http',
@@ -5569,7 +5569,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
 
       const startTime = Date.now();
       // 3. Delete flow
-      app.flows.deleteFlow(throttledFlow.id);
+      await app.flows.deleteFlow(throttledFlow.id);
 
       // Waiter must reject promptly with aborted error (499) rather than waiting 10s for timeout
       let thrownErr: any;
@@ -5585,7 +5585,7 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
     });
 
     it('should not resurrect execution records when clearExecutions is called during an actively running execution', async () => {
-      const activeFlow = app.flows.createFlow({
+      const activeFlow = await app.flows.createFlow({
         name: 'ClearActiveRunningResurrectFlow',
         enabled: true,
         triggerType: 'http',
@@ -5605,22 +5605,22 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(runningExec.status).toBe('running');
 
       // Clear executions while runner is actively in flight
-      app.flows.clearExecutions(activeFlow.id);
-      expect(app.flows.getExecutionById(runningExec.id)).toBeNull();
+      await app.flows.clearExecutions(activeFlow.id);
+      expect(await app.flows.getExecutionById(runningExec.id)).toBeNull();
 
       // Wait for the runner's Wait timer to finish and terminate
       await new Promise((r) => setTimeout(r, 400));
 
       // Record must not be resurrected in SQLite by saveExecution
-      expect(app.flows.getExecutionById(runningExec.id)).toBeNull();
-      const list = app.flows.getExecutions({ flowId: activeFlow.id });
+      expect(await app.flows.getExecutionById(runningExec.id)).toBeNull();
+      const list = await app.flows.getExecutions({ flowId: activeFlow.id });
       expect(list.totalItems).toBe(0);
 
-      app.flows.deleteFlow(activeFlow.id);
+      await app.flows.deleteFlow(activeFlow.id);
     });
 
     it('should not resurrect execution records when deleteFlow is called during an actively running execution', async () => {
-      const activeFlow = app.flows.createFlow({
+      const activeFlow = await app.flows.createFlow({
         name: 'DeleteActiveRunningResurrectFlow',
         enabled: true,
         triggerType: 'http',
@@ -5640,14 +5640,14 @@ describe('Functions Flow ("NodeStack Functions Flow & State Machine")', () => {
       expect(runningExec.status).toBe('running');
 
       // Delete flow while runner is actively in flight
-      app.flows.deleteFlow(activeFlow.id);
-      expect(app.flows.getExecutionById(runningExec.id)).toBeNull();
+      await app.flows.deleteFlow(activeFlow.id);
+      expect(await app.flows.getExecutionById(runningExec.id)).toBeNull();
 
       // Wait for runner to complete
       await new Promise((r) => setTimeout(r, 400));
 
       // Record must not be resurrected
-      expect(app.flows.getExecutionById(runningExec.id)).toBeNull();
+      expect(await app.flows.getExecutionById(runningExec.id)).toBeNull();
     });
   });
 });

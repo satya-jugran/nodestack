@@ -112,7 +112,7 @@ describe('Starter Templates / Recipes Tests', () => {
       expect(favCol.name).toBe('favorites');
 
       // 2. Verify categories
-      const categories = app.db.all<any>('SELECT * FROM "categories" ORDER BY name ASC');
+      const categories = await app.db.all<any>('SELECT * FROM "categories" ORDER BY name ASC');
       expect(categories.length).toBe(5);
       expect(categories.some((c) => c.slug === 'electronics')).toBe(true);
 
@@ -126,7 +126,7 @@ describe('Starter Templates / Recipes Tests', () => {
       }
 
       // 3. Verify exactly 20 products pre-seeded with images
-      const products = app.db.all<any>('SELECT * FROM "products"');
+      const products = await app.db.all<any>('SELECT * FROM "products"');
       expect(products.length).toBe(20);
 
       // Check product images on disk
@@ -144,7 +144,7 @@ describe('Starter Templates / Recipes Tests', () => {
       }
 
       // 4. Verify orders
-      const orders = app.db.all<any>('SELECT * FROM "orders"');
+      const orders = await app.db.all<any>('SELECT * FROM "orders"');
       expect(orders.length).toBe(8);
       for (const ord of orders) {
         expect(ord.orderNumber).toMatch(/^ORD-/);
@@ -155,7 +155,7 @@ describe('Starter Templates / Recipes Tests', () => {
       }
 
       // 5. Verify reviews
-      const reviews = app.db.all<any>('SELECT * FROM "reviews"');
+      const reviews = await app.db.all<any>('SELECT * FROM "reviews"');
       expect(reviews.length).toBe(15);
       for (const rev of reviews) {
         expect(rev.rating).toBeGreaterThanOrEqual(1);
@@ -170,7 +170,7 @@ describe('Starter Templates / Recipes Tests', () => {
       expect(res.totalRecords).toBe(0);
 
       // Record count should remain 20
-      const products = app.db.all<any>('SELECT * FROM "products"');
+      const products = await app.db.all<any>('SELECT * FROM "products"');
       expect(products.length).toBe(20);
     });
 
@@ -180,7 +180,7 @@ describe('Starter Templates / Recipes Tests', () => {
       expect(res.skipped).toBe(false);
       expect(res.totalRecords).toBeGreaterThan(0);
 
-      const products = app.db.all<any>('SELECT * FROM "products"');
+      const products = await app.db.all<any>('SELECT * FROM "products"');
       expect(products.length).toBe(20);
     });
   });
@@ -200,7 +200,7 @@ describe('Starter Templates / Recipes Tests', () => {
         const postsCol = app.schema.getCollectionOrThrow('posts');
 
         // Verify authors
-        const authors = app.db.all<any>('SELECT * FROM "authors"');
+        const authors = await app.db.all<any>('SELECT * FROM "authors"');
         expect(authors.length).toBe(4);
         for (const a of authors) {
           expect(a.avatar).toBeTruthy();
@@ -209,11 +209,11 @@ describe('Starter Templates / Recipes Tests', () => {
         }
 
         // Verify tags
-        const tags = app.db.all<any>('SELECT * FROM "tags"');
+        const tags = await app.db.all<any>('SELECT * FROM "tags"');
         expect(tags.length).toBe(6);
 
         // Verify posts with cover images and markdown content
-        const posts = app.db.all<any>('SELECT * FROM "posts"');
+        const posts = await app.db.all<any>('SELECT * FROM "posts"');
         expect(posts.length).toBe(8);
         for (const p of posts) {
           expect(p.title).toBeTruthy();
@@ -224,7 +224,7 @@ describe('Starter Templates / Recipes Tests', () => {
         }
 
         // Verify comments
-        const comments = app.db.all<any>('SELECT * FROM "comments"');
+        const comments = await app.db.all<any>('SELECT * FROM "comments"');
         expect(comments.length).toBe(10);
       }
     );
@@ -241,7 +241,7 @@ describe('Starter Templates / Recipes Tests', () => {
       const compCol = app.schema.getCollectionOrThrow('companies');
 
       // Verify companies & logo images
-      const companies = app.db.all<any>('SELECT * FROM "companies"');
+      const companies = await app.db.all<any>('SELECT * FROM "companies"');
       expect(companies.length).toBe(6);
       for (const c of companies) {
         expect(c.logo).toBeTruthy();
@@ -250,11 +250,11 @@ describe('Starter Templates / Recipes Tests', () => {
       }
 
       // Verify leads
-      const leads = app.db.all<any>('SELECT * FROM "leads"');
+      const leads = await app.db.all<any>('SELECT * FROM "leads"');
       expect(leads.length).toBe(8);
 
       // Verify deals
-      const deals = app.db.all<any>('SELECT * FROM "deals"');
+      const deals = await app.db.all<any>('SELECT * FROM "deals"');
       expect(deals.length).toBe(6);
       for (const d of deals) {
         expect(d.value).toBeGreaterThan(0);
@@ -262,7 +262,7 @@ describe('Starter Templates / Recipes Tests', () => {
       }
 
       // Verify activities
-      const activities = app.db.all<any>('SELECT * FROM "activities"');
+      const activities = await app.db.all<any>('SELECT * FROM "activities"');
       expect(activities.length).toBe(6);
     });
   });
@@ -321,7 +321,7 @@ describe('Starter Templates / Recipes Tests', () => {
     });
 
     it('should serve generated product image through /api/files endpoint', async () => {
-      const products = app.db.all<any>('SELECT * FROM "products" LIMIT 1');
+      const products = await app.db.all<any>('SELECT * FROM "products" LIMIT 1');
       const prod = products[0];
 
       const fileUrl = `http://127.0.0.1:${port}/api/files/products/${prod.id}/${prod.image}`;
@@ -376,7 +376,7 @@ describe('Starter Templates / Recipes Tests', () => {
 
         // Verify SQLite database created on disk
         const appCheck = new NodeStack({ dataDir: cliTestDir });
-        const prods = appCheck.db.all<any>('SELECT * FROM "products"');
+        const prods = await appCheck.db.all<any>('SELECT * FROM "products"');
         expect(prods.length).toBe(20);
         await appCheck.close();
       } finally {
@@ -398,7 +398,7 @@ describe('Starter Templates / Recipes Tests', () => {
         expect(res.success).toBe(true);
         expect(res.collections).toContain('products');
 
-        const prods = appInstance.db.all<any>('SELECT * FROM "products"');
+        const prods = await appInstance.db.all<any>('SELECT * FROM "products"');
         expect(prods.length).toBe(20);
         await appInstance.close();
       } finally {
@@ -461,7 +461,7 @@ describe('Starter Templates / Recipes Tests', () => {
 
       // Verify collection is dropped in SchemaService and SQLite
       expect(app.schema.getCollection('temp_notes')).toBeUndefined();
-      expect(() => app.db.all('SELECT * FROM "temp_notes"')).toThrow();
+      await expect(app.db.all('SELECT * FROM "temp_notes"')).rejects.toThrow();
 
       // Verify storage files directory is cleaned up
       expect(fs.existsSync(path.join(app.files.storageDir, tempCol.id))).toBe(false);
@@ -507,7 +507,7 @@ describe('Starter Templates / Recipes Tests', () => {
 
         // Verify collection and table were NOT deleted
         expect(app.schema.getCollection('secure_docs')).toBeDefined();
-        const records = app.db.all('SELECT * FROM "secure_docs"');
+        const records = await app.db.all('SELECT * FROM "secure_docs"');
         expect(records).toBeDefined();
       } finally {
         (app.files as any).deleteCollectionFiles = origDeleteFiles;

@@ -503,7 +503,7 @@ export class FlowService {
   // Flow CRUD
   // ==========================================
 
-  public getAllFlows(options?: { search?: string; enabled?: boolean }): any {
+  public async getAllFlows(options?: { search?: string; enabled?: boolean }): Promise<FlowConfig[]> {
     let sql = 'SELECT * FROM _flows WHERE 1=1';
     const params: any[] = [];
 
@@ -520,26 +520,17 @@ export class FlowService {
 
     sql += ' ORDER BY created DESC';
 
-    const rows = this.db.all<any>(sql, ...params);
-    if (rows instanceof Promise) {
-      return rows.then((r: any[]) => (r || []).map((row: any) => this.mapRowToConfig(row)));
-    }
-    return (rows || []).map((r: any) => this.mapRowToConfig(r));
+    const rows = await this.db.all<any>(sql, ...params);
+    return (rows || []).map((row: any) => this.mapRowToConfig(row));
   }
 
-  public getFlowById(id: string): any {
-    const row = this.db.get<any>('SELECT * FROM _flows WHERE id = ?', id);
-    if (row instanceof Promise) {
-      return row.then((r) => (r ? this.mapRowToConfig(r) : null));
-    }
+  public async getFlowById(id: string): Promise<FlowConfig | null> {
+    const row = await this.db.get<any>('SELECT * FROM _flows WHERE id = ?', id);
     return row ? this.mapRowToConfig(row) : null;
   }
 
-  public getFlowByName(name: string): any {
-    const row = this.db.get<any>('SELECT * FROM _flows WHERE name = ?', name);
-    if (row instanceof Promise) {
-      return row.then((r) => (r ? this.mapRowToConfig(r) : null));
-    }
+  public async getFlowByName(name: string): Promise<FlowConfig | null> {
+    const row = await this.db.get<any>('SELECT * FROM _flows WHERE name = ?', name);
     return row ? this.mapRowToConfig(row) : null;
   }
 
@@ -555,11 +546,8 @@ export class FlowService {
   /**
    * Finds all flows that reference a function by name or ID.
    */
-  public getFlowsReferencingFunction(functionName: string, functionId?: string): any {
-    const allFlows = this.getAllFlows();
-    if (allFlows instanceof Promise) {
-      return allFlows.then((flows: FlowConfig[]) => this.filterFlowsReferencingFunction(flows, functionName, functionId));
-    }
+  public async getFlowsReferencingFunction(functionName: string, functionId?: string): Promise<FlowConfig[]> {
+    const allFlows = await this.getAllFlows();
     return this.filterFlowsReferencingFunction(allFlows, functionName, functionId);
   }
 
@@ -584,7 +572,7 @@ export class FlowService {
     return matched;
   }
 
-  public createFlow(dto: CreateFlowDto, actor?: any): any {
+  public async createFlow(dto: CreateFlowDto, actor?: any): Promise<FlowConfig> {
     if (!dto.name || typeof dto.name !== 'string' || !dto.name.trim()) {
       throw new AppError('Flow name is required', 400);
     }
@@ -608,26 +596,20 @@ export class FlowService {
     FlowValidator.validateTrigger(triggerType, eventTrigger, cronSchedule, cronTimezone);
 
     const trimmedName = dto.name.trim();
-    const existing = this.getFlowByName(trimmedName);
-    if (existing instanceof Promise) {
-      return existing.then((ex) => {
-        if (ex) throw new ConflictError(`Flow with name '${trimmedName}' already exists`);
-        return this.finishCreateFlow(trimmedName, triggerType, eventTrigger, dto, actor);
-      });
-    }
+    const existing = await this.getFlowByName(trimmedName);
     if (existing) {
       throw new ConflictError(`Flow with name '${trimmedName}' already exists`);
     }
-    return this.finishCreateFlow(trimmedName, triggerType, eventTrigger, dto, actor);
+    return await this.finishCreateFlow(trimmedName, triggerType, eventTrigger, dto, actor);
   }
 
-  private finishCreateFlow(
+  private async finishCreateFlow(
     trimmedName: string,
     triggerType: any,
     eventTrigger: any,
     dto: CreateFlowDto,
     actor?: any
-  ): any {
+  ): Promise<FlowConfig> {
     const id = dto.id || `flow_${crypto.randomBytes(8).toString('hex')}`;
     const now = new Date().toISOString();
     const enabled = dto.enabled !== undefined ? (dto.enabled ? 1 : 0) : 1;
@@ -648,7 +630,7 @@ export class FlowService {
       cronInputStr = typeof dto.cronInput === 'string' ? dto.cronInput : JSON.stringify(dto.cronInput);
     }
 
-    const res = this.db.run(`
+    await this.db.run(`
       INSERT INTO _flows (
         id, name, description, enabled, triggerType, authPolicy, invokeRule, eventTrigger,
         cronSchedule, cronTimezone, cronMissedPolicy, cronInput,
@@ -656,37 +638,15 @@ export class FlowService {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, id, trimmedName, description, enabled, triggerType, authPolicy, invokeRule, eventTrigger, cronSchedule, cronTimezone, cronMissedPolicy, cronInputStr, maxConcurrentExecutions, definition, now, now);
 
-    if (res instanceof Promise) {
-      return res.then(async () => {
-        const created = await this.getFlowById(id);
-        this.syncFlowQueue(created!);
-        if (this.cronService && created) {
-          await this.cronService.syncFlowSchedule(created);
-        }
-        return created!;
-      });
-    }
-
-    const created = this.getFlowById(id);
+    const created = await this.getFlowById(id);
     this.syncFlowQueue(created!);
     if (this.cronService && created) {
-      if (created instanceof Promise) {
-        return created.then(async (c: any) => {
-          if (c) await this.cronService.syncFlowSchedule(c);
-          return c!;
-        });
-      }
-      const syncRes = this.cronService.syncFlowSchedule(created);
-      if (syncRes instanceof Promise) {
-        void syncRes.catch((err: any) => {
-          console.warn(`[FlowService] Failed to sync cron schedule for flow '${created.name}':`, err);
-        });
-      }
+      await this.cronService.syncFlowSchedule(created);
     }
     return created!;
   }
 
-  public updateFlow(id: string, dto: UpdateFlowDto, actor?: any): any {
+  public async updateFlow(id: string, dto: UpdateFlowDto, actor?: any): Promise<FlowConfig> {
     if (dto.authPolicy !== undefined && !ALLOWED_FLOW_AUTH_POLICIES.includes(dto.authPolicy)) {
       throw new ValidationError(
         `Invalid auth policy '${dto.authPolicy}'. Allowed policies are: ${ALLOWED_FLOW_AUTH_POLICIES.join(', ')}`
@@ -701,20 +661,14 @@ export class FlowService {
       FlowValidator.validateConcurrency(dto.maxConcurrentExecutions);
     }
 
-    const current = this.getFlowById(id);
-    if (current instanceof Promise) {
-      return current.then((curr) => {
-        if (!curr) throw new NotFoundError(`Flow '${id}' not found`);
-        return this.finishUpdateFlow(id, curr, dto, actor);
-      });
-    }
+    const current = await this.getFlowById(id);
     if (!current) {
       throw new NotFoundError(`Flow '${id}' not found`);
     }
-    return this.finishUpdateFlow(id, current, dto, actor);
+    return await this.finishUpdateFlow(id, current, dto, actor);
   }
 
-  private finishUpdateFlow(id: string, current: FlowConfig, dto: UpdateFlowDto, actor?: any): any {
+  private async finishUpdateFlow(id: string, current: FlowConfig, dto: UpdateFlowDto, actor?: any): Promise<FlowConfig> {
     let name = current.name;
     if (dto.name !== undefined) {
       if (typeof dto.name !== 'string' || !dto.name.trim()) {
@@ -722,23 +676,17 @@ export class FlowService {
       }
       const trimmedName = dto.name.trim();
       if (trimmedName !== current.name) {
-        const existing = this.getFlowByName(trimmedName);
-        if (existing instanceof Promise) {
-          return existing.then((ex) => {
-            if (ex && ex.id !== id) throw new ConflictError(`Flow with name '${trimmedName}' already exists`);
-            return this.applyUpdateFlow(id, current, trimmedName, dto, actor);
-          });
-        }
+        const existing = await this.getFlowByName(trimmedName);
         if (existing && existing.id !== id) {
           throw new ConflictError(`Flow with name '${trimmedName}' already exists`);
         }
         name = trimmedName;
       }
     }
-    return this.applyUpdateFlow(id, current, name, dto, actor);
+    return await this.applyUpdateFlow(id, current, name, dto, actor);
   }
 
-  private applyUpdateFlow(id: string, current: FlowConfig, name: string, dto: UpdateFlowDto, actor?: any): any {
+  private async applyUpdateFlow(id: string, current: FlowConfig, name: string, dto: UpdateFlowDto, actor?: any): Promise<FlowConfig> {
     const triggerType = dto.triggerType !== undefined ? dto.triggerType : current.triggerType;
     let eventTrigger = dto.eventTrigger !== undefined ? dto.eventTrigger : current.eventTrigger;
     if (triggerType !== 'event') {
@@ -770,7 +718,7 @@ export class FlowService {
     const definition = dto.definition !== undefined ? JSON.stringify(dto.definition) : JSON.stringify(current.definition);
     const now = new Date().toISOString();
 
-    const res = this.db.run(`
+    await this.db.run(`
       UPDATE _flows SET
         name = ?, description = ?, enabled = ?, triggerType = ?, authPolicy = ?, invokeRule = ?,
         eventTrigger = ?, cronSchedule = ?, cronTimezone = ?, cronMissedPolicy = ?, cronInput = ?,
@@ -778,98 +726,55 @@ export class FlowService {
       WHERE id = ?
     `, name, description, enabled, triggerType, authPolicy, invokeRule, eventTrigger, cronSchedule, cronTimezone, cronMissedPolicy, cronInputStr, maxConcurrentExecutions, definition, now, id);
 
-    if (res instanceof Promise) {
-      return res.then(async () => {
-        const updated = await this.getFlowById(id);
-        this.syncFlowQueue(updated!);
-        if (this.cronService && updated) {
-          await this.cronService.syncFlowSchedule(updated);
-        }
-        return updated!;
-      });
-    }
-
-    const updated = this.getFlowById(id);
+    const updated = await this.getFlowById(id);
     this.syncFlowQueue(updated!);
     if (this.cronService && updated) {
-      if (updated instanceof Promise) {
-        return updated.then(async (u: any) => {
-          if (u) await this.cronService.syncFlowSchedule(u);
-          return u!;
-        });
-      }
-      const syncRes = this.cronService.syncFlowSchedule(updated);
-      if (syncRes instanceof Promise) {
-        void syncRes.catch((err: any) => {
-          console.warn(`[FlowService] Failed to sync cron schedule for flow '${updated.name}':`, err);
-        });
-      }
+      await this.cronService.syncFlowSchedule(updated);
     }
     return updated!;
   }
 
-  public deleteFlow(id: string, actor?: any): any {
-    const current = this.getFlowById(id);
-    if (current instanceof Promise) {
-      return current.then((curr) => {
-        if (!curr) throw new NotFoundError(`Flow '${id}' not found`);
-        return this.finishDeleteFlow(id);
-      });
-    }
+  public async deleteFlow(id: string, actor?: any): Promise<boolean> {
+    const current = await this.getFlowById(id);
     if (!current) {
       throw new NotFoundError(`Flow '${id}' not found`);
     }
-    return this.finishDeleteFlow(id);
+    return await this.finishDeleteFlow(id);
   }
 
-  private finishDeleteFlow(id: string): any {
+  private async finishDeleteFlow(id: string): Promise<boolean> {
     if (this.cronService) {
-      void Promise.resolve(this.cronService.removeTargetSchedules('flow', id)).catch(() => {});
+      try {
+        await this.cronService.removeTargetSchedules('flow', id);
+      } catch {}
     }
     if (this.queueService) {
       const queueName = FlowService.getFlowQueueName(id);
-      void this.queueService.deleteQueue(queueName).catch(() => {});
-    }
-
-    const cleanup = () => {
-      const del1 = this.db.run('DELETE FROM _flow_executions WHERE flowId = ?', id);
-      const del2 = this.db.run('DELETE FROM _flows WHERE id = ?', id);
-      if (del1 instanceof Promise || del2 instanceof Promise) {
-        return Promise.all([del1, del2]).then(() => true);
-      }
-      return true;
-    };
-
-    const activeRows = this.db.all<any>("SELECT id FROM _flow_executions WHERE flowId = ? AND status IN ('running', 'queued')", id);
-    if (activeRows instanceof Promise) {
-      return activeRows.then(async (active) => {
-        for (const r of active || []) {
-          this.suppressExecutionWrites(r.id);
-          try {
-            await this.abortExecution(r.id, `Flow '${id}' was deleted`);
-          } catch {}
-        }
-        return cleanup();
-      }).catch(() => cleanup());
-    }
-
-    for (const r of activeRows || []) {
-      this.suppressExecutionWrites(r.id);
       try {
-        void this.abortExecution(r.id, `Flow '${id}' was deleted`);
+        await this.queueService.deleteQueue(queueName);
       } catch {}
     }
-    return cleanup();
+
+    try {
+      const activeRows = await this.db.all<any>("SELECT id FROM _flow_executions WHERE flowId = ? AND status IN ('running', 'queued')", id);
+      for (const r of activeRows || []) {
+        this.suppressExecutionWrites(r.id);
+        try {
+          await this.abortExecution(r.id, `Flow '${id}' was deleted`);
+        } catch {}
+      }
+    } catch {}
+
+    await this.db.run('DELETE FROM _flow_executions WHERE flowId = ?', id);
+    await this.db.run('DELETE FROM _flows WHERE id = ?', id);
+    return true;
   }
 
-  public countRunningExecutions(flowId: string): any {
-    const row = this.db.get<any>(
+  public async countRunningExecutions(flowId: string): Promise<number> {
+    const row = await this.db.get<any>(
       "SELECT COUNT(*) as count FROM _flow_executions WHERE flowId = ? AND status = 'running'",
       flowId
     );
-    if (row instanceof Promise) {
-      return row.then((r) => Number(r?.count || 0));
-    }
     return Number(row?.count || 0);
   }
 
@@ -1529,27 +1434,21 @@ export class FlowService {
   /**
    * Aborts an active ('running') or pending ('queued') flow execution with status: 'aborted'.
    */
-  public abortExecution(executionId: string, reason: string = 'Execution aborted due to server restart'): any {
+  public async abortExecution(executionId: string, reason: string = 'Execution aborted due to server restart'): Promise<FlowExecution> {
     const controller = this.activeAbortControllers.get(executionId);
     if (controller) {
       controller.abort(reason);
       this.activeAbortControllers.delete(executionId);
     }
 
-    const exec = this.getExecutionById(executionId);
-    if (exec instanceof Promise) {
-      return exec.then((e) => {
-        if (!e) throw new NotFoundError(`Flow execution '${executionId}' not found`);
-        return this.finishAbortExecution(executionId, e, reason);
-      });
-    }
+    const exec = await this.getExecutionById(executionId);
     if (!exec) {
       throw new NotFoundError(`Flow execution '${executionId}' not found`);
     }
-    return this.finishAbortExecution(executionId, exec, reason);
+    return await this.finishAbortExecution(executionId, exec, reason);
   }
 
-  private finishAbortExecution(executionId: string, exec: FlowExecution, reason: string): any {
+  private async finishAbortExecution(executionId: string, exec: FlowExecution, reason: string): Promise<FlowExecution> {
     if (exec.status !== 'running' && exec.status !== 'queued') {
       return exec;
     }
@@ -1567,15 +1466,12 @@ export class FlowService {
       claimToken: null,
     };
 
-    const saveRes = this.saveExecution(aborted);
+    await this.saveExecution(aborted);
 
     const abortErr = new AppError(reason, 499);
     (abortErr as any).status = 'aborted';
     this.settleWaiter(executionId, undefined, abortErr);
 
-    if (saveRes instanceof Promise) {
-      return saveRes.then(() => aborted);
-    }
     return aborted;
   }
 
@@ -2117,7 +2013,7 @@ export class FlowService {
     return this.recoverOrphanedExecutions(this.recoveryStrategy);
   }
 
-  public getExecutions(options?: { flowId?: string; status?: string; page?: number; perPage?: number }): any {
+  public async getExecutions(options?: { flowId?: string; status?: string; page?: number; perPage?: number }): Promise<{ items: FlowExecution[]; totalItems: number; page: number; perPage: number }> {
     const page = Math.max(1, options?.page || 1);
     const perPage = Math.max(1, Math.min(options?.perPage || 20, 100));
     const offset = (page - 1) * perPage;
@@ -2135,89 +2031,56 @@ export class FlowService {
       params.push(options.status);
     }
 
-    const countRow = this.db.get<any>(`SELECT COUNT(*) as total FROM _flow_executions ${whereClause}`, ...params);
+    const countRow = await this.db.get<any>(`SELECT COUNT(*) as total FROM _flow_executions ${whereClause}`, ...params);
     const baseSql = `SELECT * FROM _flow_executions ${whereClause} ORDER BY startedAt DESC, id DESC`;
     const paginatedSql = this.db.dialect.paginate(baseSql, perPage, offset);
-
-    if (countRow instanceof Promise) {
-      return Promise.all([countRow, this.db.all<any>(paginatedSql, ...params)]).then(([cRow, rows]) => {
-        const totalItems = cRow?.total || 0;
-        const items = (rows || []).map((r: any) => this.mapRowToExecution(r));
-        return { items, totalItems, page, perPage };
-      });
-    }
+    const rows = await this.db.all<any>(paginatedSql, ...params);
 
     const totalItems = countRow?.total || 0;
-    const rows = this.db.all<any>(paginatedSql, ...params);
-    if (rows instanceof Promise) {
-      return rows.then((r) => ({
-        items: (r || []).map((row: any) => this.mapRowToExecution(row)),
-        totalItems,
-        page,
-        perPage,
-      }));
-    }
     const items = (rows || []).map((r: any) => this.mapRowToExecution(r));
     return { items, totalItems, page, perPage };
   }
 
-  public getExecutionById(id: string): any {
-    const row = this.db.get<any>('SELECT * FROM _flow_executions WHERE id = ?', id);
-    if (row instanceof Promise) {
-      return row.then((r) => (r ? this.mapRowToExecution(r) : null));
-    }
+  public async getExecutionById(id: string): Promise<FlowExecution | null> {
+    const row = await this.db.get<any>('SELECT * FROM _flow_executions WHERE id = ?', id);
     return row ? this.mapRowToExecution(row) : null;
   }
 
-  public clearExecutions(flowId?: string): any {
-    const resolveFlow = () => {
-      if (!flowId) return undefined;
-      const f1 = this.getFlowById(flowId);
-      if (f1 && !(f1 instanceof Promise)) return f1.id;
-      const f2 = this.getFlowByName(flowId);
-      if (f2 && !(f2 instanceof Promise)) return f2.id;
-      return flowId;
-    };
+  public async clearExecutions(flowId?: string): Promise<boolean> {
+    let targetFlowId: string | undefined = undefined;
+    if (flowId) {
+      const f1 = await this.getFlowById(flowId);
+      if (f1) {
+        targetFlowId = f1.id;
+      } else {
+        const f2 = await this.getFlowByName(flowId);
+        targetFlowId = f2 ? f2.id : flowId;
+      }
+    }
 
-    const targetFlowId = resolveFlow();
     const query = targetFlowId
       ? "SELECT id FROM _flow_executions WHERE flowId = ? AND status IN ('running', 'queued')"
       : "SELECT id FROM _flow_executions WHERE status IN ('running', 'queued')";
 
-    const doDelete = () => {
-      if (targetFlowId) {
-        const res = this.db.run('DELETE FROM _flow_executions WHERE flowId = ?', targetFlowId);
-        if (res instanceof Promise) return res.then(() => true);
-        return true;
+    try {
+      const activeRows = targetFlowId ? await this.db.all<any>(query, targetFlowId) : await this.db.all<any>(query);
+      for (const r of activeRows || []) {
+        this.suppressExecutionWrites(r.id);
+        try {
+          await this.abortExecution(r.id, targetFlowId ? `Executions cleared for flow '${targetFlowId}'` : 'Executions cleared');
+        } catch {}
       }
-      const res = this.db.run('DELETE FROM _flow_executions');
-      if (res instanceof Promise) return res.then(() => true);
-      return true;
-    };
+    } catch {}
 
-    const activeRows = targetFlowId ? this.db.all<any>(query, targetFlowId) : this.db.all<any>(query);
-    if (activeRows instanceof Promise) {
-      return activeRows.then(async (active) => {
-        for (const r of active || []) {
-          this.suppressExecutionWrites(r.id);
-          try {
-            await this.abortExecution(r.id, targetFlowId ? `Executions cleared for flow '${targetFlowId}'` : 'Executions cleared');
-          } catch {}
-        }
-        return doDelete();
-      }).catch(() => doDelete());
+    if (targetFlowId) {
+      await this.db.run('DELETE FROM _flow_executions WHERE flowId = ?', targetFlowId);
+    } else {
+      await this.db.run('DELETE FROM _flow_executions');
     }
-
-    for (const r of activeRows || []) {
-      this.suppressExecutionWrites(r.id);
-      try {
-        void this.abortExecution(r.id, targetFlowId ? `Executions cleared for flow '${targetFlowId}'` : 'Executions cleared');
-      } catch {}
-    }
-    return doDelete();
+    return true;
   }
 
-  private saveExecution(exec: FlowExecution): void | Promise<void> {
+  private async saveExecution(exec: FlowExecution): Promise<void> {
     try {
       if (this.suppressedExecutionWrites.has(exec.id)) {
         return;
@@ -2230,41 +2093,8 @@ export class FlowService {
       const updateCols = cols.filter(c => c !== 'id');
       const upsertSql = this.db.dialect.upsertSql('_flow_executions', cols, 'id', updateCols);
 
-      const doUpsert = () => {
-        const r = this.db.run(
-          upsertSql,
-          exec.id,
-          exec.flowId,
-          exec.flowName,
-          exec.status,
-          exec.input !== undefined ? JSON.stringify(exec.input) : null,
-          exec.output !== undefined ? JSON.stringify(exec.output) : null,
-          exec.error || null,
-          exec.errorName || null,
-          exec.errorCode || null,
-          exec.durationMs,
-          JSON.stringify(exec.stepLogs),
-          exec.actorId,
-          exec.actor ? JSON.stringify(exec.actor) : null,
-          exec.queuedAt || null,
-          exec.jobId || null,
-          exec.startedAt,
-          exec.finishedAt || null,
-          exec.checkpoint ? JSON.stringify(exec.checkpoint) : null,
-          exec.claimToken ?? null
-        );
-        if (r instanceof Promise) return r.then(() => {}).catch((err: any) => console.warn(`[FlowService] Failed to persist execution log: ${err.message}`));
-      };
-
       if (exec.status !== 'aborted') {
-        const existing = this.db.get<any>('SELECT status FROM _flow_executions WHERE id = ?', exec.id);
-        if (existing instanceof Promise) {
-          return existing.then((ex) => {
-            if (ex && ex.status === 'aborted') return;
-            if (!ex && exec.status !== 'running' && exec.status !== 'queued') return;
-            return doUpsert();
-          }).catch((err: any) => console.warn(`[FlowService] Failed to persist execution log: ${err.message}`));
-        }
+        const existing = await this.db.get<any>('SELECT status FROM _flow_executions WHERE id = ?', exec.id);
         if (existing && existing.status === 'aborted') {
           return;
         }
@@ -2273,7 +2103,28 @@ export class FlowService {
         }
       }
 
-      return doUpsert();
+      await this.db.run(
+        upsertSql,
+        exec.id,
+        exec.flowId,
+        exec.flowName,
+        exec.status,
+        exec.input !== undefined ? JSON.stringify(exec.input) : null,
+        exec.output !== undefined ? JSON.stringify(exec.output) : null,
+        exec.error || null,
+        exec.errorName || null,
+        exec.errorCode || null,
+        exec.durationMs,
+        JSON.stringify(exec.stepLogs),
+        exec.actorId,
+        exec.actor ? JSON.stringify(exec.actor) : null,
+        exec.queuedAt || null,
+        exec.jobId || null,
+        exec.startedAt,
+        exec.finishedAt || null,
+        exec.checkpoint ? JSON.stringify(exec.checkpoint) : null,
+        exec.claimToken ?? null
+      );
     } catch (err: any) {
       console.warn(`[FlowService] Failed to persist execution log: ${err.message}`);
     }

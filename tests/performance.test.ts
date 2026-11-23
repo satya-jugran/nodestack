@@ -77,24 +77,24 @@ describe('Sprint 3 Performance & Architecture Tests', () => {
       const token = authResult.token;
 
       // Verify token initial call (populates cache)
-      const verified = authService.verifyToken(token);
+      const verified = await authService.verifyToken(token);
       expect(verified.id).toBe(user.id);
       const cachedTokenKey = authService.getCachedTokenKey(`users:${user.id}`);
       expect(cachedTokenKey).toBeDefined();
       expect(typeof cachedTokenKey).toBe('string');
 
       // Verify token subsequently hits cache
-      const cachedVerify = authService.verifyToken(token);
+      const cachedVerify = await authService.verifyToken(token);
       expect(cachedVerify.id).toBe(user.id);
 
       // Revoke user sessions
-      authService.revokeRecordSessions('users', user.id);
+      await authService.revokeRecordSessions('users', user.id);
 
       // Cache should be invalidated immediately
       expect(authService.getCachedTokenKey(`users:${user.id}`)).toBeNull();
 
       // Subsequent verifyToken with old token must now throw UnauthorizedError
-      expect(() => authService.verifyToken(token)).toThrow(/revoked or expired/);
+      await expect(authService.verifyToken(token)).rejects.toThrow(/revoked or expired/);
     });
 
     it('should invalidate tokenKey cache when user record is updated or deleted via EventBus', async () => {
@@ -112,7 +112,7 @@ describe('Sprint 3 Performance & Architecture Tests', () => {
       const authResult = await authService.authenticateRecord('users', 'bob@example.com', 'Password123!');
       const token = authResult.token;
 
-      authService.verifyToken(token);
+      await authService.verifyToken(token);
       expect(authService.getCachedTokenKey(`users:${user.id}`)).toBeDefined();
 
       // Update user name (triggers record.afterUpdate)
@@ -138,15 +138,15 @@ describe('Sprint 3 Performance & Architecture Tests', () => {
       const token = authResult.token;
 
       // Verify and populate cache under users:${user.id}
-      authService.verifyToken(token);
+      await authService.verifyToken(token);
       expect(authService.getCachedTokenKey(`users:${user.id}`)).toBeDefined();
 
       // Revoke using email rather than ID
-      authService.revokeRecordSessions('users', 'charlie@example.com');
+      await authService.revokeRecordSessions('users', 'charlie@example.com');
 
       // The canonical ID entry must be invalidated
       expect(authService.getCachedTokenKey(`users:${user.id}`)).toBeNull();
-      expect(() => authService.verifyToken(token)).toThrow(/revoked or expired/);
+      await expect(authService.verifyToken(token)).rejects.toThrow(/revoked or expired/);
     });
 
     it('should resolve canonical admin id and invalidate cache when revokeAdminSessions is called with email', async () => {
@@ -155,15 +155,15 @@ describe('Sprint 3 Performance & Architecture Tests', () => {
       const token = adminAuth.token;
 
       // Verify and populate cache under _admins:${admin.id}
-      authService.verifyToken(token);
+      await authService.verifyToken(token);
       expect(authService.getCachedTokenKey(`_admins:${admin.id}`)).toBeDefined();
 
       // Revoke admin session using email
-      authService.revokeAdminSessions('admin_revocation@example.com');
+      await authService.revokeAdminSessions('admin_revocation@example.com');
 
       // The canonical admin ID entry must be invalidated
       expect(authService.getCachedTokenKey(`_admins:${admin.id}`)).toBeNull();
-      expect(() => authService.verifyToken(token)).toThrow(/revoked or expired/);
+      await expect(authService.verifyToken(token)).rejects.toThrow(/revoked or expired/);
     });
 
     it('should promote entry to most recently used on cache hit for true LRU ordering', () => {
@@ -196,7 +196,7 @@ describe('Sprint 3 Performance & Architecture Tests', () => {
       expect(result.success).toBe(true);
       expect(result.imported).toBe(3);
 
-      const dbUser = db.get<any>('SELECT * FROM "users" WHERE email = ?', ['u1@test.com']);
+      const dbUser = await db.get<any>('SELECT * FROM "users" WHERE email = ?', ['u1@test.com']);
       expect(dbUser).toBeDefined();
       expect(dbUser.passwordHash).toBeDefined();
       expect(dbUser.passwordHash).toMatch(/^\$2[aby]\$/); // Valid bcrypt hash

@@ -616,7 +616,7 @@ describe('Realtime Subscription Ownership & Session Binding Security', { timeout
       password: 'StartPassword123!',
     });
     const auth2 = await app.auth.authenticateRecord('users', 'sse-pw@nodestack.test', 'StartPassword123!');
-    const claims2 = app.auth.verifyToken(auth2.token);
+    const claims2 = await app.auth.verifyToken(auth2.token);
     const sse2 = await connectSSE({ token: auth2.token });
 
     try {
@@ -711,7 +711,7 @@ describe('Realtime Subscription Ownership & Session Binding Security', { timeout
       password: 'ExpPassword123!',
     });
     const expAuth = await app.auth.authenticateRecord('users', 'sse-exp@nodestack.test', 'ExpPassword123!');
-    const claims = app.auth.verifyToken(expAuth.token);
+    const claims = await app.auth.verifyToken(expAuth.token);
     const shortToken = app.auth.generateToken(
       {
         id: claims.id,

@@ -202,7 +202,7 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
       expect(parsedOutput.receivedPayload).toEqual({ sampleKey: 'sampleVal' });
 
       // Verify function log record has trigger: 'cron'
-      const logs = app.functions.getLogs(fn.id, { page: 1, perPage: 10 });
+      const logs = await app.functions.getLogs(fn.id, { page: 1, perPage: 10 });
       expect(logs.items.length).toBeGreaterThan(0);
       expect(logs.items[0].trigger).toBe('cron');
       expect(logs.items[0].actorId).toBe(`cron:${schedule.id}`);
@@ -585,7 +585,7 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
 
     it('should reject invalid cronSchedule or timezone when creating/updating functions and syncing inline schedules', async () => {
       // 1. FunctionService.createFunction with invalid cron expression
-      expect(() =>
+      await expect(
         app.functions.createFunction({
           name: 'invalid-cron-fn',
           code: `export default async function() { return { status: 200 }; }`,
@@ -593,10 +593,10 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
           enabled: true,
           cronSchedule: 'not a valid cron expression',
         })
-      ).toThrow(/Value NaN out of bounds|Invalid cron expression/);
+      ).rejects.toThrow(/Value NaN out of bounds|Invalid cron expression/);
 
       // 2. FunctionService.createFunction with invalid timezone
-      expect(() =>
+      await expect(
         app.functions.createFunction({
           name: 'invalid-tz-fn',
           code: `export default async function() { return { status: 200 }; }`,
@@ -605,7 +605,7 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
           cronSchedule: '0 0 * * *',
           cronTimezone: 'Invalid/Timezone_Name',
         })
-      ).toThrow(/timezone/i);
+      ).rejects.toThrow(/timezone/i);
 
       // 3. FunctionService.updateFunction with invalid cron expression
       const validFn = await app.functions.createFunction({
@@ -615,11 +615,11 @@ describe('Native Cron & Scheduled Triggers Service ("app.cron & CronService")', 
         enabled: true,
       });
 
-      expect(() =>
+      await expect(
         app.functions.updateFunction(validFn.id, {
           cronSchedule: 'bad-expr',
         })
-      ).toThrow(/Invalid cron expression|Value NaN out of bounds|too few fields/);
+      ).rejects.toThrow(/Invalid cron expression|Value NaN out of bounds|too few fields/);
 
       // 4. CronService.syncFunctionSchedule directly rejects invalid cron
       await expect(async () => {

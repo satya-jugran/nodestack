@@ -104,13 +104,13 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
     });
 
     it('should store API keys using HMAC-SHA256 keyed with server secret to prevent offline rainbow-table attacks', async () => {
-      const created = app.apiKeys.createKey({
+      const created = await app.apiKeys.createKey({
         name: 'HMAC Protected Key',
         role: 'service',
         scopes: ['orders:read'],
       });
 
-      const row = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(created.apiKey.id) as any;
+      const row = await app.db.get<any>('SELECT secretHash FROM _api_keys WHERE id = ?', created.apiKey.id);
       expect(row).toBeDefined();
 
       const expectedHmac = crypto
@@ -128,9 +128,9 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       expect(row.secretHash).not.toBe(unsaltedPlainSha256);
 
       // Verify that verifyKey succeeds with the key
-      const verification = app.apiKeys.verifyKey(created.secretKey);
+      const verification = await app.apiKeys.verifyKey(created.secretKey);
       expect(verification.valid).toBe(true);
-      expect(verification.apiKey.id).toBe(created.apiKey.id);
+      expect(verification.apiKey?.id).toBe(created.apiKey.id);
     });
 
     it('should authenticate legacy plain SHA-256 keys and transparently upgrade them to HMAC-SHA256 in the database', async () => {
@@ -141,12 +141,12 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       const legacyPlainHash = crypto.createHash('sha256').update(legacySecretKey).digest('hex');
       const now = new Date().toISOString();
 
-      app.db.prepare(`
+      await app.db.run(`
         INSERT INTO _api_keys (
           id, name, description, keyPrefix, secretHash, redactedKey, role, scopes, allowedIps,
           expiresAt, lastUsedAt, lastUsedIp, totalRequests, status, createdBy, created, updated
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      `,
         legacyKeyId,
         'Legacy Key',
         'Pre-upgrade plain SHA256 key',
@@ -167,16 +167,16 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       );
 
       // 1. Initial row has unsalted plain SHA-256 hash
-      const initialRow = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(legacyKeyId) as any;
+      const initialRow = await app.db.get<any>('SELECT secretHash FROM _api_keys WHERE id = ?', legacyKeyId);
       expect(initialRow.secretHash).toBe(legacyPlainHash);
 
       // 2. Verification succeeds via legacy fallback
-      const verifyRes = app.apiKeys.verifyKey(legacySecretKey);
+      const verifyRes = await app.apiKeys.verifyKey(legacySecretKey);
       expect(verifyRes.valid).toBe(true);
-      expect(verifyRes.apiKey.id).toBe(legacyKeyId);
+      expect(verifyRes.apiKey?.id).toBe(legacyKeyId);
 
       // 3. Stored hash is transparently upgraded to HMAC-SHA256
-      const upgradedRow = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(legacyKeyId) as any;
+      const upgradedRow = await app.db.get<any>('SELECT secretHash FROM _api_keys WHERE id = ?', legacyKeyId);
       const expectedUpgradedHmac = crypto
         .createHmac('sha256', 'test_api_keys_secret_12345678901234567890')
         .update(legacySecretKey)
@@ -185,7 +185,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       expect(upgradedRow.secretHash).not.toBe(legacyPlainHash);
 
       // 4. Subsequent verification uses the upgraded HMAC-SHA256 hash directly
-      const secondVerify = app.apiKeys.verifyKey(legacySecretKey);
+      const secondVerify = await app.apiKeys.verifyKey(legacySecretKey);
       expect(secondVerify.valid).toBe(true);
     });
 
@@ -197,12 +197,12 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       const legacyPlainHash = crypto.createHash('sha256').update(legacySecretKey).digest('hex');
       const now = new Date().toISOString();
 
-      app.db.prepare(`
+      await app.db.run(`
         INSERT INTO _api_keys (
           id, name, description, keyPrefix, secretHash, redactedKey, role, scopes, allowedIps,
           expiresAt, lastUsedAt, lastUsedIp, totalRequests, status, createdBy, created, updated
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      `,
         legacyKeyId,
         'Race Legacy Key',
         'Key for testing race between verify migration and rotateKey',
@@ -241,6 +241,9 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       try {
         // 1. Trigger verification with the legacy key (begins migration, which pauses on migrationBlocked)
         const verifyPromise = app.apiKeys.verifyKey(legacySecretKey);
+        for (let i = 0; i < 50 && !migrationIntercepted; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
         expect(migrationIntercepted).toBe(true);
 
         // 2. Concurrently, rotateKey is called (simulating rotation winning the database write or racing)
@@ -252,7 +255,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
 
         // 3. Now rotate the key explicitly to guarantee a new rotated secret is in the DB
         const rotated = await app.apiKeys.rotateKey(legacyKeyId);
-        const rotatedRow = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(legacyKeyId) as any;
+        const rotatedRow = await app.db.get<any>('SELECT secretHash FROM _api_keys WHERE id = ?', legacyKeyId);
 
         // 4. Verification with the old legacy key MUST now fail (not resurrected)
         const oldKeyVerify = await app.apiKeys.verifyKey(legacySecretKey);
@@ -281,12 +284,12 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       const legacyPlainHash = crypto.createHash('sha256').update(legacySecretKey).digest('hex');
       const now = new Date().toISOString();
 
-      app.db.prepare(`
+      await app.db.run(`
         INSERT INTO _api_keys (
           id, name, description, keyPrefix, secretHash, redactedKey, role, scopes, allowedIps,
           expiresAt, lastUsedAt, lastUsedIp, totalRequests, status, createdBy, created, updated
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      `,
         legacyKeyId,
         'Zero Row Key',
         'Testing 0-row conditional update when rotated first',
@@ -317,10 +320,10 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
             .createHmac('sha256', 'test_api_keys_secret_12345678901234567890')
             .update(newSecretKey)
             .digest('hex');
-          originalRun("UPDATE _api_keys SET secretHash = ? WHERE id = ?", newHmac, legacyKeyId);
-
-          // Now execute the conditional migration query (which will affect 0 rows because secretHash != legacyPlainHash)
-          return Promise.resolve().then(() => originalRun(sql, ...params));
+          return originalRun("UPDATE _api_keys SET secretHash = ? WHERE id = ?", newHmac, legacyKeyId).then(() => {
+            // Now execute the conditional migration query (which will affect 0 rows because secretHash != legacyPlainHash)
+            return originalRun(sql, ...params);
+          });
         }
         return originalRun(sql, ...params);
       };
@@ -338,7 +341,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
 
   describe('2. AuthMiddleware Authentication with API Keys', () => {
     it('should authenticate requests using Authorization: Bearer nsk_...', async () => {
-      const created = app.apiKeys.createKey({
+      const created = await app.apiKeys.createKey({
         name: 'CI Daemon',
         role: 'service',
         scopes: ['*'],
@@ -356,7 +359,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
     });
 
     it('should authenticate requests using X-API-Key header', async () => {
-      const created = app.apiKeys.createKey({
+      const created = await app.apiKeys.createKey({
         name: 'Header Worker',
         role: 'service',
         scopes: ['*'],
@@ -388,7 +391,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
     });
 
     it('should reject expired API keys', async () => {
-      const created = app.apiKeys.createKey({
+      const created = await app.apiKeys.createKey({
         name: 'Expired Worker',
         role: 'service',
         scopes: ['*'],
@@ -407,7 +410,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
   describe('3. Granular Read/Write ACL & Scoping Enforcement', () => {
     it('should allow operations within granted scope and forbid operations outside scope', async () => {
       // Key with only orders:read scope
-      const readOnlyOrders = app.apiKeys.createKey({
+      const readOnlyOrders = await app.apiKeys.createKey({
         name: 'Orders Reader',
         role: 'service',
         scopes: ['orders:read'],
@@ -442,7 +445,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
     });
 
     it('should support collection wildcard scopes (orders:*)', async () => {
-      const ordersWildcard = app.apiKeys.createKey({
+      const ordersWildcard = await app.apiKeys.createKey({
         name: 'Orders Manager',
         role: 'service',
         scopes: ['orders:*'],
@@ -474,7 +477,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
     });
 
     it('should grant full admin access to keys with role admin or scope *', async () => {
-      const adminKey = app.apiKeys.createKey({
+      const adminKey = await app.apiKeys.createKey({
         name: 'Super Admin Token',
         role: 'admin',
         scopes: ['*'],
@@ -492,7 +495,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
 
   describe('4. API Key Rotation, Revocation and Client SDK', () => {
     it('should rotate API key, invalidating old secret and activating new secret', async () => {
-      const created = app.apiKeys.createKey({
+      const created = await app.apiKeys.createKey({
         name: 'Rotatable Key',
         role: 'service',
         scopes: ['orders:read'],
@@ -527,7 +530,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       expect(resNew.status).toBe(200);
 
       // Verify rotated key is hashed with HMAC-SHA256 keyed with server secret
-      const rotatedRow = app.db.prepare('SELECT secretHash FROM _api_keys WHERE id = ?').get(created.apiKey.id) as any;
+      const rotatedRow = await app.db.get<any>('SELECT secretHash FROM _api_keys WHERE id = ?', created.apiKey.id);
       const expectedRotatedHmac = crypto
         .createHmac('sha256', 'test_api_keys_secret_12345678901234567890')
         .update(rotated.secretKey)
@@ -536,7 +539,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
     });
 
     it('should support nodestack-client configured with apiKey option', async () => {
-      const created = app.apiKeys.createKey({
+      const created = await app.apiKeys.createKey({
         name: 'SDK Service Client',
         role: 'service',
         scopes: ['orders:*'],
@@ -562,7 +565,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
 
     it('should strip admin wildcard scopes when downgrading role from admin to service/custom', async () => {
       // 1. Create an admin key (gets ['*'] automatically)
-      const adminCreated = app.apiKeys.createKey({
+      const adminCreated = await app.apiKeys.createKey({
         name: 'Admin Key to Downgrade',
         role: 'admin',
         scopes: ['*'],
@@ -577,7 +580,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       expect(adminRes.status).toBe(200);
 
       // 2. Downgrade role to 'service' without explicitly providing scopes
-      const downgraded = app.apiKeys.updateKey(adminCreated.apiKey.id, {
+      const downgraded = await app.apiKeys.updateKey(adminCreated.apiKey.id, {
         role: 'service',
       });
       expect(downgraded.role).toBe('service');
@@ -611,14 +614,14 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
 
       const db = app.db;
       const now = new Date().toISOString();
-      db.prepare(`
+      await db.run(`
         INSERT INTO reports (id, title, status, created, updated)
         VALUES ('rep_draft', 'Draft Report', 'draft', ?, ?),
                ('rep_published', 'Public Report', 'published', ?, ?)
-      `).run(now, now, now, now);
+      `, now, now, now, now);
 
       // Non-admin API key with reports:read scope
-      const reportsReader = app.apiKeys.createKey({
+      const reportsReader = await app.apiKeys.createKey({
         name: 'Reports Reader',
         role: 'service',
         scopes: ['reports:read'],
@@ -635,7 +638,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       expect(data.items[0].status).toBe('published');
 
       // 2. Super-admin key with * scope bypasses all collection rules
-      const superAdminKey = app.apiKeys.createKey({
+      const superAdminKey = await app.apiKeys.createKey({
         name: 'All Access SuperAdmin',
         role: 'admin',
         scopes: ['*'],
@@ -664,7 +667,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
         ],
       });
 
-      const txManager = app.apiKeys.createKey({
+      const txManager = await app.apiKeys.createKey({
         name: 'Tx Manager',
         role: 'service',
         scopes: ['transactions:*'],
@@ -741,7 +744,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
         ],
       });
 
-      const vaultReader = app.apiKeys.createKey({
+      const vaultReader = await app.apiKeys.createKey({
         name: 'Vault Scoped Key',
         role: 'service',
         scopes: ['secret_vault:read'],
@@ -756,7 +759,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       expect(err.message).toContain('You are not allowed to list records');
 
       // Super-admin key (role: admin, scopes: ['*']) bypasses all rules
-      const superAdminKey = app.apiKeys.createKey({
+      const superAdminKey = await app.apiKeys.createKey({
         name: 'Vault SuperAdmin',
         role: 'admin',
         scopes: ['*'],
@@ -770,13 +773,13 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
     it('should permit API keys with queues:send scope to enqueue messages via REST API and reject unauthorized keys', async () => {
       await app.queue.upsertQueue({ name: 'api-key-test-queue' });
 
-      const queueSenderKey = app.apiKeys.createKey({
+      const queueSenderKey = await app.apiKeys.createKey({
         name: 'Queue Producer Key',
         role: 'service',
         scopes: ['queues:send'],
       });
 
-      const unauthorizedKey = app.apiKeys.createKey({
+      const unauthorizedKey = await app.apiKeys.createKey({
         name: 'Read Only Key',
         role: 'service',
         scopes: ['orders:read'],
@@ -809,20 +812,20 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
     });
 
     it('should enforce function-specific scopes on API keys invoking authPolicy: apiKey functions', async () => {
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'finance-report-fn',
         code: `export default async function(core, ctx) { return { reportId: 42 }; }`,
         enabled: true,
         authPolicy: 'apiKey',
       });
 
-      const fnScopedKey = app.apiKeys.createKey({
+      const fnScopedKey = await app.apiKeys.createKey({
         name: 'Function Invoker Key',
         role: 'service',
         scopes: ['functions:invoke'],
       });
 
-      const unprivilegedKey = app.apiKeys.createKey({
+      const unprivilegedKey = await app.apiKeys.createKey({
         name: 'Orders Reader Key',
         role: 'service',
         scopes: ['orders:read'],
@@ -888,7 +891,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       }
 
       // Verify the database has exactly 3 keys for this user
-      const userKeys = app.apiKeys.listKeys({ status: 'active', createdBy: testUserId });
+      const userKeys = await app.apiKeys.listKeys({ status: 'active', createdBy: testUserId });
       expect(userKeys.length).toBe(3);
     });
 
@@ -940,7 +943,7 @@ describe('API Keys & Machine-to-Machine (M2M) Tokens', () => {
       expect(resValid.status).toBe(200);
 
       // 8. Service-level robustness against NaN or fractional inputs
-      const serviceResult = app.apiKeys.listKeys({ limit: NaN as any, offset: 1.8 as any });
+      const serviceResult = await app.apiKeys.listKeys({ limit: NaN as any, offset: 1.8 as any });
       expect(Array.isArray(serviceResult)).toBe(true);
     });
   });

@@ -480,20 +480,10 @@ export class AuthService {
 
   // --- Admin Auth ---
 
-  public hasAdmins(): any {
-    const registryHas = (this.registry && this.isControlPlane) ? this.registry.hasAdmins() : false;
-    if (registryHas && typeof (registryHas as any).then === 'function') {
-      return (registryHas as any).then(async (has: boolean) => {
-        if (has) return true;
-        const row = await this.db.get<any>('SELECT COUNT(*) as count FROM _admins');
-        return (row?.count || 0) > 0;
-      });
-    }
+  public async hasAdmins(): Promise<boolean> {
+    const registryHas = (this.registry && this.isControlPlane) ? await this.registry.hasAdmins() : false;
     if (registryHas) return true;
-    const row = this.db.get<any>('SELECT COUNT(*) as count FROM _admins');
-    if (row && typeof (row as any).then === 'function') {
-      return (row as any).then((r: any) => (r?.count || 0) > 0);
-    }
+    const row = await this.db.get<any>('SELECT COUNT(*) as count FROM _admins');
     return (row?.count || 0) > 0;
   }
 
@@ -800,7 +790,7 @@ export class AuthService {
     });
   }
 
-  public revokeAdminSessions(idOrEmail: string): void {
+  public async revokeAdminSessions(idOrEmail: string): Promise<void> {
     const clean = idOrEmail.trim().toLowerCase();
     const tokenKey = crypto.randomBytes(16).toString('hex');
     const now = new Date().toISOString();
@@ -808,9 +798,9 @@ export class AuthService {
     let registryFound = false;
     let targetId: string | undefined = undefined;
     if (this.registry && this.isControlPlane) {
-      const regAdmin = (this.registry.getAdminById(idOrEmail) || this.registry.getAdminByEmail(clean));
+      const regAdmin = (await this.registry.getAdminById(idOrEmail)) || (await this.registry.getAdminByEmail(clean));
       if (regAdmin) {
-        this.registry.revokeAdminSessions(idOrEmail, tokenKey);
+        await this.registry.revokeAdminSessions(idOrEmail, tokenKey);
         registryFound = true;
         targetId = regAdmin.id;
       }
@@ -818,7 +808,7 @@ export class AuthService {
 
     // Resolve canonical admin id from _admins table if not already resolved
     if (!targetId) {
-      const dbAdmin = this.db.get<{ id: string }>(
+      const dbAdmin = await this.db.get<{ id: string }>(
         'SELECT id FROM _admins WHERE id = ? OR email = ?',
         idOrEmail, clean
       );
@@ -829,7 +819,7 @@ export class AuthService {
 
     let dbChanges = 0;
     try {
-      const result = this.db.run(
+      const result = await this.db.run(
         'UPDATE _admins SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?',
         tokenKey, now, idOrEmail, clean
       );

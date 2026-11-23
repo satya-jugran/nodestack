@@ -74,6 +74,10 @@ export class AppScope {
     this.maintenanceGate = new MaintenanceGate({ lockFilePath: lockFile });
     this.eventBus = new EventBus();
 
+    if (this.db.dialect.name === 'sqlite') {
+      this.db.initSync();
+    }
+
     this.fts = new FtsService(this.db);
     this.schema = new SchemaService(this.db, this.fts);
     this.initPromise = this.doInit();

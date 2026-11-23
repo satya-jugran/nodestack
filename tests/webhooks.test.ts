@@ -437,7 +437,7 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       app.webhooks.setFetch(redirectFetch as any);
 
       try {
-        const wh = app.webhooks.createWebhook({
+        const wh = await app.webhooks.createWebhook({
           name: 'Redirect Test',
           url: 'https://example.com/redirect-to-metadata',
           event: 'posts.created',
@@ -526,13 +526,13 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       expect(resInvalidMethod.statusCode).toBe(400);
       expect(resInvalidMethod.json().message).toContain('Invalid HTTP method');
 
-      expect(() => {
+      await expect(
         app.webhooks.createWebhook({
           name: 'Bad Method',
           url: 'https://example.com/webhook',
           method: 'CONNECT',
-        });
-      }).toThrow();
+        })
+      ).rejects.toThrow();
     });
 
     it('should coordinate with existing webhooks plugin without shadowing GET /api/webhooks/status', async () => {
@@ -869,7 +869,7 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       expect(WebhookService.verifySignature(parsedUrl.search.slice(1), sig, 'whsec_get_secret_123')).toBe(true);
 
       // 5. Verify HEAD webhook dispatches body-free without error
-      const headWh = app.webhooks.createWebhook({
+      const headWh = await app.webhooks.createWebhook({
         name: 'Heartbeat Check',
         url: 'https://example-listener.com/heartbeat',
         method: 'HEAD',
@@ -959,11 +959,11 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
 
     it('should manually retry a failed delivery via POST /api/webhooks/deliveries/:id/retry', async () => {
       // First verify delivery attempt 1 failed
-      const original = app.webhooks.getDeliveryById(failedDeliveryId);
+      const original = await app.webhooks.getDeliveryById(failedDeliveryId);
       expect(original?.attempt).toBe(1);
 
       // Update the webhook url to a succeeding endpoint for retry simulation
-      app.webhooks.updateWebhook(original!.webhookId, {
+      await app.webhooks.updateWebhook(original!.webhookId, {
         url: 'https://repaired-endpoint.example.com/webhook',
       });
 
@@ -1022,9 +1022,9 @@ describe('Webhooks Manager — Outbound Webhooks & Delivery Logs', () => {
       expect(negativeRes.statusCode).toBe(400);
 
       // 4. Verify WebhookService throws on non-finite input directly
-      expect(() => app.webhooks.clearDeliveries(NaN)).toThrow();
-      expect(() => app.webhooks.clearDeliveries('invalid' as any)).toThrow();
-      expect(() => app.webhooks.clearDeliveries(-10)).toThrow();
+      await expect(app.webhooks.clearDeliveries(NaN)).rejects.toThrow();
+      await expect(app.webhooks.clearDeliveries('invalid' as any)).rejects.toThrow();
+      await expect(app.webhooks.clearDeliveries(-10)).rejects.toThrow();
 
       // 5. Verify NO logs were erased by malformed attempts
       const afterRes = await app.server.inject({

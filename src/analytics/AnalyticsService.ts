@@ -80,7 +80,7 @@ export class AnalyticsService {
     this.logService = options?.logService;
   }
 
-  public getDatabaseMetrics(): any {
+  public async getDatabaseMetrics(): Promise<DatabaseMetrics> {
     let sizeBytes = 0;
     let walSizeBytes = 0;
 
@@ -102,138 +102,73 @@ export class AnalyticsService {
       // In-memory or virtual filesystem fallback
     }
 
-    const collections = this.schemaService.getAllCollections();
-    const isAsync =
-      Boolean(this.db.dialect && this.db.dialect.name !== 'sqlite') ||
-      Boolean(collections && typeof (collections as any).then === 'function');
+    const collections = await this.schemaService.getAllCollections();
+    let effectiveSizeBytes = sizeBytes;
+    let totalDatabaseSizeBytes: number | undefined;
+    let schemaName: string | undefined;
 
-    if (isAsync) {
-      return (async (): Promise<DatabaseMetrics> => {
-        let effectiveSizeBytes = sizeBytes;
-        let totalDatabaseSizeBytes: number | undefined;
-        let schemaName: string | undefined;
+    if (this.db.dialect?.name === 'postgres') {
+      const targetSchema = (this.db as any).getSchemaName?.() || 
+        (typeof (this.db.getDriver?.() as any)?.getSchemaName === 'function' ? (this.db.getDriver() as any).getSchemaName() : 'public');
+      schemaName = targetSchema;
 
-        if (this.db.dialect?.name === 'postgres') {
-          const targetSchema = (this.db as any).getSchemaName?.() || 
-            (typeof (this.db.getDriver?.() as any)?.getSchemaName === 'function' ? (this.db.getDriver() as any).getSchemaName() : 'public');
-          schemaName = targetSchema;
-
-          try {
-            // 1. Measure app-specific schema storage size (tables + indexes + TOAST)
-            const schemaSizeRow = await this.db.get<{ size: number | string }>(
-              `SELECT COALESCE(SUM(pg_total_relation_size(quote_ident(schemaname) || '.' || quote_ident(tablename))), 0) as size ` +
-              `FROM pg_tables WHERE schemaname = current_schema() OR schemaname = '${targetSchema.replace(/'/g, "''")}'`
-            );
-            if (schemaSizeRow && schemaSizeRow.size !== undefined && schemaSizeRow.size !== null) {
-              effectiveSizeBytes = Number(schemaSizeRow.size);
-            }
-          } catch {}
-
-          try {
-            // 2. Measure overall shared physical database size for context
-            const dbSizeRow = await this.db.get<{ size: number | string }>('SELECT pg_database_size(current_database()) as size');
-            if (dbSizeRow && dbSizeRow.size !== undefined && dbSizeRow.size !== null) {
-              totalDatabaseSizeBytes = Number(dbSizeRow.size);
-            }
-          } catch {}
-        } else if (this.db.dialect?.name === 'mssql') {
-          const targetSchema = (this.db as any).getSchemaName?.() || 
-            (typeof (this.db.getDriver?.() as any)?.getSchemaName === 'function' ? (this.db.getDriver() as any).getSchemaName() : 'dbo');
-          schemaName = targetSchema;
-
-          try {
-            // 1. Measure app-specific schema storage size (tables + indexes + LOB pages)
-            const schemaSizeRow = await this.db.get<{ size: number | string }>(
-              `SELECT COALESCE(SUM(a.total_pages) * 8 * 1024, 0) as size ` +
-              `FROM sys.tables t ` +
-              `JOIN sys.schemas s ON t.schema_id = s.schema_id ` +
-              `JOIN sys.indexes i ON t.object_id = i.object_id ` +
-              `JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id ` +
-              `JOIN sys.allocation_units a ON p.partition_id = a.container_id ` +
-              `WHERE s.name = '${targetSchema.replace(/'/g, "''")}' OR s.name = SCHEMA_NAME()`
-            );
-            if (schemaSizeRow && schemaSizeRow.size !== undefined && schemaSizeRow.size !== null) {
-              effectiveSizeBytes = Number(schemaSizeRow.size);
-            }
-          } catch {}
-
-          try {
-            // 2. Measure overall database file size
-            const dbSizeRow = await this.db.get<{ size: number | string }>('SELECT SUM(size) * 8 * 1024 as size FROM sys.database_files');
-            if (dbSizeRow && dbSizeRow.size !== undefined && dbSizeRow.size !== null) {
-              totalDatabaseSizeBytes = Number(dbSizeRow.size);
-            }
-          } catch {}
+      try {
+        // 1. Measure app-specific schema storage size (tables + indexes + TOAST)
+        const schemaSizeRow = await this.db.get<{ size: number | string }>(
+          `SELECT COALESCE(SUM(pg_total_relation_size(quote_ident(schemaname) || '.' || quote_ident(tablename))), 0) as size ` +
+          `FROM pg_tables WHERE schemaname = current_schema() OR schemaname = '${targetSchema.replace(/'/g, "''")}'`
+        );
+        if (schemaSizeRow && schemaSizeRow.size !== undefined && schemaSizeRow.size !== null) {
+          effectiveSizeBytes = Number(schemaSizeRow.size);
         }
+      } catch {}
 
-        const cols = collections && typeof (collections as any).then === 'function'
-          ? await collections
-          : collections;
-        let totalRecords = 0;
-        const collectionsBreakdown: CollectionRecordCount[] = [];
-
-        for (const col of cols || []) {
-          try {
-            const row = await this.db.get<{ count: number }>(
-              `SELECT COUNT(*) as count FROM ${this.db.dialect.quoteIdentifier(col.name)}`
-            );
-            const count = Number(row?.count || 0);
-            totalRecords += count;
-            collectionsBreakdown.push({
-              collection: col.name,
-              type: col.type,
-              count,
-            });
-          } catch {
-            collectionsBreakdown.push({
-              collection: col.name,
-              type: col.type,
-              count: 0,
-            });
-          }
+      try {
+        // 2. Measure overall shared physical database size for context
+        const dbSizeRow = await this.db.get<{ size: number | string }>('SELECT pg_database_size(current_database()) as size');
+        if (dbSizeRow && dbSizeRow.size !== undefined && dbSizeRow.size !== null) {
+          totalDatabaseSizeBytes = Number(dbSizeRow.size);
         }
+      } catch {}
+    } else if (this.db.dialect?.name === 'mssql') {
+      const targetSchema = (this.db as any).getSchemaName?.() || 
+        (typeof (this.db.getDriver?.() as any)?.getSchemaName === 'function' ? (this.db.getDriver() as any).getSchemaName() : 'dbo');
+      schemaName = targetSchema;
 
-        // Fallback: If catalog query returned 0/empty or was blocked, attempt summing collections relation size
-        if (this.db.dialect?.name === 'postgres' && effectiveSizeBytes === 0 && Array.isArray(cols) && cols.length > 0) {
-          let fallbackSum = 0;
-          for (const col of cols) {
-            try {
-              const relRow = await this.db.get<{ size: number | string }>(
-                `SELECT pg_total_relation_size(${this.db.dialect.quoteIdentifier(col.name)}) as size`
-              );
-              if (relRow && relRow.size !== undefined && relRow.size !== null) {
-                fallbackSum += Number(relRow.size);
-              }
-            } catch {}
-          }
-          if (fallbackSum > 0) {
-            effectiveSizeBytes = fallbackSum;
-          }
+      try {
+        // 1. Measure app-specific schema storage size (tables + indexes + LOB pages)
+        const schemaSizeRow = await this.db.get<{ size: number | string }>(
+          `SELECT COALESCE(SUM(a.total_pages) * 8 * 1024, 0) as size ` +
+          `FROM sys.tables t ` +
+          `JOIN sys.schemas s ON t.schema_id = s.schema_id ` +
+          `JOIN sys.indexes i ON t.object_id = i.object_id ` +
+          `JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id ` +
+          `JOIN sys.allocation_units a ON p.partition_id = a.container_id ` +
+          `WHERE s.name = '${targetSchema.replace(/'/g, "''")}' OR s.name = SCHEMA_NAME()`
+        );
+        if (schemaSizeRow && schemaSizeRow.size !== undefined && schemaSizeRow.size !== null) {
+          effectiveSizeBytes = Number(schemaSizeRow.size);
         }
+      } catch {}
 
-        return {
-          sizeBytes: effectiveSizeBytes,
-          sizeFormatted: formatBytes(effectiveSizeBytes),
-          walSizeBytes,
-          totalRecords,
-          collectionsBreakdown,
-          provider: this.db.dialect?.name || 'sqlite',
-          schemaName,
-          totalDatabaseSizeBytes,
-          totalDatabaseSizeFormatted: totalDatabaseSizeBytes !== undefined ? formatBytes(totalDatabaseSizeBytes) : undefined,
-        };
-      })();
+      try {
+        // 2. Measure overall database file size
+        const dbSizeRow = await this.db.get<{ size: number | string }>('SELECT SUM(size) * 8 * 1024 as size FROM sys.database_files');
+        if (dbSizeRow && dbSizeRow.size !== undefined && dbSizeRow.size !== null) {
+          totalDatabaseSizeBytes = Number(dbSizeRow.size);
+        }
+      } catch {}
     }
 
     let totalRecords = 0;
     const collectionsBreakdown: CollectionRecordCount[] = [];
 
-    for (const col of (collections as any[]) || []) {
+    for (const col of collections || []) {
       try {
-        const row = this.db.get<{ count: number }>(
+        const row = await this.db.get<{ count: number }>(
           `SELECT COUNT(*) as count FROM ${this.db.dialect.quoteIdentifier(col.name)}`
         );
-        const count = Number((row as any)?.count || 0);
+        const count = Number(row?.count || 0);
         totalRecords += count;
         collectionsBreakdown.push({
           collection: col.name,
@@ -249,13 +184,34 @@ export class AnalyticsService {
       }
     }
 
+    // Fallback: If catalog query returned 0/empty or was blocked, attempt summing collections relation size
+    if (this.db.dialect?.name === 'postgres' && effectiveSizeBytes === 0 && Array.isArray(collections) && collections.length > 0) {
+      let fallbackSum = 0;
+      for (const col of collections) {
+        try {
+          const relRow = await this.db.get<{ size: number | string }>(
+            `SELECT pg_total_relation_size(${this.db.dialect.quoteIdentifier(col.name)}) as size`
+          );
+          if (relRow && relRow.size !== undefined && relRow.size !== null) {
+            fallbackSum += Number(relRow.size);
+          }
+        } catch {}
+      }
+      if (fallbackSum > 0) {
+        effectiveSizeBytes = fallbackSum;
+      }
+    }
+
     return {
-      sizeBytes,
-      sizeFormatted: formatBytes(sizeBytes),
+      sizeBytes: effectiveSizeBytes,
+      sizeFormatted: formatBytes(effectiveSizeBytes),
       walSizeBytes,
       totalRecords,
       collectionsBreakdown,
-      provider: 'sqlite',
+      provider: this.db.dialect?.name || 'sqlite',
+      schemaName,
+      totalDatabaseSizeBytes,
+      totalDatabaseSizeFormatted: totalDatabaseSizeBytes !== undefined ? formatBytes(totalDatabaseSizeBytes) : undefined,
     };
   }
 
@@ -265,8 +221,8 @@ export class AnalyticsService {
     };
   }
 
-  public getTraffic24hMetrics(): any {
-    this.logService?.flush();
+  public async getTraffic24hMetrics(): Promise<Traffic24hMetrics> {
+    await this.logService?.flush();
     const now = new Date();
     const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -320,7 +276,7 @@ export class AnalyticsService {
 
     try {
       const hourExpr = this.db.dialect.substringSql('created', 1, 13);
-      const rowsRes = this.db.all<{
+      const rows = await this.db.all<{
         hourKey: string;
         total: number;
         errors: number;
@@ -340,7 +296,7 @@ export class AnalyticsService {
         since.toISOString()
       );
 
-      const overallRes = this.db.get<{ total: number; errors: number; avgDuration: number }>(
+      const overall = await this.db.get<{ total: number; errors: number; avgDuration: number }>(
         `SELECT
            COUNT(*) as total,
            SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END) as errors,
@@ -350,40 +306,22 @@ export class AnalyticsService {
         since.toISOString()
       );
 
-      if (
-        (rowsRes && typeof (rowsRes as any).then === 'function') ||
-        (overallRes && typeof (overallRes as any).then === 'function')
-      ) {
-        return Promise.all([rowsRes, overallRes])
-          .then(([rows, overall]) => computeMetrics(rows, overall))
-          .catch(() => computeMetrics([], undefined));
-      }
-      return computeMetrics(rowsRes as any, overallRes as any);
+      return computeMetrics(rows || [], overall);
     } catch {
       return computeMetrics([], undefined);
     }
   }
 
-  public getMetrics(): any {
-    const dbMetrics = this.getDatabaseMetrics();
-    const trafficMetrics = this.getTraffic24hMetrics();
+  public async getMetrics(): Promise<AnalyticsMetrics> {
+    const [dbMetrics, trafficMetrics] = await Promise.all([
+      this.getDatabaseMetrics(),
+      this.getTraffic24hMetrics(),
+    ]);
     const realtime = this.getRealtimeMetrics();
     const system = {
       uptime: process.uptime(),
       memoryUsage: process.memoryUsage(),
     };
-
-    if (
-      (dbMetrics && typeof (dbMetrics as any).then === 'function') ||
-      (trafficMetrics && typeof (trafficMetrics as any).then === 'function')
-    ) {
-      return Promise.all([dbMetrics, trafficMetrics]).then(([database, traffic24h]) => ({
-        database,
-        realtime,
-        traffic24h,
-        system,
-      }));
-    }
 
     return {
       database: dbMetrics,

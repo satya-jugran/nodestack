@@ -246,118 +246,76 @@ export class AppManager {
     }
   }
 
-  public list(): any {
-    const apps = this.registry.getAllApps();
-    const processApps = (appList: AppModel[]): any => {
-      const result: AppModel[] = [];
-      const promises: Promise<any>[] = [];
+  public async list(): Promise<AppModel[]> {
+    const apps = await this.registry.getAllApps();
+    const result: AppModel[] = [];
 
-      for (const app of appList) {
-        const scope = this.appCache.get(app.slug) || this.appCache.get(app.id);
-        if (scope) {
-          try {
-            const collections = scope.schema.getAllCollections();
-            if (collections && typeof (collections as any).then === 'function') {
-              const p = (collections as any).then(async (cols: any[]) => {
-                const collectionsCount = cols.filter((c: any) => !c.system).length;
-                let recordsCount = 0;
-                for (const col of cols) {
-                  if (!col.system) {
-                    const countRow = await scope.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM ${scope.db.dialect.quoteIdentifier(col.name)}`);
-                    recordsCount += Number(countRow?.count || 0);
-                  }
-                }
-                let dbSizeBytes = 0;
-                if (scope.db.dialect?.name === 'postgres') {
-                  try {
-                    const targetSchema = (scope.db as any).getSchemaName?.() || 
-                      (typeof (scope.db.getDriver?.() as any)?.getSchemaName === 'function' ? (scope.db.getDriver() as any).getSchemaName() : (app.slug === 'default' ? 'public' : `app_${app.slug}`));
-                    const sizeRow = await scope.db.get<{ size: number | string }>(
-                      `SELECT COALESCE(SUM(pg_total_relation_size(quote_ident(schemaname) || '.' || quote_ident(tablename))), 0) as size ` +
-                      `FROM pg_tables WHERE schemaname = current_schema() OR schemaname = '${targetSchema.replace(/'/g, "''")}'`
-                    );
-                    if (sizeRow?.size !== undefined && sizeRow.size !== null) {
-                      dbSizeBytes = Number(sizeRow.size);
-                    }
-                  } catch {}
-                } else if (scope.db.dialect?.name === 'mssql') {
-                  try {
-                    const targetSchema = (scope.db as any).getSchemaName?.() || 
-                      (typeof (scope.db.getDriver?.() as any)?.getSchemaName === 'function' ? (scope.db.getDriver() as any).getSchemaName() : (app.slug === 'default' ? 'dbo' : `app_${app.slug}`));
-                    const sizeRow = await scope.db.get<{ size: number | string }>(
-                      `SELECT COALESCE(SUM(a.total_pages) * 8 * 1024, 0) as size ` +
-                      `FROM sys.tables t ` +
-                      `JOIN sys.schemas s ON t.schema_id = s.schema_id ` +
-                      `JOIN sys.indexes i ON t.object_id = i.object_id ` +
-                      `JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id ` +
-                      `JOIN sys.allocation_units a ON p.partition_id = a.container_id ` +
-                      `WHERE s.name = '${targetSchema.replace(/'/g, "''")}' OR s.name = SCHEMA_NAME()`
-                    );
-                    if (sizeRow?.size !== undefined && sizeRow.size !== null) {
-                      dbSizeBytes = Number(sizeRow.size);
-                    }
-                  } catch {}
-                } else {
-                  const appDbPath = this.config.getAppDbPath(app.slug);
-                  dbSizeBytes = fs.existsSync(appDbPath) ? fs.statSync(appDbPath).size : 0;
-                }
-                result.push({
-                  ...app,
-                  stats: {
-                    collectionsCount,
-                    recordsCount,
-                    storageSizeBytes: 0,
-                    dbSizeBytes,
-                  },
-                });
-              }).catch(() => {
-                result.push(app);
-              });
-              promises.push(p);
-            } else {
-              const cols = collections || [];
-              const collectionsCount = cols.filter((c: any) => !c.system).length;
-              let recordsCount = 0;
-              for (const col of cols) {
-                if (!col.system) {
-                  const countRow = scope.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM ${scope.db.dialect.quoteIdentifier(col.name)}`);
-                  if (countRow && typeof (countRow as any).then === 'function') {
-                    // ignore async in sync branch
-                  } else {
-                    recordsCount += Number((countRow as any)?.count || 0);
-                  }
-                }
-              }
-              const appDbPath = this.config.getAppDbPath(app.slug);
-              const dbSizeBytes = fs.existsSync(appDbPath) ? fs.statSync(appDbPath).size : 0;
-              result.push({
-                ...app,
-                stats: {
-                  collectionsCount,
-                  recordsCount,
-                  storageSizeBytes: 0,
-                  dbSizeBytes,
-                },
-              });
+    for (const app of apps) {
+      const scope = this.appCache.get(app.slug) || this.appCache.get(app.id);
+      if (scope) {
+        try {
+          const collections = await scope.schema.getAllCollections();
+          const cols = collections || [];
+          const collectionsCount = cols.filter((c: any) => !c.system).length;
+          let recordsCount = 0;
+          for (const col of cols) {
+            if (!col.system) {
+              const countRow = await scope.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM ${scope.db.dialect.quoteIdentifier(col.name)}`);
+              recordsCount += Number(countRow?.count || 0);
             }
-          } catch {
-            result.push(app);
           }
-        } else {
+          let dbSizeBytes = 0;
+          if (scope.db.dialect?.name === 'postgres') {
+            try {
+              const targetSchema = (scope.db as any).getSchemaName?.() || 
+                (typeof (scope.db.getDriver?.() as any)?.getSchemaName === 'function' ? (scope.db.getDriver() as any).getSchemaName() : (app.slug === 'default' ? 'public' : `app_${app.slug}`));
+              const sizeRow = await scope.db.get<{ size: number | string }>(
+                `SELECT COALESCE(SUM(pg_total_relation_size(quote_ident(schemaname) || '.' || quote_ident(tablename))), 0) as size ` +
+                `FROM pg_tables WHERE schemaname = current_schema() OR schemaname = '${targetSchema.replace(/'/g, "''")}'`
+              );
+              if (sizeRow?.size !== undefined && sizeRow.size !== null) {
+                dbSizeBytes = Number(sizeRow.size);
+              }
+            } catch {}
+          } else if (scope.db.dialect?.name === 'mssql') {
+            try {
+              const targetSchema = (scope.db as any).getSchemaName?.() || 
+                (typeof (scope.db.getDriver?.() as any)?.getSchemaName === 'function' ? (scope.db.getDriver() as any).getSchemaName() : (app.slug === 'default' ? 'dbo' : `app_${app.slug}`));
+              const sizeRow = await scope.db.get<{ size: number | string }>(
+                `SELECT COALESCE(SUM(a.total_pages) * 8 * 1024, 0) as size ` +
+                `FROM sys.tables t ` +
+                `JOIN sys.schemas s ON t.schema_id = s.schema_id ` +
+                `JOIN sys.indexes i ON t.object_id = i.object_id ` +
+                `JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id ` +
+                `JOIN sys.allocation_units a ON p.partition_id = a.container_id ` +
+                `WHERE s.name = '${targetSchema.replace(/'/g, "''")}' OR s.name = SCHEMA_NAME()`
+              );
+              if (sizeRow?.size !== undefined && sizeRow.size !== null) {
+                dbSizeBytes = Number(sizeRow.size);
+              }
+            } catch {}
+          } else {
+            const appDbPath = this.config.getAppDbPath(app.slug);
+            dbSizeBytes = fs.existsSync(appDbPath) ? fs.statSync(appDbPath).size : 0;
+          }
+          result.push({
+            ...app,
+            stats: {
+              collectionsCount,
+              recordsCount,
+              storageSizeBytes: 0,
+              dbSizeBytes,
+            },
+          });
+        } catch {
           result.push(app);
         }
+      } else {
+        result.push(app);
       }
-
-      if (promises.length > 0) {
-        return Promise.all(promises).then(() => result);
-      }
-      return result;
-    };
-
-    if (apps && typeof (apps as any).then === 'function') {
-      return (apps as any).then(processApps);
     }
-    return processApps(apps);
+
+    return result;
   }
 
   public has(slugOrId: string): boolean {
@@ -394,13 +352,7 @@ export class AppManager {
 
     let scope = this.appCache.get(target);
     if (!scope) {
-      let appModel: AppModel | undefined;
-      const lookup = this.registry.getApp(target);
-      if (lookup && typeof (lookup as any).then === 'function') {
-        appModel = await lookup;
-      } else {
-        appModel = lookup;
-      }
+      let appModel = await this.registry.getApp(target);
 
       if (!appModel) {
         if (target === 'default' || target === 'app_default') {

@@ -115,7 +115,7 @@ describe('AuthMiddleware - Token Validation & Immediate 401 Rejection', () => {
 
     it('should reject expired token with 401 immediately', async () => {
       const adminAuth = await app.auth.authenticateAdmin('admin@nodestack.test', 'AdminPassword123!');
-      const claims = app.auth.verifyToken(adminAuth.token);
+      const claims = await app.auth.verifyToken(adminAuth.token);
       // Generate expired token (-10s)
       const expiredToken = app.auth.generateToken(
         {
@@ -228,7 +228,7 @@ describe('AuthMiddleware - Token Validation & Immediate 401 Rejection', () => {
 
     it('should reject expired token with 401 on public collection', async () => {
       const validAuth = await app.auth.authenticateAdmin('admin@nodestack.test', 'AdminPassword123!');
-      const claims = app.auth.verifyToken(validAuth.token);
+      const claims = await app.auth.verifyToken(validAuth.token);
       const expiredToken = app.auth.generateToken(
         {
           id: claims.id,

@@ -390,7 +390,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       const db = app.db;
       const now = new Date().toISOString();
       const existingId = 'r_bob123';
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO users (id, email, passwordHash, tokenKey, name, created, updated)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(existingId, 'bob@example.com', 'dummy_hash', 'dummy_token_key', 'Bob Existing', now, now);
@@ -428,7 +428,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
       expect(data.meta.isNew).toBe(false);
 
       // Verify link exists in _external_auths table
-      const link = db.get<any>(
+      const link = await db.get<any>(
         'SELECT * FROM _external_auths WHERE collection = ? AND provider = ? AND providerUserId = ?',
         ['users', 'discord', 'disc_456']
       );
@@ -439,7 +439,7 @@ describe('OAuth2 / Social Logins (PKCE)', () => {
     it('should reject linking if provider email is unverified to prevent account takeover', async () => {
       const db = app.db;
       const now = new Date().toISOString();
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO users (id, email, passwordHash, tokenKey, name, created, updated)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run('r_victim', 'victim@secure.com', 'dummy_hash', 'dummy_token_key', 'Victim User', now, now);

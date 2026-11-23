@@ -6,6 +6,8 @@ import { SqliteDialect } from '../dialects/SqliteDialect';
 
 export interface NodeSqliteDriverOptions {
   baseDir?: string;
+  db?: any;
+  isTxDriver?: boolean;
 }
 
 export class NodeSqliteDriver implements IDatabaseDriver {
@@ -14,11 +16,21 @@ export class NodeSqliteDriver implements IDatabaseDriver {
   private open = false;
   private filePath: string;
   private baseDir?: string;
-  private transactionDepth = 0;
+  public transactionDepth = 0;
+  private isTxDriver = false;
+  private savepointDepth = 0;
+  private txLockQueue: Promise<void> = Promise.resolve();
 
   constructor(filePath: string, options?: NodeSqliteDriverOptions) {
     this.filePath = filePath;
     this.baseDir = options?.baseDir;
+    this.isTxDriver = Boolean(options?.isTxDriver);
+
+    if (options?.db) {
+      this.db = options.db;
+      this.open = true;
+      return;
+    }
 
     // Ensure parent directory exists for file-based SQLite
     if (filePath && filePath !== ':memory:') {
@@ -66,10 +78,9 @@ export class NodeSqliteDriver implements IDatabaseDriver {
     return this.filePath;
   }
 
-  public exec(sql: string): Promise<void> {
+  public async exec(sql: string): Promise<void> {
     this.checkOpen();
     this.db.exec(sql);
-    return Promise.resolve();
   }
 
   public execSync(sql: string): void {
@@ -82,15 +93,15 @@ export class NodeSqliteDriver implements IDatabaseDriver {
     const stmt = this.db.prepare(sql);
 
     return {
-      all: <T = any>(...params: any[]): any => {
+      all: async <T = any>(...params: any[]): Promise<T[]> => {
         const rawResults = this.executeStmt(stmt, 'all', params);
         return (rawResults || []).map((r: any) => ({ ...r }));
       },
-      get: <T = any>(...params: any[]): any => {
+      get: async <T = any>(...params: any[]): Promise<T | undefined> => {
         const raw = this.executeStmt(stmt, 'get', params);
         return raw ? { ...raw } : undefined;
       },
-      run: (...params: any[]): any => {
+      run: async (...params: any[]): Promise<RunResult> => {
         return this.executeStmt(stmt, 'run', params);
       },
     };
@@ -155,56 +166,86 @@ export class NodeSqliteDriver implements IDatabaseDriver {
     return stmt[method](...params);
   }
 
-  public transaction<T>(fn: (txDriver: IDatabaseDriver) => Promise<T> | T): Promise<T> | T {
+  private async acquireTxLock(): Promise<() => void> {
+    let releaseLock: () => void;
+    const currentLock = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const previousLock = this.txLockQueue;
+    this.txLockQueue = currentLock;
+    await previousLock;
+    return releaseLock!;
+  }
+
+  public async transaction<T>(fn: (txDriver: IDatabaseDriver) => Promise<T> | T): Promise<T> {
     this.checkOpen();
 
-    if (
-      typeof fn === 'function' &&
-      (fn.constructor?.name === 'AsyncFunction' ||
-       fn.constructor?.name === 'AsyncGeneratorFunction' ||
-       (fn as any)[Symbol.toStringTag] === 'AsyncFunction' ||
-       (fn as any)[Symbol.toStringTag] === 'AsyncGeneratorFunction')
-    ) {
-      throw new Error('Asynchronous functions cannot be used with synchronous transaction(). Use synchronous operations inside transaction().');
-    }
-
-    const isTopLevel = this.transactionDepth === 0;
-    const savepointName = `sp_${this.transactionDepth}`;
-
-    if (isTopLevel) {
-      this.db.exec('BEGIN IMMEDIATE;');
-    } else {
-      this.db.exec(`SAVEPOINT ${savepointName};`);
-    }
-
-    this.transactionDepth++;
-
-    try {
-      const res = fn(this);
-      if (res !== null && typeof res === 'object' && typeof (res as any).then === 'function') {
-        throw new Error('Asynchronous functions cannot be used with synchronous transaction(). Use synchronous operations inside transaction().');
-      }
-
-      if (isTopLevel) {
-        this.db.exec('COMMIT;');
+    if (this.isTxDriver || this.transactionDepth > 0) {
+      const depth = this.transactionDepth > 0 ? this.transactionDepth : this.savepointDepth;
+      const sp = `sp_${depth}`;
+      if (this.transactionDepth > 0) {
+        this.transactionDepth++;
       } else {
-        this.db.exec(`RELEASE SAVEPOINT ${savepointName};`);
+        this.savepointDepth++;
       }
-      return res;
-    } catch (error) {
+      this.db.exec(`SAVEPOINT ${sp};`);
       try {
-        if (isTopLevel) {
-          this.db.exec('ROLLBACK;');
-        } else {
-          this.db.exec(`ROLLBACK TO SAVEPOINT ${savepointName};`);
-          this.db.exec(`RELEASE SAVEPOINT ${savepointName};`);
+        const res = await fn(this);
+        if (this.open) {
+          this.db.exec(`RELEASE SAVEPOINT ${sp};`);
         }
-      } catch {
-        // ignore rollback errors
+        return res;
+      } catch (error) {
+        try {
+          if (this.open) {
+            this.db.exec(`ROLLBACK TO SAVEPOINT ${sp};`);
+            this.db.exec(`RELEASE SAVEPOINT ${sp};`);
+          }
+        } catch {
+          // ignore rollback errors
+        }
+        throw error;
+      } finally {
+        if (this.transactionDepth > 0) {
+          this.transactionDepth--;
+        } else {
+          this.savepointDepth--;
+        }
       }
-      throw error;
+    }
+
+    const releaseLock = await this.acquireTxLock();
+    try {
+      this.checkOpen();
+      this.db.exec('BEGIN IMMEDIATE;');
+      this.transactionDepth++;
+      const txDriver = new NodeSqliteDriver(this.filePath, {
+        baseDir: this.baseDir,
+        db: this.db,
+        isTxDriver: true,
+      });
+      txDriver.transactionDepth = this.transactionDepth;
+
+      try {
+        const res = await fn(txDriver);
+        if (this.open) {
+          this.db.exec('COMMIT;');
+        }
+        return res;
+      } catch (error) {
+        try {
+          if (this.open) {
+            this.db.exec('ROLLBACK;');
+          }
+        } catch {
+          // ignore rollback errors
+        }
+        throw error;
+      } finally {
+        this.transactionDepth--;
+      }
     } finally {
-      this.transactionDepth--;
+      releaseLock();
     }
   }
 
@@ -249,7 +290,9 @@ export class NodeSqliteDriver implements IDatabaseDriver {
 
   public async close(): Promise<void> {
     if (this.open) {
-      this.db.close();
+      if (!this.isTxDriver) {
+        this.db.close();
+      }
       this.open = false;
     }
   }

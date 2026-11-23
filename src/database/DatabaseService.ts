@@ -24,8 +24,14 @@ export class DatabaseService {
     }
   }
 
-  public init(): any {
-    return SystemMigrations.run(this.driver);
+  public async init(): Promise<void> {
+    return await SystemMigrations.run(this.driver);
+  }
+
+  public initSync(): void {
+    if (this.driver.dialect.name === 'sqlite') {
+      SystemMigrations.runSync(this.driver);
+    }
   }
 
   public async initialize(driver?: IDatabaseDriver): Promise<void> {
@@ -110,9 +116,18 @@ export class DatabaseService {
     }
   }
 
-  public exec(sql: string): any {
+  public async exec(sql: string): Promise<void> {
     this.checkLocked();
-    return this.getDriver().exec(sql);
+    return await this.getDriver().exec(sql);
+  }
+
+  public execSync(sql: string): void {
+    this.checkLocked();
+    const driver = this.getDriver();
+    if (typeof (driver as any).execSync === 'function') {
+      return (driver as any).execSync(sql);
+    }
+    (driver as any).exec(sql);
   }
 
   public prepare(sql: string): IPreparedStatement {
@@ -120,39 +135,69 @@ export class DatabaseService {
     return this.getDriver().prepare(sql);
   }
 
-  public all<T = any>(sql: string, ...params: any[]): any {
+  public prepareSync(sql: string): {
+    all: <T = any>(...params: any[]) => T[];
+    get: <T = any>(...params: any[]) => T | undefined;
+    run: (...params: any[]) => RunResult;
+  } {
     this.checkLocked();
-    return this.prepare(sql).all<T>(...params);
-  }
-
-  public get<T = any>(sql: string, ...params: any[]): any {
-    this.checkLocked();
-    return this.prepare(sql).get<T>(...params);
-  }
-
-  public run(sql: string, ...params: any[]): any {
-    this.checkLocked();
-    return this.prepare(sql).run(...params);
-  }
-
-  public transaction<T>(fn: (txDriver: IDatabaseDriver) => Promise<T> | T): any {
-    this.checkLocked();
-    if (
-      this.driver.dialect.name === 'sqlite' &&
-      typeof fn === 'function' &&
-      (fn.constructor?.name === 'AsyncFunction' ||
-       fn.constructor?.name === 'AsyncGeneratorFunction' ||
-       (fn as any)[Symbol.toStringTag] === 'AsyncFunction' ||
-       (fn as any)[Symbol.toStringTag] === 'AsyncGeneratorFunction')
-    ) {
-      throw new Error('Asynchronous functions cannot be used with synchronous transaction(). Use synchronous operations inside transaction().');
+    const driver = this.getDriver();
+    if (typeof (driver as any).prepareSync === 'function') {
+      return (driver as any).prepareSync(sql);
     }
+    return this.prepare(sql) as any;
+  }
 
+  public transactionSync<T>(fn: () => T): T {
+    this.checkLocked();
+    const rawDb = (this.getDriver() as any).rawDb;
+    if (rawDb && typeof rawDb.exec === 'function') {
+      const sp = `sync_sp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      rawDb.exec(`SAVEPOINT ${sp};`);
+      try {
+        const res = fn();
+        if (res && typeof (res as any).then === 'function') {
+          throw new Error('Asynchronous functions cannot be used with synchronous transactionSync()');
+        }
+        rawDb.exec(`RELEASE SAVEPOINT ${sp};`);
+        return res;
+      } catch (err) {
+        try {
+          rawDb.exec(`ROLLBACK TO SAVEPOINT ${sp};`);
+          rawDb.exec(`RELEASE SAVEPOINT ${sp};`);
+        } catch {}
+        throw err;
+      }
+    }
+    const res = fn();
+    if (res && typeof (res as any).then === 'function') {
+      throw new Error('Asynchronous functions cannot be used with synchronous transactionSync()');
+    }
+    return res;
+  }
+
+  public async all<T = any>(sql: string, ...params: any[]): Promise<T[]> {
+    this.checkLocked();
+    return await this.prepare(sql).all<T>(...params);
+  }
+
+  public async get<T = any>(sql: string, ...params: any[]): Promise<T | undefined> {
+    this.checkLocked();
+    return await this.prepare(sql).get<T>(...params);
+  }
+
+  public async run(sql: string, ...params: any[]): Promise<RunResult> {
+    this.checkLocked();
+    return await this.prepare(sql).run(...params);
+  }
+
+  public async transaction<T>(fn: (txDriver: IDatabaseDriver) => Promise<T> | T): Promise<T> {
+    this.checkLocked();
     const runWithTx = (txDriver: IDatabaseDriver) => {
       return this.txStorage.run(txDriver, () => fn(txDriver));
     };
 
-    return this.getDriver().transaction(runWithTx as any);
+    return await this.getDriver().transaction(runWithTx as any);
   }
 
   public async checkpoint(): Promise<void> {
