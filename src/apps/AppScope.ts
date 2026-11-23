@@ -480,7 +480,7 @@ export class AppScope {
     }
 
     try {
-      this.logs.dispose();
+      await this.logs.dispose();
     } catch {
       // ignore
     }

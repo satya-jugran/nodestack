@@ -34,6 +34,7 @@ export class LogService {
   private buffer: BufferedLogItem[] = [];
   private flushTimer?: NodeJS.Timeout;
   private readonly maxBufferSize = 50;
+  private activeFlush?: Promise<void>;
 
   constructor(private db: DatabaseService) {
     this.flushTimer = setInterval(() => {
@@ -93,34 +94,52 @@ export class LogService {
   }
 
   public async flush(): Promise<void> {
+    while (this.activeFlush) {
+      try {
+        await this.activeFlush;
+      } catch {
+        // ignore
+      }
+    }
+
     if (this.buffer.length === 0) return;
     const items = [...this.buffer];
     this.buffer = [];
 
-    try {
-      await this.db.transaction(async (tx) => {
-        for (const item of items) {
-          await tx.prepare(`
-            INSERT INTO _logs (id, method, url, status, duration, ip, authId, authCollection, userAgent, data, created)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(
-            item.id,
-            item.method,
-            item.url,
-            item.status,
-            item.duration,
-            item.ip,
-            item.authId,
-            item.authCollection,
-            item.userAgent,
-            item.data,
-            item.created
-          );
+    let flushTask!: Promise<void>;
+    flushTask = (async () => {
+      try {
+        await this.db.transaction(async (tx) => {
+          for (const item of items) {
+            await tx.prepare(`
+              INSERT INTO _logs (id, method, url, status, duration, ip, authId, authCollection, userAgent, data, created)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+              item.id,
+              item.method,
+              item.url,
+              item.status,
+              item.duration,
+              item.ip,
+              item.authId,
+              item.authCollection,
+              item.userAgent,
+              item.data,
+              item.created
+            );
+          }
+        });
+      } catch {
+        // Don't let log write errors break request flow
+      } finally {
+        if (this.activeFlush === flushTask) {
+          this.activeFlush = undefined;
         }
-      });
-    } catch {
-      // Don't let log write errors break request flow
-    }
+      }
+    })();
+
+    this.activeFlush = flushTask;
+    await flushTask;
   }
 
   public async getLogs(page = 1, perPage = 50): Promise<any> {
@@ -167,12 +186,18 @@ export class LogService {
     return Number(result.changes);
   }
 
-  public dispose(): void {
+  public async dispose(): Promise<void> {
     if (this.flushTimer) {
       clearInterval(this.flushTimer);
       this.flushTimer = undefined;
     }
-    this.flush().catch(() => {});
+    while (this.buffer.length > 0 || this.activeFlush) {
+      try {
+        await this.flush();
+      } catch {
+        break;
+      }
+    }
   }
 
   private printToConsole(entry: LogEntry): void {

@@ -97,11 +97,40 @@ describe('LogService In-Memory Buffering & Write Batching Tests', () => {
     });
 
     // Calling dispose() flushes remaining items and clears timer
-    logService.dispose();
-    await new Promise((r) => setTimeout(r, 50));
+    await logService.dispose();
 
     const rawCount = await db.get<{ count: number }>('SELECT COUNT(*) as count FROM _logs');
     expect(rawCount?.count).toBe(1);
+  });
+
+  it('should persist all buffered logs before database is closed when calling dispose()', async () => {
+    const logService = new LogService(db);
+
+    for (let i = 1; i <= 10; i++) {
+      logService.logRequest({
+        method: 'POST',
+        url: `/api/shutdown/${i}`,
+        status: 200,
+        duration: 1.0,
+      });
+    }
+
+    // Await dispose() and then immediately close the database
+    await logService.dispose();
+    await db.close();
+
+    // Reopen database with fresh connection to verify records were persisted
+    const freshDb = new DatabaseService(config);
+    await freshDb.init();
+    try {
+      const countRow = await freshDb.get<{ count: number }>(
+        'SELECT COUNT(*) as count FROM _logs WHERE url LIKE ?',
+        '/api/shutdown/%'
+      );
+      expect(countRow?.count).toBe(10);
+    } finally {
+      await freshDb.close();
+    }
   });
 
   it('should clear buffer and database records on clearLogs()', async () => {
