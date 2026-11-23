@@ -383,12 +383,14 @@ export class AuthService {
       );
 
       const cacheKey = `_admins:${decoded.id}`;
-      const cached = this.getCachedTokenKey(cacheKey);
-      if (cached !== null) {
-        if (cached !== decoded.tokenKey) {
+      const cachedEntry = this.getCachedAuthEntry(cacheKey);
+      if (cachedEntry !== null) {
+        if (cachedEntry.tokenKey !== decoded.tokenKey) {
           throw new UnauthorizedError('Authentication token has been revoked or expired');
         }
-        decoded.isSuperAdmin = !isTenantBound && Boolean(this.isControlPlane);
+        decoded.isSuperAdmin = cachedEntry.profile?.isSuperAdmin !== undefined
+          ? Boolean(cachedEntry.profile.isSuperAdmin)
+          : (!isTenantBound && Boolean(this.isControlPlane));
         decoded.isTenantScoped = isTenantBound || !this.isControlPlane;
         return decoded;
       }
@@ -397,34 +399,40 @@ export class AuthService {
         ? this.registry.getAdminById(decoded.id)
         : undefined;
 
-      const finalizeAdmin = (admin: any) => {
+      const finalizeAdmin = async (admin: any) => {
         if (!admin || !admin.tokenKey || admin.tokenKey !== decoded.tokenKey) {
           throw new UnauthorizedError('Authentication token has been revoked or expired');
         }
-        this.setCachedTokenKey(cacheKey, admin.tokenKey);
-        const verifiedInRegistry = Boolean(this.registry && this.isControlPlane && this.registry.getAdminById(admin.id));
-        decoded.isSuperAdmin = !isTenantBound && Boolean(this.isControlPlane && verifiedInRegistry);
+        let verifiedInRegistry = false;
+        if (this.registry && this.isControlPlane) {
+          try {
+            const regAdmin = await this.registry.getAdminById(admin.id);
+            verifiedInRegistry = Boolean(regAdmin);
+          } catch {
+            verifiedInRegistry = false;
+          }
+        }
+        const isSuperAdmin = !isTenantBound && Boolean(this.isControlPlane && verifiedInRegistry);
+        this.setCachedAuthEntry(cacheKey, admin.tokenKey, { isSuperAdmin });
+        decoded.isSuperAdmin = isSuperAdmin;
         decoded.isTenantScoped = isTenantBound || !this.isControlPlane;
         return decoded;
       };
 
-      const checkAndSaveAdmin = (admin: any) => {
+      const checkAndSaveAdmin = async (admin: any) => {
         const syncRes = this.syncAdminToRegistry(admin);
         if (syncRes && typeof (syncRes as any).then === 'function') {
-          return syncRes.then(() => finalizeAdmin(admin));
+          await syncRes;
         }
-        return finalizeAdmin(admin);
+        return await finalizeAdmin(admin);
       };
 
-      const resolveAdmin = (admin: any) => {
+      const resolveAdmin = async (admin: any) => {
         if (!admin) {
-          const dbAdmin = this.db.get<any>('SELECT * FROM _admins WHERE id = ?', decoded.id);
-          if (dbAdmin && typeof (dbAdmin as any).then === 'function') {
-            return (dbAdmin as any).then((resolvedDbAdmin: any) => checkAndSaveAdmin(resolvedDbAdmin));
-          }
-          return checkAndSaveAdmin(dbAdmin);
+          const dbAdmin = await this.db.get<any>('SELECT * FROM _admins WHERE id = ?', decoded.id);
+          return await checkAndSaveAdmin(dbAdmin);
         }
-        return checkAndSaveAdmin(admin);
+        return await checkAndSaveAdmin(admin);
       };
 
       if (adminRaw && typeof (adminRaw as any).then === 'function') {

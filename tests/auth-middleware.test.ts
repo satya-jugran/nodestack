@@ -334,5 +334,32 @@ describe('AuthMiddleware - Token Validation & Immediate 401 Rejection', () => {
       expect(nonOwnerSanitized.email).toBeUndefined(); // Non-owner has email masked
       expect((nonOwnerSanitized as any).passwordHash).toBeUndefined();
     });
+
+    it('should not set isSuperAdmin when registry.getAdminById resolves to undefined and preserve it on cache hit', async () => {
+      const adminAuth = await app.auth.authenticateAdmin('admin@nodestack.test', 'AdminPassword123!');
+      const registry = (app.auth as any).registry;
+      expect(registry).toBeDefined();
+
+      // Invalidate token cache so fresh verification occurs
+      app.auth.invalidateTokenCache('_admins', adminAuth.record.id);
+
+      // Spy on registry.getAdminById to resolve to undefined
+      const spy = vi.spyOn(registry, 'getAdminById').mockResolvedValue(undefined);
+
+      try {
+        // Initial verification (cache miss)
+        const claims = await app.auth.verifyToken(adminAuth.token);
+        expect(claims.isAdmin).toBe(true);
+        expect(claims.isSuperAdmin).toBe(false);
+
+        // Second verification (cache hit)
+        const cachedClaims = await app.auth.verifyToken(adminAuth.token);
+        expect(cachedClaims.isAdmin).toBe(true);
+        expect(cachedClaims.isSuperAdmin).toBe(false);
+      } finally {
+        spy.mockRestore();
+        app.auth.invalidateTokenCache('_admins', adminAuth.record.id);
+      }
+    });
   });
 });
