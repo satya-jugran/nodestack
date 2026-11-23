@@ -1034,5 +1034,37 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       expect(postGhostSearch.totalItems).toBe(1);
       expect(postGhostSearch.items[0].id).toBe('doc_1');
     });
+
+    it('should serialize overlapping async syncCollection calls and not start second driver call until first completes', async () => {
+      const col: any = { id: 'c1', name: 'articles', schema: [{ name: 'title', type: 'text' }] };
+      const driver = app.fts.getFtsDriver();
+      let callCount = 0;
+      let firstRunning = false;
+      let overlapped = false;
+
+      const spy = vi.spyOn(driver, 'syncCollection').mockImplementation(async () => {
+        callCount++;
+        const currentCall = callCount;
+        if (currentCall === 1) {
+          firstRunning = true;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          firstRunning = false;
+        } else if (currentCall === 2) {
+          if (firstRunning) {
+            overlapped = true;
+          }
+        }
+      });
+
+      try {
+        const p1 = app.fts.syncCollection(col);
+        const p2 = app.fts.syncCollection(col);
+        await Promise.all([p1, p2]);
+        expect(callCount).toBe(2);
+        expect(overlapped).toBe(false);
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 });

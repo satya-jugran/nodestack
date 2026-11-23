@@ -137,22 +137,39 @@ export class FtsService {
   }
 
   public syncCollection(col: CollectionModel): Promise<void> | void {
-    const res = this.getFtsDriver().syncCollection(col);
-    if (res instanceof Promise) {
-      const key = (col.name || '').toLowerCase().trim();
-      const existingLock = this.rebuildLocks.get(key);
-      const task = (async () => {
-        if (existingLock) {
-          try {
-            await existingLock;
-          } catch {
-            // ignore previous lock failure
+    const key = (col.name || '').toLowerCase().trim();
+    const existingLock = this.rebuildLocks.get(key);
+
+    if (existingLock) {
+      let task!: Promise<void>;
+      task = (async () => {
+        try {
+          await existingLock;
+        } catch {
+          // ignore previous lock failure
+        }
+        try {
+          await this.getFtsDriver().syncCollection(col);
+        } finally {
+          if (this.rebuildLocks.get(key) === task) {
+            this.rebuildLocks.delete(key);
           }
         }
+      })();
+      this.rebuildLocks.set(key, task);
+      return task;
+    }
+
+    const res = this.getFtsDriver().syncCollection(col);
+    if (res instanceof Promise) {
+      let task!: Promise<void>;
+      task = (async () => {
         try {
           await res;
         } finally {
-          this.rebuildLocks.delete(key);
+          if (this.rebuildLocks.get(key) === task) {
+            this.rebuildLocks.delete(key);
+          }
         }
       })();
       this.rebuildLocks.set(key, task);
@@ -181,11 +198,14 @@ export class FtsService {
       return existingLock;
     }
 
-    const task = (async () => {
+    let task!: Promise<any>;
+    task = (async () => {
       try {
         return await Promise.resolve(this.getFtsDriver().rebuildIndex(collectionName, lang));
       } finally {
-        this.rebuildLocks.delete(key);
+        if (this.rebuildLocks.get(key) === task) {
+          this.rebuildLocks.delete(key);
+        }
       }
     })();
 
@@ -200,7 +220,8 @@ export class FtsService {
       return existingLock;
     }
 
-    const task = (async () => {
+    let task!: Promise<any>;
+    task = (async () => {
       try {
         const driver = this.getFtsDriver() as any;
         if (typeof driver.reconcile === 'function') {
@@ -208,7 +229,9 @@ export class FtsService {
         }
         return await Promise.resolve(this.rebuildIndex(collectionName, lang));
       } finally {
-        this.rebuildLocks.delete(key);
+        if (this.rebuildLocks.get(key) === task) {
+          this.rebuildLocks.delete(key);
+        }
       }
     })();
 
