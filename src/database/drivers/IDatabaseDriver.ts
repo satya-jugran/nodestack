@@ -23,4 +23,7 @@ export interface IDatabaseDriver {
   clone?(): IDatabaseDriver;
   getSchemaName?(): string;
   connect?(): Promise<void>;
+  transactionSync?<T>(fn: (txDriver: IDatabaseDriver) => T): T;
+  execSync?(sql: string): void;
+  prepareSync?(sql: string): any;
 }

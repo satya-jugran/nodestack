@@ -538,4 +538,32 @@ describe('DatabaseMigrationService - Migration Transaction Safety', () => {
     expect(await driver.prepare("SELECT name FROM sqlite_master WHERE name = 'inner_tbl'").get()).toBeDefined();
     expect(await driver.prepare("SELECT id FROM _migrations WHERE id = '20261115_nested_tx_test'").get()).toBeDefined();
   });
+
+  it('should rollback all SystemMigrations on SQLite if a later statement fails', async () => {
+    const freshDriver = new NodeSqliteDriver(':memory:');
+    try {
+      const originalExecSync = freshDriver.execSync.bind(freshDriver);
+      freshDriver.execSync = (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('CREATE TABLE IF NOT EXISTS "users"')) {
+          throw new Error('Simulated failure during users table creation');
+        }
+        return originalExecSync(sql);
+      };
+
+      await expect(SystemMigrations.run(freshDriver)).rejects.toThrow('Simulated failure during users table creation');
+
+      // Crucial verification: none of the tables created before users table should exist (rolled back)
+      const collectionsTable = await freshDriver.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '_collections'"
+      ).get<any>();
+      expect(collectionsTable).toBeUndefined();
+
+      const adminsTable = await freshDriver.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '_admins'"
+      ).get<any>();
+      expect(adminsTable).toBeUndefined();
+    } finally {
+      await freshDriver.close();
+    }
+  });
 });

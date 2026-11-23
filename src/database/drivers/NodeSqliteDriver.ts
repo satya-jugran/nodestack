@@ -249,6 +249,76 @@ export class NodeSqliteDriver implements IDatabaseDriver {
     }
   }
 
+  public transactionSync<T>(fn: (txDriver: IDatabaseDriver) => T): T {
+    this.checkOpen();
+
+    if (this.isTxDriver || this.transactionDepth > 0) {
+      const depth = this.transactionDepth > 0 ? this.transactionDepth : this.savepointDepth;
+      const sp = `sp_sync_${depth}`;
+      if (this.transactionDepth > 0) {
+        this.transactionDepth++;
+      } else {
+        this.savepointDepth++;
+      }
+      this.db.exec(`SAVEPOINT ${sp};`);
+      try {
+        const res = fn(this);
+        if (res && typeof (res as any).then === 'function') {
+          throw new Error('Asynchronous functions cannot be used with synchronous transactionSync()');
+        }
+        if (this.open) {
+          this.db.exec(`RELEASE SAVEPOINT ${sp};`);
+        }
+        return res;
+      } catch (error) {
+        try {
+          if (this.open) {
+            this.db.exec(`ROLLBACK TO SAVEPOINT ${sp};`);
+            this.db.exec(`RELEASE SAVEPOINT ${sp};`);
+          }
+        } catch {
+          // ignore rollback errors
+        }
+        throw error;
+      } finally {
+        if (this.transactionDepth > 0) {
+          this.transactionDepth--;
+        } else {
+          this.savepointDepth--;
+        }
+      }
+    }
+
+    this.checkOpen();
+    this.db.exec('BEGIN IMMEDIATE;');
+    this.transactionDepth++;
+    const txDriver = Object.create(this);
+    txDriver.isTxDriver = true;
+    txDriver.transactionDepth = this.transactionDepth;
+
+    try {
+      const res = fn(txDriver);
+      if (res && typeof (res as any).then === 'function') {
+        throw new Error('Asynchronous functions cannot be used with synchronous transactionSync()');
+      }
+      if (this.open) {
+        this.db.exec('COMMIT;');
+      }
+      return res;
+    } catch (error) {
+      try {
+        if (this.open) {
+          this.db.exec('ROLLBACK;');
+        }
+      } catch {
+        // ignore rollback errors
+      }
+      throw error;
+    } finally {
+      this.transactionDepth--;
+    }
+  }
+
   public async withSchema(schemaName: string): Promise<IDatabaseDriver> {
     // If memory database or no directory structure, create isolated memory db or sibling file
     if (this.filePath === ':memory:') {

@@ -150,7 +150,11 @@ export class DatabaseService {
 
   public transactionSync<T>(fn: () => T): T {
     this.checkLocked();
-    const rawDb = (this.getDriver() as any).rawDb;
+    const driver = this.getDriver();
+    if (typeof driver.transactionSync === 'function') {
+      return driver.transactionSync(() => fn());
+    }
+    const rawDb = (driver as any).rawDb;
     if (rawDb && typeof rawDb.exec === 'function') {
       const sp = `sync_sp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       rawDb.exec(`SAVEPOINT ${sp};`);
