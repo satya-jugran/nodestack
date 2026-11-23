@@ -432,7 +432,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
         ],
       });
 
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'queue-worker-fn',
         code: `
           export default async function(core, context) {
@@ -482,14 +482,14 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(records.items[0].jobId).toBe(job.id);
 
       // Verify function execution log was recorded with trigger 'queue:bound-fn-queue'
-      const fnDef = app.functions.getFunctionByName('queue-worker-fn')!;
-      const logsRes = app.functions.getLogs(fnDef.id);
+      const fnDef = (await app.functions.getFunctionByName('queue-worker-fn'))!;
+      const logsRes = await app.functions.getLogs(fnDef.id);
       expect(logsRes.items.some((l) => l.trigger === 'queue:bound-fn-queue' && l.status === 'success')).toBe(true);
     });
 
     it('should enforce RuleEngine collection access rules when targetFunction has elevated: false', async () => {
       // Create a collection with admin-only createRule (null = admin only)
-      app.schema.createCollection({
+      await app.schema.createCollection({
         name: 'admin_only_vault',
         type: 'base',
         schema: [
@@ -500,7 +500,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       });
 
       // 1. Create a non-elevated worker function (elevated: false)
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'non-elevated-worker-fn',
         code: `
           export default async function(core, context) {
@@ -538,11 +538,11 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(j?.error).toMatch(/admin|forbidden|access|rule/i);
 
       // Verify no records were inserted into admin_only_vault
-      const vaultCount = app.db.prepare('SELECT COUNT(*) as cnt FROM admin_only_vault').get() as { cnt: number };
+      const vaultCount = (await app.db.prepare('SELECT COUNT(*) as cnt FROM admin_only_vault').get()) as { cnt: number };
       expect(vaultCount.cnt).toBe(0);
 
       // 2. Now test elevated: true function - it SHOULD succeed with service role
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'elevated-worker-fn',
         code: `
           export default async function(core, context) {
@@ -578,15 +578,15 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(j?.result?.success).toBe(true);
     });
 
-    it('should block deleting a Serverless Function while a Queue is bound to it via targetFunction', () => {
-      const fnDef = app.functions.getFunctionByName('queue-worker-fn')!;
-      expect(() => app.functions.deleteFunction(fnDef.id)).toThrowError(
+    it('should block deleting a Serverless Function while a Queue is bound to it via targetFunction', async () => {
+      const fnDef = (await app.functions.getFunctionByName('queue-worker-fn'))!;
+      await expect(app.functions.deleteFunction(fnDef.id)).rejects.toThrowError(
         /bound as targetFunction by 1 queue/i
       );
     });
 
     it('should automatically update bound queue targetFunction references when renaming a Serverless Function', async () => {
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'rename-bound-worker-fn',
         code: `
           export default async function(core, context) {
@@ -609,7 +609,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(queueConfig?.targetFunction).toBe('rename-bound-worker-fn');
 
       // Rename function via updateFunction
-      app.functions.updateFunction(fn.id, {
+      await app.functions.updateFunction(fn.id, {
         name: 'renamed-bound-worker-fn',
       });
 
@@ -635,7 +635,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       // Set function capacity to 2
       (app.functions as any).maxConcurrent = 2;
 
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'capacity-worker-fn',
         code: `
           export default async function(core, context) {
@@ -705,7 +705,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
     });
 
     it('should allow Serverless Functions inside QuickJS-Wasm to enqueue and inspect jobs via core.sdk.queue', async () => {
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'producer-fn',
         code: `
           export default async function(core, context) {
@@ -749,7 +749,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(execResult.body.aliasMatches).toBe(true);
 
       // Also verify that QuickJS sandbox blocks _system:* queues
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'illegal-system-queue-fn',
         code: `
           export default async function(core, context) {
@@ -780,7 +780,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       await app.queue.upsertQueue({ name: '_system:flow:tamper_test', concurrency: 1, isSystem: true });
       const systemJob = await app.queue.send('_system:flow:tamper_test', { flowData: 123 });
 
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'system-tamper-fn',
         code: `
           export default async function(core, context) {
@@ -877,7 +877,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       await app.queue.deleteQueue('_system:flow:tamper_test');
 
       // Test that untyped options in core.sdk.queue cannot override queue name to target reserved system queues
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'options-override-tamper-fn',
         code: `
           export default async function(core, context) {
@@ -1115,24 +1115,24 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
 
     it('should recreate missing queue tables and indexes on init() after database replacement (pre-queue snapshot restore)', async () => {
       // Simulate database replacement by dropping the queue tables from SQLite
-      app.db.exec(`
+      await app.db.exec(`
         DROP TABLE IF EXISTS _queue_messages;
         DROP TABLE IF EXISTS _queues;
       `);
 
       // Verify tables no longer exist
-      const checkTables = () => {
-        return app.db.prepare(`
+      const checkTables = async () => {
+        return (await app.db.prepare(`
           SELECT count(*) as cnt FROM sqlite_master WHERE type='table' AND name IN ('_queues', '_queue_messages')
-        `).get() as { cnt: number };
+        `).get()) as { cnt: number };
       };
-      expect(checkTables().cnt).toBe(0);
+      expect((await checkTables()).cnt).toBe(0);
 
       // Re-run idempotent init() (e.g. called by queue.start() on snapshot restore)
       await app.queue.getDriver().init();
 
       // Tables and indexes must now exist
-      expect(checkTables().cnt).toBe(2);
+      expect((await checkTables()).cnt).toBe(2);
 
       // Operations continue to succeed
       await app.queue.upsertQueue({ name: 'restored-schema-queue', concurrency: 1 });
@@ -1437,7 +1437,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       const job2 = await app.queue.send('manual-worker-queue', { task: 'send_email', to: 'test@example.com' });
 
       // Create a function that claims 1 job and completes it, and verifies context has no records or queue
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'lifecycle-worker-fn',
         code: `
           export default async function(core, context) {
@@ -1506,7 +1506,7 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       const job1 = await app.queue.send('touch-token-queue', { task: 'touch_and_complete' });
       const job2 = await app.queue.send('touch-token-queue', { task: 'fail_and_retry' });
 
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'touch-token-worker-fn',
         code: `
           export default async function(core, context) {
@@ -1739,8 +1739,8 @@ describe('Generic Queue Processor & Pluggable Queue Drivers ("app.queue & Sqlite
       expect(driver.initialized).toBe(false);
 
       // Temporarily drop _queues and _queue_messages to simulate snapshot from before queues existed
-      app.db.exec('DROP TABLE IF EXISTS _queue_messages;');
-      app.db.exec('DROP TABLE IF EXISTS _queues;');
+      await app.db.exec('DROP TABLE IF EXISTS _queue_messages;');
+      await app.db.exec('DROP TABLE IF EXISTS _queues;');
 
       // Calling resetAfterRestore() must recreate schema and set initialized back to true
       await app.queue.resetAfterRestore();

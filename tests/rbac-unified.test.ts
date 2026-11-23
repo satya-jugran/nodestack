@@ -302,7 +302,7 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
       const { token: regToken } = await regLogin.json();
 
       // Provision Function with custom invokeRule
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'mod-audit-fn',
         code: `export default async function(core, ctx) { return { status: 200, body: { auth: ctx.request.auth } }; }`,
         enabled: true,
@@ -316,12 +316,12 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
         env: {},
       });
 
-      const scopedFnKey = app.apiKeys.createKey({
+      const scopedFnKey = await app.apiKeys.createKey({
         name: 'Audit Fn Key',
         role: 'service',
         scopes: ['functions:mod-audit-fn'],
       });
-      const wrongKey = app.apiKeys.createKey({
+      const wrongKey = await app.apiKeys.createKey({
         name: 'Unrelated Key',
         role: 'service',
         scopes: ['orders:read'],
@@ -368,7 +368,7 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
       expect(fnKeyDenied.status).toBe(403);
 
       // Provision HTTP Flow with custom invokeRule
-      app.flows.createFlow({
+      await app.flows.createFlow({
         name: 'mod-approval-flow',
         enabled: true,
         triggerType: 'http',
@@ -382,13 +382,13 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
         },
       });
 
-      const scopedFlowKey = app.apiKeys.createKey({
+      const scopedFlowKey = await app.apiKeys.createKey({
         name: 'Flow Key',
         role: 'service',
         scopes: ['flows:mod-approval-flow'],
       });
 
-      const anotherScopedFlowKey = app.apiKeys.createKey({
+      const anotherScopedFlowKey = await app.apiKeys.createKey({
         name: 'Another Flow Key',
         role: 'service',
         scopes: ['flows:mod-approval-flow'],
@@ -505,7 +505,7 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
       await app.queue.upsertQueue({ name: 'email-jobs' });
       await app.queue.upsertQueue({ name: 'payout-jobs' });
 
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'queue-proxy-fn',
         code: `
           export default async function(core, ctx) {
@@ -524,7 +524,7 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
         env: {},
       });
 
-      const emailWorkerKey = app.apiKeys.createKey({
+      const emailWorkerKey = await app.apiKeys.createKey({
         name: 'Email Queue Key',
         role: 'service',
         scopes: ['queues:email-jobs:send', 'functions:queue-proxy-fn'],
@@ -566,7 +566,7 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
     });
 
     it('enforces that claiming queue messages requires read scope and rejects send-only keys', async () => {
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'queue-claim-fn',
         code: `
           export default async function(core, ctx) {
@@ -585,13 +585,13 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
         env: {},
       });
 
-      const sendOnlyKey = app.apiKeys.createKey({
+      const sendOnlyKey = await app.apiKeys.createKey({
         name: 'Send Only Key',
         role: 'service',
         scopes: ['queues:email-jobs:send', 'functions:queue-claim-fn'],
       });
 
-      const readKey = app.apiKeys.createKey({
+      const readKey = await app.apiKeys.createKey({
         name: 'Read Key',
         role: 'service',
         scopes: ['queues:email-jobs:read', 'functions:queue-claim-fn'],
@@ -994,7 +994,7 @@ describe('Unified Authorization: Hydrated Roles, Protected Fields, Custom Functi
   describe('6. Policy Engine Dry-Run API Key Simulation Endpoint (/api/api-keys/:id/simulate)', () => {
     it('accurately evaluates permissions across Collections, Functions, Flows, and Queues with IP checks', async () => {
       // 1. Create a scoped service key
-      const createdKey = app.apiKeys.createKey({
+      const createdKey = await app.apiKeys.createKey({
         name: 'Multi-Role Worker',
         role: 'service',
         scopes: [

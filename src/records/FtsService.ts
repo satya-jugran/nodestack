@@ -136,40 +136,45 @@ export class FtsService {
     return this.getFtsDriver().getFtsIndexColumns(collectionName);
   }
 
-  private isAsyncDriver(): boolean {
-    return Boolean(this.db.dialect && this.db.dialect.name !== 'sqlite');
-  }
-
-  public syncCollection(col: CollectionModel): void;
-  public syncCollection(col: CollectionModel): Promise<void>;
-  public syncCollection(col: CollectionModel): any {
+  public syncCollection(col: CollectionModel): Promise<void> | void {
     const key = (col.name || '').toLowerCase().trim();
-    if (!this.isAsyncDriver()) {
-      // Preserve synchronous exception propagation for synchronous drivers (e.g. SQLite)
-      // so that provisioning failures trigger transaction rollback in SchemaService.
-      this.rebuildLocks.delete(key);
-      return this.getFtsDriver().syncCollection(col);
-    }
+    const existingLock = this.rebuildLocks.get(key);
 
-    const task = (async () => {
-      const existingLock = this.rebuildLocks.get(key);
-      if (existingLock) {
+    if (existingLock) {
+      let task!: Promise<void>;
+      task = (async () => {
         try {
           await existingLock;
         } catch {
           // ignore previous lock failure
         }
-      }
+        try {
+          await this.getFtsDriver().syncCollection(col);
+        } finally {
+          if (this.rebuildLocks.get(key) === task) {
+            this.rebuildLocks.delete(key);
+          }
+        }
+      })();
+      this.rebuildLocks.set(key, task);
+      return task;
+    }
 
-      try {
-        return await Promise.resolve(this.getFtsDriver().syncCollection(col));
-      } finally {
-        this.rebuildLocks.delete(key);
-      }
-    })();
-
-    this.rebuildLocks.set(key, task);
-    return task;
+    const res = this.getFtsDriver().syncCollection(col);
+    if (res instanceof Promise) {
+      let task!: Promise<void>;
+      task = (async () => {
+        try {
+          await res;
+        } finally {
+          if (this.rebuildLocks.get(key) === task) {
+            this.rebuildLocks.delete(key);
+          }
+        }
+      })();
+      this.rebuildLocks.set(key, task);
+      return task;
+    }
   }
 
   public async syncAll(collections: CollectionModel[]): Promise<void> {
@@ -193,11 +198,14 @@ export class FtsService {
       return existingLock;
     }
 
-    const task = (async () => {
+    let task!: Promise<any>;
+    task = (async () => {
       try {
         return await Promise.resolve(this.getFtsDriver().rebuildIndex(collectionName, lang));
       } finally {
-        this.rebuildLocks.delete(key);
+        if (this.rebuildLocks.get(key) === task) {
+          this.rebuildLocks.delete(key);
+        }
       }
     })();
 
@@ -212,7 +220,8 @@ export class FtsService {
       return existingLock;
     }
 
-    const task = (async () => {
+    let task!: Promise<any>;
+    task = (async () => {
       try {
         const driver = this.getFtsDriver() as any;
         if (typeof driver.reconcile === 'function') {
@@ -220,7 +229,9 @@ export class FtsService {
         }
         return await Promise.resolve(this.rebuildIndex(collectionName, lang));
       } finally {
-        this.rebuildLocks.delete(key);
+        if (this.rebuildLocks.get(key) === task) {
+          this.rebuildLocks.delete(key);
+        }
       }
     })();
 

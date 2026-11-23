@@ -15,26 +15,36 @@ export class SchemaService {
   public getAllCollections(): CollectionModel[];
   public getAllCollections(): Promise<CollectionModel[]>;
   public getAllCollections(): any {
-    const rows = this.db.all<any>('SELECT * FROM _collections ORDER BY name ASC');
-    if (rows && typeof (rows as any).then === 'function') {
-      return (rows as any).then((r: any[]) => (r || []).map((x: any) => this.mapRowToCollection(x)));
+    const rootDriver = typeof (this.db as any).getRootDriver === 'function'
+      ? (this.db as any).getRootDriver()
+      : (this.db as any).getDriver?.();
+    if (rootDriver && typeof (rootDriver as any).prepareSync === 'function') {
+      const rows = (rootDriver as any).prepareSync('SELECT * FROM _collections ORDER BY name ASC').all();
+      return (rows || []).map((x: any) => this.mapRowToCollection(x));
     }
-    return (rows || []).map((r: any) => this.mapRowToCollection(r));
+    const rows = this.db.all<any>('SELECT * FROM _collections ORDER BY name ASC');
+    return Promise.resolve(rows).then((r: any[]) => (r || []).map((x: any) => this.mapRowToCollection(x)));
   }
 
   public getCollection(nameOrId: string): CollectionModel | undefined;
   public getCollection(nameOrId: string): Promise<CollectionModel | undefined>;
   public getCollection(nameOrId: string): any {
+    const rootDriver = typeof (this.db as any).getRootDriver === 'function'
+      ? (this.db as any).getRootDriver()
+      : (this.db as any).getDriver?.();
+    if (rootDriver && typeof (rootDriver as any).prepareSync === 'function') {
+      const row = (rootDriver as any).prepareSync(
+        'SELECT * FROM _collections WHERE id = ? OR name = ?'
+      ).get(nameOrId, nameOrId);
+      if (!row) return undefined;
+      return this.mapRowToCollection(row);
+    }
     const row = this.db.get<any>(
       'SELECT * FROM _collections WHERE id = ? OR name = ?',
       nameOrId,
       nameOrId
     );
-    if (row && typeof (row as any).then === 'function') {
-      return (row as any).then((r: any) => (!r ? undefined : this.mapRowToCollection(r)));
-    }
-    if (!row) return undefined;
-    return this.mapRowToCollection(row);
+    return Promise.resolve(row).then((r: any) => (!r ? undefined : this.mapRowToCollection(r)));
   }
 
   public getCollectionOrThrow(nameOrId: string): CollectionModel;
@@ -89,12 +99,12 @@ export class SchemaService {
     const options = dto.options || {};
 
     const executeCreateSync = () => {
-      return this.db.transaction(() => {
+      return this.db.transactionSync(() => {
         // 1. Create SQL table
         this.createSqlTable(cleanName, type, schema);
 
         // 2. Insert into _collections
-        this.db.prepare(`
+        this.db.prepareSync(`
           INSERT INTO _collections (
             id, name, type, system, schema, indexes, listRule, viewRule, createRule, updateRule, deleteRule, options, created, updated
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -327,7 +337,7 @@ export class SchemaService {
     let targetName = current.name;
     const now = new Date().toISOString();
 
-    return this.db.transaction(() => {
+    return this.db.transactionSync(() => {
       // Handle rename if provided and changed
       if (dto.name && dto.name.trim().toLowerCase() !== current.name) {
         if (current.system) {
@@ -341,7 +351,7 @@ export class SchemaService {
         if (this.ftsService) {
           this.ftsService.dropCollectionFts(current.name);
         }
-        this.db.exec(this.db.dialect.renameTableSql(current.name, cleanNewName));
+        this.db.execSync(this.db.dialect.renameTableSql(current.name, cleanNewName));
         targetName = cleanNewName;
       }
 
@@ -360,7 +370,7 @@ export class SchemaService {
       const options = dto.options !== undefined ? dto.options : current.options;
       const indexes = dto.indexes !== undefined ? dto.indexes : current.indexes;
 
-      this.db.prepare(`
+      this.db.prepareSync(`
         UPDATE _collections SET
           name = ?,
           schema = ?,
@@ -425,12 +435,12 @@ export class SchemaService {
     if (current.system) {
       throw new AppError('Cannot delete system collection', 400);
     }
-    return this.db.transaction(() => {
+    return this.db.transactionSync(() => {
       if (this.ftsService) {
         this.ftsService.dropCollectionFts(current.name);
       }
-      this.db.exec(this.db.dialect.dropTableIfExists(current.name));
-      this.db.prepare('DELETE FROM _collections WHERE id = ?').run(current.id);
+      this.db.execSync(this.db.dialect.dropTableIfExists(current.name));
+      this.db.prepareSync('DELETE FROM _collections WHERE id = ?').run(current.id);
     });
   }
 
@@ -499,6 +509,13 @@ export class SchemaService {
     columns.push(`${dialect.quoteIdentifier('updated')} ${dateType} NOT NULL`);
 
     const sql = dialect.createTableIfNotExists(name, columns.join(', '));
+    const rootDriver = typeof (this.db as any).getRootDriver === 'function'
+      ? (this.db as any).getRootDriver()
+      : (this.db as any).getDriver?.();
+    if (rootDriver && typeof (rootDriver as any).execSync === 'function') {
+      (rootDriver as any).execSync(sql);
+      return;
+    }
     return this.db.exec(sql);
   }
 
@@ -510,9 +527,17 @@ export class SchemaService {
       if (!oldFieldNames.has(field.name.toLowerCase())) {
         const colDef = this.fieldToColumnDef(field);
         try {
-          const res = this.db.exec(this.db.dialect.addColumnSql(tableName, colDef));
-          if (res && typeof (res as any).then === 'function') {
-            promises.push(res.catch((e: any) => console.warn(`Column ${field.name} warning:`, e.message)));
+          const sql = this.db.dialect.addColumnSql(tableName, colDef);
+          const rootDriver = typeof (this.db as any).getRootDriver === 'function'
+            ? (this.db as any).getRootDriver()
+            : (this.db as any).getDriver?.();
+          if (rootDriver && typeof (rootDriver as any).execSync === 'function') {
+            (rootDriver as any).execSync(sql);
+          } else {
+            const res = this.db.exec(sql);
+            if (res && typeof (res as any).then === 'function') {
+              promises.push(res.catch((e: any) => console.warn(`Column ${field.name} warning:`, e.message)));
+            }
           }
         } catch (e: any) {
           console.warn(`Column ${field.name} warning:`, e.message);

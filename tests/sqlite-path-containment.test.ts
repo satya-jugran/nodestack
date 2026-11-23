@@ -217,8 +217,8 @@ describe('SQLite Database Path Containment & Arbitrary File Creation Prevention'
   describe('4. HTTP Endpoints (/api/system/database/test & /switch) Containment', () => {
     it('POST /api/system/database/test should reject arbitrary dbPath and prevent file creation', async () => {
       const app = new NodeStack({ dataDir: testDir });
-      await app.auth.createAdmin('admin@containment.test', 'Password123!');
-      const { token: adminToken } = await app.auth.authenticateAdmin('admin@containment.test', 'Password123!');
+      await app.auth.createAdmin('admin1@containment.test', 'Password123!');
+      const { token: adminToken } = await app.auth.authenticateAdmin('admin1@containment.test', 'Password123!');
 
       const evilFile = path.join(externalDir, 'http_attack.db');
       expect(fs.existsSync(evilFile)).toBe(false);
@@ -246,8 +246,8 @@ describe('SQLite Database Path Containment & Arbitrary File Creation Prevention'
 
     it('POST /api/system/database/test should reject relative traversal dbPath', async () => {
       const app = new NodeStack({ dataDir: testDir });
-      await app.auth.createAdmin('admin@containment.test', 'Password123!');
-      const { token: adminToken } = await app.auth.authenticateAdmin('admin@containment.test', 'Password123!');
+      await app.auth.createAdmin('admin2@containment.test', 'Password123!');
+      const { token: adminToken } = await app.auth.authenticateAdmin('admin2@containment.test', 'Password123!');
 
       const evilFile = path.resolve(testDir, '../traversal_via_http.db');
       expect(fs.existsSync(evilFile)).toBe(false);
@@ -275,8 +275,8 @@ describe('SQLite Database Path Containment & Arbitrary File Creation Prevention'
 
     it('POST /api/system/database/switch should reject arbitrary dbPath with 400 Bad Request', async () => {
       const app = new NodeStack({ dataDir: testDir });
-      await app.auth.createAdmin('admin@containment.test', 'Password123!');
-      const { token: adminToken } = await app.auth.authenticateAdmin('admin@containment.test', 'Password123!');
+      await app.auth.createAdmin('admin3@containment.test', 'Password123!');
+      const { token: adminToken } = await app.auth.authenticateAdmin('admin3@containment.test', 'Password123!');
 
       const evilSwitchFile = path.join(externalDir, 'http_switch_attack.db');
       expect(fs.existsSync(evilSwitchFile)).toBe(false);
@@ -306,8 +306,8 @@ describe('SQLite Database Path Containment & Arbitrary File Creation Prevention'
 
     it('POST /api/system/database/switch should succeed for valid :memory: switch', async () => {
       const app = new NodeStack({ dataDir: testDir });
-      await app.auth.createAdmin('admin@containment.test', 'Password123!');
-      const { token: adminToken } = await app.auth.authenticateAdmin('admin@containment.test', 'Password123!');
+      await app.auth.createAdmin('admin4@containment.test', 'Password123!');
+      const { token: adminToken } = await app.auth.authenticateAdmin('admin4@containment.test', 'Password123!');
 
       const res = await app.server.inject({
         method: 'POST',

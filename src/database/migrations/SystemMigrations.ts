@@ -1,7 +1,7 @@
 import { IDatabaseDriver } from '../drivers/IDatabaseDriver';
 
 export class SystemMigrations {
-  public static run(driver: IDatabaseDriver): any {
+  public static async run(driver: IDatabaseDriver): Promise<void> {
     const dialect = driver.dialect;
     const pk = dialect.mapFieldType('text', { isPrimaryKey: true });
     const unq = dialect.mapFieldType('text', { isUnique: true });
@@ -349,99 +349,133 @@ export class SystemMigrations {
     );
 
     if (dialect.name === 'sqlite') {
-      return driver.transaction((txDriver) => {
-        const d = txDriver || driver;
+      const d = driver as any;
+      const runSqliteMigration = (target: any) => {
         for (const sql of statements) {
-          d.exec(sql);
+          target.execSync(sql);
         }
-        try { d.exec(`ALTER TABLE _admins ADD COLUMN verified ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`); } catch {}
-        try { d.exec(`ALTER TABLE _functions ADD COLUMN invokeRule ${txt}`); } catch {}
-        try { d.exec(`ALTER TABLE _functions ADD COLUMN cronSchedule ${txt}`); } catch {}
-        try { d.exec(`ALTER TABLE _functions ADD COLUMN cronTimezone ${txt}`); } catch {}
-        try { d.exec(`ALTER TABLE _functions ADD COLUMN cronMissedPolicy ${txt}`); } catch {}
-        try { d.exec(`ALTER TABLE _functions ADD COLUMN cronPayload ${txt}`); } catch {}
-        try { d.exec(`ALTER TABLE _flows ADD COLUMN authPolicy ${txt} NOT NULL DEFAULT 'public'`); } catch {}
-        try { d.exec(`ALTER TABLE _flows ADD COLUMN invokeRule ${txt}`); } catch {}
-        try { d.exec(`ALTER TABLE _flows ADD COLUMN cronSchedule ${txt}`); } catch {}
-        try { d.exec(`ALTER TABLE _flows ADD COLUMN cronTimezone ${txt}`); } catch {}
-        try { d.exec(`ALTER TABLE _flows ADD COLUMN cronMissedPolicy ${txt}`); } catch {}
-        try { d.exec(`ALTER TABLE _flows ADD COLUMN cronInput ${txt}`); } catch {}
-        const usersExists = d.prepare('SELECT id FROM _collections WHERE name = ?').get('users');
+        try { target.execSync(`ALTER TABLE _admins ADD COLUMN verified ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`); } catch {}
+        try { target.execSync(`ALTER TABLE _functions ADD COLUMN invokeRule ${txt}`); } catch {}
+        try { target.execSync(`ALTER TABLE _functions ADD COLUMN cronSchedule ${txt}`); } catch {}
+        try { target.execSync(`ALTER TABLE _functions ADD COLUMN cronTimezone ${txt}`); } catch {}
+        try { target.execSync(`ALTER TABLE _functions ADD COLUMN cronMissedPolicy ${txt}`); } catch {}
+        try { target.execSync(`ALTER TABLE _functions ADD COLUMN cronPayload ${txt}`); } catch {}
+        try { target.execSync(`ALTER TABLE _flows ADD COLUMN authPolicy ${txt} NOT NULL DEFAULT 'public'`); } catch {}
+        try { target.execSync(`ALTER TABLE _flows ADD COLUMN invokeRule ${txt}`); } catch {}
+        try { target.execSync(`ALTER TABLE _flows ADD COLUMN cronSchedule ${txt}`); } catch {}
+        try { target.execSync(`ALTER TABLE _flows ADD COLUMN cronTimezone ${txt}`); } catch {}
+        try { target.execSync(`ALTER TABLE _flows ADD COLUMN cronMissedPolicy ${txt}`); } catch {}
+        try { target.execSync(`ALTER TABLE _flows ADD COLUMN cronInput ${txt}`); } catch {}
+        const usersExists = target.prepareSync ? target.prepareSync('SELECT id FROM _collections WHERE name = ?').get('users') : null;
         if (!usersExists) {
-          d.prepare(insertUserSql).run(
-            'c_users_default',
-            'users',
-            'auth',
-            0,
-            userSchema,
-            '[]',
-            '',
-            '',
-            '',
-            'id = @request.auth.id',
-            'id = @request.auth.id',
-            userOptions,
-            now,
-            now
-          );
-          d.exec(createUsersTableSql);
+          if (target.prepareSync) {
+            target.prepareSync(insertUserSql).run(
+              'c_users_default',
+              'users',
+              'auth',
+              0,
+              userSchema,
+              '[]',
+              '',
+              '',
+              '',
+              'id = @request.auth.id',
+              'id = @request.auth.id',
+              userOptions,
+              now,
+              now
+            );
+          }
+          target.execSync(createUsersTableSql);
         }
-      });
+      };
+
+      if (typeof d.transactionSync === 'function') {
+        d.transactionSync((txDriver: any) => {
+          runSqliteMigration(txDriver || d);
+        });
+        return;
+      }
+
+      if (typeof d.execSync === 'function') {
+        const sp = `sys_mig_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        d.execSync(`SAVEPOINT ${sp};`);
+        try {
+          runSqliteMigration(d);
+          d.execSync(`RELEASE SAVEPOINT ${sp};`);
+        } catch (err) {
+          try {
+            d.execSync(`ROLLBACK TO SAVEPOINT ${sp};`);
+            d.execSync(`RELEASE SAVEPOINT ${sp};`);
+          } catch {}
+          throw err;
+        }
+        return;
+      }
+    }
+
+    await driver.transaction(async (txDriver) => {
+      const d = txDriver || driver;
+      for (const sql of statements) {
+        await d.exec(sql);
+      }
+      const usersExists = await d.prepare('SELECT id FROM _collections WHERE name = ?').get('users');
+      if (!usersExists) {
+        await d.prepare(insertUserSql).run(
+          'c_users_default',
+          'users',
+          'auth',
+          0,
+          userSchema,
+          '[]',
+          '',
+          '',
+          '',
+          'id = @request.auth.id',
+          'id = @request.auth.id',
+          userOptions,
+          now,
+          now
+        );
+        await d.exec(createUsersTableSql);
+      }
+    });
+
+    if (dialect.name === 'postgres') {
+      try { await driver.exec(`ALTER TABLE "_admins" ADD COLUMN IF NOT EXISTS "verified" ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`); } catch {}
+      try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "invokeRule" ${txt}`); } catch {}
+      try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "cronSchedule" ${txt}`); } catch {}
+      try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "cronTimezone" ${txt}`); } catch {}
+      try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "cronMissedPolicy" ${txt}`); } catch {}
+      try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "cronPayload" ${txt}`); } catch {}
+      try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "authPolicy" ${txt} NOT NULL DEFAULT 'public'`); } catch {}
+      try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "invokeRule" ${txt}`); } catch {}
+      try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronSchedule" ${txt}`); } catch {}
+      try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronTimezone" ${txt}`); } catch {}
+      try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronMissedPolicy" ${txt}`); } catch {}
+      try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronInput" ${txt}`); } catch {}
     } else {
-      return Promise.resolve(driver.transaction(async (txDriver) => {
-        const d = txDriver || driver;
-        for (const sql of statements) {
-          await d.exec(sql);
-        }
-        const usersExists = await d.prepare('SELECT id FROM _collections WHERE name = ?').get('users');
-        if (!usersExists) {
-          await d.prepare(insertUserSql).run(
-            'c_users_default',
-            'users',
-            'auth',
-            0,
-            userSchema,
-            '[]',
-            '',
-            '',
-            '',
-            'id = @request.auth.id',
-            'id = @request.auth.id',
-            userOptions,
-            now,
-            now
-          );
-          await d.exec(createUsersTableSql);
-        }
-      })).then(async () => {
-        if (dialect.name === 'postgres') {
-          try { await driver.exec(`ALTER TABLE "_admins" ADD COLUMN IF NOT EXISTS "verified" ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`); } catch {}
-          try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "invokeRule" ${txt}`); } catch {}
-          try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "cronSchedule" ${txt}`); } catch {}
-          try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "cronTimezone" ${txt}`); } catch {}
-          try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "cronMissedPolicy" ${txt}`); } catch {}
-          try { await driver.exec(`ALTER TABLE "_functions" ADD COLUMN IF NOT EXISTS "cronPayload" ${txt}`); } catch {}
-          try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "authPolicy" ${txt} NOT NULL DEFAULT 'public'`); } catch {}
-          try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "invokeRule" ${txt}`); } catch {}
-          try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronSchedule" ${txt}`); } catch {}
-          try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronTimezone" ${txt}`); } catch {}
-          try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronMissedPolicy" ${txt}`); } catch {}
-          try { await driver.exec(`ALTER TABLE "_flows" ADD COLUMN IF NOT EXISTS "cronInput" ${txt}`); } catch {}
-        } else {
-          try { await driver.exec(dialect.addColumnSql('_admins', `verified ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`)); } catch {}
-          try { await driver.exec(dialect.addColumnSql('_functions', `invokeRule ${txt}`)); } catch {}
-          try { await driver.exec(dialect.addColumnSql('_functions', `cronSchedule ${txt}`)); } catch {}
-          try { await driver.exec(dialect.addColumnSql('_functions', `cronTimezone ${txt}`)); } catch {}
-          try { await driver.exec(dialect.addColumnSql('_functions', `cronMissedPolicy ${txt}`)); } catch {}
-          try { await driver.exec(dialect.addColumnSql('_functions', `cronPayload ${txt}`)); } catch {}
-          try { await driver.exec(dialect.addColumnSql('_flows', `authPolicy ${txt} NOT NULL DEFAULT 'public'`)); } catch {}
-          try { await driver.exec(dialect.addColumnSql('_flows', `invokeRule ${txt}`)); } catch {}
-          try { await driver.exec(dialect.addColumnSql('_flows', `cronSchedule ${txt}`)); } catch {}
-          try { await driver.exec(dialect.addColumnSql('_flows', `cronTimezone ${txt}`)); } catch {}
-          try { await driver.exec(dialect.addColumnSql('_flows', `cronMissedPolicy ${txt}`)); } catch {}
-          try { await driver.exec(dialect.addColumnSql('_flows', `cronInput ${txt}`)); } catch {}
-        }
-      });
+      try { await driver.exec(dialect.addColumnSql('_admins', `verified ${bool} NOT NULL DEFAULT ${dialect.booleanLiteral(false)}`)); } catch {}
+      try { await driver.exec(dialect.addColumnSql('_functions', `invokeRule ${txt}`)); } catch {}
+      try { await driver.exec(dialect.addColumnSql('_functions', `cronSchedule ${txt}`)); } catch {}
+      try { await driver.exec(dialect.addColumnSql('_functions', `cronTimezone ${txt}`)); } catch {}
+      try { await driver.exec(dialect.addColumnSql('_functions', `cronMissedPolicy ${txt}`)); } catch {}
+      try { await driver.exec(dialect.addColumnSql('_functions', `cronPayload ${txt}`)); } catch {}
+      try { await driver.exec(dialect.addColumnSql('_flows', `authPolicy ${txt} NOT NULL DEFAULT 'public'`)); } catch {}
+      try { await driver.exec(dialect.addColumnSql('_flows', `invokeRule ${txt}`)); } catch {}
+      try { await driver.exec(dialect.addColumnSql('_flows', `cronSchedule ${txt}`)); } catch {}
+      try { await driver.exec(dialect.addColumnSql('_flows', `cronTimezone ${txt}`)); } catch {}
+      try { await driver.exec(dialect.addColumnSql('_flows', `cronMissedPolicy ${txt}`)); } catch {}
+      try { await driver.exec(dialect.addColumnSql('_flows', `cronInput ${txt}`)); } catch {}
+    }
+  }
+
+  public static runSync(driver: IDatabaseDriver): void {
+    const dialect = driver.dialect;
+    if (dialect.name !== 'sqlite') return;
+    const res = SystemMigrations.run(driver);
+    if (res && typeof (res as any).catch === 'function') {
+      res.catch(() => {});
     }
   }
 }

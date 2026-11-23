@@ -200,7 +200,7 @@ describe('1-Click Mock Data Generator (Faker Engine) Tests', () => {
       expect(authorsList.totalItems).toBeGreaterThanOrEqual(3);
 
       // Verify authors have valid emails and bcrypt hashed passwords
-      const rawAuthor = app.db.get<any>('SELECT * FROM authors LIMIT 1');
+      const rawAuthor = await app.db.get<any>('SELECT * FROM authors LIMIT 1');
       expect(rawAuthor.email).toContain('@');
       expect(rawAuthor.passwordHash).toBeTruthy();
       expect(bcrypt.compareSync('NodeStack2026!', rawAuthor.passwordHash)).toBe(true);

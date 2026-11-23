@@ -706,7 +706,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       expect(ecomScope.schema.getCollection('_stripe_customers')).toBeDefined();
 
       // 2. Direct SQLite check: tables MUST exist in ecommerce database
-      const ecomTable = ecomScope.db.get<{ name: string }>(
+      const ecomTable = await ecomScope.db.get<{ name: string }>(
         `SELECT name FROM sqlite_master WHERE type='table' AND name = ?`,
         ['_stripe_payments']
       );
@@ -716,13 +716,13 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       expect(blogScope.schema.getCollection('_stripe_payments')).toBeUndefined();
       expect(defaultScope.schema.getCollection('_stripe_payments')).toBeUndefined();
 
-      const blogTable = blogScope.db.get<{ name: string }>(
+      const blogTable = await blogScope.db.get<{ name: string }>(
         `SELECT name FROM sqlite_master WHERE type='table' AND name = ?`,
         ['_stripe_payments']
       );
       expect(blogTable).toBeUndefined();
 
-      const defaultTable = defaultScope.db.get<{ name: string }>(
+      const defaultTable = await defaultScope.db.get<{ name: string }>(
         `SELECT name FROM sqlite_master WHERE type='table' AND name = ?`,
         ['_stripe_payments']
       );
@@ -744,7 +744,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
 
       // S3 Storage was also enabled for ecommerce
       expect(ecomScope.schema.getCollection('_s3_uploads')).toBeDefined();
-      const ecomS3Table = ecomScope.db.get<{ name: string }>(
+      const ecomS3Table = await ecomScope.db.get<{ name: string }>(
         `SELECT name FROM sqlite_master WHERE type='table' AND name = ?`,
         ['_s3_uploads']
       );
@@ -1411,7 +1411,7 @@ describe('Multi-Application & MVP Support Integration Tests', () => {
       expect(verifiedClaims.isTenantScoped).toBe(true);
 
       // 7.2 Verify tenant admin is NOT persisted into global AppRegistry
-      const globalRegAdmin = server.apps.registry.getAdminByEmail('tenant-admin@corp.com');
+      const globalRegAdmin = await server.apps.registry.getAdminByEmail('tenant-admin@corp.com');
       expect(globalRegAdmin).toBeUndefined();
 
       // 7.3 Verify tenant admin JWT CAN manage resources inside tenant-corp

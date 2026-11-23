@@ -115,7 +115,7 @@ describe('AuthMiddleware - Token Validation & Immediate 401 Rejection', () => {
 
     it('should reject expired token with 401 immediately', async () => {
       const adminAuth = await app.auth.authenticateAdmin('admin@nodestack.test', 'AdminPassword123!');
-      const claims = app.auth.verifyToken(adminAuth.token);
+      const claims = await app.auth.verifyToken(adminAuth.token);
       // Generate expired token (-10s)
       const expiredToken = app.auth.generateToken(
         {
@@ -228,7 +228,7 @@ describe('AuthMiddleware - Token Validation & Immediate 401 Rejection', () => {
 
     it('should reject expired token with 401 on public collection', async () => {
       const validAuth = await app.auth.authenticateAdmin('admin@nodestack.test', 'AdminPassword123!');
-      const claims = app.auth.verifyToken(validAuth.token);
+      const claims = await app.auth.verifyToken(validAuth.token);
       const expiredToken = app.auth.generateToken(
         {
           id: claims.id,
@@ -333,6 +333,33 @@ describe('AuthMiddleware - Token Validation & Immediate 401 Rejection', () => {
       const nonOwnerSanitized = app.auth.sanitizeAuthRecord(privateRecord, undefined, false);
       expect(nonOwnerSanitized.email).toBeUndefined(); // Non-owner has email masked
       expect((nonOwnerSanitized as any).passwordHash).toBeUndefined();
+    });
+
+    it('should not set isSuperAdmin when registry.getAdminById resolves to undefined and preserve it on cache hit', async () => {
+      const adminAuth = await app.auth.authenticateAdmin('admin@nodestack.test', 'AdminPassword123!');
+      const registry = (app.auth as any).registry;
+      expect(registry).toBeDefined();
+
+      // Invalidate token cache so fresh verification occurs
+      app.auth.invalidateTokenCache('_admins', adminAuth.record.id);
+
+      // Spy on registry.getAdminById to resolve to undefined
+      const spy = vi.spyOn(registry, 'getAdminById').mockResolvedValue(undefined);
+
+      try {
+        // Initial verification (cache miss)
+        const claims = await app.auth.verifyToken(adminAuth.token);
+        expect(claims.isAdmin).toBe(true);
+        expect(claims.isSuperAdmin).toBe(false);
+
+        // Second verification (cache hit)
+        const cachedClaims = await app.auth.verifyToken(adminAuth.token);
+        expect(cachedClaims.isAdmin).toBe(true);
+        expect(cachedClaims.isSuperAdmin).toBe(false);
+      } finally {
+        spy.mockRestore();
+        app.auth.invalidateTokenCache('_admins', adminAuth.record.id);
+      }
     });
   });
 });

@@ -73,8 +73,8 @@ describe('Analytics & Metrics Subsystem', () => {
   });
 
   describe('Database Metrics & Active Records Count', () => {
-    it('should report database disk size and zero active records initially', () => {
-      const dbMetrics = app.analytics.getDatabaseMetrics();
+    it('should report database disk size and zero active records initially', async () => {
+      const dbMetrics = await app.analytics.getDatabaseMetrics();
 
       expect(dbMetrics).toBeDefined();
       expect(dbMetrics.sizeBytes).toBeGreaterThan(0);
@@ -96,7 +96,7 @@ describe('Analytics & Metrics Subsystem', () => {
       await app.records.create('comments', { content: 'Nice read!' });
       await app.records.create('comments', { content: 'Helpful article' });
 
-      const dbMetrics = app.analytics.getDatabaseMetrics();
+      const dbMetrics = await app.analytics.getDatabaseMetrics();
       expect(dbMetrics.totalRecords).toBe(5);
 
       const articles = dbMetrics.collectionsBreakdown.find((c) => c.collection === 'articles');
@@ -134,8 +134,8 @@ describe('Analytics & Metrics Subsystem', () => {
   });
 
   describe('24h Traffic & Error Rate Analytics', () => {
-    it('should return exactly 24 hourly data points in series', () => {
-      const traffic = app.analytics.getTraffic24hMetrics();
+    it('should return exactly 24 hourly data points in series', async () => {
+      const traffic = await app.analytics.getTraffic24hMetrics();
 
       expect(traffic).toBeDefined();
       expect(Array.isArray(traffic.series)).toBe(true);
@@ -151,7 +151,7 @@ describe('Analytics & Metrics Subsystem', () => {
       expect(point.errorRate).toBeGreaterThanOrEqual(0);
     });
 
-    it('should accurately aggregate request volume, error rate, and average latency', () => {
+    it('should accurately aggregate request volume, error rate, and average latency', async () => {
       // Simulate recent request logs
       app.logs.logRequest({
         method: 'GET',
@@ -181,7 +181,7 @@ describe('Analytics & Metrics Subsystem', () => {
         duration: 12.0,
       });
 
-      const traffic = app.analytics.getTraffic24hMetrics();
+      const traffic = await app.analytics.getTraffic24hMetrics();
 
       expect(traffic.totalRequests).toBeGreaterThanOrEqual(4);
       expect(traffic.totalErrors).toBeGreaterThanOrEqual(2);

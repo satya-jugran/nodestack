@@ -33,7 +33,7 @@ describe('Auth Token Revocation & Password Reset Session Invalidation', () => {
     const token1 = auth1.token;
 
     // 2. verifyToken succeeds with token1
-    const claims1 = app.auth.verifyToken(token1);
+    const claims1 = await app.auth.verifyToken(token1);
     expect(claims1.email).toBe('security@nodestack.io');
     expect(claims1.isAdmin).toBe(true);
 
@@ -47,7 +47,7 @@ describe('Auth Token Revocation & Password Reset Session Invalidation', () => {
     await app.auth.updateAdminPassword('security@nodestack.io', 'NewSecretPassword456!');
 
     // 5. verifyToken with token1 MUST now throw UnauthorizedError
-    expect(() => app.auth.verifyToken(token1)).toThrow(UnauthorizedError);
+    await expect(app.auth.verifyToken(token1)).rejects.toThrow(UnauthorizedError);
 
     // 6. HTTP request with old token1 MUST now be rejected (401/403)
     const resOld = await fetch('http://127.0.0.1:8133/api/admins/me', {
@@ -66,7 +66,7 @@ describe('Auth Token Revocation & Password Reset Session Invalidation', () => {
     expect(token2).toBeDefined();
     expect(token2).not.toBe(token1);
 
-    const claims2 = app.auth.verifyToken(token2);
+    const claims2 = await app.auth.verifyToken(token2);
     expect(claims2.email).toBe('security@nodestack.io');
 
     const res2 = await fetch('http://127.0.0.1:8133/api/admins/me', {
@@ -75,8 +75,8 @@ describe('Auth Token Revocation & Password Reset Session Invalidation', () => {
     expect(res2.status).toBe(200);
 
     // 9. Explicit session revocation via revokeAdminSessions rotates tokenKey
-    app.auth.revokeAdminSessions('security@nodestack.io');
-    expect(() => app.auth.verifyToken(token2)).toThrow(UnauthorizedError);
+    await app.auth.revokeAdminSessions('security@nodestack.io');
+    await expect(app.auth.verifyToken(token2)).rejects.toThrow(UnauthorizedError);
 
     const resRevoked = await fetch('http://127.0.0.1:8133/api/admins/me', {
       headers: { authorization: `Bearer ${token2}` },
@@ -95,7 +95,7 @@ describe('Auth Token Revocation & Password Reset Session Invalidation', () => {
     const userToken1 = userAuth1.token;
 
     // verifyToken succeeds
-    const userClaims1 = app.auth.verifyToken(userToken1);
+    const userClaims1 = await app.auth.verifyToken(userToken1);
     expect(userClaims1.email).toBe('member@nodestack.io');
     expect(userClaims1.isAdmin).toBe(false);
 
@@ -105,16 +105,16 @@ describe('Auth Token Revocation & Password Reset Session Invalidation', () => {
     }, userClaims1);
 
     // 3. Old user token MUST now be revoked
-    expect(() => app.auth.verifyToken(userToken1)).toThrow(UnauthorizedError);
+    await expect(app.auth.verifyToken(userToken1)).rejects.toThrow(UnauthorizedError);
 
     // 4. Authenticate with new password
     const userAuth2 = await app.auth.authenticateRecord('users', 'member@nodestack.io', 'UpdatedPassword789!');
     const userToken2 = userAuth2.token;
     expect(userToken2).toBeDefined();
-    expect(app.auth.verifyToken(userToken2).email).toBe('member@nodestack.io');
+    expect((await app.auth.verifyToken(userToken2)).email).toBe('member@nodestack.io');
 
     // 5. Explicit user session revocation
-    app.auth.revokeRecordSessions('users', user.id);
-    expect(() => app.auth.verifyToken(userToken2)).toThrow(UnauthorizedError);
+    await app.auth.revokeRecordSessions('users', user.id);
+    await expect(app.auth.verifyToken(userToken2)).rejects.toThrow(UnauthorizedError);
   });
 });

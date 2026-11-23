@@ -124,7 +124,7 @@ describe('Audit Log & Change History System', () => {
       postId = post.id;
       expect(postId).toBeDefined();
 
-      const history = app.auditLogs.getRecordHistory('posts', postId);
+      const history = await app.auditLogs.getRecordHistory('posts', postId);
       expect(history.items.length).toBeGreaterThanOrEqual(1);
 
       const createEntry = history.items.find((i) => i.action === 'create');
@@ -149,7 +149,7 @@ describe('Audit Log & Change History System', () => {
 
       expect(res.statusCode).toBe(200);
 
-      const history = app.auditLogs.getRecordHistory('posts', postId);
+      const history = await app.auditLogs.getRecordHistory('posts', postId);
       const updateEntry = history.items.find((i) => i.action === 'update');
 
       expect(updateEntry).toBeDefined();
@@ -184,7 +184,7 @@ describe('Audit Log & Change History System', () => {
       expect(deleteRes.statusCode).toBe(204);
 
       // Verify the delete audit log exists even though the source record is gone!
-      const history = app.auditLogs.getRecordHistory('posts', tempId);
+      const history = await app.auditLogs.getRecordHistory('posts', tempId);
       const deleteEntry = history.items.find((i) => i.action === 'delete');
 
       expect(deleteEntry).toBeDefined();
@@ -222,7 +222,7 @@ describe('Audit Log & Change History System', () => {
       expect(updateRes.statusCode).toBe(200);
 
       // 3. Verify audit history captures the password change
-      const history = app.auditLogs.getRecordHistory('users', userId);
+      const history = await app.auditLogs.getRecordHistory('users', userId);
       const pwUpdate = history.items.find((i) => i.action === 'update');
 
       expect(pwUpdate).toBeDefined();

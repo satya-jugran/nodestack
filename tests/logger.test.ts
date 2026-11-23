@@ -34,7 +34,7 @@ describe('LogService In-Memory Buffering & Write Batching Tests', () => {
     }
   });
 
-  it('should buffer log writes and flush them in a single batch', () => {
+  it('should buffer log writes and flush them in a single batch', async () => {
     const logService = new LogService(db);
 
     // Log 5 requests
@@ -49,21 +49,21 @@ describe('LogService In-Memory Buffering & Write Batching Tests', () => {
     }
 
     // Check raw database table directly before flush or getLogs
-    const rawCountBefore = db.get<{ count: number }>('SELECT COUNT(*) as count FROM _logs');
+    const rawCountBefore = await db.get<{ count: number }>('SELECT COUNT(*) as count FROM _logs');
     expect(rawCountBefore?.count).toBe(0);
 
     // getLogs() automatically flushes the buffer
-    const logs = logService.getLogs(1, 10);
+    const logs = await logService.getLogs(1, 10);
     expect(logs.totalItems).toBe(5);
     expect(logs.items).toHaveLength(5);
 
-    const rawCountAfter = db.get<{ count: number }>('SELECT COUNT(*) as count FROM _logs');
+    const rawCountAfter = await db.get<{ count: number }>('SELECT COUNT(*) as count FROM _logs');
     expect(rawCountAfter?.count).toBe(5);
 
     logService.dispose();
   });
 
-  it('should automatically flush when buffer reaches maxBufferSize', () => {
+  it('should automatically flush when buffer reaches maxBufferSize', async () => {
     const logService = new LogService(db);
 
     // Log 50 requests (maxBufferSize)
@@ -77,14 +77,15 @@ describe('LogService In-Memory Buffering & Write Batching Tests', () => {
       });
     }
 
+    await new Promise((r) => setTimeout(r, 50));
     // Should have automatically flushed into SQLite table
-    const rawCount = db.get<{ count: number }>('SELECT COUNT(*) as count FROM _logs');
+    const rawCount = await db.get<{ count: number }>('SELECT COUNT(*) as count FROM _logs');
     expect(rawCount?.count).toBe(50);
 
     logService.dispose();
   });
 
-  it('should clean up timers and pending buffer on dispose()', () => {
+  it('should clean up timers and pending buffer on dispose()', async () => {
     const logService = new LogService(db);
 
     logService.logRequest({
@@ -96,13 +97,43 @@ describe('LogService In-Memory Buffering & Write Batching Tests', () => {
     });
 
     // Calling dispose() flushes remaining items and clears timer
-    logService.dispose();
+    await logService.dispose();
 
-    const rawCount = db.get<{ count: number }>('SELECT COUNT(*) as count FROM _logs');
+    const rawCount = await db.get<{ count: number }>('SELECT COUNT(*) as count FROM _logs');
     expect(rawCount?.count).toBe(1);
   });
 
-  it('should clear buffer and database records on clearLogs()', () => {
+  it('should persist all buffered logs before database is closed when calling dispose()', async () => {
+    const logService = new LogService(db);
+
+    for (let i = 1; i <= 10; i++) {
+      logService.logRequest({
+        method: 'POST',
+        url: `/api/shutdown/${i}`,
+        status: 200,
+        duration: 1.0,
+      });
+    }
+
+    // Await dispose() and then immediately close the database
+    await logService.dispose();
+    await db.close();
+
+    // Reopen database with fresh connection to verify records were persisted
+    const freshDb = new DatabaseService(config);
+    await freshDb.init();
+    try {
+      const countRow = await freshDb.get<{ count: number }>(
+        'SELECT COUNT(*) as count FROM _logs WHERE url LIKE ?',
+        '/api/shutdown/%'
+      );
+      expect(countRow?.count).toBe(10);
+    } finally {
+      await freshDb.close();
+    }
+  });
+
+  it('should clear buffer and database records on clearLogs()', async () => {
     const logService = new LogService(db);
 
     logService.logRequest({
@@ -113,43 +144,43 @@ describe('LogService In-Memory Buffering & Write Batching Tests', () => {
       ip: '127.0.0.1',
     });
 
-    logService.clearLogs();
+    await logService.clearLogs();
 
-    const logs = logService.getLogs(1, 10);
+    const logs = await logService.getLogs(1, 10);
     expect(logs.totalItems).toBe(0);
     expect(logs.items).toHaveLength(0);
 
     logService.dispose();
   });
 
-  it('should prune logs older than specified days and keep recent logs', () => {
+  it('should prune logs older than specified days and keep recent logs', async () => {
     const logService = new LogService(db);
 
     // Insert old log (35 days old)
     const oldDate = new Date(Date.now() - 35 * 86400000).toISOString();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO _logs (id, method, url, status, duration, ip, authId, authCollection, userAgent, data, created)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run('old_1', 'GET', '/old', 200, 1.0, null, null, null, null, null, oldDate);
 
     // Insert recent log (1 day old)
     const recentDate = new Date(Date.now() - 1 * 86400000).toISOString();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO _logs (id, method, url, status, duration, ip, authId, authCollection, userAgent, data, created)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run('recent_1', 'GET', '/recent', 200, 1.0, null, null, null, null, null, recentDate);
 
-    const deletedCount = logService.pruneLogs(30);
+    const deletedCount = await logService.pruneLogs(30);
     expect(deletedCount).toBe(1);
 
-    const remaining = logService.getLogs(1, 10);
+    const remaining = await logService.getLogs(1, 10);
     expect(remaining.totalItems).toBe(1);
     expect(remaining.items[0].id).toBe('recent_1');
 
     logService.dispose();
   });
 
-  it('should defensively handle circular references in entry.data without throwing', () => {
+  it('should defensively handle circular references in entry.data without throwing', async () => {
     const logService = new LogService(db);
 
     const circularObj: any = { message: 'hello' };
@@ -165,7 +196,7 @@ describe('LogService In-Memory Buffering & Write Batching Tests', () => {
       });
     }).not.toThrow();
 
-    const logs = logService.getLogs(1, 10);
+    const logs = await logService.getLogs(1, 10);
     expect(logs.totalItems).toBe(1);
     expect(logs.items[0].url).toBe('/api/circular');
     expect(logs.items[0].data).toBeNull();
@@ -173,7 +204,7 @@ describe('LogService In-Memory Buffering & Write Batching Tests', () => {
     logService.dispose();
   });
 
-  it('should safely serialize objects containing BigInt in entry.data without throwing', () => {
+  it('should safely serialize objects containing BigInt in entry.data without throwing', async () => {
     const logService = new LogService(db);
 
     expect(() => {
@@ -186,7 +217,7 @@ describe('LogService In-Memory Buffering & Write Batching Tests', () => {
       });
     }).not.toThrow();
 
-    const logs = logService.getLogs(1, 10);
+    const logs = await logService.getLogs(1, 10);
     expect(logs.totalItems).toBe(1);
     expect(logs.items[0].url).toBe('/api/bigint');
     expect(logs.items[0].data).toEqual({ amount: '1000000000000000000', label: 'wei' });
@@ -194,12 +225,12 @@ describe('LogService In-Memory Buffering & Write Batching Tests', () => {
     logService.dispose();
   });
 
-  it('should reject non-finite or negative olderThanDays in pruneLogs', () => {
+  it('should reject non-finite or negative olderThanDays in pruneLogs', async () => {
     const logService = new LogService(db);
-    expect(() => logService.pruneLogs(Infinity)).toThrow(/Invalid olderThanDays parameter/);
-    expect(() => logService.pruneLogs(Number('1e309'))).toThrow(/Invalid olderThanDays parameter/);
-    expect(() => logService.pruneLogs(NaN)).toThrow(/Invalid olderThanDays parameter/);
-    expect(() => logService.pruneLogs(-5)).toThrow(/Invalid olderThanDays parameter/);
+    await expect(logService.pruneLogs(Infinity)).rejects.toThrow(/Invalid olderThanDays parameter/);
+    await expect(logService.pruneLogs(Number('1e309'))).rejects.toThrow(/Invalid olderThanDays parameter/);
+    await expect(logService.pruneLogs(NaN)).rejects.toThrow(/Invalid olderThanDays parameter/);
+    await expect(logService.pruneLogs(-5)).rejects.toThrow(/Invalid olderThanDays parameter/);
     logService.dispose();
   });
 

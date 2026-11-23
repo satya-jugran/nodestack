@@ -506,18 +506,24 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
     });
 
     // Finding 4: Async Function Support in DatabaseService.transaction()
-    it('Finding 4: should permit async transaction callbacks on async drivers and only reject on SQLite', async () => {
+    it('Finding 4: should permit async transaction callbacks across all drivers and reject on transactionSync', async () => {
       const config = new ConfigService();
       const sqliteDb = new DatabaseService(config);
 
-      // 1. SQLite rejects async callbacks
+      // 1. SQLite permits async callbacks
+      const sqliteRes = await sqliteDb.transaction(async () => {
+        return 1;
+      });
+      expect(sqliteRes).toBe(1);
+
+      // 2. Synchronous transactionSync rejects async callbacks
       expect(() => {
-        sqliteDb.transaction(async () => {
+        sqliteDb.transactionSync(async () => {
           return 1;
         });
-      }).toThrow('Asynchronous functions cannot be used with synchronous transaction()');
+      }).toThrow('Asynchronous functions cannot be used with synchronous transactionSync()');
 
-      // 2. Async driver (PostgreSQL) allows async callbacks
+      // 3. Async driver (PostgreSQL) allows async callbacks
       const mockPgDriver: any = {
         dialect: { name: 'postgres' },
         isOpen: () => true,
@@ -2849,9 +2855,9 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
         });
 
         const now = new Date().toISOString();
-        db.prepare('INSERT INTO "widgets" ("id", "created", "updated") VALUES (?, ?, ?)').run('w_1', now, now);
+        await db.prepare('INSERT INTO "widgets" ("id", "created", "updated") VALUES (?, ?, ?)').run('w_1', now, now);
 
-        const row = db.get<any>('SELECT * FROM "widgets" WHERE "id" = ?', 'w_1');
+        const row = await db.get<any>('SELECT * FROM "widgets" WHERE "id" = ?', 'w_1');
         expect(row).toBeDefined();
         expect(row.name).toBe('');
         expect(row.count).toBe(0);
@@ -3079,8 +3085,8 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
         expect(r1.active).toBe(true);
         expect(r2.active).toBe(false);
 
-        const raw1 = db.get<any>('SELECT * FROM "tasks" WHERE "id" = ?', r1.id);
-        const raw2 = db.get<any>('SELECT * FROM "tasks" WHERE "id" = ?', r2.id);
+        const raw1 = await db.get<any>('SELECT * FROM "tasks" WHERE "id" = ?', r1.id);
+        const raw2 = await db.get<any>('SELECT * FROM "tasks" WHERE "id" = ?', r2.id);
         expect(raw1.active).toBe(1);
         expect(raw2.active).toBe(0);
 
@@ -3560,13 +3566,13 @@ describe('Multi-Database Architecture & Configuration Tests', () => {
       `).run('adm_sq1', 'sqliteadmin@nodestack.dev', passwordHash, 'tk_sq_1', null, now, now);
 
       const authRes = await authService.authenticateAdmin('sqliteadmin@nodestack.dev', 'SqliteAdminPass123!');
-      const synced1 = registry.getAdminById('adm_sq1');
+      const synced1 = await registry.getAdminById('adm_sq1');
       expect(synced1).toBeDefined();
       expect(synced1.email).toBe('sqliteadmin@nodestack.dev');
       expect(synced1.tokenKey).toBe('tk_sq_1');
 
-      // Synchronous verifyToken when admin is already in registry (upserts updated record)
-      const claims = authService.verifyToken(authRes.token);
+      // verifyToken when admin is already in registry (upserts updated record)
+      const claims = await authService.verifyToken(authRes.token);
       expect(claims.id).toBe('adm_sq1');
       expect(claims.isSuperAdmin).toBe(true);
 

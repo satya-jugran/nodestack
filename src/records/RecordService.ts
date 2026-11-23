@@ -981,37 +981,20 @@ export class RecordService {
 
     // Insert inside database transaction
     const insertedRecords: Array<Record<string, any>> = [];
-    if (dialect.name === 'sqlite') {
-      this.db.transaction(() => {
-        for (const item of validPreparedRecords) {
-          const recordToInsert = item.insertData;
-          const columns = Object.keys(recordToInsert).map((k) => dialect.quoteIdentifier(k));
-          const placeholders = Object.keys(recordToInsert).map(() => '?');
-          const values = Object.values(recordToInsert);
+    await this.db.transaction(async (tx) => {
+      for (const item of validPreparedRecords) {
+        const recordToInsert = item.insertData;
+        const columns = Object.keys(recordToInsert).map((k) => dialect.quoteIdentifier(k));
+        const placeholders = Object.keys(recordToInsert).map(() => '?');
+        const values = Object.values(recordToInsert);
 
-          const sql = `INSERT INTO ${dialect.quoteIdentifier(col.name)} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
-          this.db.run(sql, ...values);
+        const sql = `INSERT INTO ${dialect.quoteIdentifier(col.name)} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+        await tx.prepare(sql).run(...values);
 
-          const sanitized = this.sanitizeRecord(recordToInsert, col, auth, true);
-          insertedRecords.push(sanitized);
-        }
-      });
-    } else {
-      await this.db.transaction(async (tx) => {
-        for (const item of validPreparedRecords) {
-          const recordToInsert = item.insertData;
-          const columns = Object.keys(recordToInsert).map((k) => dialect.quoteIdentifier(k));
-          const placeholders = Object.keys(recordToInsert).map(() => '?');
-          const values = Object.values(recordToInsert);
-
-          const sql = `INSERT INTO ${dialect.quoteIdentifier(col.name)} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
-          await tx.prepare(sql).run(...values);
-
-          const sanitized = this.sanitizeRecord(recordToInsert, col, auth, true);
-          insertedRecords.push(sanitized);
-        }
-      });
-    }
+        const sanitized = this.sanitizeRecord(recordToInsert, col, auth, true);
+        insertedRecords.push(sanitized);
+      }
+    });
 
     // Trigger lifecycle hooks & broadcast realtime
     for (const rec of insertedRecords) {

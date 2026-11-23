@@ -109,7 +109,7 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
       }
 
       // Check if superuser exists
-      if (!app.auth.hasAdmins()) {
+      if (!(await app.auth.hasAdmins())) {
         console.log(
           chalk.yellow(
             '\n  ℹ No superuser found. You can create one via CLI using:\n    npx nodestack superuser create\n    or visit the Web Admin UI on first launch to configure it.'

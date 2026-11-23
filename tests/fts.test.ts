@@ -34,7 +34,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
   });
 
   describe('1. FTS5 Virtual Table & Trigger Lifecycle', () => {
-    it('should automatically create FTS5 virtual table and sync triggers when creating collection with text fields', () => {
+    it('should automatically create FTS5 virtual table and sync triggers when creating collection with text fields', async () => {
       const col = app.schema.createCollection({
         name: 'posts',
         schema: [
@@ -53,7 +53,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       expect(cols).toEqual(['title', 'content']);
 
       // Verify triggers exist in sqlite_master
-      const triggers = app.db.all<{ name: string }>(
+      const triggers = await app.db.all<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE '_fts_posts_%'"
       );
       const triggerNames = triggers.map((t) => t.name).sort();
@@ -80,7 +80,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       });
 
       // Direct inspection of FTS5 table
-      const indexed = app.db.get<any>('SELECT * FROM _fts_articles WHERE id = ?', [rec.id]);
+      const indexed = await app.db.get<any>('SELECT * FROM _fts_articles WHERE id = ?', [rec.id]);
       expect(indexed).toBeDefined();
       expect(indexed.id).toBe(rec.id);
       expect(indexed.title).toBe('Building a Full-Text Search Engine');
@@ -111,16 +111,16 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
         content: 'Refined production backend content',
       });
 
-      const indexed = app.db.get<any>('SELECT * FROM _fts_notes WHERE id = ?', [rec.id]);
+      const indexed = await app.db.get<any>('SELECT * FROM _fts_notes WHERE id = ?', [rec.id]);
       expect(indexed.title).toBe('Updated Note Title with TypeScript');
       expect(indexed.content).toBe('Refined production backend content');
 
       // Verify old terms no longer match
-      const oldMatches = app.db.all('SELECT * FROM _fts_notes WHERE _fts_notes MATCH ?', ['"Initial"']);
+      const oldMatches = await app.db.all('SELECT * FROM _fts_notes WHERE _fts_notes MATCH ?', ['"Initial"']);
       expect(oldMatches.length).toBe(0);
 
       // Verify new terms match
-      const newMatches = app.db.all('SELECT * FROM _fts_notes WHERE _fts_notes MATCH ?', ['"TypeScript"']);
+      const newMatches = await app.db.all('SELECT * FROM _fts_notes WHERE _fts_notes MATCH ?', ['"TypeScript"']);
       expect(newMatches.length).toBe(1);
     });
 
@@ -139,11 +139,11 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
         task: 'Implement SQLite full-text search',
       });
 
-      expect(app.db.all('SELECT * FROM _fts_todos WHERE id = ?', [rec.id]).length).toBe(1);
+      expect((await app.db.all('SELECT * FROM _fts_todos WHERE id = ?', [rec.id])).length).toBe(1);
 
       await app.records.delete('todos', rec.id);
 
-      expect(app.db.all('SELECT * FROM _fts_todos WHERE id = ?', [rec.id]).length).toBe(0);
+      expect((await app.db.all('SELECT * FROM _fts_todos WHERE id = ?', [rec.id])).length).toBe(0);
     });
 
     it('should respect fts: false to exclude specific text fields from FTS indexing', () => {
@@ -160,7 +160,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       expect(cols).not.toContain('internalNote');
     });
 
-    it('should drop FTS table and triggers when collection is deleted', () => {
+    it('should drop FTS table and triggers when collection is deleted', async () => {
       app.schema.createCollection({
         name: 'temp_docs',
         schema: [{ id: 'f1', name: 'content', type: 'text' }],
@@ -171,7 +171,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       app.schema.deleteCollection('temp_docs');
 
       expect(app.fts.hasFtsIndex('temp_docs')).toBe(false);
-      const remainingTriggers = app.db.all(
+      const remainingTriggers = await app.db.all(
         "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE '_fts_temp_docs_%'"
       );
       expect(remainingTriggers.length).toBe(0);
@@ -202,7 +202,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       expect(app.fts.hasFtsIndex('published_posts')).toBe(true);
 
       // Verify records are accessible via the new FTS table
-      const matches = app.db.all('SELECT * FROM _fts_published_posts WHERE _fts_published_posts MATCH ?', ['"Draft"']);
+      const matches = await app.db.all('SELECT * FROM _fts_published_posts WHERE _fts_published_posts MATCH ?', ['"Draft"']);
       expect(matches.length).toBe(1);
     });
 
@@ -223,7 +223,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
         title: 'Internationalization and Tokenizers',
       });
 
-      const tableSqlBefore = app.db.get<{ sql: string }>(
+      const tableSqlBefore = await app.db.get<{ sql: string }>(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '_fts_multilingual_posts'"
       );
       expect(tableSqlBefore?.sql).toContain("tokenize = 'porter unicode61'");
@@ -233,7 +233,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
         options: { ftsLanguage: 'french' },
       });
 
-      const tableSqlAfter = app.db.get<{ sql: string }>(
+      const tableSqlAfter = await app.db.get<{ sql: string }>(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '_fts_multilingual_posts'"
       );
       expect(tableSqlAfter?.sql).toContain("tokenize = 'unicode61'");
@@ -248,7 +248,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
         options: { ftsTokenizer: 'ascii' },
       });
 
-      const tableSqlAscii = app.db.get<{ sql: string }>(
+      const tableSqlAscii = await app.db.get<{ sql: string }>(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '_fts_multilingual_posts'"
       );
       expect(tableSqlAscii?.sql).toContain("tokenize = 'ascii'");
@@ -257,7 +257,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       expect(results2.items.length).toBe(1);
     });
 
-    it('should reject collection creation when schema uses reserved search metadata names', () => {
+    it('should reject collection creation when schema uses reserved search metadata names', async () => {
       // 1. _score
       expect(() => {
         app.schema.createCollection({
@@ -308,7 +308,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
 
       // Verify that invalid_rank_col was NOT created in SQLite or _collections
       expect(app.schema.getCollection('invalid_rank_col')).toBeUndefined();
-      const rankTable = app.db.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'invalid_rank_col'");
+      const rankTable = await app.db.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'invalid_rank_col'");
       expect(rankTable).toBeUndefined();
 
       expect(() => {
@@ -320,7 +320,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       expect(app.schema.getCollection('invalid_rowid_col')).toBeUndefined();
     });
 
-    it('should rollback collection creation transaction if FTS setup fails', () => {
+    it('should rollback collection creation transaction if FTS setup fails', async () => {
       // Spy on syncCollection and force it to throw
       const originalSync = app.fts.syncCollection.bind(app.fts);
       const syncSpy = vi.spyOn(app.fts, 'syncCollection').mockImplementationOnce(() => {
@@ -335,7 +335,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       }).toThrow(/Simulated SQLite FTS5 virtual table provisioning failure/);
 
       // Verify base table was rolled back and does NOT exist
-      const tableCheck = app.db.get(
+      const tableCheck = await app.db.get(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'atomic_rollback_test'"
       );
       expect(tableCheck).toBeUndefined();
@@ -346,7 +346,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       syncSpy.mockRestore();
     });
 
-    it('should propagate synchronous driver exceptions from getFtsDriver().syncCollection and rollback transaction', () => {
+    it('should propagate synchronous driver exceptions from getFtsDriver().syncCollection and rollback transaction', async () => {
       const driver = app.fts.getFtsDriver();
       const driverSpy = vi.spyOn(driver, 'syncCollection').mockImplementationOnce(() => {
         throw new Error('Simulated synchronous driver FTS table creation failure');
@@ -360,7 +360,7 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       }).toThrow(/Simulated synchronous driver FTS table creation failure/);
 
       // Verify base table was rolled back and does NOT exist
-      const tableCheck = app.db.get(
+      const tableCheck = await app.db.get(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'driver_sync_failure_test'"
       );
       expect(tableCheck).toBeUndefined();
@@ -1002,8 +1002,8 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       app.db.exec("INSERT INTO \"_fts_docs\" (id, title, body) VALUES ('doc_1', 'Stale Mismatched Title', 'Synchronized Body')");
 
       // Verify counts are equal before reconcile
-      const baseCount = (app.db.get<{ count: number }>('SELECT COUNT(*) as count FROM "docs"'))?.count;
-      const ftsCount = (app.db.get<{ count: number }>('SELECT COUNT(*) as count FROM "_fts_docs"'))?.count;
+      const baseCount = (await app.db.get<{ count: number }>('SELECT COUNT(*) as count FROM "docs"'))?.count;
+      const ftsCount = (await app.db.get<{ count: number }>('SELECT COUNT(*) as count FROM "_fts_docs"'))?.count;
       expect(baseCount).toBe(1);
       expect(ftsCount).toBe(1);
 
@@ -1033,6 +1033,38 @@ describe('Full-Text Search Engine with SQLite FTS5', () => {
       const postGhostSearch = await app.records.getList('docs', { search: 'Fresh' });
       expect(postGhostSearch.totalItems).toBe(1);
       expect(postGhostSearch.items[0].id).toBe('doc_1');
+    });
+
+    it('should serialize overlapping async syncCollection calls and not start second driver call until first completes', async () => {
+      const col: any = { id: 'c1', name: 'articles', schema: [{ name: 'title', type: 'text' }] };
+      const driver = app.fts.getFtsDriver();
+      let callCount = 0;
+      let firstRunning = false;
+      let overlapped = false;
+
+      const spy = vi.spyOn(driver, 'syncCollection').mockImplementation(async () => {
+        callCount++;
+        const currentCall = callCount;
+        if (currentCall === 1) {
+          firstRunning = true;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          firstRunning = false;
+        } else if (currentCall === 2) {
+          if (firstRunning) {
+            overlapped = true;
+          }
+        }
+      });
+
+      try {
+        const p1 = app.fts.syncCollection(col);
+        const p2 = app.fts.syncCollection(col);
+        await Promise.all([p1, p2]);
+        expect(callCount).toBe(2);
+        expect(overlapped).toBe(false);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 });

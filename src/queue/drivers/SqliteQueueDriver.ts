@@ -12,17 +12,14 @@ import {
 } from '../types';
 import { mapRowToQueue, mapRowToMessage } from './queueMapping';
 import { ensureQueueSchema } from './queueSchema';
-import { SyncQueueEngine } from './SyncQueueEngine';
 import { AsyncQueueEngine } from './AsyncQueueEngine';
 
 export class SqliteQueueDriver implements IQueueDriver {
   public initialized = false;
-  private syncEngine: SyncQueueEngine;
   private asyncEngine: AsyncQueueEngine;
   private inFlightOperations = new Set<Promise<any>>();
 
   constructor(private db: DatabaseService) {
-    this.syncEngine = new SyncQueueEngine(db);
     this.asyncEngine = new AsyncQueueEngine(db);
   }
 
@@ -162,21 +159,21 @@ export class SqliteQueueDriver implements IQueueDriver {
   public async deleteQueue(name: string): Promise<boolean> {
     return this.trackInFlight(async () => {
       await this.ensureInit();
-      return this.isSqlite ? this.syncEngine.deleteQueue(name) : this.asyncEngine.deleteQueue(name);
+      return await this.asyncEngine.deleteQueue(name);
     });
   }
 
   public async send<T = any>(dto: EnqueueMessageDto<T>): Promise<QueueMessage<T>> {
     return this.trackInFlight(async () => {
       await this.ensureInit();
-      return this.isSqlite ? this.syncEngine.send(dto) : this.asyncEngine.send(dto);
+      return await this.asyncEngine.send(dto);
     });
   }
 
   public async sendBatch<T = any>(messages: EnqueueMessageDto<T>[]): Promise<QueueMessage<T>[]> {
     return this.trackInFlight(async () => {
       await this.ensureInit();
-      return this.isSqlite ? this.syncEngine.sendBatch(messages) : this.asyncEngine.sendBatch(messages);
+      return await this.asyncEngine.sendBatch(messages);
     });
   }
 
@@ -188,9 +185,7 @@ export class SqliteQueueDriver implements IQueueDriver {
   ): Promise<QueueMessage<T>[]> {
     return this.trackInFlight(async () => {
       await this.ensureInit();
-      return this.isSqlite
-        ? this.syncEngine.claim(queueName, claimedBy, visibilityTimeoutSeconds, limit)
-        : this.asyncEngine.claim(queueName, claimedBy, visibilityTimeoutSeconds, limit);
+      return await this.asyncEngine.claim(queueName, claimedBy, visibilityTimeoutSeconds, limit);
     });
   }
 
@@ -261,27 +256,21 @@ export class SqliteQueueDriver implements IQueueDriver {
   public async fail(messageId: string, error: string, backoffDelayMs?: number, claimToken?: string | null): Promise<MessageFailResult> {
     return this.trackInFlight(async () => {
       await this.ensureInit();
-      return this.isSqlite
-        ? this.syncEngine.fail(messageId, error, backoffDelayMs, claimToken)
-        : this.asyncEngine.fail(messageId, error, backoffDelayMs, claimToken);
+      return await this.asyncEngine.fail(messageId, error, backoffDelayMs, claimToken);
     });
   }
 
   public async forceDeadLetter(messageId: string, reason = 'Force-skipped to DLQ by operator'): Promise<boolean> {
     return this.trackInFlight(async () => {
       await this.ensureInit();
-      return this.isSqlite
-        ? this.syncEngine.forceDeadLetter(messageId, reason)
-        : this.asyncEngine.forceDeadLetter(messageId, reason);
+      return await this.asyncEngine.forceDeadLetter(messageId, reason);
     });
   }
 
   public async cancel(messageId: string): Promise<boolean> {
     return this.trackInFlight(async () => {
       await this.ensureInit();
-      return this.isSqlite
-        ? this.syncEngine.cancel(messageId)
-        : this.asyncEngine.cancel(messageId);
+      return await this.asyncEngine.cancel(messageId);
     });
   }
 
@@ -315,18 +304,14 @@ export class SqliteQueueDriver implements IQueueDriver {
   ): Promise<number> {
     return this.trackInFlight(async () => {
       await this.ensureInit();
-      return this.isSqlite
-        ? this.syncEngine.retryDeadLetterMessages(queueName, limit, onMessageRequeued)
-        : this.asyncEngine.retryDeadLetterMessages(queueName, limit, onMessageRequeued);
+      return await this.asyncEngine.retryDeadLetterMessages(queueName, limit, onMessageRequeued);
     });
   }
 
   public async retryMessage(messageId: string, onMessageRequeued?: (queue: string) => void): Promise<boolean> {
     return this.trackInFlight(async () => {
       await this.ensureInit();
-      return this.isSqlite
-        ? this.syncEngine.retryMessage(messageId, onMessageRequeued)
-        : this.asyncEngine.retryMessage(messageId, onMessageRequeued);
+      return await this.asyncEngine.retryMessage(messageId, onMessageRequeued);
     });
   }
 
@@ -337,9 +322,7 @@ export class SqliteQueueDriver implements IQueueDriver {
   ): Promise<number> {
     return this.trackInFlight(async () => {
       await this.ensureInit();
-      return this.isSqlite
-        ? this.syncEngine.reclaimOrphaned(queueName, options, onDlqEnqueued)
-        : this.asyncEngine.reclaimOrphaned(queueName, options, onDlqEnqueued);
+      return await this.asyncEngine.reclaimOrphaned(queueName, options, onDlqEnqueued);
     });
   }
 

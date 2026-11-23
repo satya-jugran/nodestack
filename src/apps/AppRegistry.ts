@@ -200,31 +200,19 @@ export class AppRegistry {
     return undefined;
   }
 
-  public getAllApps(): any {
-    const rows: any = this.driver.prepare('SELECT * FROM _apps ORDER BY isDefault DESC, name ASC').all<any>();
-    if (rows instanceof Promise) {
-      return rows.then((r: any[]) => r.map((x: any) => this.mapRow(x)));
-    }
+  public async getAllApps(): Promise<AppModel[]> {
+    const rows = await this.driver.prepare('SELECT * FROM _apps ORDER BY isDefault DESC, name ASC').all<any>();
     return (rows || []).map((r: any) => this.mapRow(r));
   }
 
-  public getApp(slugOrId: string): any {
-    const row = this.driver.prepare('SELECT * FROM _apps WHERE id = ? OR slug = ?').get<any>(slugOrId, slugOrId);
-    if (row instanceof Promise) {
-      return row.then((r) => (!r ? undefined : this.mapRow(r)));
-    }
+  public async getApp(slugOrId: string): Promise<AppModel | undefined> {
+    const row = await this.driver.prepare('SELECT * FROM _apps WHERE id = ? OR slug = ?').get<any>(slugOrId, slugOrId);
     if (!row) return undefined;
     return this.mapRow(row);
   }
 
-  public getAppOrThrow(slugOrId: string): any {
-    const app = this.getApp(slugOrId);
-    if (app instanceof Promise) {
-      return app.then((a) => {
-        if (!a) throw new NotFoundError(`Application '${slugOrId}' not found`);
-        return a;
-      });
-    }
+  public async getAppOrThrow(slugOrId: string): Promise<AppModel> {
+    const app = await this.getApp(slugOrId);
     if (!app) {
       throw new NotFoundError(`Application '${slugOrId}' not found`);
     }
@@ -280,50 +268,37 @@ export class AppRegistry {
     return await this.getAppOrThrow(current.id);
   }
 
-  public deleteApp(slugOrId: string): any {
+  public async deleteApp(slugOrId: string): Promise<AppModel> {
     if (slugOrId === 'default') {
       throw new AppError('Cannot delete the default application', 400);
     }
-    const current = this.getAppOrThrow(slugOrId);
-    const handleDelete = (app: AppModel) => {
-      if (app.isDefault || app.slug === 'default') {
-        throw new AppError('Cannot delete the default application', 400);
-      }
-      const res = this.driver.prepare('DELETE FROM _apps WHERE id = ?').run(app.id);
-      if (res && typeof (res as any).then === 'function') {
-        return (res as any).then(() => app);
-      }
-      return app;
-    };
-
-    if (current && typeof (current as any).then === 'function') {
-      return (current as any).then(handleDelete);
+    const app = await this.getAppOrThrow(slugOrId);
+    if (app.isDefault || app.slug === 'default') {
+      throw new AppError('Cannot delete the default application', 400);
     }
-    return handleDelete(current);
+    await this.driver.prepare('DELETE FROM _apps WHERE id = ?').run(app.id);
+    return app;
   }
 
   // ==========================================
   // Super-Admin Methods (Global)
   // ==========================================
 
-  public hasAdmins(): any {
-    const row: any = this.driver.prepare('SELECT COUNT(*) as count FROM _admins').get<any>();
-    if (row && typeof row.then === 'function') {
-      return row.then((r: any) => Boolean(r && Number(r.count) > 0));
-    }
+  public async hasAdmins(): Promise<boolean> {
+    const row = await this.driver.prepare('SELECT COUNT(*) as count FROM _admins').get<any>();
     return Boolean(row && Number(row.count) > 0);
   }
 
-  public getAdminByEmail(email: string): any {
-    return this.driver.prepare('SELECT * FROM _admins WHERE email = ?').get<any>(email.toLowerCase().trim());
+  public async getAdminByEmail(email: string): Promise<any> {
+    return await this.driver.prepare('SELECT * FROM _admins WHERE email = ?').get<any>(email.toLowerCase().trim());
   }
 
-  public getAdminById(id: string): any {
-    return this.driver.prepare('SELECT * FROM _admins WHERE id = ?').get<any>(id);
+  public async getAdminById(id: string): Promise<any> {
+    return await this.driver.prepare('SELECT * FROM _admins WHERE id = ?').get<any>(id);
   }
 
-  public getAllAdmins(): any {
-    return this.driver.prepare('SELECT id, email, avatar, created, updated FROM _admins ORDER BY created ASC').all<any>();
+  public async getAllAdmins(): Promise<any[]> {
+    return await this.driver.prepare('SELECT id, email, avatar, created, updated FROM _admins ORDER BY created ASC').all<any>();
   }
 
   public async createAdmin(email: string, passwordHash: string, tokenKey: string): Promise<any> {
@@ -344,31 +319,31 @@ export class AppRegistry {
     return await this.getAdminById(id);
   }
 
-  public updateAdminTokenKey(id: string, tokenKey: string): any {
+  public async updateAdminTokenKey(id: string, tokenKey: string): Promise<any> {
     const now = new Date().toISOString();
-    return this.driver.prepare('UPDATE _admins SET tokenKey = ?, updated = ? WHERE id = ?').run(tokenKey, now, id);
+    return await this.driver.prepare('UPDATE _admins SET tokenKey = ?, updated = ? WHERE id = ?').run(tokenKey, now, id);
   }
 
-  public updateAdminPassword(emailOrId: string, passwordHash: string, tokenKey: string): any {
+  public async updateAdminPassword(emailOrId: string, passwordHash: string, tokenKey: string): Promise<any> {
     const clean = emailOrId.toLowerCase().trim();
     const now = new Date().toISOString();
-    return this.driver.prepare(
+    return await this.driver.prepare(
       'UPDATE _admins SET passwordHash = ?, tokenKey = ?, updated = ? WHERE email = ? OR id = ?'
     ).run(passwordHash, tokenKey, now, clean, clean);
   }
 
-  public revokeAdminSessions(idOrEmail: string, tokenKey: string): any {
+  public async revokeAdminSessions(idOrEmail: string, tokenKey: string): Promise<any> {
     const clean = idOrEmail.toLowerCase().trim();
     const now = new Date().toISOString();
-    return this.driver.prepare(
+    return await this.driver.prepare(
       'UPDATE _admins SET tokenKey = ?, updated = ? WHERE id = ? OR email = ?'
     ).run(tokenKey, now, idOrEmail, clean);
   }
 
-  public updateAdminVerified(id: string, verified: boolean): any {
+  public async updateAdminVerified(id: string, verified: boolean): Promise<any> {
     const now = new Date().toISOString();
     const verifiedVal = this.driver.dialect?.name === 'postgres' ? Boolean(verified) : (verified ? 1 : 0);
-    return this.driver.prepare('UPDATE _admins SET verified = ?, updated = ? WHERE id = ?').run(verifiedVal, now, id);
+    return await this.driver.prepare('UPDATE _admins SET verified = ?, updated = ? WHERE id = ?').run(verifiedVal, now, id);
   }
 
   public async close(): Promise<void> {

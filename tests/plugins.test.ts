@@ -2832,7 +2832,7 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
 
       // Create a note while Algolia is enabled: Algolia hook triggers and queues mutation
       const note1 = await app.records.create('notes', { title: 'First Note' });
-      const queuedRows1 = app.db.all<{ id: string }>(
+      const queuedRows1 = await app.db.all<{ id: string }>(
         'SELECT id FROM _algolia_sync_queue WHERE objectId = ?',
         [note1.id]
       );
@@ -2848,11 +2848,11 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       expect(app.hasPlugin('algolia')).toBe(false);
 
       // Clear sync queue to verify no new operations are added
-      app.db.run('DELETE FROM _algolia_sync_queue');
+      await app.db.run('DELETE FROM _algolia_sync_queue');
 
       // Create another note while Algolia is disabled: Hook must NOT fire!
       const note2 = await app.records.create('notes', { title: 'Second Note While Disabled' });
-      const queuedRows2 = app.db.all<{ id: string }>(
+      const queuedRows2 = await app.db.all<{ id: string }>(
         'SELECT id FROM _algolia_sync_queue WHERE objectId = ?',
         [note2.id]
       );
@@ -2862,7 +2862,7 @@ describe('Formal Plugin Architecture (nodestack.use(plugin))', () => {
       await app.records.update('notes', note2.id, { title: 'Updated Note 2' });
       await app.records.delete('notes', note2.id);
 
-      const queuedRowsTotal = app.db.all<{ id: string }>('SELECT id FROM _algolia_sync_queue');
+      const queuedRowsTotal = await app.db.all<{ id: string }>('SELECT id FROM _algolia_sync_queue');
       expect(queuedRowsTotal.length).toBe(0);
     });
 

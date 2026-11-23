@@ -59,7 +59,7 @@ describe('Registration Security: Rate Limiting, Email Verification & Atomic Conc
       expect(user.verified).toBe(false);
 
       // Verify in DB directly
-      const dbRow = (app as any).db.prepare('SELECT verified FROM users WHERE id = ?').get(user.id);
+      const dbRow = await (app as any).db.prepare('SELECT verified FROM users WHERE id = ?').get(user.id);
       expect(Boolean(dbRow.verified)).toBe(false);
     });
 
@@ -75,7 +75,7 @@ describe('Registration Security: Rate Limiting, Email Verification & Atomic Conc
       expect(confirmRes.email).toBe('spoof_test@nodestack.test');
 
       // 3. Verify in DB directly
-      const dbRow = (app as any).db.prepare('SELECT verified FROM users WHERE email = ?').get('spoof_test@nodestack.test');
+      const dbRow = await (app as any).db.prepare('SELECT verified FROM users WHERE email = ?').get('spoof_test@nodestack.test');
       expect(Boolean(dbRow.verified)).toBe(true);
     });
 
@@ -228,7 +228,7 @@ describe('Registration Security: Rate Limiting, Email Verification & Atomic Conc
       ).rejects.toThrow(/different application/i);
 
       // Verify that victim user in tenantB was NOT marked verified
-      const victimInDb = (tenantB as any).db.prepare('SELECT verified FROM users WHERE id = ?').get('shared_record_id_123');
+      const victimInDb = await (tenantB as any).db.prepare('SELECT verified FROM users WHERE id = ?').get('shared_record_id_123');
       expect(Boolean(victimInDb.verified)).toBe(false);
 
       // 6. Attacker attempts to replay tokenA against root/default app
@@ -278,7 +278,7 @@ describe('Registration Security: Rate Limiting, Email Verification & Atomic Conc
       ).rejects.toThrow(/(does not match|invalidated)/i);
 
       // 5. Verify that the user remains unverified in database
-      const dbRow = (app as any).db.prepare('SELECT email, verified FROM users WHERE id = ?').get(user.id);
+      const dbRow = await (app as any).db.prepare('SELECT email, verified FROM users WHERE id = ?').get(user.id);
       expect(dbRow.email).toBe('post_change@nodestack.test');
       expect(Boolean(dbRow.verified)).toBe(false);
 
@@ -323,7 +323,7 @@ describe('Registration Security: Rate Limiting, Email Verification & Atomic Conc
       }, userAuth);
 
       expect(updated.verified).toBe(false);
-      const dbRow = (app as any).db.prepare('SELECT verified FROM users WHERE id = ?').get(user.id);
+      const dbRow = await (app as any).db.prepare('SELECT verified FROM users WHERE id = ?').get(user.id);
       expect(Boolean(dbRow.verified)).toBe(false);
     });
   });
@@ -355,7 +355,7 @@ describe('Registration Security: Rate Limiting, Email Verification & Atomic Conc
       }
 
       // Verify that database contains exactly ONE admin with this email
-      const countRow = (app as any).db.prepare(
+      const countRow = await (app as any).db.prepare(
         'SELECT COUNT(*) as count FROM _admins WHERE LOWER(email) = ?'
       ).get(targetEmail);
       expect(countRow.count).toBe(1);
@@ -389,7 +389,7 @@ describe('Registration Security: Rate Limiting, Email Verification & Atomic Conc
       }
 
       // Verify DB contains exactly 1 user with this email
-      const countRow = (app as any).db.prepare(
+      const countRow = await (app as any).db.prepare(
         'SELECT COUNT(*) as count FROM users WHERE LOWER(email) = ?'
       ).get(targetEmail);
       expect(countRow.count).toBe(1);

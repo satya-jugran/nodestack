@@ -81,38 +81,20 @@ export class LogicalSnapshotDriver implements ISnapshotDriver {
     }
 
     // 2. Clear and restore tables with dialect-aware serialization
-    if (this.db.dialect.name === 'sqlite') {
-      driver.transaction((tx) => {
-        for (const [table, rows] of Object.entries(data)) {
-          if (!Array.isArray(rows)) continue;
-          try {
-            tx.exec(`DELETE FROM ${this.db.dialect.quoteIdentifier(table)}`);
-            if (rows.length === 0) continue;
+    await driver.transaction(async (tx) => {
+      for (const [table, rows] of Object.entries(data)) {
+        if (!Array.isArray(rows)) continue;
+        try {
+          await tx.exec(`DELETE FROM ${this.db.dialect.quoteIdentifier(table)}`);
+          if (rows.length === 0) continue;
 
-            for (const row of rows) {
-              DatabaseMigrationService.insertOrUpdateRecord(table, row, tx);
-            }
-          } catch {
-            // ignore restore errors on secondary tables
+          for (const row of rows) {
+            await DatabaseMigrationService.insertOrUpdateRecord(table, row, tx);
           }
+        } catch {
+          // ignore restore errors on secondary tables
         }
-      });
-    } else {
-      await driver.transaction(async (tx) => {
-        for (const [table, rows] of Object.entries(data)) {
-          if (!Array.isArray(rows)) continue;
-          try {
-            await tx.exec(`DELETE FROM ${this.db.dialect.quoteIdentifier(table)}`);
-            if (rows.length === 0) continue;
-
-            for (const row of rows) {
-              await DatabaseMigrationService.insertOrUpdateRecord(table, row, tx);
-            }
-          } catch {
-            // ignore restore errors on secondary tables
-          }
-        }
-      });
-    }
+      }
+    });
   }
 }

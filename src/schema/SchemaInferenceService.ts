@@ -614,23 +614,13 @@ export class SchemaInferenceService {
     const quotedCols = colNames.map((c) => this.db.dialect.quoteIdentifier(c)).join(', ');
     const insertSql = `INSERT INTO ${this.db.dialect.quoteIdentifier(cleanName)} (${quotedCols}) VALUES (${placeholders})`;
     try {
-      if (this.db.dialect.name === 'sqlite') {
-        const insertStmt = this.db.prepare(insertSql);
-        this.db.transaction(() => {
-          for (const row of preparedRows) {
-            const params = colNames.map((c) => (row[c] !== undefined ? row[c] : null));
-            insertStmt.run(...params);
-          }
-        });
-      } else {
-        await this.db.transaction(async (tx) => {
-          const insertStmt = tx.prepare(insertSql);
-          for (const row of preparedRows) {
-            const params = colNames.map((c) => (row[c] !== undefined ? row[c] : null));
-            await insertStmt.run(...params);
-          }
-        });
-      }
+      await this.db.transaction(async (tx) => {
+        const insertStmt = tx.prepare(insertSql);
+        for (const row of preparedRows) {
+          const params = colNames.map((c) => (row[c] !== undefined ? row[c] : null));
+          await insertStmt.run(...params);
+        }
+      });
     } catch (err: any) {
       // If insertion fails, rollback table creation
       try {

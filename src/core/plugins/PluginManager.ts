@@ -1449,41 +1449,51 @@ export class PluginManager {
       }
     }
 
+    const processRows = (rowsList: any[]) => {
+      for (const row of rowsList || []) {
+        try {
+          const parsed = JSON.parse(row.settings);
+          this.updateMemorySettings(scope.db, row.pluginName, parsed);
+          if (parsed && parsed._enabled === true) {
+            let plugin = this.plugins.get(row.pluginName)?.plugin;
+            if (!plugin) {
+              const def = OFFICIAL_PLUGINS.find(
+                (p) => p.name === row.pluginName || p.id === row.pluginName
+              );
+              if (def) {
+                this.runtimeLoadedOfficialPlugins.add(def.name);
+                plugin = def.factory();
+                this.use(plugin, scope);
+              }
+            } else {
+              this.provisionPluginForScope(plugin, scope);
+            }
+          }
+        } catch {}
+      }
+    };
+
     // 2. Read _plugin_settings from scope.db
     try {
+      const rootDriver = typeof (scope.db as any).getRootDriver === 'function'
+        ? (scope.db as any).getRootDriver()
+        : (scope.db as any).getDriver?.();
+
+      if (rootDriver && typeof (rootDriver as any).prepareSync === 'function') {
+        const rows = (rootDriver as any).prepareSync(
+          'SELECT pluginName, settings FROM _plugin_settings'
+        ).all();
+        return processRows(rows || []);
+      }
+
       if (typeof scope.db.all === 'function') {
         const rows = scope.db.all<{ pluginName: string; settings: string }>(
           'SELECT pluginName, settings FROM _plugin_settings'
         );
-
-        const processRows = (rowsList: any[]) => {
-          for (const row of rowsList || []) {
-            try {
-              const parsed = JSON.parse(row.settings);
-              this.updateMemorySettings(scope.db, row.pluginName, parsed);
-              if (parsed && parsed._enabled === true) {
-                let plugin = this.plugins.get(row.pluginName)?.plugin;
-                if (!plugin) {
-                  const def = OFFICIAL_PLUGINS.find(
-                    (p) => p.name === row.pluginName || p.id === row.pluginName
-                  );
-                  if (def) {
-                    this.runtimeLoadedOfficialPlugins.add(def.name);
-                    plugin = def.factory();
-                    this.use(plugin, scope);
-                  }
-                } else {
-                  this.provisionPluginForScope(plugin, scope);
-                }
-              }
-            } catch {}
-          }
-        };
-
         if (rows && typeof (rows as any).then === 'function') {
           return (rows as any).then(processRows);
         }
-        return processRows(rows);
+        return processRows(rows as any);
       }
     } catch {
       // Ignore during uninitialized state

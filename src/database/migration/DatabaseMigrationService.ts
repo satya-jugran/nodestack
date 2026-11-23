@@ -600,23 +600,13 @@ export class DatabaseMigrationService {
 
         if (!rows || rows.length === 0) break;
 
-        if (targetDriver.dialect.name === 'sqlite') {
-          targetDriver.transaction((tx) => {
-            for (const row of rows) {
-              DatabaseMigrationService.insertOrUpdateRecord(col.name, row, tx, targetColumns);
-              recordsCount++;
-              tableRowsCopied++;
-            }
-          });
-        } else {
-          await targetDriver.transaction(async (tx) => {
-            for (const row of rows) {
-              await DatabaseMigrationService.insertOrUpdateRecord(col.name, row, tx, targetColumns);
-              recordsCount++;
-              tableRowsCopied++;
-            }
-          });
-        }
+        await targetDriver.transaction(async (tx) => {
+          for (const row of rows) {
+            await DatabaseMigrationService.insertOrUpdateRecord(col.name, row, tx, targetColumns);
+            recordsCount++;
+            tableRowsCopied++;
+          }
+        });
 
         offset += rows.length;
 
@@ -835,12 +825,12 @@ export class DatabaseMigrationService {
     return 'id';
   }
 
-  public static insertOrUpdateRecord(
+  public static async insertOrUpdateRecord(
     tableName: string,
     row: Record<string, any>,
     targetDriver: IDatabaseDriver,
     allowedColumns?: Set<string>
-  ): any {
+  ): Promise<any> {
     const dialect = targetDriver.dialect;
     const allCols = Object.keys(row);
     const columns = allowedColumns && allowedColumns.size > 0
@@ -863,7 +853,7 @@ export class DatabaseMigrationService {
     const pkCol = DatabaseMigrationService.getPrimaryKeyColumn(tableName);
     const updateCols = columns.filter((c) => c !== pkCol);
     const upsertSql = dialect.upsertSql(tableName, columns, pkCol, updateCols);
-    return targetDriver.prepare(upsertSql).run(...values);
+    return await targetDriver.prepare(upsertSql).run(...values);
   }
 
   private static async copyTableIfSourceExists(
@@ -909,27 +899,15 @@ export class DatabaseMigrationService {
 
         if (!rows || rows.length === 0) break;
 
-        if (targetDriver.dialect.name === 'sqlite') {
-          targetDriver.transaction((tx) => {
-            for (const row of rows) {
-              try {
-                DatabaseMigrationService.insertOrUpdateRecord(tableName, row, tx, targetColumns);
-              } catch (rowErr: any) {
-                console.warn(`[Migration] Could not copy row ${row[pkCol] ?? row.id} in ${tableName}: ${rowErr.message}`);
-              }
+        await targetDriver.transaction(async (tx) => {
+          for (const row of rows) {
+            try {
+              await DatabaseMigrationService.insertOrUpdateRecord(tableName, row, tx, targetColumns);
+            } catch (rowErr: any) {
+              console.warn(`[Migration] Could not copy row ${row[pkCol] ?? row.id} in ${tableName}: ${rowErr.message}`);
             }
-          });
-        } else {
-          await targetDriver.transaction(async (tx) => {
-            for (const row of rows) {
-              try {
-                await DatabaseMigrationService.insertOrUpdateRecord(tableName, row, tx, targetColumns);
-              } catch (rowErr: any) {
-                console.warn(`[Migration] Could not copy row ${row[pkCol] ?? row.id} in ${tableName}: ${rowErr.message}`);
-              }
-            }
-          });
-        }
+          }
+        });
 
         offset += rows.length;
         if (onChunkCopied) {

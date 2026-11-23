@@ -425,7 +425,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
   // ==========================================
   describe('2. Sandboxed Execution & Isolation (QuickJS-Wasm)', () => {
     it('should execute basic function and return status, body, and custom headers', async () => {
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'calculate-tax',
         code: `
           export default async function(core, context) {
@@ -464,7 +464,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
 
     it('should execute function created without code using the default (core, context) fallback handler', async () => {
       // Create a function with no code passed
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'default-fallback-fn',
         enabled: true,
         authPolicy: 'public',
@@ -485,7 +485,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should support backward compatibility for legacy 1-arg function(ctx) handlers', async () => {
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'legacy-ctx-fn',
         code: `
           export default async function(ctx) {
@@ -516,7 +516,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should isolate host environment and prevent access to process, fs, require', async () => {
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'security-escape-attempt',
         code: `
           export default async function(core, context) {
@@ -556,7 +556,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should enforce CPU execution timeout without locking the event loop', async () => {
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'infinite-loop',
         code: `
           export default async function(core, context) {
@@ -587,7 +587,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should abort and return 504 when function is suspended on an unresolved promise', async () => {
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'suspended-promise',
         code: `
           export default async function(core, context) {
@@ -619,7 +619,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
 
     it('should support anonymous async functions and arrow functions', async () => {
       // 1. Anonymous async function
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'anon-async-fn',
         code: `
           // leading comment
@@ -645,7 +645,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(res1.json().msg).toBe('from anon async');
 
       // 2. Arrow function
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'arrow-fn',
         code: `
           /* block comment */
@@ -670,7 +670,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should capture console.log and core.observability.logger in execution logs', async () => {
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'logging-fn',
         code: `
           export default async function(core, context) {
@@ -714,7 +714,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should inject scoped env secrets into ctx.env without exposing process.env', async () => {
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'secret-reader',
         code: `
           export default async function(core, context) {
@@ -763,7 +763,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       });
 
       // Function that tries to list orders using ctx.records
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'list-my-orders',
         code: `
           export default async function(core, context) {
@@ -802,7 +802,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should bypass rules only when elevated flag is true (Service Role)', async () => {
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'admin-count-orders',
         code: `
           export default async function(core, context) {
@@ -830,7 +830,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should support record mutations via ctx.records.create and update', async () => {
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'create-order-function',
         code: `
           export default async function(core, context) {
@@ -873,7 +873,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
   // ==========================================
   describe('4. Lifecycle Event Hooks (beforeCreate / afterUpdate)', () => {
     it('should execute function beforeCreate hook and mutate incoming data', async () => {
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'order-slugifier',
         code: `
           export default async function(core, context) {
@@ -906,7 +906,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should cancel record creation when beforeCreate returns cancel: true', async () => {
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'order-guard-price',
         code: `
           export default async function(core, context) {
@@ -938,7 +938,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should prevent infinite circular recursion when a hook triggers matching mutations', async () => {
-      const loopFn = app.functions.createFunction({
+      const loopFn = await app.functions.createFunction({
         name: 'infinite-loop-hook',
         code: `
           export default async function(core, context) {
@@ -964,11 +964,11 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
           amount: 50,
         })
       ).rejects.toThrow(/Circular recursion detected|Maximum function recursion depth/);
-      app.functions.deleteFunction(loopFn.id);
+      await app.functions.deleteFunction(loopFn.id);
     });
 
     it('should enforce maxConcurrent concurrency admission limit during lifecycle hooks', async () => {
-      const concFn = app.functions.createFunction({
+      const concFn = await app.functions.createFunction({
         name: 'concurrency-hook-test',
         code: `
           export default async function(core, context) {
@@ -999,14 +999,14 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         ).rejects.toThrow(/Serverless function concurrency limit reached/);
       } finally {
         (app.functions as any).activeExecutions = 0;
-        app.functions.deleteFunction(concFn.id);
+        await app.functions.deleteFunction(concFn.id);
       }
     });
 
     it('should wake queue workers on completion of record event hook execution', async () => {
       const wakeSpy = vi.spyOn(app.queue, 'wakeAllWorkers');
 
-      const hookFn = app.functions.createFunction({
+      const hookFn = await app.functions.createFunction({
         name: 'wake-worker-hook-test',
         code: `
           export default async function(core, context) {
@@ -1033,7 +1033,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         expect(wakeSpy).toHaveBeenCalled();
       } finally {
         wakeSpy.mockRestore();
-        app.functions.deleteFunction(hookFn.id);
+        await app.functions.deleteFunction(hookFn.id);
       }
     });
   });
@@ -1044,7 +1044,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
   describe('5. Auth Policy Enforcement & Admin API', () => {
     it('should validate and reject invalid authPolicy during createFunction and updateFunction', async () => {
       // 1. Direct service createFunction validation
-      expect(() => {
+      await expect(
         app.functions.createFunction({
           name: 'invalid-auth-fn',
           code: `export default async function() { return { status: 200 }; }`,
@@ -1056,8 +1056,8 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
           allowedDomains: [],
           elevated: false,
           env: {},
-        });
-      }).toThrow(/Invalid auth policy 'admni'/);
+        })
+      ).rejects.toThrow(/Invalid auth policy 'admni'/);
 
       // 2. HTTP POST /api/functions validation
       const postRes = await app.server.inject({
@@ -1074,7 +1074,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(postRes.json().message).toContain("Invalid auth policy 'adminOrInitial'");
 
       // 3. Create valid function, then reject invalid updateFunction
-      const validFn = app.functions.createFunction({
+      const validFn = await app.functions.createFunction({
         name: 'valid-to-update-fn',
         code: `export default async function() { return { status: 200 }; }`,
         enabled: true,
@@ -1087,9 +1087,9 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         env: {},
       });
 
-      expect(() => {
-        app.functions.updateFunction(validFn.id, { authPolicy: 'unknownPolicy' as any });
-      }).toThrow(/Invalid auth policy 'unknownPolicy'/);
+      await expect(
+        app.functions.updateFunction(validFn.id, { authPolicy: 'unknownPolicy' as any })
+      ).rejects.toThrow(/Invalid auth policy 'unknownPolicy'/);
 
       const patchRes = await app.server.inject({
         method: 'PATCH',
@@ -1104,7 +1104,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     it('should reject invocation with 403 when database contains an unsupported authPolicy', async () => {
       // Directly insert a function with corrupt/unsupported authPolicy into DB
       const corruptId = 'fn_corrupt_auth';
-      app.db.prepare(`
+      await app.db.prepare(`
         INSERT INTO _functions (
           id, name, description, code, enabled, authPolicy, methods,
           eventTrigger, timeoutMs, memoryLimitMb, allowedDomains,
@@ -1138,7 +1138,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should reject unauthenticated call when authPolicy is "admin"', async () => {
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'admin-only-fn',
         code: `export default async function() { return { status: 200, body: "admin secret" }; }`,
         enabled: true,
@@ -1169,7 +1169,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should support live testing via POST /api/functions/:id/test', async () => {
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'echo-test',
         code: `export default async function(core, context) { return { status: 200, body: { echoed: context.request.body } }; }`,
         enabled: true,
@@ -1614,7 +1614,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
   });
 
     it('should provide core.sdk, core.network, core.observability and enforce clean break on context', async () => {
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'kernel-verification-fn',
         code: `
           export default async function(core, context) {
@@ -1724,7 +1724,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
 
     it('should not let a leading named helper override an explicit CommonJS export', async () => {
       // 1. function helper() { return 1; } module.exports = async function() { return 2; }
-      const cjsFn = app.functions.createFunction({
+      const cjsFn = await app.functions.createFunction({
         name: 'helper-with-cjs-export',
         code: `
           function helper() {
@@ -1748,7 +1748,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(res1.json()).toEqual({ from: 'module.exports', value: 2 });
 
       // 2. Helper with exports.default export
-      const cjsDefaultFn = app.functions.createFunction({
+      const cjsDefaultFn = await app.functions.createFunction({
         name: 'helper-with-exports-default',
         code: `
           function helper() {
@@ -1772,7 +1772,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(res2.json()).toEqual({ from: 'exports.default', value: 3 });
 
       // 3. Leading comments mentioning module.exports still correctly infers named entry point
-      const commentFn = app.functions.createFunction({
+      const commentFn = await app.functions.createFunction({
         name: 'comment-mentioning-cjs',
         code: `
           // Note: do not use module.exports here
@@ -1794,9 +1794,9 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(res3.statusCode).toBe(200);
       expect(res3.json()).toEqual({ from: 'mainHandler', success: true });
 
-      app.functions.deleteFunction(cjsFn.id);
-      app.functions.deleteFunction(cjsDefaultFn.id);
-      app.functions.deleteFunction(commentFn.id);
+      await app.functions.deleteFunction(cjsFn.id);
+      await app.functions.deleteFunction(cjsDefaultFn.id);
+      await app.functions.deleteFunction(commentFn.id);
     });
 
     it('should safely evaluate payloads containing U+2028 and U+2029 line/paragraph separators', async () => {
@@ -1830,7 +1830,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
 
     it('should automatically synchronize referenced Task states in flows when a function is renamed', async () => {
       // 1. Create a function
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'flow-target-rename-initial',
         code: 'export default async function(core, ctx) { return { ok: true }; }',
         enabled: true,
@@ -1838,7 +1838,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       });
 
       // 2. Create a flow referencing this function
-      const flow = app.flows.createFlow({
+      const flow = await app.flows.createFlow({
         name: 'DependentFlowRenameTest',
         definition: {
           startAt: 'TaskStep',
@@ -1853,12 +1853,12 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       });
 
       // 3. Rename the function
-      app.functions.updateFunction(fn.id, {
+      await app.functions.updateFunction(fn.id, {
         name: 'flow-target-renamed-final',
       });
 
       // 4. Verify the flow definition in DB now references the new function name
-      const reloadedFlow = app.flows.getFlowById(flow.id);
+      const reloadedFlow = await app.flows.getFlowById(flow.id);
       expect(reloadedFlow).toBeDefined();
       expect((reloadedFlow!.definition.states.TaskStep as any).function).toBe('flow-target-renamed-final');
     });
@@ -1876,7 +1876,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       });
 
       // Create a beforeCreate function hook that hangs/times out
-      app.functions.createFunction({
+      await app.functions.createFunction({
         name: 'hanging-before-hook',
         code: `
           export default async function(core, ctx) {
@@ -1909,7 +1909,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
 
     it('should respect simulated custom or unauthenticated auth contexts in function test runner', async () => {
       // Create a function that reflects back ctx.auth
-      const fn = app.functions.createFunction({
+      const fn = await app.functions.createFunction({
         name: 'auth-inspector-fn',
         code: `
           export default async function(core, ctx) {
@@ -1959,7 +1959,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       await app.records.create('secret_vault', { secretKey: 'TOP_SECRET_42' }, { isAdmin: true, id: 'admin' });
 
       // Create a function that queries the admin-only collection
-      const vaultFn = app.functions.createFunction({
+      const vaultFn = await app.functions.createFunction({
         name: 'vault-reader-fn',
         code: `
           export default async function(core, ctx) {
@@ -2012,7 +2012,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
 
     it('should resolve and verify nested authorization headers server-side and reject unverified tokens in testFunction', async () => {
       // 1. Function returning ctx.auth and querying orders collection (listRule: owner = @request.auth.id)
-      const authEchoFn = app.functions.createFunction({
+      const authEchoFn = await app.functions.createFunction({
         name: 'auth-echo-fn',
         code: `
           export default async function(core, ctx) {
@@ -2067,7 +2067,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(forgedTokenRes.body.orderCount).toBe(0); // Filtered out by owner = @request.auth.id rule
 
       // 4. Function with authPolicy: 'auth' rejects invalid Authorization header
-      const protectedFn = app.functions.createFunction({
+      const protectedFn = await app.functions.createFunction({
         name: 'protected-auth-fn',
         code: `export default async function(core, ctx) { return { ok: true }; }`,
         enabled: true,
@@ -2097,12 +2097,12 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
       expect(validPolicyRes.body.ok).toBe(true);
 
       // 5. Function with authPolicy: 'apiKey' verified via ApiKey header
-      const apiKeyResult = app.apiKeys.createKey({
+      const apiKeyResult = await app.apiKeys.createKey({
         name: 'Test Service Key',
         role: 'user',
         scopes: ['functions:invoke'],
       });
-      const apiKeyProtectedFn = app.functions.createFunction({
+      const apiKeyProtectedFn = await app.functions.createFunction({
         name: 'apikey-protected-fn',
         code: `export default async function(core, ctx) { return { isApiKey: ctx.auth?.isApiKey, scopes: ctx.auth?.scopes }; }`,
         enabled: true,
@@ -2137,7 +2137,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
     });
 
     it('should detect circular recursion when testFunction re-enters its own lifecycle hook and enforce 508 status', async () => {
-      const hookLoopFn = app.functions.createFunction({
+      const hookLoopFn = await app.functions.createFunction({
         name: 'test-fn-reentrant-hook',
         code: `
           export default async function(core, context) {
@@ -2190,7 +2190,7 @@ describe('Embedded Serverless Functions ("NodeStack Functions")', () => {
         message: expect.stringContaining(`Maximum function recursion depth of ${app.functions.getMaxRecursionDepth()} exceeded`),
       });
 
-      app.functions.deleteFunction(hookLoopFn.id);
+      await app.functions.deleteFunction(hookLoopFn.id);
     });
 
   });

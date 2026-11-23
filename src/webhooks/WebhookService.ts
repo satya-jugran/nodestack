@@ -107,7 +107,7 @@ export class WebhookService {
       const isSqlite = !this.db?.dialect || this.db.dialect.name === 'sqlite';
 
       if (isSqlite) {
-        this.db.exec(`
+        const sql = `
           CREATE TABLE IF NOT EXISTS _webhooks (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -147,7 +147,12 @@ export class WebhookService {
           CREATE INDEX IF NOT EXISTS idx_webhook_del_wh ON _webhook_deliveries(webhookId, created DESC);
           CREATE INDEX IF NOT EXISTS idx_webhook_del_created ON _webhook_deliveries(created DESC);
           CREATE INDEX IF NOT EXISTS idx_webhook_del_status ON _webhook_deliveries(status);
-        `);
+        `;
+        if (typeof (this.db as any).execSync === 'function') {
+          (this.db as any).execSync(sql);
+        } else {
+          void this.db.exec(sql).catch(() => {});
+        }
       } else {
         const dialect = this.db.dialect;
         const pk = dialect.mapFieldType('text', { isPrimaryKey: true });
@@ -218,7 +223,7 @@ export class WebhookService {
   // Webhook Configuration CRUD
   // ==========================================
 
-  public createWebhook(data: {
+  public async createWebhook(data: {
     name: string;
     url: string;
     collection?: string;
@@ -228,7 +233,7 @@ export class WebhookService {
     headers?: Record<string, string> | string;
     secret?: string | null;
     enabled?: boolean;
-  }): any {
+  }): Promise<WebhookConfig> {
     if (!data.name || typeof data.name !== 'string' || !data.name.trim()) {
       throw new AppError('Webhook name is required', 400);
     }
@@ -294,7 +299,7 @@ export class WebhookService {
       updated: now,
     };
 
-    const runRes = this.db.run(`
+    await this.db.run(`
       INSERT INTO _webhooks (
         id, name, url, event, collection, action, method, headers, secret, enabled, created, updated
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -313,13 +318,10 @@ export class WebhookService {
       now
     );
 
-    if (runRes && typeof (runRes as any).then === 'function') {
-      return (runRes as any).then(() => result);
-    }
     return result;
   }
 
-  public getWebhooks(options: WebhookQueryOptions = {}): any {
+  public async getWebhooks(options: WebhookQueryOptions = {}): Promise<WebhookConfig[]> {
     const whereClauses: string[] = [];
     const params: any[] = [];
 
@@ -338,24 +340,17 @@ export class WebhookService {
     }
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-    const rows = this.db.all<any>(`SELECT * FROM _webhooks ${whereSql} ORDER BY created DESC`, ...params);
-
-    if (rows && typeof (rows as any).then === 'function') {
-      return (rows as any).then((r: any[]) => (r || []).map((row) => this.mapWebhookRow(row)));
-    }
-    return (rows || []).map((r: any) => this.mapWebhookRow(r));
+    const rows = await this.db.all<any>(`SELECT * FROM _webhooks ${whereSql} ORDER BY created DESC`, ...params);
+    return (rows || []).map((row) => this.mapWebhookRow(row));
   }
 
-  public getWebhookById(id: string): any {
-    const row = this.db.get<any>('SELECT * FROM _webhooks WHERE id = ?', id);
-    if (row && typeof (row as any).then === 'function') {
-      return (row as any).then((r: any) => (!r ? null : this.mapWebhookRow(r)));
-    }
+  public async getWebhookById(id: string): Promise<WebhookConfig | null> {
+    const row = await this.db.get<any>('SELECT * FROM _webhooks WHERE id = ?', id);
     if (!row) return null;
     return this.mapWebhookRow(row);
   }
 
-  public updateWebhook(
+  public async updateWebhook(
     id: string,
     updates: Partial<{
       name: string;
@@ -368,8 +363,8 @@ export class WebhookService {
       secret: string | null;
       enabled: boolean;
     }>
-  ): any {
-    const handleUpdate = (existing: WebhookConfig | null) => {
+  ): Promise<WebhookConfig> {
+    const handleUpdate = async (existing: WebhookConfig | null) => {
       if (!existing) {
         throw new AppError('Webhook not found', 404);
       }
@@ -461,43 +456,28 @@ export class WebhookService {
         id
       );
 
-      if (runRes && typeof (runRes as any).then === 'function') {
-        return (runRes as any).then(() => updatedObj);
-      }
+      await runRes;
       return updatedObj;
     };
 
-    const existing = this.getWebhookById(id);
-    if (existing && typeof (existing as any).then === 'function') {
-      return (existing as any).then(handleUpdate);
-    }
-    return handleUpdate(existing);
+    const existing = await this.getWebhookById(id);
+    return await handleUpdate(existing);
   }
 
-  public deleteWebhook(id: string): any {
-    const handleDelete = (existing: WebhookConfig | null) => {
-      if (!existing) {
-        throw new AppError('Webhook not found', 404);
-      }
-      const result = this.db.run('DELETE FROM _webhooks WHERE id = ?', id);
-      if (result && typeof (result as any).then === 'function') {
-        return (result as any).then((res: any) => Number(res.changes) > 0);
-      }
-      return Number((result as any).changes) > 0;
-    };
-
-    const existing = this.getWebhookById(id);
-    if (existing && typeof (existing as any).then === 'function') {
-      return (existing as any).then(handleDelete);
+  public async deleteWebhook(id: string): Promise<boolean> {
+    const existing = await this.getWebhookById(id);
+    if (!existing) {
+      throw new AppError('Webhook not found', 404);
     }
-    return handleDelete(existing);
+    const result = await this.db.run('DELETE FROM _webhooks WHERE id = ?', id);
+    return Number(result.changes) > 0;
   }
 
   // ==========================================
   // Delivery Logs & Retries
   // ==========================================
 
-  public getDeliveries(options: DeliveryQueryOptions = {}): any {
+  public async getDeliveries(options: DeliveryQueryOptions = {}): Promise<DeliveryListResult> {
     const page = Math.max(1, Number(options.page) || 1);
     const perPage = Math.min(100, Math.max(1, Number(options.perPage) || 25));
     const offset = (page - 1) * perPage;
@@ -524,12 +504,6 @@ export class WebhookService {
     }
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-
-    const countRes = this.db.get<{ count: number }>(
-      `SELECT COUNT(*) as count FROM _webhook_deliveries ${whereSql}`,
-      ...params
-    );
-
     const baseSql = `SELECT * FROM _webhook_deliveries ${whereSql} ORDER BY created DESC`;
     const paginatedSql = this.db.dialect.paginate(baseSql, perPage, offset);
 
@@ -546,88 +520,65 @@ export class WebhookService {
       };
     };
 
-    if (countRes && typeof (countRes as any).then === 'function') {
-      return (countRes as any).then(async (cRow: any) => {
-        const rows = await this.db.all<any>(paginatedSql, ...params);
-        return handleResult(cRow, rows);
-      });
-    }
-
-    const rows = this.db.all<any>(paginatedSql, ...params);
-    if (rows && typeof (rows as any).then === 'function') {
-      return (rows as any).then((r: any[]) => handleResult(countRes, r));
-    }
-    return handleResult(countRes, rows);
+    const [cRow, rows] = await Promise.all([
+      this.db.get<{ count: number }>(`SELECT COUNT(*) as count FROM _webhook_deliveries ${whereSql}`, ...params),
+      this.db.all<any>(paginatedSql, ...params),
+    ]);
+    return handleResult(cRow, rows);
   }
 
-  public getDeliveryById(id: string): any {
-    const row = this.db.get<any>('SELECT * FROM _webhook_deliveries WHERE id = ?', id);
-    if (row && typeof (row as any).then === 'function') {
-      return (row as any).then((r: any) => (!r ? null : this.mapDeliveryRow(r)));
-    }
+  public async getDeliveryById(id: string): Promise<WebhookDeliveryLog | null> {
+    const row = await this.db.get<any>('SELECT * FROM _webhook_deliveries WHERE id = ?', id);
     if (!row) return null;
     return this.mapDeliveryRow(row);
   }
 
-  public clearDeliveries(olderThanDays?: number): any {
+  public async clearDeliveries(olderThanDays?: number): Promise<number> {
     if (olderThanDays !== undefined && olderThanDays !== null) {
       const days = typeof olderThanDays === 'number' ? olderThanDays : Number(olderThanDays);
       if (!Number.isFinite(days) || days < 0) {
         throw new Error('Invalid olderThanDays parameter: must be a non-negative finite number');
       }
       const cutoff = new Date(Date.now() - days * 86400000).toISOString();
-      const res = this.db.run('DELETE FROM _webhook_deliveries WHERE created < ?', cutoff);
-      if (res && typeof (res as any).then === 'function') {
-        return (res as any).then((r: any) => Number(r.changes));
-      }
-      return Number((res as any).changes);
+      const res = await this.db.run('DELETE FROM _webhook_deliveries WHERE created < ?', cutoff);
+      return Number(res.changes);
     }
-    const res = this.db.run('DELETE FROM _webhook_deliveries');
-    if (res && typeof (res as any).then === 'function') {
-      return (res as any).then((r: any) => Number(r.changes));
-    }
-    return Number((res as any).changes);
+    const res = await this.db.run('DELETE FROM _webhook_deliveries');
+    return Number(res.changes);
   }
 
-  public getStats(): any {
+  public async getStats(): Promise<WebhookStatsResult> {
     const trueVal = this.db.dialect?.booleanLiteral ? this.db.dialect.booleanLiteral(true) : '1';
-    const totalRes = this.db.get<{ total: number; active: number }>(`
+    const totalRow = await this.db.get<{ total: number; active: number }>(`
       SELECT COUNT(*) as total, SUM(CASE WHEN enabled = ${trueVal} THEN 1 ELSE 0 END) as active FROM _webhooks
     `);
-    const deliveriesRes = this.db.get<{ total: number; success: number; failed: number }>(`
+    const deliveriesRow = await this.db.get<{ total: number; success: number; failed: number }>(`
       SELECT COUNT(*) as total,
              SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
              SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
       FROM _webhook_deliveries
     `);
 
-    const compute = (totalRow: any, deliveriesRow: any): WebhookStatsResult => {
-      const totalWebhooks = totalRow?.total || 0;
-      const activeWebhooks = totalRow?.active || 0;
-      const totalDeliveries = deliveriesRow?.total || 0;
-      const successDeliveries = deliveriesRow?.success || 0;
-      const failedDeliveries = deliveriesRow?.failed || 0;
+    const totalWebhooks = totalRow?.total || 0;
+    const activeWebhooks = totalRow?.active || 0;
+    const totalDeliveries = deliveriesRow?.total || 0;
+    const successDeliveries = deliveriesRow?.success || 0;
+    const failedDeliveries = deliveriesRow?.failed || 0;
 
-      let successRate = '100%';
-      if (totalDeliveries > 0) {
-        const rate = ((successDeliveries / totalDeliveries) * 100).toFixed(1);
-        successRate = `${rate}%`;
-      }
-
-      return {
-        totalWebhooks,
-        activeWebhooks,
-        totalDeliveries,
-        successDeliveries,
-        failedDeliveries,
-        successRate,
-      };
-    };
-
-    if (totalRes && typeof (totalRes as any).then === 'function') {
-      return Promise.all([totalRes, deliveriesRes]).then(([t, d]) => compute(t, d));
+    let successRate = '100%';
+    if (totalDeliveries > 0) {
+      const rate = ((successDeliveries / totalDeliveries) * 100).toFixed(1);
+      successRate = `${rate}%`;
     }
-    return compute(totalRes, deliveriesRes);
+
+    return {
+      totalWebhooks,
+      activeWebhooks,
+      totalDeliveries,
+      successDeliveries,
+      failedDeliveries,
+      successRate,
+    };
   }
 
   // ==========================================

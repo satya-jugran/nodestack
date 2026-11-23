@@ -30,14 +30,14 @@ describe('NodeStack End-to-End System Tests', () => {
     }
   });
 
-  it('should initialize and report no admins on fresh instance', () => {
-    expect(app.auth.hasAdmins()).toBe(false);
+  it('should initialize and report no admins on fresh instance', async () => {
+    expect(await app.auth.hasAdmins()).toBe(false);
   });
 
   it('should create initial admin and authenticate', async () => {
     const admin = await app.auth.createAdmin('admin@nodestack.io', 'supersecret123');
     expect(admin.email).toBe('admin@nodestack.io');
-    expect(app.auth.hasAdmins()).toBe(true);
+    expect(await app.auth.hasAdmins()).toBe(true);
 
     const authRes = await app.auth.authenticateAdmin('admin@nodestack.io', 'supersecret123');
     expect(authRes.token).toBeDefined();
@@ -45,7 +45,7 @@ describe('NodeStack End-to-End System Tests', () => {
     adminToken = authRes.token;
 
     // Verify token
-    const claims = app.auth.verifyToken(authRes.token);
+    const claims = await app.auth.verifyToken(authRes.token);
     expect(claims.isAdmin).toBe(true);
     expect(claims.email).toBe('admin@nodestack.io');
   });
