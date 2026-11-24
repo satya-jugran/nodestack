@@ -3,6 +3,9 @@ import { client } from '../lib/nodestack';
 import { User } from '../lib/types';
 
 export const STORE_MANAGER_EMAIL = (import.meta.env.VITE_STORE_MANAGER_EMAIL || 'manager@nodestack.dev').toLowerCase();
+export const STORE_MANAGER_PASSWORD = import.meta.env.VITE_STORE_MANAGER_PASSWORD || 'StoreManagerSecret2026!';
+export const DEMO_CUSTOMER_EMAIL = 'alex.vance@nodestack.dev';
+export const DEMO_CUSTOMER_PASSWORD = 'DemoPassword123!';
 
 interface AuthContextType {
   user: User | null;
@@ -12,6 +15,7 @@ interface AuthContextType {
   login: (identity: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
   demoLogin: () => Promise<void>;
+  managerDemoLogin: () => Promise<void>;
   logout: () => void;
 }
 
@@ -113,6 +117,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const managerDemoLogin = async () => {
+    setIsLoading(true);
+    try {
+      const res = await client
+        .collection('users')
+        .authWithPassword(STORE_MANAGER_EMAIL, STORE_MANAGER_PASSWORD);
+      setUser(res.record as unknown as User);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const logout = () => {
     client.authStore.clear();
     setUser(null);
@@ -137,6 +153,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         register,
         demoLogin,
+        managerDemoLogin,
         logout,
       }}
     >

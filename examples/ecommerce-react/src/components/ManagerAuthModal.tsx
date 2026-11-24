@@ -1,6 +1,16 @@
 import React, { useState } from 'react';
-import { ShieldAlert, ShieldCheck, Lock, X, ArrowRight, KeyRound } from 'lucide-react';
-import { useAuth, STORE_MANAGER_EMAIL } from '../context/AuthContext';
+import {
+  ShieldAlert,
+  ShieldCheck,
+  Lock,
+  X,
+  ArrowRight,
+  KeyRound,
+  Copy,
+  CheckCheck,
+  Sparkles,
+} from 'lucide-react';
+import { useAuth, STORE_MANAGER_EMAIL, STORE_MANAGER_PASSWORD } from '../context/AuthContext';
 import { client } from '../lib/nodestack';
 
 interface ManagerAuthModalProps {
@@ -14,10 +24,11 @@ export const ManagerAuthModal: React.FC<ManagerAuthModalProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const { user, isAuthenticated, isStoreManager, login, isLoading } = useAuth();
+  const { user, isAuthenticated, isStoreManager, login, managerDemoLogin, isLoading } = useAuth();
   const [email, setEmail] = useState(STORE_MANAGER_EMAIL);
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [hasCopiedPass, setHasCopiedPass] = useState(false);
 
   if (!isOpen) return null;
 
@@ -48,6 +59,24 @@ export const ManagerAuthModal: React.FC<ManagerAuthModalProps> = ({
     }
   };
 
+  const handleInstantDemoLogin = async () => {
+    setError(null);
+    try {
+      await managerDemoLogin();
+      setPassword('');
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to authenticate as demo store manager.');
+    }
+  };
+
+  const handleCopyPassword = () => {
+    navigator.clipboard.writeText(STORE_MANAGER_PASSWORD);
+    setHasCopiedPass(true);
+    setTimeout(() => setHasCopiedPass(false), 2000);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-md w-full overflow-hidden p-6 sm:p-8 relative">
@@ -65,20 +94,64 @@ export const ManagerAuthModal: React.FC<ManagerAuthModalProps> = ({
           <Lock className="w-7 h-7" />
         </div>
 
-        <div className="text-center space-y-2 mb-6">
+        <div className="text-center space-y-2 mb-5">
           <h3 className="text-xl font-black text-slate-900 tracking-tight">
             Store Manager Authentication
           </h3>
           <p className="text-xs text-slate-500 leading-relaxed max-w-sm mx-auto">
-            Live inventory editing, product management, and flash sale controls are protected. Enter your server-provisioned manager credentials:
+            Live catalog editing, inventory restocking, and pricing controls are restricted to the authorized manager account:
           </p>
-          <div className="inline-block bg-slate-100 text-slate-800 font-mono text-xs font-semibold px-3 py-1 rounded-full border border-slate-200">
-            {STORE_MANAGER_EMAIL}
+        </div>
+
+        {/* 1-Click Demo Manager Access Box */}
+        <div className="mb-5 p-4 rounded-2xl bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100/50 border border-amber-200/90 space-y-3 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-xs font-bold text-amber-950 uppercase tracking-wide">
+              <Sparkles className="w-4 h-4 text-amber-600" /> Default Demo Credentials
+            </span>
+            <span className="text-[10px] font-semibold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-full border border-amber-200">
+              Pre-Seeded
+            </span>
           </div>
+
+          <div className="space-y-1.5 text-xs font-mono bg-white/80 p-2.5 rounded-xl border border-amber-200/70">
+            <div className="flex items-center justify-between text-slate-700">
+              <span className="text-[11px] text-slate-500 font-sans">User:</span>
+              <span className="font-bold text-slate-900 select-all">{STORE_MANAGER_EMAIL}</span>
+            </div>
+            <div className="flex items-center justify-between text-slate-700 pt-1 border-t border-amber-100">
+              <span className="text-[11px] text-slate-500 font-sans">Pass:</span>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-900 select-all">{STORE_MANAGER_PASSWORD}</span>
+                <button
+                  type="button"
+                  onClick={handleCopyPassword}
+                  className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-700 transition-colors"
+                  title="Copy password"
+                >
+                  {hasCopiedPass ? (
+                    <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleInstantDemoLogin}
+            disabled={isLoading}
+            className="w-full py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-sm shadow-amber-600/20 disabled:opacity-50"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>1-Click Sign In as Store Manager</span>
+          </button>
         </div>
 
         {/* Current status display */}
-        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 mb-5 text-xs space-y-2">
+        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3 mb-4 text-xs space-y-1.5">
           <div className="flex items-center justify-between text-slate-500">
             <span>Current session:</span>
             <span className="font-semibold text-slate-700">
@@ -87,10 +160,8 @@ export const ManagerAuthModal: React.FC<ManagerAuthModalProps> = ({
           </div>
 
           {isAuthenticated && user && !isStoreManager && (
-            <div className="flex items-center gap-2 pt-1 border-t border-slate-200">
-              <span className="text-[11px] text-amber-700 font-medium">
-                ⚠️ Current account is a Customer. Please authenticate as the authorized Store Manager below.
-              </span>
+            <div className="flex items-center gap-1.5 pt-1 border-t border-slate-200 text-[11px] text-amber-800">
+              <span>⚠️ Signed in as Customer. Use credentials above to unlock Manager mode.</span>
             </div>
           )}
         </div>
@@ -102,8 +173,8 @@ export const ManagerAuthModal: React.FC<ManagerAuthModalProps> = ({
           </div>
         )}
 
-        {/* Manager Credentials Form */}
-        <form onSubmit={handleManagerLogin} className="space-y-4">
+        {/* Manager Credentials Manual Form */}
+        <form onSubmit={handleManagerLogin} className="space-y-3.5">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
               Manager Email
@@ -118,9 +189,18 @@ export const ManagerAuthModal: React.FC<ManagerAuthModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Manager Password
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-bold text-slate-700">
+                Manager Password
+              </label>
+              <button
+                type="button"
+                onClick={() => setPassword(STORE_MANAGER_PASSWORD)}
+                className="text-[10px] text-amber-700 hover:text-amber-900 font-bold hover:underline"
+              >
+                Auto-fill Demo Password
+              </button>
+            </div>
             <div className="relative">
               <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
@@ -134,7 +214,7 @@ export const ManagerAuthModal: React.FC<ManagerAuthModalProps> = ({
             </div>
           </div>
 
-          <div className="space-y-2 pt-2">
+          <div className="space-y-2 pt-1">
             <button
               type="submit"
               disabled={isLoading}
@@ -154,17 +234,16 @@ export const ManagerAuthModal: React.FC<ManagerAuthModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="w-full py-2.5 px-4 rounded-xl font-semibold text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+              className="w-full py-2 px-4 rounded-xl font-semibold text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
             >
               Cancel (Stay as Shopper)
             </button>
           </div>
         </form>
 
-        <p className="mt-5 text-[11px] text-center text-slate-400">
+        <p className="mt-4 text-[11px] text-center text-slate-400">
           Enforced by NodeStack SQLite rule: <code className="text-[10px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">@request.auth.email = "{STORE_MANAGER_EMAIL}"</code>
         </p>
-
       </div>
     </div>
   );

@@ -18,9 +18,23 @@ A modern, fast, full-featured retail storefront built with **React**, **Vite**, 
   * **`OrderFulfillmentFlow`** (`eventTrigger: 'orders:create'`): Automated event-driven state machine that triggers on checkout, executes parallel branches for inventory and tracking, evaluates VIP tier status, and finalizes fulfillment.
   * **`CheckoutPromotionFlow`** (`triggerType: 'http'`): Step-function pipeline evaluating promo codes and unlocking bundle perks ($15 credit + premium packaging for carts $150+).
 * 📡 **Realtime SSE Reactivity**: Listens to server change streams (`client.collection('products').subscribe('*')` and `client.collection('orders').subscribe('*')`) to update UI live when stock changes or when fulfillment assigns tracking numbers.
-* 🔐 **Authentication**: User registration, login, JWT session management via `LocalAuthStore`, and **1-Click Demo Login** (`alex.vance@nodestack.dev`).
+* 🔐 **Authentication**: User registration, login, JWT session management via `LocalAuthStore`, and **1-Click Demo Logins** for both Shopper (`alex.vance@nodestack.dev`) and Store Manager (`manager@nodestack.dev`).
 * 📦 **Product Catalog**: 20 pre-seeded products across 5 categories with SVG hero imagery, stock levels, and ratings.
 * 💳 **Slide-Over Cart Drawer & Fast Checkout**: Promo code engine with interactive chips, free shipping meter ($100 threshold), and instant order placement.
+
+---
+
+## 🔑 Pre-Configured Demo Accounts & Credentials
+
+The demo application is provisioned out-of-the-box with pre-configured accounts for testing different roles and capabilities:
+
+| Role | Email / Identifier | Password | Primary Capabilities |
+| :--- | :--- | :--- | :--- |
+| **Store Manager** | `manager@nodestack.dev` | `StoreManagerSecret2026!` | Live inventory restocking, price adjustment, flash sales, and product creation. |
+| **Customer User** | `alex.vance@nodestack.dev` | `DemoPassword123!` | Slide-over cart, checkout, live visual order tracking stepper via SSE, and verified reviews. |
+| **NodeStack Admin** | `admin@nodestack.dev` | `AdminDemoPass123!` | NodeStack Admin UI at `http://localhost:8090/_/`, visual flow state machine designer, database schemas, and logs. |
+
+> **Tip:** You can sign in instantly using the **1-Click Demo Access** buttons in the Storefront's **Sign In** and **Store Manager** modals without manually typing passwords.
 
 ---
 

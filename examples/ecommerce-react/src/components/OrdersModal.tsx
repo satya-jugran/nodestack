@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Order, OrderItem, Product } from '../lib/types';
 import { client, getProductImageUrl } from '../lib/nodestack';
 import { useAuth } from '../context/AuthContext';
+import { OrderTrackingStepper } from './OrderTrackingStepper';
 import {
   X,
   Package,
@@ -119,6 +120,28 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
       return JSON.parse(raw);
     } catch {
       return [];
+    }
+  };
+
+  const handleAdvanceOrderStatus = async (
+    orderId: string,
+    nextStatus: 'pending' | 'processing' | 'shipped' | 'delivered'
+  ) => {
+    try {
+      const patch: Partial<Order> = { status: nextStatus };
+      if (nextStatus === 'shipped' || nextStatus === 'delivered') {
+        const order = orders.find((o) => o.id === orderId);
+        if (order && !order.trackingNumber) {
+          patch.trackingNumber = `TRK-US-${Math.floor(100000 + Math.random() * 900000)}`;
+          patch.carrier = order.carrier || 'FedEx Priority Express';
+        }
+      }
+      const updated = await client.collection('orders').update(orderId, patch);
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, ...(updated as unknown as Order) } : o))
+      );
+    } catch (err: any) {
+      console.warn('Failed to advance order status:', err);
     }
   };
 
@@ -252,66 +275,31 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       </div>
                     </div>
 
-                    {/* NodeStack Flow & Lambda Metadata Badges */}
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {order.trackingNumber && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-700 text-[11px] font-semibold">
-                          <Truck className="w-3.5 h-3.5" />
-                          <span>{order.carrier || 'Carrier'}: <strong>{order.trackingNumber}</strong></span>
-                        </div>
-                      )}
+                    {/* Animated Live Visual Order Tracking Stepper */}
+                    <OrderTrackingStepper
+                      order={order}
+                      onAdvanceStatus={handleAdvanceOrderStatus}
+                    />
 
-                      {order.loyaltyPoints !== undefined && order.loyaltyPoints > 0 && (
-                        <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-100 text-amber-800 text-[11px] font-semibold">
-                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                          <span>VIP Points: +{order.loyaltyPoints.toLocaleString()}</span>
-                        </div>
-                      )}
-
-                      {order.discount !== undefined && order.discount > 0 && (
-                        <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-800 text-[11px] font-semibold">
-                          <Tag className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Discount: -${order.discount.toFixed(2)} ({order.couponCode || 'PROMO'})</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Timeline stepper */}
-                    <div className="grid grid-cols-4 gap-2 pt-1 pb-1">
-                      {['pending', 'processing', 'shipped', 'delivered'].map((step, idx) => {
-                        const statusWeights: Record<string, number> = {
-                          pending: 0,
-                          processing: 1,
-                          shipped: 2,
-                          delivered: 3,
-                          cancelled: -1,
-                        };
-                        const currentWeight = statusWeights[order.status] ?? 0;
-                        const isDone = currentWeight >= idx;
-                        const isCurrent = currentWeight === idx;
-
-                        return (
-                          <div key={step} className="flex flex-col items-center text-center">
-                            <div
-                              className={`w-full h-1.5 rounded-full mb-1 transition-colors ${
-                                isDone ? 'bg-emerald-500' : 'bg-slate-200'
-                              }`}
-                            />
-                            <span
-                              className={`text-[10px] font-bold uppercase tracking-wider ${
-                                isCurrent
-                                  ? 'text-emerald-700'
-                                  : isDone
-                                  ? 'text-slate-700'
-                                  : 'text-slate-300'
-                              }`}
-                            >
-                              {step}
-                            </span>
+                    {/* NodeStack Lambda VIP & Discount Badges */}
+                    {((order.loyaltyPoints !== undefined && order.loyaltyPoints > 0) ||
+                      (order.discount !== undefined && order.discount > 0)) && (
+                      <div className="flex flex-wrap gap-2 pt-0.5">
+                        {order.loyaltyPoints !== undefined && order.loyaltyPoints > 0 && (
+                          <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-100 text-amber-800 text-[11px] font-semibold">
+                            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                            <span>VIP Points: +{order.loyaltyPoints.toLocaleString()}</span>
                           </div>
-                        );
-                      })}
-                    </div>
+                        )}
+
+                        {order.discount !== undefined && order.discount > 0 && (
+                          <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-800 text-[11px] font-semibold">
+                            <Tag className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Discount: -${order.discount.toFixed(2)} ({order.couponCode || 'PROMO'})</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Items Breakdown */}
                     <div className="space-y-2 pt-2 border-t border-slate-200/60">
