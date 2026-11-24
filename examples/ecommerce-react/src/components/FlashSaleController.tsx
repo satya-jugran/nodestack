@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Product, FlashSaleState, SimulatedOrderEvent } from '../lib/types';
 import { client } from '../lib/nodestack';
 import { Zap, Flame, StopCircle, RefreshCw, Clock, Sparkles, TrendingDown } from 'lucide-react';
@@ -34,6 +34,12 @@ export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
   const [isApplyingSale, setIsApplyingSale] = useState(false);
   const [isRevertingSale, setIsRevertingSale] = useState(false);
   const rushIntervalRef = useRef<number | null>(null);
+
+  // Keep flashSale ref up to date to prevent stale closures in timers
+  const flashSaleRef = useRef(flashSale);
+  useEffect(() => {
+    flashSaleRef.current = flashSale;
+  }, [flashSale]);
 
   // 1. Flash Sale: Apply 25% site-wide price drop with rollback on partial failure
   const handleTriggerFlashSale = async () => {
@@ -105,17 +111,18 @@ export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
   };
 
   // 2. Revert Flash Sale: restore baseline prices with incremental tracking
-  const handleRevertFlashSale = async () => {
-    if (!flashSale.originalPrices) {
+  const handleRevertFlashSale = useCallback(async () => {
+    const currentSale = flashSaleRef.current;
+    if (!currentSale.originalPrices || !currentSale.isActive) {
       setFlashSale({ isActive: false, discountPercent: 0 });
       return;
     }
 
     setIsRevertingSale(true);
-    const remainingOriginals = { ...flashSale.originalPrices };
+    const remainingOriginals = { ...currentSale.originalPrices };
 
     try {
-      for (const [id, originalPrice] of Object.entries(flashSale.originalPrices)) {
+      for (const [id, originalPrice] of Object.entries(currentSale.originalPrices)) {
         await client.collection('products').update(id, {
           price: originalPrice,
         });
@@ -125,6 +132,7 @@ export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
       setFlashSale({
         isActive: false,
         discountPercent: 0,
+        endsAt: undefined,
         originalPrices: undefined,
       });
     } catch (err: any) {
@@ -140,7 +148,26 @@ export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
     } finally {
       setIsRevertingSale(false);
     }
-  };
+  }, [setFlashSale]);
+
+  // 3. Expiry cleanup: automatically revert prices and clear active state when countdown reaches zero
+  useEffect(() => {
+    if (!flashSale.isActive || !flashSale.endsAt) {
+      return;
+    }
+
+    const remainingMs = flashSale.endsAt - Date.now();
+    if (remainingMs <= 0) {
+      handleRevertFlashSale();
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      handleRevertFlashSale();
+    }, remainingMs);
+
+    return () => clearTimeout(timer);
+  }, [flashSale.isActive, flashSale.endsAt, handleRevertFlashSale]);
 
   // 3. Inventory Rush Simulator Engine
   useEffect(() => {
