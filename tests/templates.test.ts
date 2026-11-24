@@ -85,6 +85,29 @@ describe('Starter Templates / Recipes Tests', () => {
 
       expect(app.templates.get('unknown_template')).toBeUndefined();
     });
+
+    it('should dynamically derive category/product access rules from STORE_MANAGER_EMAIL', () => {
+      const originalEnv = process.env.STORE_MANAGER_EMAIL;
+      try {
+        process.env.STORE_MANAGER_EMAIL = 'custom.admin@mystore.io';
+        const ecom = app.templates.get('ecommerce')!;
+        const catDto = ecom.collections.find((c) => c.name === 'categories')!.dto;
+        const prodDto = ecom.collections.find((c) => c.name === 'products')!.dto;
+
+        expect(catDto.createRule).toBe('@request.auth.email = "custom.admin@mystore.io"');
+        expect(catDto.updateRule).toBe('@request.auth.email = "custom.admin@mystore.io"');
+        expect(catDto.deleteRule).toBe('@request.auth.email = "custom.admin@mystore.io"');
+        expect(prodDto.createRule).toBe('@request.auth.email = "custom.admin@mystore.io"');
+        expect(prodDto.updateRule).toBe('@request.auth.email = "custom.admin@mystore.io"');
+        expect(prodDto.deleteRule).toBe('@request.auth.email = "custom.admin@mystore.io"');
+      } finally {
+        if (originalEnv === undefined) {
+          delete process.env.STORE_MANAGER_EMAIL;
+        } else {
+          process.env.STORE_MANAGER_EMAIL = originalEnv;
+        }
+      }
+    });
   });
 
   describe('🛒 E-Commerce Starter Template Application', () => {

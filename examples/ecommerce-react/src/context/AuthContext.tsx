@@ -2,9 +2,12 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { client } from '../lib/nodestack';
 import { User } from '../lib/types';
 
+export const STORE_MANAGER_EMAIL = (import.meta.env.VITE_STORE_MANAGER_EMAIL || 'manager@nodestack.dev').toLowerCase();
+
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
+  isStoreManager: boolean;
   isLoading: boolean;
   login: (identity: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
@@ -120,11 +123,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {}
   };
 
+  const isStoreManager = Boolean(
+    user && user.email?.toLowerCase() === STORE_MANAGER_EMAIL
+  );
+
   return (
     <AuthContext.Provider
       value={{
         user,
         isAuthenticated: !!user && client.authStore.isValid,
+        isStoreManager,
         isLoading,
         login,
         register,

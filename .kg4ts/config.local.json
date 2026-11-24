@@ -1,0 +1,9 @@
+{
+  "profile": "standard",
+  "storage": {
+    "type": "mongo",
+    "uri": "mongodb://localhost:27017",
+    "database": "kg4ts",
+    "graphId": "nodestack-777c63d6"
+  }
+}

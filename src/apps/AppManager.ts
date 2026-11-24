@@ -7,6 +7,7 @@ import { AppError, NotFoundError } from '../core/errors/AppError';
 import { DatabaseService } from '../database/DatabaseService';
 import { IDatabaseDriver } from '../database/drivers/IDatabaseDriver';
 import { NodeSqliteDriver } from '../database/drivers/NodeSqliteDriver';
+import { getStoreManagerEmail, getStoreManagerRule } from '../templates/definitions';
 
 export type DatabaseDriverFactory = (app: AppModel, defaultDbPath: string) => IDatabaseDriver;
 
@@ -194,9 +195,44 @@ export class AppManager {
           } else {
             await scope.db.run('UPDATE users SET passwordHash = ? WHERE email = ?', passwordHash, 'alex.vance@nodestack.dev');
           }
+
+          // Server-side provisioning for Store Manager account with server secret (never shipped to browser)
+          const managerEmail = getStoreManagerEmail();
+          const managerPassword = process.env.STORE_MANAGER_PASSWORD || 'StoreManagerSecret2026!';
+          const managerHash = await scope.auth.hashPassword(managerPassword);
+          const managerExists = await scope.db.get<{ id: string }>('SELECT id FROM users WHERE email = ?', managerEmail);
+          const managerNow = new Date().toISOString();
+          if (!managerExists) {
+            await scope.db.run(
+              `INSERT INTO users (id, email, emailVisibility, verified, passwordHash, tokenKey, name, created, updated)
+               VALUES (?, ?, 1, 1, ?, ?, ?, ?, ?)`,
+              'usr_store_manager',
+              managerEmail,
+              managerHash,
+              crypto.randomBytes(16).toString('hex'),
+              'Store Manager',
+              managerNow,
+              managerNow
+            );
+          } else {
+            await scope.db.run('UPDATE users SET passwordHash = ? WHERE email = ?', managerHash, managerEmail);
+          }
+
+          // Ensure categories and products collection rules match configured managerEmail
+          const managerRule = getStoreManagerRule();
+          for (const colName of ['categories', 'products']) {
+            const col = await scope.schema.getCollection(colName);
+            if (col && (col.createRule !== managerRule || col.updateRule !== managerRule || col.deleteRule !== managerRule)) {
+              await scope.schema.updateCollection(col.id, {
+                createRule: managerRule,
+                updateRule: managerRule,
+                deleteRule: managerRule,
+              });
+            }
+          }
         }
       } catch (err: any) {
-        console.warn(`[AppManager] Pre-seeding demo user note: ${err.message}`);
+        console.warn(`[AppManager] Pre-seeding demo users note: ${err.message}`);
       }
 
       // Ensure cart_items collection exists for persistent shopping cart

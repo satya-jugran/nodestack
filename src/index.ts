@@ -149,7 +149,7 @@ export { DocsService } from './admin/DocsService';
 // Starter Templates & Recipes
 export { TemplateService } from './templates/TemplateService';
 export { TemplateImageGenerator } from './templates/TemplateImageGenerator';
-export { STARTER_TEMPLATES, ecommerceTemplate, blogTemplate, crmTemplate } from './templates/definitions';
+export { STARTER_TEMPLATES, ecommerceTemplate, blogTemplate, crmTemplate, getStoreManagerEmail, getStoreManagerRule } from './templates/definitions';
 export * from './templates/types';
 
 // Application Snapshots Management
