@@ -1,0 +1,214 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Product, FlashSaleState, SimulatedOrderEvent } from '../lib/types';
+import { client } from '../lib/nodestack';
+import { Zap, Flame, StopCircle, RefreshCw, Clock, Sparkles, TrendingDown } from 'lucide-react';
+
+interface FlashSaleControllerProps {
+  products: Product[];
+  flashSale: FlashSaleState;
+  setFlashSale: React.Dispatch<React.SetStateAction<FlashSaleState>>;
+  isRushActive: boolean;
+  setIsRushActive: React.Dispatch<React.SetStateAction<boolean>>;
+  onSimulatedOrder: (event: SimulatedOrderEvent) => void;
+}
+
+const CUSTOMER_NAMES = [
+  'Marcus V.',
+  'Sarah Jenkins',
+  'Alex Chen',
+  'Elena R.',
+  'David Kim',
+  'Jessica Taylor',
+  'Liam Patel',
+  'Zoe Martinez',
+];
+
+export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
+  products,
+  flashSale,
+  setFlashSale,
+  isRushActive,
+  setIsRushActive,
+  onSimulatedOrder,
+}) => {
+  const [isApplyingSale, setIsApplyingSale] = useState(false);
+  const [isRevertingSale, setIsRevertingSale] = useState(false);
+  const rushIntervalRef = useRef<number | null>(null);
+
+  // 1. Flash Sale: Apply 25% site-wide price drop
+  const handleTriggerFlashSale = async () => {
+    if (products.length === 0) return;
+    setIsApplyingSale(true);
+
+    try {
+      const originalPrices: Record<string, number> = {};
+      
+      // Update each product with a 25% discount
+      for (const p of products) {
+        originalPrices[p.id] = p.price;
+        const discountedPrice = Number((p.price * 0.75).toFixed(2));
+        await client.collection('products').update(p.id, {
+          price: discountedPrice,
+        });
+      }
+
+      setFlashSale({
+        isActive: true,
+        discountPercent: 25,
+        endsAt: Date.now() + 5 * 60 * 1000, // 5 minutes
+        originalPrices,
+      });
+    } catch (err) {
+      console.error('Failed to trigger flash sale:', err);
+    } finally {
+      setIsApplyingSale(false);
+    }
+  };
+
+  // 2. Revert Flash Sale: restore baseline prices
+  const handleRevertFlashSale = async () => {
+    if (!flashSale.originalPrices) {
+      setFlashSale({ isActive: false, discountPercent: 0 });
+      return;
+    }
+
+    setIsRevertingSale(true);
+    try {
+      for (const [id, originalPrice] of Object.entries(flashSale.originalPrices)) {
+        await client.collection('products').update(id, {
+          price: originalPrice,
+        });
+      }
+
+      setFlashSale({
+        isActive: false,
+        discountPercent: 0,
+        originalPrices: undefined,
+      });
+    } catch (err) {
+      console.error('Failed to revert flash sale prices:', err);
+    } finally {
+      setIsRevertingSale(false);
+    }
+  };
+
+  // 3. Inventory Rush Simulator Engine
+  useEffect(() => {
+    if (isRushActive) {
+      rushIntervalRef.current = window.setInterval(async () => {
+        // Pick an in-stock product randomly
+        const inStockItems = products.filter((p) => p.stock > 0);
+        if (inStockItems.length === 0) {
+          setIsRushActive(false);
+          return;
+        }
+
+        const target = inStockItems[Math.floor(Math.random() * inStockItems.length)];
+        const newStock = Math.max(0, target.stock - 1);
+        const newStatus = newStock === 0 ? 'out_of_stock' : newStock <= 5 ? 'low_stock' : 'in_stock';
+        const customer = CUSTOMER_NAMES[Math.floor(Math.random() * CUSTOMER_NAMES.length)];
+
+        try {
+          await client.collection('products').update(target.id, {
+            stock: newStock,
+            status: newStatus,
+          });
+
+          onSimulatedOrder({
+            id: 'sim_' + Date.now(),
+            customerName: customer,
+            productName: target.name,
+            productId: target.id,
+            newStock,
+            timestamp: Date.now(),
+          });
+        } catch (err) {
+          console.warn('Simulation update skipped:', err);
+        }
+      }, 1900);
+    } else {
+      if (rushIntervalRef.current) {
+        clearInterval(rushIntervalRef.current);
+        rushIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (rushIntervalRef.current) {
+        clearInterval(rushIntervalRef.current);
+      }
+    };
+  }, [isRushActive, products, onSimulatedOrder, setIsRushActive]);
+
+  return (
+    <div className="bg-gradient-to-r from-amber-500/10 via-brand-500/10 to-rose-500/10 border border-amber-300/60 rounded-3xl p-5 shadow-xs">
+      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+        
+        {/* Left info */}
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="p-1.5 rounded-xl bg-amber-500 text-white font-bold text-xs flex items-center justify-center">
+              <Zap className="w-4 h-4" />
+            </span>
+            <h3 className="text-sm font-black text-slate-900 tracking-tight">
+              Flash Sale & Inventory Rush Simulation
+            </h3>
+          </div>
+          <p className="text-xs text-slate-600 max-w-lg">
+            Broadcast promotional sales across all browser windows or simulate incoming order spikes to test real-time stock decrements and "Out of Stock" triggers.
+          </p>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-3 flex-wrap">
+          
+          {/* Site-Wide 25% Flash Sale Button */}
+          {flashSale.isActive ? (
+            <button
+              onClick={handleRevertFlashSale}
+              disabled={isRevertingSale}
+              className="px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-slate-800 hover:bg-slate-900 shadow-md flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRevertingSale ? 'animate-spin' : ''}`} />
+              <span>End Flash Sale (Revert Prices)</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleTriggerFlashSale}
+              disabled={isApplyingSale}
+              className="px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 shadow-md shadow-amber-500/20 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+            >
+              {isApplyingSale ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <TrendingDown className="w-4 h-4" />
+              )}
+              <span>⚡ Trigger 25% Flash Sale</span>
+            </button>
+          )}
+
+          {/* Rush Simulator Button */}
+          {isRushActive ? (
+            <button
+              onClick={() => setIsRushActive(false)}
+              className="px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-600/20 flex items-center gap-2 transition-all active:scale-95 animate-pulse"
+            >
+              <StopCircle className="w-4 h-4" />
+              <span>Stop Inventory Rush</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setIsRushActive(true)}
+              className="px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-indigo-600 to-brand-600 hover:from-indigo-700 hover:to-brand-700 shadow-md shadow-indigo-500/20 flex items-center gap-2 transition-all active:scale-95"
+            >
+              <Flame className="w-4 h-4 text-amber-300" />
+              <span>🔥 Simulate Inventory Rush</span>
+            </button>
+          )}
+
+        </div>
+
+      </div>
+    </div>
+  );
+};

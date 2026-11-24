@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { client, getAdminUrl, getBackendUrl } from './lib/nodestack';
-import { Category, Product, Review } from './lib/types';
+import { Category, Product, Review, ViewMode, FlashSaleState, SimulatedOrderEvent } from './lib/types';
 import { useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
 import { HeroBanner } from './components/HeroBanner';
@@ -12,6 +12,11 @@ import { CheckoutModal } from './components/CheckoutModal';
 import { OrdersModal } from './components/OrdersModal';
 import { FavoritesModal } from './components/FavoritesModal';
 import { AuthModal } from './components/AuthModal';
+import { ManagerAuthModal } from './components/ManagerAuthModal';
+import { StoreManagerView } from './components/StoreManagerView';
+import { ProductFormModal } from './components/ProductFormModal';
+import { FlashSaleController } from './components/FlashSaleController';
+import { FlashSaleBanner } from './components/FlashSaleBanner';
 import { Sparkles, Server, Database, ExternalLink, RefreshCw, Layers } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -26,8 +31,34 @@ export const App: React.FC = () => {
   const [sortBy, setSortBy] = useState('-created');
   const [inStockOnly, setInStockOnly] = useState(false);
 
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isStoreManager } = useAuth();
   const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
+
+  // View Mode: Shopper vs Store Manager
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('mode') === 'manager' || urlParams.get('view') === 'manager') {
+        return 'manager';
+      }
+      return (localStorage.getItem('nodestack_store_view_mode') as ViewMode) || 'shopper';
+    }
+    return 'shopper';
+  });
+
+  // Save view mode
+  useEffect(() => {
+    try {
+      localStorage.setItem('nodestack_store_view_mode', viewMode);
+    } catch {}
+  }, [viewMode]);
+
+  // If user is not manager and on manager view, fallback to shopper
+  useEffect(() => {
+    if (viewMode === 'manager' && !isStoreManager) {
+      setViewMode('shopper');
+    }
+  }, [isStoreManager, viewMode]);
 
   // Modals state
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
@@ -35,6 +66,15 @@ export const App: React.FC = () => {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isOrdersOpen, setIsOrdersOpen] = useState(false);
   const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
+  const [isManagerAuthOpen, setIsManagerAuthOpen] = useState(false);
+  const [isProductFormOpen, setIsProductFormOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  // Realtime highlight & Flash Sale / Rush simulator
+  const [recentlyUpdatedId, setRecentlyUpdatedId] = useState<string | null>(null);
+  const [flashSale, setFlashSale] = useState<FlashSaleState>({ isActive: false, discountPercent: 0 });
+  const [isRushActive, setIsRushActive] = useState(false);
+  const [latestSimulatedOrder, setLatestSimulatedOrder] = useState<SimulatedOrderEvent | null>(null);
 
   const handleProceedToCheckout = () => {
     if (isAuthenticated) {
@@ -111,10 +151,14 @@ export const App: React.FC = () => {
     try {
       client.collection('products').subscribe('*', (e) => {
         if (e.action === 'update') {
+          setRecentlyUpdatedId(e.record.id);
+          setTimeout(() => setRecentlyUpdatedId(null), 1500);
           setProducts((prev) =>
             prev.map((p) => (p.id === e.record.id ? { ...p, ...e.record } : p))
           );
         } else if (e.action === 'create') {
+          setRecentlyUpdatedId(e.record.id);
+          setTimeout(() => setRecentlyUpdatedId(null), 1500);
           setProducts((prev) => [e.record as unknown as Product, ...prev]);
         } else if (e.action === 'delete') {
           setProducts((prev) => prev.filter((p) => p.id !== e.record.id));
@@ -168,13 +212,32 @@ export const App: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800">
       
-      {/* Navbar */}
+      {/* Global Flash Sale Banner & Simulated Order Toasts */}
+      <FlashSaleBanner
+        flashSale={flashSale}
+        latestSimulatedOrder={latestSimulatedOrder}
+      />
+
+      {/* Navbar with Store Manager Switcher */}
       <Navbar
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         onOpenAuth={() => setIsAuthOpen(true)}
         onOpenOrders={() => setIsOrdersOpen(true)}
         onOpenFavorites={() => setIsFavoritesOpen(true)}
+        viewMode={viewMode}
+        onToggleViewMode={() => {
+          if (viewMode === 'shopper') {
+            if (isStoreManager) {
+              setViewMode('manager');
+            } else {
+              setIsManagerAuthOpen(true);
+            }
+          } else {
+            setViewMode('shopper');
+          }
+        }}
+        onOpenManagerAuth={() => setIsManagerAuthOpen(true)}
       />
 
       {/* Backend connection banner if unreachable */}
@@ -193,90 +256,126 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Hero Banner */}
-      <HeroBanner onExplore={scrollToCatalog} />
+      {/* Main Content: Store Manager View vs Shopper View */}
+      {viewMode === 'manager' && isStoreManager ? (
+        <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-8 space-y-6">
+          <FlashSaleController
+            products={products}
+            flashSale={flashSale}
+            setFlashSale={setFlashSale}
+            isRushActive={isRushActive}
+            setIsRushActive={setIsRushActive}
+            onSimulatedOrder={(evt) => setLatestSimulatedOrder(evt)}
+          />
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full pb-16" ref={catalogRef}>
-        
-        {/* Filters */}
-        <CategoryFilter
-          categories={categories}
-          selectedCategory={selectedCategory}
-          onSelectCategory={setSelectedCategory}
-          sortBy={sortBy}
-          onSortChange={setSortBy}
-          inStockOnly={inStockOnly}
-          onToggleInStock={setInStockOnly}
-        />
+          <StoreManagerView
+            products={products}
+            categories={categories}
+            onOpenAddProduct={() => {
+              setEditingProduct(null);
+              setIsProductFormOpen(true);
+            }}
+            onEditProduct={(p) => {
+              setEditingProduct(p);
+              setIsProductFormOpen(true);
+            }}
+            onDeleteProduct={async (p) => {
+              setProducts((prev) => prev.filter((item) => item.id !== p.id));
+            }}
+            onRefresh={loadData}
+            onSwitchToShopper={() => setViewMode('shopper')}
+            recentlyUpdatedId={recentlyUpdatedId}
+            flashSaleActive={flashSale.isActive}
+          />
+        </main>
+      ) : (
+        <>
+          {/* Hero Banner */}
+          <HeroBanner onExplore={scrollToCatalog} />
 
-        {/* Results Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
-            <Layers className="w-4 h-4 text-brand-600" />
-            <span>
-              {selectedCategory
-                ? categories.find((c) => c.id === selectedCategory)?.name
-                : 'All Products'}{' '}
-              ({filteredProducts.length})
-            </span>
-          </div>
+          {/* Main Content Area: Shopper Catalog */}
+          <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full pb-16" ref={catalogRef}>
+            
+            {/* Filters */}
+            <CategoryFilter
+              categories={categories}
+              selectedCategory={selectedCategory}
+              onSelectCategory={setSelectedCategory}
+              sortBy={sortBy}
+              onSortChange={setSortBy}
+              inStockOnly={inStockOnly}
+              onToggleInStock={setInStockOnly}
+            />
 
-          {searchQuery && (
-            <span className="text-xs text-slate-500">
-              Filtering by: <strong className="text-slate-800 font-medium">"{searchQuery}"</strong>
-            </span>
-          )}
-        </div>
-
-        {/* Product Grid */}
-        {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {[...Array(8)].map((_, i) => (
-              <div
-                key={i}
-                className="bg-white rounded-2xl border border-slate-200 p-4 space-y-4 animate-pulse"
-              >
-                <div className="aspect-square bg-slate-100 rounded-xl"></div>
-                <div className="h-4 bg-slate-100 rounded w-3/4"></div>
-                <div className="h-3 bg-slate-100 rounded w-1/2"></div>
-                <div className="h-8 bg-slate-100 rounded"></div>
+            {/* Results Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+                <Layers className="w-4 h-4 text-brand-600" />
+                <span>
+                  {selectedCategory
+                    ? categories.find((c) => c.id === selectedCategory)?.name
+                    : 'All Products'}{' '}
+                  ({filteredProducts.length})
+                </span>
               </div>
-            ))}
-          </div>
-        ) : filteredProducts.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-3xl border border-slate-200/80 p-8 space-y-3">
-            <div className="w-16 h-16 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
-              <Sparkles className="w-8 h-8" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-800">No matching products found</h3>
-            <p className="text-sm text-slate-500 max-w-sm mx-auto">
-              Try adjusting your search keywords, clear category filters, or uncheck "In Stock Only".
-            </p>
-            <button
-              onClick={() => {
-                setSearchQuery('');
-                setSelectedCategory(null);
-                setInStockOnly(false);
-              }}
-              className="px-4 py-2 text-xs font-bold text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-full transition-colors"
-            >
-              Reset Filters
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {filteredProducts.map((product) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                onOpenDetails={setActiveProduct}
-              />
-            ))}
-          </div>
-        )}
 
-      </main>
+              {searchQuery && (
+                <span className="text-xs text-slate-500">
+                  Filtering by: <strong className="text-slate-800 font-medium">"{searchQuery}"</strong>
+                </span>
+              )}
+            </div>
+
+            {/* Product Grid */}
+            {isLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                {[...Array(8)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="bg-white rounded-2xl border border-slate-200 p-4 space-y-4 animate-pulse"
+                  >
+                    <div className="aspect-square bg-slate-100 rounded-xl"></div>
+                    <div className="h-4 bg-slate-100 rounded w-3/4"></div>
+                    <div className="h-3 bg-slate-100 rounded w-1/2"></div>
+                    <div className="h-8 bg-slate-100 rounded"></div>
+                  </div>
+                ))}
+              </div>
+            ) : filteredProducts.length === 0 ? (
+              <div className="text-center py-20 bg-white rounded-3xl border border-slate-200/80 p-8 space-y-3">
+                <div className="w-16 h-16 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                  <Sparkles className="w-8 h-8" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800">No matching products found</h3>
+                <p className="text-sm text-slate-500 max-w-sm mx-auto">
+                  Try adjusting your search keywords, clear category filters, or uncheck "In Stock Only".
+                </p>
+                <button
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSelectedCategory(null);
+                    setInStockOnly(false);
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-full transition-colors"
+                >
+                  Reset Filters
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                {filteredProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onOpenDetails={setActiveProduct}
+                  />
+                ))}
+              </div>
+            )}
+
+          </main>
+        </>
+      )}
 
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white py-12">
@@ -379,6 +478,38 @@ export const App: React.FC = () => {
             ? 'Sign in or use 1-click demo access to place your order and stream live tracking.'
             : undefined
         }
+      />
+
+      {/* Manager Access Restriction Modal */}
+      <ManagerAuthModal
+        isOpen={isManagerAuthOpen}
+        onClose={() => setIsManagerAuthOpen(false)}
+        onSuccess={() => {
+          setViewMode('manager');
+        }}
+      />
+
+      {/* Create & Edit Product Modal */}
+      <ProductFormModal
+        isOpen={isProductFormOpen}
+        onClose={() => {
+          setIsProductFormOpen(false);
+          setEditingProduct(null);
+        }}
+        product={editingProduct}
+        categories={categories}
+        onSuccess={(savedProduct, isNew) => {
+          if (isNew) {
+            setProducts((prev) => [savedProduct, ...prev]);
+          } else {
+            setProducts((prev) =>
+              prev.map((p) => (p.id === savedProduct.id ? { ...p, ...savedProduct } : p))
+            );
+          }
+        }}
+        onDelete={(productId) => {
+          setProducts((prev) => prev.filter((p) => p.id !== productId));
+        }}
       />
 
     </div>

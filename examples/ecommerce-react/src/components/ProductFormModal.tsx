@@ -1,0 +1,499 @@
+import React, { useState, useEffect } from 'react';
+import { Product, Category } from '../lib/types';
+import { client, getProductImageUrl } from '../lib/nodestack';
+import {
+  X,
+  Package,
+  DollarSign,
+  Layers,
+  Image as ImageIcon,
+  Check,
+  AlertCircle,
+  Trash2,
+  Sparkles,
+} from 'lucide-react';
+
+interface ProductFormModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  product: Product | null; // null = Create, object = Edit
+  categories: Category[];
+  onSuccess: (product: Product, isNew: boolean) => void;
+  onDelete?: (productId: string) => void;
+}
+
+const PRESET_ICONS = [
+  { name: 'Headphones', icon: '🎧', color: '#6366f1' },
+  { name: 'Backpack', icon: '🎒', color: '#0ea5e9' },
+  { name: 'Footwear', icon: '👟', color: '#10b981' },
+  { name: 'Timepiece', icon: '⌚', color: '#f59e0b' },
+  { name: 'Keyboard', icon: '⌨️', color: '#8b5cf6' },
+  { name: 'Camera', icon: '📷', color: '#ec4899' },
+  { name: 'Coffee', icon: '☕', color: '#78350f' },
+  { name: 'Wellness', icon: '🌿', color: '#14b8a6' },
+];
+
+function generatePresetSvgDataUri(icon: string, label: string, color: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+    <defs>
+      <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#f8fafc"/>
+        <stop offset="100%" stop-color="#f1f5f9"/>
+      </linearGradient>
+    </defs>
+    <rect width="400" height="400" rx="40" fill="url(#bg)"/>
+    <circle cx="200" cy="180" r="110" fill="${color}" fill-opacity="0.12"/>
+    <text x="200" y="210" font-size="80" text-anchor="middle" dominant-baseline="middle">${icon}</text>
+    <text x="200" y="320" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="bold" fill="#334155" text-anchor="middle">${label}</text>
+  </svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+export const ProductFormModal: React.FC<ProductFormModalProps> = ({
+  isOpen,
+  onClose,
+  product,
+  categories,
+  onSuccess,
+  onDelete,
+}) => {
+  const isEdit = Boolean(product);
+
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [category, setCategory] = useState('');
+  const [price, setPrice] = useState('49.99');
+  const [stock, setStock] = useState('25');
+  const [description, setDescription] = useState('');
+  const [isFeatured, setIsFeatured] = useState(false);
+  const [status, setStatus] = useState<'in_stock' | 'low_stock' | 'out_of_stock' | 'pre_order'>('in_stock');
+  
+  // Image handling
+  const [imageType, setImageType] = useState<'preset' | 'url'>('preset');
+  const [imageUrl, setImageUrl] = useState('');
+  const [selectedPreset, setSelectedPreset] = useState(PRESET_ICONS[0]);
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Initialize form when product changes
+  useEffect(() => {
+    if (product) {
+      setName(product.name || '');
+      setSlug(product.slug || '');
+      setCategory(product.category || (categories[0]?.id || ''));
+      setPrice(product.price ? product.price.toString() : '0');
+      setStock(product.stock !== undefined ? product.stock.toString() : '0');
+      setDescription(product.description || '');
+      setIsFeatured(Boolean(product.isFeatured));
+      setStatus(product.status || 'in_stock');
+      if (product.image && (product.image.startsWith('http') || product.image.startsWith('data:'))) {
+        setImageType('url');
+        setImageUrl(product.image);
+      } else {
+        setImageType('preset');
+      }
+    } else {
+      // Defaults for create
+      setName('');
+      setSlug('');
+      setCategory(categories[0]?.id || '');
+      setPrice('49.99');
+      setStock('35');
+      setDescription('');
+      setIsFeatured(false);
+      setStatus('in_stock');
+      setImageType('preset');
+      setImageUrl('');
+      setSelectedPreset(PRESET_ICONS[0]);
+    }
+    setError(null);
+  }, [product, categories, isOpen]);
+
+  if (!isOpen) return null;
+
+  // Auto-generate slug when name changes (for new products)
+  const handleNameChange = (val: string) => {
+    setName(val);
+    if (!isEdit) {
+      const generatedSlug = val
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      setSlug(generatedSlug);
+    }
+  };
+
+  // Auto-sync status when stock changes
+  const handleStockChange = (val: string) => {
+    setStock(val);
+    const num = parseInt(val, 10);
+    if (!isNaN(num)) {
+      if (num <= 0) setStatus('out_of_stock');
+      else if (num <= 5) setStatus('low_stock');
+      else setStatus('in_stock');
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (!name.trim()) {
+      setError('Product name is required.');
+      return;
+    }
+
+    const priceNum = parseFloat(price);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      setError('Price must be a valid positive number.');
+      return;
+    }
+
+    const stockNum = parseInt(stock, 10);
+    if (isNaN(stockNum) || stockNum < 0) {
+      setError('Stock must be a non-negative integer.');
+      return;
+    }
+
+    const computedSlug = slug.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const finalCategory = category || categories[0]?.id || 'cat_electronics';
+
+    // Compute final image
+    let finalImage = '';
+    if (imageType === 'url' && imageUrl.trim()) {
+      finalImage = imageUrl.trim();
+    } else if (imageType === 'preset') {
+      finalImage = generatePresetSvgDataUri(selectedPreset.icon, name || selectedPreset.name, selectedPreset.color);
+    } else if (product?.image) {
+      finalImage = product.image;
+    } else {
+      finalImage = generatePresetSvgDataUri('📦', name || 'Product', '#6366f1');
+    }
+
+    const payload: Partial<Product> = {
+      name: name.trim(),
+      slug: computedSlug,
+      category: finalCategory,
+      price: priceNum,
+      stock: stockNum,
+      description: description.trim(),
+      status,
+      isFeatured,
+      image: finalImage,
+    };
+
+    setIsLoading(true);
+    try {
+      if (isEdit && product) {
+        const res = await client.collection('products').update(product.id, payload);
+        onSuccess(res as unknown as Product, false);
+      } else {
+        const res = await client.collection('products').create(payload);
+        onSuccess(res as unknown as Product, true);
+      }
+      onClose();
+    } catch (err: any) {
+      console.error('Failed to save product:', err);
+      setError(err?.message || 'Failed to save product. Ensure you are signed in as Store Manager.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!product || !onDelete) return;
+    if (!window.confirm(`Are you sure you want to permanently delete "${product.name}"?`)) return;
+
+    setIsLoading(true);
+    try {
+      await client.collection('products').delete(product.id);
+      onDelete(product.id);
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to delete product.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in overflow-y-auto">
+      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-2xl w-full my-8 overflow-hidden relative">
+        
+        {/* Header */}
+        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center font-bold">
+              <Package className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900">
+                {isEdit ? `Edit Product: ${product?.name}` : 'Create New Product'}
+              </h3>
+              <p className="text-xs text-slate-400">
+                {isEdit ? 'Update product information and stock level' : 'Add a new item to the live store catalog'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Error notification */}
+        {error && (
+          <div className="m-6 mb-0 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2 font-medium">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          
+          {/* Row 1: Name & Slug */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Product Name <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Minimalist Mechanical Keyboard"
+                value={name}
+                onChange={(e) => handleNameChange(e.target.value)}
+                className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 outline-none transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                URL Slug / SKU <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. minimalist-mechanical-keyboard"
+                value={slug}
+                onChange={(e) => setSlug(e.target.value)}
+                className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 font-mono outline-none transition-all"
+              />
+            </div>
+          </div>
+
+          {/* Row 2: Category & Price & Stock */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Category <span className="text-rose-500">*</span>
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 outline-none font-medium text-slate-800"
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Price ($ USD) <span className="text-rose-500">*</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  className="w-full pl-7 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 font-bold outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Initial Stock <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="number"
+                min="0"
+                required
+                value={stock}
+                onChange={(e) => handleStockChange(e.target.value)}
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 font-bold outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Row 3: Status & Featured */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Stock Status
+              </label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as any)}
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 outline-none font-medium text-slate-800"
+              >
+                <option value="in_stock">In Stock (&gt; 5)</option>
+                <option value="low_stock">Low Stock (1 - 5)</option>
+                <option value="out_of_stock">Out of Stock (0)</option>
+                <option value="pre_order">Pre-Order</option>
+              </select>
+            </div>
+
+            <div className="pt-5 flex items-center">
+              <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isFeatured}
+                  onChange={(e) => setIsFeatured(e.target.checked)}
+                  className="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500"
+                />
+                <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  Mark as Featured Product
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Description
+            </label>
+            <textarea
+              rows={3}
+              placeholder="Detailed product highlights, specifications, and design notes..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 outline-none transition-all resize-none"
+            />
+          </div>
+
+          {/* Image Selection */}
+          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <ImageIcon className="w-4 h-4 text-brand-600" />
+                Product Imagery & Graphic
+              </span>
+              <div className="flex items-center bg-slate-200/60 p-0.5 rounded-lg text-[11px] font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setImageType('preset')}
+                  className={`px-2.5 py-1 rounded-md transition-colors ${
+                    imageType === 'preset' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500'
+                  }`}
+                >
+                  Vector Presets
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImageType('url')}
+                  className={`px-2.5 py-1 rounded-md transition-colors ${
+                    imageType === 'url' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500'
+                  }`}
+                >
+                  Custom URL
+                </button>
+              </div>
+            </div>
+
+            {imageType === 'preset' ? (
+              <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 pt-1">
+                {PRESET_ICONS.map((p) => {
+                  const isSelected = selectedPreset.name === p.name;
+                  return (
+                    <button
+                      key={p.name}
+                      type="button"
+                      onClick={() => setSelectedPreset(p)}
+                      className={`p-2 rounded-xl flex flex-col items-center justify-center gap-1 border transition-all ${
+                        isSelected
+                          ? 'border-brand-600 bg-brand-50 text-brand-700 shadow-xs scale-105'
+                          : 'border-slate-200 bg-white hover:bg-slate-100/80 text-slate-600'
+                      }`}
+                    >
+                      <span className="text-xl">{p.icon}</span>
+                      <span className="text-[10px] font-bold truncate max-w-full">{p.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div>
+                <input
+                  type="text"
+                  placeholder="https://images.unsplash.com/photo-..."
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 outline-none"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Actions Bar */}
+          <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
+            {isEdit && onDelete ? (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isLoading}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete</span>
+              </button>
+            ) : (
+              <div />
+            )}
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 shadow-md shadow-brand-500/20 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {isLoading ? (
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>{isEdit ? 'Save Changes' : 'Create Product'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+        </form>
+
+      </div>
+    </div>
+  );
+};

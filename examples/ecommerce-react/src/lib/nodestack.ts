@@ -42,6 +42,9 @@ export function getProductImageUrl(product: { id: string; image?: string; collec
   if (!product.image) {
     return 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400"><rect width="400" height="400" fill="%23f1f5f9"/><text x="50%" y="50%" text-anchor="middle" fill="%2394a3b8" font-size="20" font-family="sans-serif">No Image</text></svg>';
   }
+  if (product.image.startsWith('http://') || product.image.startsWith('https://') || product.image.startsWith('data:')) {
+    return product.image;
+  }
   return client.files.getUrl(product, product.image, { collection: 'products' });
 }
 

@@ -111,3 +111,22 @@ export interface AppliedCoupon {
   freeShipping: boolean;
   minTotal?: number;
 }
+
+export type ViewMode = 'shopper' | 'manager';
+
+export interface FlashSaleState {
+  isActive: boolean;
+  discountPercent: number;
+  endsAt?: number;
+  originalPrices?: Record<string, number>;
+}
+
+export interface SimulatedOrderEvent {
+  id: string;
+  customerName: string;
+  productName: string;
+  productId: string;
+  newStock: number;
+  timestamp: number;
+}
+
