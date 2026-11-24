@@ -24,15 +24,25 @@ interface ProductFormModalProps {
 }
 
 const PRESET_ICONS = [
-  { name: 'Headphones', icon: '🎧', color: '#6366f1' },
-  { name: 'Backpack', icon: '🎒', color: '#0ea5e9' },
-  { name: 'Footwear', icon: '👟', color: '#10b981' },
-  { name: 'Timepiece', icon: '⌚', color: '#f59e0b' },
-  { name: 'Keyboard', icon: '⌨️', color: '#8b5cf6' },
-  { name: 'Camera', icon: '📷', color: '#ec4899' },
-  { name: 'Coffee', icon: '☕', color: '#78350f' },
-  { name: 'Wellness', icon: '🌿', color: '#14b8a6' },
+  { name: 'Headphones', icon: '🎧', color: '#6366f1', keywords: ['headphone', 'audio', 'sound', 'anc', 'earbud'] },
+  { name: 'Backpack', icon: '🎒', color: '#0ea5e9', keywords: ['backpack', 'bag', 'travel', 'pack', 'tote', 'duffel'] },
+  { name: 'Footwear', icon: '👟', color: '#10b981', keywords: ['shoe', 'footwear', 'trail', 'sneaker', 'runner', 'running', 'boot'] },
+  { name: 'Timepiece', icon: '⌚', color: '#f59e0b', keywords: ['watch', 'timepiece', 'chrono', 'solar', 'clock'] },
+  { name: 'Keyboard', icon: '⌨️', color: '#8b5cf6', keywords: ['keyboard', 'keycap', 'switch', 'mechanical'] },
+  { name: 'Camera', icon: '📷', color: '#ec4899', keywords: ['camera', 'cinema', 'lens', 'photo', 'vlog', 'sensor'] },
+  { name: 'Coffee', icon: '☕', color: '#78350f', keywords: ['coffee', 'dripper', 'brew', 'espresso', 'mug', 'cup', 'pour-over'] },
+  { name: 'Wellness', icon: '🌿', color: '#14b8a6', keywords: ['wellness', 'serum', 'oil', 'botanical', 'candle', 'plant', 'perfume', 'facial', 'skin', 'amber'] },
 ];
+
+export function findMatchingPreset(product: Product): (typeof PRESET_ICONS)[number] {
+  const target = `${product.name || ''} ${product.slug || ''} ${product.image || ''} ${product.description || ''}`.toLowerCase();
+  for (const preset of PRESET_ICONS) {
+    if (preset.keywords.some((kw) => target.includes(kw))) {
+      return preset;
+    }
+  }
+  return PRESET_ICONS[0];
+}
 
 function generatePresetSvgXml(icon: string, label: string, color: string): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
@@ -74,8 +84,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [isFeatured, setIsFeatured] = useState(false);
   const [status, setStatus] = useState<'in_stock' | 'low_stock' | 'out_of_stock' | 'pre_order'>('in_stock');
 
-  // Image handling via Multipart FormData
-  const [imageMode, setImageMode] = useState<'preset' | 'file'>('preset');
+  // Image handling via Multipart FormData: 'keep' (preserve existing stored file on edit), 'preset', or 'file'
+  const [imageMode, setImageMode] = useState<'keep' | 'preset' | 'file'>('preset');
   const [selectedPreset, setSelectedPreset] = useState(PRESET_ICONS[0]);
   const [customFile, setCustomFile] = useState<File | null>(null);
   const [customFilePreview, setCustomFilePreview] = useState<string | null>(null);
@@ -95,7 +105,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setDescription(product.description || '');
       setIsFeatured(Boolean(product.isFeatured));
       setStatus(product.status || 'in_stock');
-      setImageMode('preset');
+      const matched = findMatchingPreset(product);
+      setSelectedPreset(matched);
+      setImageMode('keep');
       setCustomFile(null);
       setCustomFilePreview(null);
       setHasChangedImage(false); // Retain existing image by default on edit
@@ -188,12 +200,12 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     formData.append('isFeatured', isFeatured ? 'true' : 'false');
 
     // Attach File object when creating a new product or when user explicitly changes image
-    if (!isEdit || hasChangedImage) {
+    if (!isEdit || (imageMode !== 'keep' && hasChangedImage)) {
       let fileToUpload: File | null = null;
 
       if (imageMode === 'file' && customFile) {
         fileToUpload = customFile;
-      } else {
+      } else if (imageMode === 'preset') {
         // Generate SVG File from chosen vector preset
         const filename = `${computedSlug}_hero.svg`;
         fileToUpload = generatePresetSvgFile(
@@ -421,20 +433,40 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 Product Image File Upload <span className="text-rose-500">*</span>
               </span>
               <div className="flex items-center bg-slate-200/60 p-0.5 rounded-lg text-[11px] font-semibold">
+                {isEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImageMode('keep');
+                      setHasChangedImage(false);
+                    }}
+                    className={`px-2.5 py-1 rounded-md transition-colors ${
+                      imageMode === 'keep' ? 'bg-white text-slate-800 shadow-xs font-bold' : 'text-slate-500'
+                    }`}
+                  >
+                    Keep Artwork
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => setImageMode('preset')}
+                  onClick={() => {
+                    setImageMode('preset');
+                    if (isEdit) setHasChangedImage(true);
+                  }}
                   className={`px-2.5 py-1 rounded-md transition-colors ${
-                    imageMode === 'preset' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500'
+                    imageMode === 'preset' ? 'bg-white text-slate-800 shadow-xs font-bold' : 'text-slate-500'
                   }`}
                 >
                   Vector SVG Presets
                 </button>
                 <button
                   type="button"
-                  onClick={() => setImageMode('file')}
+                  onClick={() => {
+                    setImageMode('file');
+                    if (isEdit) setHasChangedImage(true);
+                  }}
                   className={`px-2.5 py-1 rounded-md transition-colors ${
-                    imageMode === 'file' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500'
+                    imageMode === 'file' ? 'bg-white text-slate-800 shadow-xs font-bold' : 'text-slate-500'
                   }`}
                 >
                   Upload Local File
@@ -443,16 +475,23 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
 
             {/* Current product image info on Edit */}
-            {isEdit && product && !hasChangedImage && (
-              <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white border border-slate-200 text-xs">
+            {isEdit && product && imageMode === 'keep' && (
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-white border border-emerald-200 bg-emerald-50/20 text-xs">
                 <img
                   src={getProductImageUrl(product)}
                   alt={product.name}
-                  className="w-10 h-10 object-contain rounded-lg bg-slate-50 p-1 border border-slate-100"
+                  className="w-12 h-12 object-contain rounded-lg bg-white p-1 border border-slate-200 shadow-xs"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-slate-800 truncate">Current Stored File: {product.image}</p>
-                  <p className="text-[11px] text-slate-400">Leave untouched to keep existing file, or select below to replace.</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-slate-800 truncate">Stored File: {product.image || 'None'}</p>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      ✓ Preserving Original Artwork
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Original seeded image file will be retained. Click "Vector SVG Presets" or "Upload Local File" above to replace it.
+                  </p>
                 </div>
               </div>
             )}
