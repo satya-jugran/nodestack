@@ -35,37 +35,76 @@ export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
   const [isRevertingSale, setIsRevertingSale] = useState(false);
   const rushIntervalRef = useRef<number | null>(null);
 
-  // 1. Flash Sale: Apply 25% site-wide price drop
+  // 1. Flash Sale: Apply 25% site-wide price drop with rollback on partial failure
   const handleTriggerFlashSale = async () => {
     if (products.length === 0) return;
     setIsApplyingSale(true);
 
+    const updatedOriginalPrices: Record<string, number> = {};
+    const successfulUpdates: Array<{ id: string; originalPrice: number }> = [];
+
     try {
-      const originalPrices: Record<string, number> = {};
-      
       // Update each product with a 25% discount
       for (const p of products) {
-        originalPrices[p.id] = p.price;
-        const discountedPrice = Number((p.price * 0.75).toFixed(2));
+        const originalPrice = p.price;
+        const discountedPrice = Number((originalPrice * 0.75).toFixed(2));
+        
         await client.collection('products').update(p.id, {
           price: discountedPrice,
         });
+
+        successfulUpdates.push({ id: p.id, originalPrice });
+        updatedOriginalPrices[p.id] = originalPrice;
       }
 
       setFlashSale({
         isActive: true,
         discountPercent: 25,
         endsAt: Date.now() + 5 * 60 * 1000, // 5 minutes
-        originalPrices,
+        originalPrices: updatedOriginalPrices,
       });
-    } catch (err) {
-      console.error('Failed to trigger flash sale:', err);
+    } catch (err: any) {
+      console.error('Failed to trigger flash sale, rolling back modified items:', err);
+
+      // Roll back all items that were successfully modified before failure occurred
+      const rollbackErrors: string[] = [];
+      for (const { id, originalPrice } of successfulUpdates) {
+        try {
+          await client.collection('products').update(id, {
+            price: originalPrice,
+          });
+        } catch (rollbackErr: any) {
+          console.error(`Failed to rollback product ${id}:`, rollbackErr);
+          rollbackErrors.push(id);
+        }
+      }
+
+      // If any items failed to roll back, preserve original prices so they can still be reverted
+      if (rollbackErrors.length > 0) {
+        const retainedOriginals: Record<string, number> = {};
+        for (const id of rollbackErrors) {
+          if (updatedOriginalPrices[id] !== undefined) {
+            retainedOriginals[id] = updatedOriginalPrices[id];
+          }
+        }
+        setFlashSale({
+          isActive: true,
+          discountPercent: 25,
+          originalPrices: retainedOriginals,
+        });
+      }
+
+      alert(
+        `Failed to apply flash sale: ${err?.message || 'Network error'}. ${
+          successfulUpdates.length - rollbackErrors.length
+        } items were safely rolled back.`
+      );
     } finally {
       setIsApplyingSale(false);
     }
   };
 
-  // 2. Revert Flash Sale: restore baseline prices
+  // 2. Revert Flash Sale: restore baseline prices with incremental tracking
   const handleRevertFlashSale = async () => {
     if (!flashSale.originalPrices) {
       setFlashSale({ isActive: false, discountPercent: 0 });
@@ -73,11 +112,14 @@ export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
     }
 
     setIsRevertingSale(true);
+    const remainingOriginals = { ...flashSale.originalPrices };
+
     try {
       for (const [id, originalPrice] of Object.entries(flashSale.originalPrices)) {
         await client.collection('products').update(id, {
           price: originalPrice,
         });
+        delete remainingOriginals[id];
       }
 
       setFlashSale({
@@ -85,8 +127,16 @@ export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
         discountPercent: 0,
         originalPrices: undefined,
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to revert flash sale prices:', err);
+      // Retain items that still need reverting so the user can retry
+      setFlashSale((prev) => ({
+        ...prev,
+        originalPrices: remainingOriginals,
+      }));
+      alert(
+        `Failed to revert some prices: ${err?.message || 'Network error'}. Remaining items can be reverted by retrying.`
+      );
     } finally {
       setIsRevertingSale(false);
     }
