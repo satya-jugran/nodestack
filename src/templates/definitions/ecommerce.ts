@@ -1,6 +1,14 @@
 import { TemplateDefinition, TemplateSeedContext, SeedRecordResult } from '../types';
 import { TemplateImageGenerator } from '../TemplateImageGenerator';
 
+export function getStoreManagerEmail(): string {
+  return (process.env.STORE_MANAGER_EMAIL || 'manager@nodestack.dev').trim().toLowerCase();
+}
+
+export function getStoreManagerRule(): string {
+  return `@request.auth.email = "${getStoreManagerEmail()}"`;
+}
+
 export const ecommerceTemplate: TemplateDefinition = {
   id: 'ecommerce',
   name: 'E-Commerce',
@@ -26,9 +34,15 @@ export const ecommerceTemplate: TemplateDefinition = {
         type: 'base',
         listRule: '',
         viewRule: '',
-        createRule: '@request.auth.email = "manager@nodestack.dev"',
-        updateRule: '@request.auth.email = "manager@nodestack.dev"',
-        deleteRule: '@request.auth.email = "manager@nodestack.dev"',
+        get createRule() {
+          return getStoreManagerRule();
+        },
+        get updateRule() {
+          return getStoreManagerRule();
+        },
+        get deleteRule() {
+          return getStoreManagerRule();
+        },
         schema: [
           { id: 'f_cat_name', name: 'name', type: 'text', required: true },
           { id: 'f_cat_slug', name: 'slug', type: 'text', required: true, unique: true },
@@ -109,9 +123,15 @@ export const ecommerceTemplate: TemplateDefinition = {
         type: 'base',
         listRule: '',
         viewRule: '',
-        createRule: '@request.auth.email = "manager@nodestack.dev"',
-        updateRule: '@request.auth.email = "manager@nodestack.dev"',
-        deleteRule: '@request.auth.email = "manager@nodestack.dev"',
+        get createRule() {
+          return getStoreManagerRule();
+        },
+        get updateRule() {
+          return getStoreManagerRule();
+        },
+        get deleteRule() {
+          return getStoreManagerRule();
+        },
         schema: [
           { id: 'f_prod_name', name: 'name', type: 'text', required: true },
           { id: 'f_prod_slug', name: 'slug', type: 'text', required: true, unique: true },

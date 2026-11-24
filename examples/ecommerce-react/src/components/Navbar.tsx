@@ -18,7 +18,7 @@ import {
   Lock,
   ShieldCheck,
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, STORE_MANAGER_EMAIL } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { getAdminUrl } from '../lib/nodestack';
@@ -304,7 +304,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <button
                     onClick={onOpenManagerAuth}
                     className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-colors border border-emerald-200"
-                    title="Authenticate as Store Manager (manager@nodestack.dev)"
+                    title={`Authenticate as Store Manager (${STORE_MANAGER_EMAIL})`}
                   >
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Manager Login</span>
