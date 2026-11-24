@@ -159,7 +159,12 @@ export const App: React.FC = () => {
         } else if (e.action === 'create') {
           setRecentlyUpdatedId(e.record.id);
           setTimeout(() => setRecentlyUpdatedId(null), 1500);
-          setProducts((prev) => [e.record as unknown as Product, ...prev]);
+          setProducts((prev) => {
+            if (prev.some((p) => p.id === e.record.id)) {
+              return prev.map((p) => (p.id === e.record.id ? { ...p, ...e.record } : p));
+            }
+            return [e.record as unknown as Product, ...prev];
+          });
         } else if (e.action === 'delete') {
           setProducts((prev) => prev.filter((p) => p.id !== e.record.id));
         }
@@ -499,13 +504,13 @@ export const App: React.FC = () => {
         product={editingProduct}
         categories={categories}
         onSuccess={(savedProduct, isNew) => {
-          if (isNew) {
-            setProducts((prev) => [savedProduct, ...prev]);
-          } else {
-            setProducts((prev) =>
-              prev.map((p) => (p.id === savedProduct.id ? { ...p, ...savedProduct } : p))
-            );
-          }
+          setProducts((prev) => {
+            const exists = prev.some((p) => p.id === savedProduct.id);
+            if (exists) {
+              return prev.map((p) => (p.id === savedProduct.id ? { ...p, ...savedProduct } : p));
+            }
+            return [savedProduct, ...prev];
+          });
         }}
         onDelete={(productId) => {
           setProducts((prev) => prev.filter((p) => p.id !== productId));
