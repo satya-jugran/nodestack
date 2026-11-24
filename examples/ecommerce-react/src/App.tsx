@@ -285,7 +285,14 @@ export const App: React.FC = () => {
               setIsProductFormOpen(true);
             }}
             onDeleteProduct={async (p) => {
-              setProducts((prev) => prev.filter((item) => item.id !== p.id));
+              if (!window.confirm(`Are you sure you want to delete "${p.name}"?`)) return;
+              try {
+                await client.collection('products').delete(p.id);
+                setProducts((prev) => prev.filter((item) => item.id !== p.id));
+              } catch (err: any) {
+                console.error('Failed to delete product:', err);
+                alert(err?.message || 'Failed to delete product. Ensure you are signed in as Store Manager.');
+              }
             }}
             onRefresh={loadData}
             onSwitchToShopper={() => setViewMode('shopper')}
