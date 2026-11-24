@@ -3,8 +3,6 @@ import { client } from '../lib/nodestack';
 import { User } from '../lib/types';
 
 export const STORE_MANAGER_EMAIL = (import.meta.env.VITE_STORE_MANAGER_EMAIL || 'manager@nodestack.dev').toLowerCase();
-export const STORE_MANAGER_PASSWORD = 'StoreManager2026!';
-export const STORE_MANAGER_NAME = 'Elena Rostova (Store Manager)';
 
 interface AuthContextType {
   user: User | null;
@@ -14,7 +12,6 @@ interface AuthContextType {
   login: (identity: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
   demoLogin: () => Promise<void>;
-  managerLogin: () => Promise<void>;
   logout: () => void;
 }
 
@@ -116,38 +113,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const managerLogin = async () => {
-    setIsLoading(true);
-    try {
-      // 1. Try login directly
-      try {
-        const res = await client.collection('users').authWithPassword(STORE_MANAGER_EMAIL, STORE_MANAGER_PASSWORD);
-        setUser(res.record as unknown as User);
-        return;
-      } catch {
-        // Need to register manager account first
-      }
-
-      // 2. Register manager account if not exists
-      try {
-        await client.collection('users').create({
-          email: STORE_MANAGER_EMAIL,
-          password: STORE_MANAGER_PASSWORD,
-          passwordConfirm: STORE_MANAGER_PASSWORD,
-          name: STORE_MANAGER_NAME,
-        });
-      } catch (err: any) {
-        console.warn('Manager registration note:', err?.message || err);
-      }
-
-      // 3. Authenticate
-      const res = await client.collection('users').authWithPassword(STORE_MANAGER_EMAIL, STORE_MANAGER_PASSWORD);
-      setUser(res.record as unknown as User);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const logout = () => {
     client.authStore.clear();
     setUser(null);
@@ -172,7 +137,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         register,
         demoLogin,
-        managerLogin,
         logout,
       }}
     >

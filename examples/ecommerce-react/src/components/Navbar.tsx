@@ -45,7 +45,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleViewMode,
   onOpenManagerAuth,
 }) => {
-  const { user, isAuthenticated, isStoreManager, logout, demoLogin, managerLogin } = useAuth();
+  const { user, isAuthenticated, isStoreManager, logout, demoLogin } = useAuth();
   const { itemCount, setIsCartOpen } = useCart();
   const { favoriteCount } = useFavorites();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -243,14 +243,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                           </button>
                         ) : (
                           <button
-                            onClick={async () => {
+                            onClick={() => {
                               setUserDropdownOpen(false);
-                              await managerLogin();
+                              onOpenManagerAuth();
                             }}
                             className="w-full px-4 py-2 text-left text-xs text-emerald-700 hover:bg-emerald-50 flex items-center gap-2 font-medium"
                           >
                             <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                            <span>Switch to Store Manager</span>
+                            <span>Authenticate as Manager</span>
                           </button>
                         )}
 
@@ -302,9 +302,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
 
                   <button
-                    onClick={managerLogin}
+                    onClick={onOpenManagerAuth}
                     className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-colors border border-emerald-200"
-                    title="1-Click Login as Store Manager (manager@nodestack.dev)"
+                    title="Authenticate as Store Manager (manager@nodestack.dev)"
                   >
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Manager Login</span>

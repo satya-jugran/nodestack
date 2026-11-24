@@ -194,9 +194,31 @@ export class AppManager {
           } else {
             await scope.db.run('UPDATE users SET passwordHash = ? WHERE email = ?', passwordHash, 'alex.vance@nodestack.dev');
           }
+
+          // Server-side provisioning for Store Manager account with server secret (never shipped to browser)
+          const managerEmail = (process.env.STORE_MANAGER_EMAIL || 'manager@nodestack.dev').toLowerCase();
+          const managerPassword = process.env.STORE_MANAGER_PASSWORD || 'StoreManagerSecret2026!';
+          const managerHash = await scope.auth.hashPassword(managerPassword);
+          const managerExists = await scope.db.get<{ id: string }>('SELECT id FROM users WHERE email = ?', managerEmail);
+          const managerNow = new Date().toISOString();
+          if (!managerExists) {
+            await scope.db.run(
+              `INSERT INTO users (id, email, emailVisibility, verified, passwordHash, tokenKey, name, created, updated)
+               VALUES (?, ?, 1, 1, ?, ?, ?, ?, ?)`,
+              'usr_store_manager',
+              managerEmail,
+              managerHash,
+              crypto.randomBytes(16).toString('hex'),
+              'Store Manager',
+              managerNow,
+              managerNow
+            );
+          } else {
+            await scope.db.run('UPDATE users SET passwordHash = ? WHERE email = ?', managerHash, managerEmail);
+          }
         }
       } catch (err: any) {
-        console.warn(`[AppManager] Pre-seeding demo user note: ${err.message}`);
+        console.warn(`[AppManager] Pre-seeding demo users note: ${err.message}`);
       }
 
       // Ensure cart_items collection exists for persistent shopping cart
