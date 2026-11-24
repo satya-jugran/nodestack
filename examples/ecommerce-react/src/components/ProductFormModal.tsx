@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Trash2,
   Sparkles,
+  Upload,
 } from 'lucide-react';
 
 interface ProductFormModalProps {
@@ -33,20 +34,25 @@ const PRESET_ICONS = [
   { name: 'Wellness', icon: '🌿', color: '#14b8a6' },
 ];
 
-function generatePresetSvgDataUri(icon: string, label: string, color: string): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
-    <defs>
-      <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#f8fafc"/>
-        <stop offset="100%" stop-color="#f1f5f9"/>
-      </linearGradient>
-    </defs>
-    <rect width="400" height="400" rx="40" fill="url(#bg)"/>
-    <circle cx="200" cy="180" r="110" fill="${color}" fill-opacity="0.12"/>
-    <text x="200" y="210" font-size="80" text-anchor="middle" dominant-baseline="middle">${icon}</text>
-    <text x="200" y="320" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="bold" fill="#334155" text-anchor="middle">${label}</text>
-  </svg>`;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+function generatePresetSvgXml(icon: string, label: string, color: string): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#f1f5f9"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="400" rx="40" fill="url(#bg)"/>
+  <circle cx="200" cy="180" r="110" fill="${color}" fill-opacity="0.12"/>
+  <text x="200" y="210" font-size="80" text-anchor="middle" dominant-baseline="middle">${icon}</text>
+  <text x="200" y="320" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="bold" fill="#334155" text-anchor="middle">${label}</text>
+</svg>`;
+}
+
+function generatePresetSvgFile(icon: string, label: string, color: string, filename: string): File {
+  const xml = generatePresetSvgXml(icon, label, color);
+  const blob = new Blob([xml], { type: 'image/svg+xml' });
+  return new File([blob], filename, { type: 'image/svg+xml' });
 }
 
 export const ProductFormModal: React.FC<ProductFormModalProps> = ({
@@ -67,11 +73,13 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [description, setDescription] = useState('');
   const [isFeatured, setIsFeatured] = useState(false);
   const [status, setStatus] = useState<'in_stock' | 'low_stock' | 'out_of_stock' | 'pre_order'>('in_stock');
-  
-  // Image handling
-  const [imageType, setImageType] = useState<'preset' | 'url'>('preset');
-  const [imageUrl, setImageUrl] = useState('');
+
+  // Image handling via Multipart FormData
+  const [imageMode, setImageMode] = useState<'preset' | 'file'>('preset');
   const [selectedPreset, setSelectedPreset] = useState(PRESET_ICONS[0]);
+  const [customFile, setCustomFile] = useState<File | null>(null);
+  const [customFilePreview, setCustomFilePreview] = useState<string | null>(null);
+  const [hasChangedImage, setHasChangedImage] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,12 +95,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setDescription(product.description || '');
       setIsFeatured(Boolean(product.isFeatured));
       setStatus(product.status || 'in_stock');
-      if (product.image && (product.image.startsWith('http') || product.image.startsWith('data:'))) {
-        setImageType('url');
-        setImageUrl(product.image);
-      } else {
-        setImageType('preset');
-      }
+      setImageMode('preset');
+      setCustomFile(null);
+      setCustomFilePreview(null);
+      setHasChangedImage(false); // Retain existing image by default on edit
     } else {
       // Defaults for create
       setName('');
@@ -103,9 +109,11 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setDescription('');
       setIsFeatured(false);
       setStatus('in_stock');
-      setImageType('preset');
-      setImageUrl('');
+      setImageMode('preset');
       setSelectedPreset(PRESET_ICONS[0]);
+      setCustomFile(null);
+      setCustomFilePreview(null);
+      setHasChangedImage(true); // New product requires an image file
     }
     setError(null);
   }, [product, categories, isOpen]);
@@ -135,6 +143,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     }
   };
 
+  const handleCustomFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setCustomFile(file);
+      setCustomFilePreview(URL.createObjectURL(file));
+      setHasChangedImage(true);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -159,37 +176,46 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     const computedSlug = slug.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     const finalCategory = category || categories[0]?.id || 'cat_electronics';
 
-    // Compute final image
-    let finalImage = '';
-    if (imageType === 'url' && imageUrl.trim()) {
-      finalImage = imageUrl.trim();
-    } else if (imageType === 'preset') {
-      finalImage = generatePresetSvgDataUri(selectedPreset.icon, name || selectedPreset.name, selectedPreset.color);
-    } else if (product?.image) {
-      finalImage = product.image;
-    } else {
-      finalImage = generatePresetSvgDataUri('📦', name || 'Product', '#6366f1');
-    }
+    // Build Multipart FormData payload to satisfy NodeStack's file upload contract
+    const formData = new FormData();
+    formData.append('name', name.trim());
+    formData.append('slug', computedSlug);
+    formData.append('category', finalCategory);
+    formData.append('price', String(priceNum));
+    formData.append('stock', String(stockNum));
+    formData.append('description', description.trim());
+    formData.append('status', status);
+    formData.append('isFeatured', isFeatured ? 'true' : 'false');
 
-    const payload: Partial<Product> = {
-      name: name.trim(),
-      slug: computedSlug,
-      category: finalCategory,
-      price: priceNum,
-      stock: stockNum,
-      description: description.trim(),
-      status,
-      isFeatured,
-      image: finalImage,
-    };
+    // Attach File object when creating a new product or when user explicitly changes image
+    if (!isEdit || hasChangedImage) {
+      let fileToUpload: File | null = null;
+
+      if (imageMode === 'file' && customFile) {
+        fileToUpload = customFile;
+      } else {
+        // Generate SVG File from chosen vector preset
+        const filename = `${computedSlug}_hero.svg`;
+        fileToUpload = generatePresetSvgFile(
+          selectedPreset.icon,
+          name || selectedPreset.name,
+          selectedPreset.color,
+          filename
+        );
+      }
+
+      if (fileToUpload) {
+        formData.append('image', fileToUpload);
+      }
+    }
 
     setIsLoading(true);
     try {
       if (isEdit && product) {
-        const res = await client.collection('products').update(product.id, payload);
+        const res = await client.collection('products').update(product.id, formData);
         onSuccess(res as unknown as Product, false);
       } else {
-        const res = await client.collection('products').create(payload);
+        const res = await client.collection('products').create(formData);
         onSuccess(res as unknown as Product, true);
       }
       onClose();
@@ -387,65 +413,106 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             />
           </div>
 
-          {/* Image Selection */}
+          {/* Image Selection - NodeStack File Field Upload */}
           <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                 <ImageIcon className="w-4 h-4 text-brand-600" />
-                Product Imagery & Graphic
+                Product Image File Upload <span className="text-rose-500">*</span>
               </span>
               <div className="flex items-center bg-slate-200/60 p-0.5 rounded-lg text-[11px] font-semibold">
                 <button
                   type="button"
-                  onClick={() => setImageType('preset')}
+                  onClick={() => setImageMode('preset')}
                   className={`px-2.5 py-1 rounded-md transition-colors ${
-                    imageType === 'preset' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500'
+                    imageMode === 'preset' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500'
                   }`}
                 >
-                  Vector Presets
+                  Vector SVG Presets
                 </button>
                 <button
                   type="button"
-                  onClick={() => setImageType('url')}
+                  onClick={() => setImageMode('file')}
                   className={`px-2.5 py-1 rounded-md transition-colors ${
-                    imageType === 'url' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500'
+                    imageMode === 'file' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500'
                   }`}
                 >
-                  Custom URL
+                  Upload Local File
                 </button>
               </div>
             </div>
 
-            {imageType === 'preset' ? (
-              <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 pt-1">
-                {PRESET_ICONS.map((p) => {
-                  const isSelected = selectedPreset.name === p.name;
-                  return (
-                    <button
-                      key={p.name}
-                      type="button"
-                      onClick={() => setSelectedPreset(p)}
-                      className={`p-2 rounded-xl flex flex-col items-center justify-center gap-1 border transition-all ${
-                        isSelected
-                          ? 'border-brand-600 bg-brand-50 text-brand-700 shadow-xs scale-105'
-                          : 'border-slate-200 bg-white hover:bg-slate-100/80 text-slate-600'
-                      }`}
-                    >
-                      <span className="text-xl">{p.icon}</span>
-                      <span className="text-[10px] font-bold truncate max-w-full">{p.name}</span>
-                    </button>
-                  );
-                })}
+            {/* Current product image info on Edit */}
+            {isEdit && product && !hasChangedImage && (
+              <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white border border-slate-200 text-xs">
+                <img
+                  src={getProductImageUrl(product)}
+                  alt={product.name}
+                  className="w-10 h-10 object-contain rounded-lg bg-slate-50 p-1 border border-slate-100"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-slate-800 truncate">Current Stored File: {product.image}</p>
+                  <p className="text-[11px] text-slate-400">Leave untouched to keep existing file, or select below to replace.</p>
+                </div>
+              </div>
+            )}
+
+            {imageMode === 'preset' ? (
+              <div className="space-y-2">
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 pt-1">
+                  {PRESET_ICONS.map((p) => {
+                    const isSelected = selectedPreset.name === p.name;
+                    return (
+                      <button
+                        key={p.name}
+                        type="button"
+                        onClick={() => {
+                          setSelectedPreset(p);
+                          setHasChangedImage(true);
+                        }}
+                        className={`p-2 rounded-xl flex flex-col items-center justify-center gap-1 border transition-all ${
+                          isSelected
+                            ? 'border-brand-600 bg-brand-50 text-brand-700 shadow-xs scale-105'
+                            : 'border-slate-200 bg-white hover:bg-slate-100/80 text-slate-600'
+                        }`}
+                      >
+                        <span className="text-xl">{p.icon}</span>
+                        <span className="text-[10px] font-bold truncate max-w-full">{p.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Generates a clean vector <code className="text-brand-700 bg-brand-50 px-1 py-0.5 rounded">.svg</code> File uploaded as multipart to NodeStack.
+                </p>
               </div>
             ) : (
-              <div>
-                <input
-                  type="text"
-                  placeholder="https://images.unsplash.com/photo-..."
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 outline-none"
-                />
+              <div className="space-y-2">
+                <label className="border-2 border-dashed border-slate-200 hover:border-brand-500 rounded-xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer bg-white transition-colors">
+                  <Upload className="w-5 h-5 text-brand-600" />
+                  <span className="text-xs font-bold text-slate-700">
+                    {customFile ? customFile.name : 'Choose an image file (PNG, JPG, SVG, WebP)'}
+                  </span>
+                  <span className="text-[11px] text-slate-400">Click to browse or replace file</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleCustomFileChange}
+                    className="hidden"
+                  />
+                </label>
+                {customFilePreview && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <img
+                      src={customFilePreview}
+                      alt="Preview"
+                      className="w-12 h-12 object-contain rounded-lg border border-slate-200 p-1 bg-white"
+                    />
+                    <span className="text-xs text-slate-600 font-medium truncate">
+                      Ready to upload: {customFile?.name} ({((customFile?.size || 0) / 1024).toFixed(1)} KB)
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
