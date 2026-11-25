@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Product, Category } from '../lib/types';
+import { Product, Category, ProductVariant, VariantOptionGroup } from '../lib/types';
 import { client, getProductImageUrl } from '../lib/nodestack';
+import {
+  buildVariantMatrix,
+  getTotalVariantStock,
+  parseProductVariants,
+  parseVariantOptions,
+} from '../lib/variants';
 import {
   X,
   Package,
@@ -12,6 +18,7 @@ import {
   Trash2,
   Sparkles,
   Upload,
+  Plus,
 } from 'lucide-react';
 
 interface ProductFormModalProps {
@@ -85,6 +92,11 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [isFeatured, setIsFeatured] = useState(false);
   const [status, setStatus] = useState<'in_stock' | 'low_stock' | 'out_of_stock' | 'pre_order'>('in_stock');
 
+  // Variants state
+  const [hasVariants, setHasVariants] = useState(false);
+  const [optionGroups, setOptionGroups] = useState<Array<{ name: string; valuesText: string }>>([]);
+  const [variants, setVariants] = useState<ProductVariant[]>([]);
+
   // Image handling via Multipart FormData: 'keep' (preserve existing stored file on edit), 'preset', or 'file'
   const [imageMode, setImageMode] = useState<'keep' | 'preset' | 'file'>('preset');
   const [selectedPreset, setSelectedPreset] = useState(PRESET_ICONS[0]);
@@ -117,6 +129,22 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setCustomFile(null);
       setCustomFilePreview(null);
       setHasChangedImage(false); // Retain existing image by default on edit
+
+      const parsedGroups = parseVariantOptions(product);
+      const parsedVars = parseProductVariants(product);
+      if (parsedGroups.length > 0 && parsedVars.length > 0) {
+        setHasVariants(true);
+        setOptionGroups(
+          parsedGroups.map((g) => ({ name: g.name, valuesText: g.values.join(', ') }))
+        );
+        setVariants(parsedVars);
+        const totalVarStock = getTotalVariantStock(parsedVars);
+        setStock(String(totalVarStock));
+      } else {
+        setHasVariants(false);
+        setOptionGroups([]);
+        setVariants([]);
+      }
     } else {
       // Defaults for create
       setName('');
@@ -133,6 +161,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setCustomFile(null);
       setCustomFilePreview(null);
       setHasChangedImage(true); // New product requires an image file
+      setHasVariants(false);
+      setOptionGroups([]);
+      setVariants([]);
     }
     setError(null);
   }, [product, categories, isOpen]);
@@ -149,6 +180,64 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         .replace(/(^-|-$)/g, '');
       setSlug(generatedSlug);
     }
+  };
+
+  // Sync stock & status when variant matrix changes
+  const syncTotalStockFromVariants = (nextVariants: ProductVariant[]) => {
+    const total = getTotalVariantStock(nextVariants);
+    setStock(String(total));
+    if (status !== 'pre_order') {
+      if (total <= 0) setStatus('out_of_stock');
+      else if (total <= 5) setStatus('low_stock');
+      else setStatus('in_stock');
+    }
+  };
+
+  const toParsedOptionGroups = (
+    groups: Array<{ name: string; valuesText: string }>
+  ): VariantOptionGroup[] =>
+    groups
+      .map((g) => ({
+        name: g.name.trim(),
+        values: g.valuesText
+          .split(',')
+          .map((v) => v.trim())
+          .filter(Boolean),
+      }))
+      .filter((g) => g.name && g.values.length > 0);
+
+  const rebuildVariantsFromGroups = (
+    nextGroups: Array<{ name: string; valuesText: string }>,
+    currentVariants: ProductVariant[] = variants
+  ) => {
+    const parsed = toParsedOptionGroups(nextGroups);
+    const matrix = buildVariantMatrix(parsed, currentVariants, 10, slug || name || 'SKU');
+    setVariants(matrix);
+    if (matrix.length > 0) {
+      syncTotalStockFromVariants(matrix);
+    }
+  };
+
+  const handleToggleVariants = (enabled: boolean) => {
+    setHasVariants(enabled);
+    if (enabled && optionGroups.length === 0) {
+      const starterGroups = [
+        { name: 'Size', valuesText: 'S, M, L' },
+        { name: 'Color', valuesText: 'Slate, Amber, Navy' },
+      ];
+      setOptionGroups(starterGroups);
+      rebuildVariantsFromGroups(starterGroups, variants);
+    }
+  };
+
+  const handleApplyDefaultVariantPreset = () => {
+    const presetGroups = [
+      { name: 'Size', valuesText: 'S, M, L' },
+      { name: 'Color', valuesText: 'Slate, Amber, Navy' },
+    ];
+    setHasVariants(true);
+    setOptionGroups(presetGroups);
+    rebuildVariantsFromGroups(presetGroups, variants);
   };
 
   // Auto-sync status when stock changes
@@ -193,11 +282,29 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       return;
     }
 
-    const stockNum = parseInt(stock, 10);
+    const parsedGroups = hasVariants ? toParsedOptionGroups(optionGroups) : [];
+    if (hasVariants && (parsedGroups.length === 0 || variants.length === 0)) {
+      setError('Add at least one variant option group with comma-separated values, or disable variants.');
+      return;
+    }
+
+    const stockNum = hasVariants
+      ? getTotalVariantStock(variants)
+      : parseInt(stock, 10);
     if (isNaN(stockNum) || stockNum < 0) {
       setError('Stock must be a non-negative integer.');
       return;
     }
+
+    const computedStatus = hasVariants
+      ? status === 'pre_order'
+        ? 'pre_order'
+        : stockNum <= 0
+        ? 'out_of_stock'
+        : stockNum <= 5
+        ? 'low_stock'
+        : 'in_stock'
+      : status;
 
     const computedSlug = slug.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     const finalCategory = category || categories[0]?.id || 'cat_electronics';
@@ -211,8 +318,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     formData.append('originalPrice', String(origPriceNum > priceNum ? origPriceNum : 0));
     formData.append('stock', String(stockNum));
     formData.append('description', description.trim());
-    formData.append('status', status);
+    formData.append('status', computedStatus);
     formData.append('isFeatured', isFeatured ? 'true' : 'false');
+    formData.append('variantOptions', hasVariants ? JSON.stringify(parsedGroups) : '');
+    formData.append('variants', hasVariants ? JSON.stringify(variants) : '');
 
     // Attach File object when creating a new product or when user explicitly changes image
     if (!isEdit || (imageMode !== 'keep' && hasChangedImage)) {
@@ -272,7 +381,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in overflow-y-auto">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-2xl w-full my-8 overflow-hidden relative">
+      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-2xl w-full my-8 max-h-[90vh] overflow-y-auto relative">
         
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
@@ -397,15 +506,18 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                Initial Stock <span className="text-rose-500">*</span>
+                {hasVariants ? 'Total Variant Stock' : 'Initial Stock'} <span className="text-rose-500">*</span>
               </label>
               <input
                 type="number"
                 min="0"
                 required
+                readOnly={hasVariants}
                 value={stock}
                 onChange={(e) => handleStockChange(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 font-bold outline-none"
+                className={`w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 font-bold outline-none ${
+                  hasVariants ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                }`}
               />
             </div>
           </div>
@@ -456,6 +568,174 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               onChange={(e) => setDescription(e.target.value)}
               className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 outline-none transition-all resize-none"
             />
+          </div>
+
+          {/* Product Variants & Options Matrix */}
+          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={hasVariants}
+                  onChange={(e) => handleToggleVariants(e.target.checked)}
+                  className="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500"
+                />
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-brand-600" />
+                  Product Variants &amp; Options (Size, Color, Stock per Variant)
+                </span>
+              </label>
+
+              <button
+                type="button"
+                onClick={handleApplyDefaultVariantPreset}
+                className="text-[11px] font-bold text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1 rounded-lg border border-brand-200 transition-colors"
+              >
+                Preset: Size (S/M/L) × Color (Slate/Amber/Navy)
+              </button>
+            </div>
+
+            {hasVariants && (
+              <div className="space-y-3 pt-2 border-t border-slate-200/70">
+                {/* Option Groups */}
+                <div className="space-y-2">
+                  {optionGroups.map((grp, idx) => (
+                    <div key={idx} className="grid grid-cols-[130px_1fr_auto] gap-2 items-center">
+                      <input
+                        type="text"
+                        placeholder="Option (e.g. Size)"
+                        value={grp.name}
+                        onChange={(e) => {
+                          const next = optionGroups.map((item, i) =>
+                            i === idx ? { ...item, name: e.target.value } : item
+                          );
+                          setOptionGroups(next);
+                          rebuildVariantsFromGroups(next);
+                        }}
+                        className="px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-200 rounded-xl outline-none focus:border-brand-500"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Comma-separated values (e.g. S, M, L)"
+                        value={grp.valuesText}
+                        onChange={(e) => {
+                          const next = optionGroups.map((item, i) =>
+                            i === idx ? { ...item, valuesText: e.target.value } : item
+                          );
+                          setOptionGroups(next);
+                          rebuildVariantsFromGroups(next);
+                        }}
+                        className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-xl outline-none focus:border-brand-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = optionGroups.filter((_, i) => i !== idx);
+                          setOptionGroups(next);
+                          rebuildVariantsFromGroups(next);
+                        }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                        title="Remove option group"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = [...optionGroups, { name: '', valuesText: '' }];
+                      setOptionGroups(next);
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-brand-600 px-2 py-1 rounded-lg hover:bg-white transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Option Group</span>
+                  </button>
+                </div>
+
+                {/* Variant Stock Matrix Table */}
+                {variants.length > 0 && (
+                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="max-h-52 overflow-y-auto">
+                      <table className="w-full text-left border-collapse text-[11px]">
+                        <thead className="bg-slate-100/80 text-slate-500 uppercase font-bold sticky top-0">
+                          <tr>
+                            <th className="py-2 px-3">Variant</th>
+                            <th className="py-2 px-2">SKU</th>
+                            <th className="py-2 px-2 w-24">Price ($)</th>
+                            <th className="py-2 px-3 w-24">Stock</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {variants.map((variant, vIdx) => (
+                            <tr key={variant.id}>
+                              <td className="py-1.5 px-3 font-bold text-slate-800">{variant.label}</td>
+                              <td className="py-1.5 px-2">
+                                <input
+                                  type="text"
+                                  value={variant.sku || ''}
+                                  onChange={(e) => {
+                                    const next = variants.map((v, i) =>
+                                      i === vIdx ? { ...v, sku: e.target.value } : v
+                                    );
+                                    setVariants(next);
+                                  }}
+                                  className="w-full px-2 py-1 font-mono bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-brand-500"
+                                />
+                              </td>
+                              <td className="py-1.5 px-2">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="Base"
+                                  value={variant.price ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value.trim();
+                                    const parsed = val ? parseFloat(val) : undefined;
+                                    const next = variants.map((v, i) =>
+                                      i === vIdx
+                                        ? {
+                                            ...v,
+                                            price:
+                                              parsed !== undefined && !isNaN(parsed) && parsed > 0
+                                                ? parsed
+                                                : undefined,
+                                          }
+                                        : v
+                                    );
+                                    setVariants(next);
+                                  }}
+                                  className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-brand-500"
+                                />
+                              </td>
+                              <td className="py-1.5 px-3">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={variant.stock}
+                                  onChange={(e) => {
+                                    const parsed = Math.max(0, parseInt(e.target.value, 10) || 0);
+                                    const next = variants.map((v, i) =>
+                                      i === vIdx ? { ...v, stock: parsed } : v
+                                    );
+                                    setVariants(next);
+                                    syncTotalStockFromVariants(next);
+                                  }}
+                                  className="w-full px-2 py-1 font-mono font-bold bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-brand-500"
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Image Selection - NodeStack File Field Upload */}

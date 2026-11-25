@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Product, FlashSaleState, SimulatedOrderEvent } from '../lib/types';
 import { client } from '../lib/nodestack';
+import { getEffectiveStock, getTotalVariantStock, parseProductVariants } from '../lib/variants';
 import { useToast } from '../context/ToastContext';
 import { Zap, Flame, StopCircle, RefreshCw, Clock, Sparkles, TrendingDown } from 'lucide-react';
 
@@ -180,31 +181,61 @@ export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
     if (isRushActive) {
       rushIntervalRef.current = window.setInterval(async () => {
         // Pick an in-stock product randomly
-        const inStockItems = products.filter((p) => p.stock > 0);
+        const inStockItems = products.filter((p) => getEffectiveStock(p) > 0);
         if (inStockItems.length === 0) {
           setIsRushActive(false);
           return;
         }
 
         const target = inStockItems[Math.floor(Math.random() * inStockItems.length)];
-        const newStock = Math.max(0, target.stock - 1);
-        const newStatus = newStock === 0 ? 'out_of_stock' : newStock <= 5 ? 'low_stock' : 'in_stock';
+        const variants = parseProductVariants(target);
         const customer = CUSTOMER_NAMES[Math.floor(Math.random() * CUSTOMER_NAMES.length)];
 
         try {
-          await client.collection('products').update(target.id, {
-            stock: newStock,
-            status: newStatus,
-          });
+          if (variants.length > 0) {
+            const inStockVariants = variants.filter((v) => (Number(v.stock) || 0) > 0);
+            if (inStockVariants.length === 0) return;
+            const picked = inStockVariants[Math.floor(Math.random() * inStockVariants.length)];
+            const updatedVariants = variants.map((v) =>
+              v.id === picked.id ? { ...v, stock: Math.max(0, (Number(v.stock) || 0) - 1) } : v
+            );
+            const newTotalStock = getTotalVariantStock(updatedVariants);
+            const newStatus = newTotalStock === 0 ? 'out_of_stock' : newTotalStock <= 5 ? 'low_stock' : 'in_stock';
+            const updatedVariantStock = Math.max(0, (Number(picked.stock) || 0) - 1);
 
-          onSimulatedOrder({
-            id: 'sim_' + Date.now(),
-            customerName: customer,
-            productName: target.name,
-            productId: target.id,
-            newStock,
-            timestamp: Date.now(),
-          });
+            await client.collection('products').update(target.id, {
+              stock: newTotalStock,
+              status: newStatus,
+              variants: updatedVariants,
+            });
+
+            onSimulatedOrder({
+              id: 'sim_' + Date.now(),
+              customerName: customer,
+              productName: target.name,
+              productId: target.id,
+              variantLabel: picked.label,
+              newStock: updatedVariantStock,
+              timestamp: Date.now(),
+            });
+          } else {
+            const newStock = Math.max(0, target.stock - 1);
+            const newStatus = newStock === 0 ? 'out_of_stock' : newStock <= 5 ? 'low_stock' : 'in_stock';
+
+            await client.collection('products').update(target.id, {
+              stock: newStock,
+              status: newStatus,
+            });
+
+            onSimulatedOrder({
+              id: 'sim_' + Date.now(),
+              customerName: customer,
+              productName: target.name,
+              productId: target.id,
+              newStock,
+              timestamp: Date.now(),
+            });
+          }
         } catch (err) {
           console.warn('Simulation update skipped:', err);
         }

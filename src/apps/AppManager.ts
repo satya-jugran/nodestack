@@ -7,7 +7,12 @@ import { AppError, NotFoundError } from '../core/errors/AppError';
 import { DatabaseService } from '../database/DatabaseService';
 import { IDatabaseDriver } from '../database/drivers/IDatabaseDriver';
 import { NodeSqliteDriver } from '../database/drivers/NodeSqliteDriver';
-import { getStoreManagerEmail, getStoreManagerRule } from '../templates/definitions';
+import {
+  ecommerceTemplate,
+  getStoreManagerEmail,
+  getStoreManagerRule,
+  SEEDED_PRODUCT_VARIANTS,
+} from '../templates/definitions';
 
 export type DatabaseDriverFactory = (app: AppModel, defaultDbPath: string) => IDatabaseDriver;
 
@@ -268,8 +273,34 @@ export class AppManager {
                 type: 'number',
                 required: true,
               },
+              {
+                id: 'f_cart_var_id',
+                name: 'variantId',
+                type: 'text',
+              },
+              {
+                id: 'f_cart_var_label',
+                name: 'variantLabel',
+                type: 'text',
+              },
+              {
+                id: 'f_cart_var_opts',
+                name: 'variantOptions',
+                type: 'json',
+              },
             ],
           });
+        } else {
+          const cartMissingFields = [
+            { id: 'f_cart_var_id', name: 'variantId', type: 'text' as const },
+            { id: 'f_cart_var_label', name: 'variantLabel', type: 'text' as const },
+            { id: 'f_cart_var_opts', name: 'variantOptions', type: 'json' as const },
+          ].filter((f) => !hasCartCol.schema.some((existing) => existing.name === f.name));
+          if (cartMissingFields.length > 0) {
+            await scope.schema.updateCollection(hasCartCol.id, {
+              schema: [...hasCartCol.schema, ...cartMissingFields],
+            });
+          }
         }
       } catch (err: any) {
         console.warn(`[AppManager] cart_items collection note: ${err.message}`);
@@ -306,8 +337,46 @@ export class AppManager {
             );
           }
         }
+
+        // Ensure products collection has variantOptions and variants JSON fields
+        const latestProdCol = await scope.schema.getCollection('products');
+        if (latestProdCol) {
+          const missingVariantFields = [
+            { id: 'f_prod_var_opts', name: 'variantOptions', type: 'json' as const },
+            { id: 'f_prod_variants', name: 'variants', type: 'json' as const },
+          ].filter((f) => !latestProdCol.schema.some((existing) => existing.name === f.name));
+          if (missingVariantFields.length > 0) {
+            await scope.schema.updateCollection(latestProdCol.id, {
+              schema: [...latestProdCol.schema, ...missingVariantFields],
+            });
+            for (const [id, spec] of Object.entries(SEEDED_PRODUCT_VARIANTS)) {
+              await scope.db.run(
+                'UPDATE products SET variantOptions = ?, variants = ? WHERE id = ? AND (variants IS NULL OR variants = "")',
+                JSON.stringify(spec.variantOptions),
+                JSON.stringify(spec.variants),
+                id
+              );
+            }
+          }
+        }
       } catch (err: any) {
         console.warn(`[AppManager] products originalPrice migration note: ${err.message}`);
+      }
+
+      // Upgrade validate-order and update-inventory functions if running legacy pre-variant versions
+      try {
+        for (const fnName of ['validate-order', 'update-inventory']) {
+          const templateFn = ecommerceTemplate.functions?.find((f) => f.name === fnName);
+          const existingFn = await scope.functions.getFunctionByName(fnName);
+          if (templateFn && existingFn && !existingFn.code.includes('variantId')) {
+            await scope.functions.updateFunction(existingFn.id, {
+              code: templateFn.code,
+              description: templateFn.description,
+            });
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[AppManager] variant function migration note: ${err.message}`);
       }
 
       return scope;

@@ -76,7 +76,9 @@ export const FlashSaleBanner: React.FC<FlashSaleBannerProps> = ({
               {activeToast.customerName} just purchased!
             </p>
             <p className="text-[11px] text-slate-400 truncate">
-              {activeToast.productName} • <span className="text-amber-400 font-bold">{activeToast.newStock} left</span>
+              {activeToast.productName}
+              {activeToast.variantLabel ? ` (${activeToast.variantLabel})` : ''} •{' '}
+              <span className="text-amber-400 font-bold">{activeToast.newStock} left</span>
             </p>
           </div>
           <button

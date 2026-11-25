@@ -1,6 +1,7 @@
 import React from 'react';
 import { Product } from '../lib/types';
 import { getProductImageUrl } from '../lib/nodestack';
+import { hasProductVariants } from '../lib/variants';
 import { useFavorites } from '../context/FavoritesContext';
 import { useCart } from '../context/CartContext';
 import { X, Heart, ShoppingBag, Trash2 } from 'lucide-react';
@@ -98,11 +99,18 @@ export const FavoritesModal: React.FC<FavoritesModalProps> = ({
 
                   <div className="flex items-center gap-2 shrink-0">
                     <button
-                      onClick={() => addToCart(prod, 1)}
+                      onClick={() => {
+                        if (hasProductVariants(prod)) {
+                          onClose();
+                          onOpenDetails(prod);
+                        } else {
+                          addToCart(prod, 1);
+                        }
+                      }}
                       className="px-3 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 active:scale-95 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm"
                     >
                       <ShoppingBag className="w-3.5 h-3.5" />
-                      <span>Add</span>
+                      <span>{hasProductVariants(prod) ? 'Options' : 'Add'}</span>
                     </button>
 
                     <button

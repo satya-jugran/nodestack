@@ -1,6 +1,134 @@
 import { TemplateDefinition, TemplateSeedContext, SeedRecordResult } from '../types';
 import { TemplateImageGenerator } from '../TemplateImageGenerator';
 
+export interface SeedVariantOptionGroup {
+  name: string;
+  values: string[];
+}
+
+export interface SeedProductVariant {
+  id: string;
+  sku: string;
+  label: string;
+  options: Record<string, string>;
+  stock: number;
+  price?: number;
+}
+
+function slugifyVariantToken(val: string): string {
+  return val
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function buildSeedVariants(
+  skuPrefix: string,
+  optionGroups: SeedVariantOptionGroup[],
+  stocks: number[],
+  prices?: Record<string, number>
+): { variantOptions: SeedVariantOptionGroup[]; variants: SeedProductVariant[]; totalStock: number } {
+  let combos: Array<Record<string, string>> = [{}];
+  for (const group of optionGroups) {
+    const next: Array<Record<string, string>> = [];
+    for (const combo of combos) {
+      for (const val of group.values) {
+        next.push({ ...combo, [group.name]: val });
+      }
+    }
+    combos = next;
+  }
+
+  const variants: SeedProductVariant[] = combos.map((options, idx) => {
+    const orderedVals = optionGroups.map((g) => options[g.name]);
+    const id = `var_${orderedVals.map(slugifyVariantToken).join('_')}`;
+    const label = orderedVals.join(' / ');
+    const sku = `${skuPrefix}-${orderedVals.map((v) => v.toUpperCase().replace(/[^A-Z0-9]+/g, '')).join('-')}`;
+    const stock = Math.max(0, Number(stocks[idx] ?? 0));
+    const priceOverride = prices?.[id];
+    return {
+      id,
+      sku,
+      label,
+      options,
+      stock,
+      ...(typeof priceOverride === 'number' ? { price: priceOverride } : {}),
+    };
+  });
+
+  const totalStock = variants.reduce((sum, v) => sum + v.stock, 0);
+  return { variantOptions: optionGroups, variants, totalStock };
+}
+
+export const SEEDED_PRODUCT_VARIANTS: Record<
+  string,
+  { variantOptions: SeedVariantOptionGroup[]; variants: SeedProductVariant[] }
+> = {
+  prod_01: buildSeedVariants(
+    'AURA-ANC',
+    [{ name: 'Color', values: ['Slate', 'Amber', 'Navy'] }],
+    [20, 10, 15]
+  ),
+  prod_02: buildSeedVariants(
+    'KEY-LUM',
+    [
+      { name: 'Switch', values: ['Tactile', 'Linear'] },
+      { name: 'Color', values: ['Slate', 'Navy'] },
+    ],
+    [10, 8, 9, 5]
+  ),
+  prod_06: buildSeedVariants(
+    'NOMAD-24L',
+    [{ name: 'Color', values: ['Slate', 'Navy'] }],
+    [22, 16]
+  ),
+  prod_07: buildSeedVariants(
+    'VANG-TI',
+    [
+      { name: 'Strap', values: ['Titanium', 'Leather'] },
+      { name: 'Color', values: ['Slate', 'Amber'] },
+    ],
+    [5, 3, 4, 2]
+  ),
+  prod_11: buildSeedVariants(
+    'MERINO-HD',
+    [
+      { name: 'Size', values: ['S', 'M', 'L'] },
+      { name: 'Color', values: ['Slate', 'Amber', 'Navy'] },
+    ],
+    [5, 0, 2, 8, 4, 7, 6, 3, 7]
+  ),
+  prod_12: buildSeedVariants(
+    'TERRA-SH',
+    [
+      { name: 'Size', values: ['8', '9', '10', '11'] },
+      { name: 'Color', values: ['Slate', 'Amber', 'Navy'] },
+    ],
+    [3, 2, 0, 4, 3, 2, 5, 0, 3, 2, 1, 1]
+  ),
+  prod_13: buildSeedVariants(
+    'AERO-TS',
+    [
+      { name: 'Size', values: ['S', 'M', 'L'] },
+      { name: 'Color', values: ['Slate', 'Amber', 'Navy'] },
+    ],
+    [10, 6, 9, 14, 8, 12, 8, 0, 13]
+  ),
+  prod_14: buildSeedVariants(
+    'URBAN-SN',
+    [
+      { name: 'Size', values: ['8', '9', '10', '11'] },
+      { name: 'Color', values: ['Slate', 'Navy'] },
+    ],
+    [5, 4, 6, 5, 7, 4, 0, 4]
+  ),
+  prod_15: buildSeedVariants(
+    'ZEN-CHR',
+    [{ name: 'Color', values: ['Slate', 'Navy'] }],
+    [5, 3]
+  ),
+};
+
 export function getStoreManagerEmail(): string {
   return (process.env.STORE_MANAGER_EMAIL || 'manager@nodestack.dev').trim().toLowerCase();
 }
@@ -154,6 +282,8 @@ export const ecommerceTemplate: TemplateDefinition = {
             type: 'select',
             options: { values: ['in_stock', 'low_stock', 'out_of_stock', 'pre_order'] },
           },
+          { id: 'f_prod_var_opts', name: 'variantOptions', type: 'json' },
+          { id: 'f_prod_variants', name: 'variants', type: 'json' },
         ],
       },
       seed: async (ctx: TemplateSeedContext): Promise<SeedRecordResult[]> => {
@@ -430,6 +560,10 @@ export const ecommerceTemplate: TemplateDefinition = {
         ];
 
         return rawProducts.map((p, idx) => {
+          const variantSpec = SEEDED_PRODUCT_VARIANTS[p.id];
+          const computedStock = variantSpec
+            ? variantSpec.variants.reduce((sum, v) => sum + v.stock, 0)
+            : p.stock;
           const buffer = TemplateImageGenerator.generateProductSvg(
             {
               title: p.name,
@@ -451,12 +585,14 @@ export const ecommerceTemplate: TemplateDefinition = {
               ...(typeof (p as any).originalPrice === 'number'
                 ? { originalPrice: (p as any).originalPrice }
                 : {}),
-              stock: p.stock,
+              stock: computedStock,
               category: p.category,
               image: filename,
               rating: p.rating,
               isFeatured: p.isFeatured ? 1 : 0,
               status: p.status,
+              variantOptions: variantSpec ? JSON.stringify(variantSpec.variantOptions) : null,
+              variants: variantSpec ? JSON.stringify(variantSpec.variants) : null,
             },
             files: [
               {
@@ -860,6 +996,21 @@ export const ecommerceTemplate: TemplateDefinition = {
             type: 'number',
             required: true,
           },
+          {
+            id: 'f_cart_var_id',
+            name: 'variantId',
+            type: 'text',
+          },
+          {
+            id: 'f_cart_var_label',
+            name: 'variantLabel',
+            type: 'text',
+          },
+          {
+            id: 'f_cart_var_opts',
+            name: 'variantOptions',
+            type: 'json',
+          },
         ],
       },
       seed: async (_ctx: TemplateSeedContext): Promise<Array<Record<string, any>>> => {
@@ -886,7 +1037,7 @@ export const ecommerceTemplate: TemplateDefinition = {
   },
   {
     "name": "validate-order",
-    "description": "Validates order payload, customer address, line item existence, prices, and stock sufficiency against catalog",
+    "description": "Validates order payload, customer address, line item existence, variant availability, prices, and stock sufficiency against catalog",
     "enabled": true,
     "authPolicy": "public",
     "methods": [
@@ -897,11 +1048,11 @@ export const ecommerceTemplate: TemplateDefinition = {
     "allowedDomains": [],
     "elevated": true,
     "env": {},
-    "code": "export default async function(core, context) {\n  const logger = core.observability.logger;\n  const order = context.request?.body?.record || context.request?.body || {};\n  logger.log(`[validate-order] Validating order #${order.orderNumber || 'new'} for ${order.customerEmail}`);\n\n  let items = [];\n  try {\n    items = typeof order.items === 'string' ? JSON.parse(order.items) : (order.items || []);\n  } catch {\n    items = [];\n  }\n\n  const issues = [];\n  if (!order.customerEmail || !order.customerEmail.includes('@')) {\n    issues.push('Invalid customer email address');\n  }\n  if (!order.shippingAddress || order.shippingAddress.trim().length < 5) {\n    issues.push('Shipping address is required');\n  }\n  if (!Array.isArray(items) || items.length === 0) {\n    issues.push('Order contains no line items');\n  }\n\n  // Validate line items against catalog\n  for (const item of items) {\n    const prodId = item.productId || item.id;\n    if (!prodId) {\n      issues.push('Line item is missing product ID');\n      continue;\n    }\n\n    const qty = Number(item.quantity);\n    if (!qty || isNaN(qty) || qty <= 0 || !Number.isInteger(qty)) {\n      issues.push(`Invalid quantity (${item.quantity}) for item \"${item.name || prodId}\"`);\n      continue;\n    }\n\n    try {\n      const product = await core.sdk.collection('products').get(prodId);\n      if (!product) {\n        issues.push(`Product \"${item.name || prodId}\" does not exist in catalog`);\n        continue;\n      }\n\n      const availableStock = Number(product.stock ?? 0);\n      if (availableStock < qty) {\n        issues.push(`Insufficient stock for \"${product.name}\" (requested: ${qty}, available: ${availableStock})`);\n      }\n\n      const catalogPrice = Number(product.price);\n      const itemPrice = Number(item.price);\n      if (item.price !== undefined && !isNaN(catalogPrice) && !isNaN(itemPrice) && Math.abs(catalogPrice - itemPrice) > 0.01) {\n        issues.push(`Price mismatch for \"${product.name}\" (catalog: ${catalogPrice.toFixed(2)}, submitted: ${itemPrice.toFixed(2)})`);\n      }\n    } catch (err) {\n      issues.push(`Failed to verify product \"${prodId}\": ${err.message}`);\n    }\n  }\n\n  const passed = issues.length === 0;\n  logger.log(`[validate-order] Order #${order.orderNumber} validation result: passed=${passed}, issues=${issues.length}`);\n\n  return {\n    status: 200,\n    body: {\n      passed,\n      orderNumber: order.orderNumber,\n      itemCount: items.length,\n      issues,\n      riskScore: passed ? 'low' : 'high',\n      timestamp: new Date().toISOString()\n    }\n  };\n}"
+    "code": "export default async function(core, context) {\n  const logger = core.observability.logger;\n  const order = context.request?.body?.record || context.request?.body || {};\n  logger.log(`[validate-order] Validating order #${order.orderNumber || 'new'} for ${order.customerEmail}`);\n\n  let items = [];\n  try {\n    items = typeof order.items === 'string' ? JSON.parse(order.items) : (order.items || []);\n  } catch {\n    items = [];\n  }\n\n  const parseVariants = (raw) => {\n    if (Array.isArray(raw)) return raw;\n    if (typeof raw === 'string' && raw.trim()) {\n      try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch { return []; }\n    }\n    return [];\n  };\n\n  const findVariant = (variants, item) => {\n    if (item.variantId) {\n      const byId = variants.find((v) => v.id === item.variantId);\n      if (byId) return byId;\n    }\n    if (item.variantOptions && typeof item.variantOptions === 'object') {\n      const entries = Object.entries(item.variantOptions);\n      if (entries.length > 0) {\n        return variants.find((v) => v.options && entries.every(([k, val]) => v.options[k] === val));\n      }\n    }\n    return null;\n  };\n\n  const issues = [];\n  if (!order.customerEmail || !order.customerEmail.includes('@')) {\n    issues.push('Invalid customer email address');\n  }\n  if (!order.shippingAddress || order.shippingAddress.trim().length < 5) {\n    issues.push('Shipping address is required');\n  }\n  if (!Array.isArray(items) || items.length === 0) {\n    issues.push('Order contains no line items');\n  }\n\n  // Validate line items against catalog\n  for (const item of items) {\n    const prodId = item.productId || item.id;\n    if (!prodId) {\n      issues.push('Line item is missing product ID');\n      continue;\n    }\n\n    const qty = Number(item.quantity);\n    if (!qty || isNaN(qty) || qty <= 0 || !Number.isInteger(qty)) {\n      issues.push(`Invalid quantity (${item.quantity}) for item \"${item.name || prodId}\"`);\n      continue;\n    }\n\n    try {\n      const product = await core.sdk.collection('products').get(prodId);\n      if (!product) {\n        issues.push(`Product \"${item.name || prodId}\" does not exist in catalog`);\n        continue;\n      }\n\n      const variants = parseVariants(product.variants);\n      const hasVariantSelector = Boolean(item.variantId || (item.variantOptions && Object.keys(item.variantOptions).length > 0));\n      let availableStock = Number(product.stock ?? 0);\n      let catalogPrice = Number(product.price);\n      let displayName = product.name;\n\n      if (variants.length > 0 && hasVariantSelector) {\n        const matched = findVariant(variants, item);\n        if (!matched) {\n          issues.push(`Variant \"${item.variantLabel || item.variantId || 'selected'}\" does not exist for \"${product.name}\"`);\n          continue;\n        }\n        availableStock = Number(matched.stock ?? 0);\n        if (typeof matched.price === 'number' && matched.price > 0) {\n          catalogPrice = Number(matched.price);\n        }\n        displayName = `${product.name} (${matched.label || matched.id})`;\n      }\n\n      if (availableStock < qty) {\n        issues.push(`Insufficient stock for \"${displayName}\" (requested: ${qty}, available: ${availableStock})`);\n      }\n\n      const itemPrice = Number(item.price);\n      if (item.price !== undefined && !isNaN(catalogPrice) && !isNaN(itemPrice) && Math.abs(catalogPrice - itemPrice) > 0.01) {\n        issues.push(`Price mismatch for \"${displayName}\" (catalog: ${catalogPrice.toFixed(2)}, submitted: ${itemPrice.toFixed(2)})`);\n      }\n    } catch (err) {\n      issues.push(`Failed to verify product \"${prodId}\": ${err.message}`);\n    }\n  }\n\n  const passed = issues.length === 0;\n  logger.log(`[validate-order] Order #${order.orderNumber} validation result: passed=${passed}, issues=${issues.length}`);\n\n  return {\n    status: 200,\n    body: {\n      passed,\n      orderNumber: order.orderNumber,\n      itemCount: items.length,\n      issues,\n      riskScore: passed ? 'low' : 'high',\n      timestamp: new Date().toISOString()\n    }\n  };\n}"
   },
   {
     "name": "update-inventory",
-    "description": "Decrements stock levels in products collection for purchased items",
+    "description": "Decrements product and variant-specific stock levels in products collection for purchased items",
     "enabled": true,
     "authPolicy": "admin",
     "methods": [
@@ -912,7 +1063,7 @@ export const ecommerceTemplate: TemplateDefinition = {
     "allowedDomains": [],
     "elevated": true,
     "env": {},
-    "code": "export default async function(core, context) {\n  const logger = core.observability.logger;\n  const auth = context.request?.auth;\n  if (!auth?.role?.includes('admin') && auth?.role !== 'service-role' && !auth?.isAdmin) {\n    return {\n      status: 403,\n      body: {\n        error: 'Forbidden',\n        message: 'Admin or service-role privileges required to update inventory'\n      }\n    };\n  }\n\n  const order = context.request?.body?.record || context.request?.body || {};\n  let items = [];\n  try {\n    items = typeof order.items === 'string' ? JSON.parse(order.items) : (order.items || []);\n  } catch {\n    items = [];\n  }\n\n  logger.log(`[update-inventory] Decrementing inventory for ${items.length} items from order #${order.orderNumber}`);\n  const updatedProducts = [];\n\n  for (const item of items) {\n    const prodId = item.productId || item.id;\n    if (!prodId) continue;\n\n    try {\n      const product = await core.sdk.collection('products').get(prodId);\n      if (product) {\n        const qty = Number(item.quantity || 1);\n        const currentStock = Number(product.stock || 0);\n        const newStock = Math.max(0, currentStock - qty);\n        const newStatus = newStock === 0 ? 'out_of_stock' : (newStock < 10 ? 'low_stock' : 'in_stock');\n\n        await core.sdk.collection('products').update(prodId, {\n          stock: newStock,\n          status: newStatus\n        });\n\n        updatedProducts.push({ id: prodId, name: product.name, prevStock: currentStock, newStock });\n        logger.log(`[update-inventory] Updated ${product.name} (ID: ${prodId}): ${currentStock} -> ${newStock}`);\n      }\n    } catch (err) {\n      logger.log(`[update-inventory] Error updating stock for item ${prodId}: ${err.message}`);\n    }\n  }\n\n  if (order.id) {\n    try {\n      await core.sdk.collection('orders').update(order.id, {\n        status: 'processing'\n      });\n      logger.log(`[update-inventory] Updated order record ${order.id} status to processing (stock reserved).`);\n    } catch (err) {\n      logger.log(`[update-inventory] Note updating order record: ${err.message}`);\n    }\n  }\n\n  return {\n    status: 200,\n    body: {\n      success: true,\n      orderNumber: order.orderNumber,\n      itemsProcessed: updatedProducts.length,\n      updates: updatedProducts\n    }\n  };\n}"
+    "code": "export default async function(core, context) {\n  const logger = core.observability.logger;\n  const auth = context.request?.auth;\n  if (!auth?.role?.includes('admin') && auth?.role !== 'service-role' && !auth?.isAdmin) {\n    return {\n      status: 403,\n      body: {\n        error: 'Forbidden',\n        message: 'Admin or service-role privileges required to update inventory'\n      }\n    };\n  }\n\n  const order = context.request?.body?.record || context.request?.body || {};\n  let items = [];\n  try {\n    items = typeof order.items === 'string' ? JSON.parse(order.items) : (order.items || []);\n  } catch {\n    items = [];\n  }\n\n  const parseVariants = (raw) => {\n    if (Array.isArray(raw)) return raw;\n    if (typeof raw === 'string' && raw.trim()) {\n      try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch { return []; }\n    }\n    return [];\n  };\n\n  const findVariantIndex = (variants, item) => {\n    if (item.variantId) {\n      const idx = variants.findIndex((v) => v.id === item.variantId);\n      if (idx >= 0) return idx;\n    }\n    if (item.variantOptions && typeof item.variantOptions === 'object') {\n      const entries = Object.entries(item.variantOptions);\n      if (entries.length > 0) {\n        return variants.findIndex((v) => v.options && entries.every(([k, val]) => v.options[k] === val));\n      }\n    }\n    return -1;\n  };\n\n  logger.log(`[update-inventory] Decrementing inventory for ${items.length} items from order #${order.orderNumber}`);\n  const updatedProducts = [];\n\n  for (const item of items) {\n    const prodId = item.productId || item.id;\n    if (!prodId) continue;\n\n    try {\n      const product = await core.sdk.collection('products').get(prodId);\n      if (product) {\n        const qty = Math.max(0, Number(item.quantity || 1));\n        const currentStock = Number(product.stock || 0);\n        const variants = parseVariants(product.variants);\n\n        if (variants.length > 0) {\n          const updatedVariants = variants.map((v) => ({ ...v }));\n          const hasVariantSelector = Boolean(item.variantId || (item.variantOptions && Object.keys(item.variantOptions).length > 0));\n          const vIdx = hasVariantSelector ? findVariantIndex(updatedVariants, item) : -1;\n\n          if (vIdx >= 0) {\n            const prevVarStock = Number(updatedVariants[vIdx].stock || 0);\n            updatedVariants[vIdx].stock = Math.max(0, prevVarStock - qty);\n          } else {\n            let remaining = qty;\n            for (const v of updatedVariants) {\n              if (remaining <= 0) break;\n              const avail = Math.max(0, Number(v.stock || 0));\n              const deduct = Math.min(avail, remaining);\n              v.stock = avail - deduct;\n              remaining -= deduct;\n            }\n          }\n\n          const newStock = updatedVariants.reduce((sum, v) => sum + Math.max(0, Number(v.stock || 0)), 0);\n          const newStatus = newStock === 0 ? 'out_of_stock' : (newStock < 10 ? 'low_stock' : 'in_stock');\n\n          await core.sdk.collection('products').update(prodId, {\n            stock: newStock,\n            status: newStatus,\n            variants: updatedVariants\n          });\n\n          updatedProducts.push({ id: prodId, name: product.name, variantId: item.variantId || null, prevStock: currentStock, newStock });\n          logger.log(`[update-inventory] Updated ${product.name} (ID: ${prodId}, variant: ${item.variantId || 'default'}): ${currentStock} -> ${newStock}`);\n        } else {\n          const newStock = Math.max(0, currentStock - qty);\n          const newStatus = newStock === 0 ? 'out_of_stock' : (newStock < 10 ? 'low_stock' : 'in_stock');\n\n          await core.sdk.collection('products').update(prodId, {\n            stock: newStock,\n            status: newStatus\n          });\n\n          updatedProducts.push({ id: prodId, name: product.name, prevStock: currentStock, newStock });\n          logger.log(`[update-inventory] Updated ${product.name} (ID: ${prodId}): ${currentStock} -> ${newStock}`);\n        }\n      }\n    } catch (err) {\n      logger.log(`[update-inventory] Error updating stock for item ${prodId}: ${err.message}`);\n    }\n  }\n\n  if (order.id) {\n    try {\n      await core.sdk.collection('orders').update(order.id, {\n        status: 'processing'\n      });\n      logger.log(`[update-inventory] Updated order record ${order.id} status to processing (stock reserved).`);\n    } catch (err) {\n      logger.log(`[update-inventory] Note updating order record: ${err.message}`);\n    }\n  }\n\n  return {\n    status: 200,\n    body: {\n      success: true,\n      orderNumber: order.orderNumber,\n      itemsProcessed: updatedProducts.length,\n      updates: updatedProducts\n    }\n  };\n}"
   },
   {
     "name": "generate-tracking-label",

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { getProductImageUrl } from '../lib/nodestack';
+import { getCartLineKey, getEffectiveStock, getEffectiveUnitPrice } from '../lib/variants';
 import {
   X,
   Trash2,
@@ -141,9 +142,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ onProceedToCheckout }) =
             ) : (
               items.map((item) => {
                 const img = getProductImageUrl(item.product);
+                const lineKey = getCartLineKey(item.product.id, item.variantId);
+                const unitPrice = getEffectiveUnitPrice(item.product, item.variant);
+                const maxStock = getEffectiveStock(item.product, item.variant);
                 return (
                   <div
-                    key={item.product.id}
+                    key={lineKey}
                     className="flex items-center gap-4 p-3 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors"
                   >
                     <div className="w-16 h-16 rounded-xl bg-white border border-slate-100 p-2 flex items-center justify-center shrink-0">
@@ -158,14 +162,19 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ onProceedToCheckout }) =
                       <h4 className="font-bold text-sm text-slate-900 truncate">
                         {item.product.name}
                       </h4>
+                      {item.variantLabel && (
+                        <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-200/70 text-slate-700 mt-0.5">
+                          {item.variantLabel}
+                        </span>
+                      )}
                       <p className="text-xs font-extrabold text-brand-600 mt-0.5">
-                        ${item.product.price.toFixed(2)}
+                        ${unitPrice.toFixed(2)}
                       </p>
 
                       <div className="flex items-center gap-2 mt-2">
                         <div className="flex items-center border border-slate-200 rounded-lg bg-white overflow-hidden text-xs">
                           <button
-                            onClick={() => updateQuantity(item.product.id, item.quantity - 1)}
+                            onClick={() => updateQuantity(lineKey, item.quantity - 1)}
                             className="px-2 py-0.5 text-slate-500 hover:bg-slate-100 font-bold"
                           >
                             -
@@ -174,15 +183,16 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ onProceedToCheckout }) =
                             {item.quantity}
                           </span>
                           <button
-                            onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
-                            className="px-2 py-0.5 text-slate-500 hover:bg-slate-100 font-bold"
+                            onClick={() => updateQuantity(lineKey, item.quantity + 1)}
+                            disabled={maxStock > 0 && item.quantity >= maxStock}
+                            className="px-2 py-0.5 text-slate-500 hover:bg-slate-100 font-bold disabled:opacity-40"
                           >
                             +
                           </button>
                         </div>
 
                         <button
-                          onClick={() => removeFromCart(item.product.id)}
+                          onClick={() => removeFromCart(lineKey)}
                           className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
                           title="Remove item"
                         >
@@ -193,7 +203,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ onProceedToCheckout }) =
 
                     <div className="text-right">
                       <span className="font-extrabold text-sm text-slate-900">
-                        ${(item.product.price * item.quantity).toFixed(2)}
+                        ${(unitPrice * item.quantity).toFixed(2)}
                       </span>
                     </div>
                   </div>

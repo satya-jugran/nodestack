@@ -1,7 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { FlashSaleState, Product, Review } from '../lib/types';
 import { client, getProductImageUrl } from '../lib/nodestack';
 import { getProductDiscount } from '../lib/filters';
+import {
+  findMatchingVariant,
+  getColorSwatchHex,
+  getDefaultSelectedOptions,
+  getEffectiveStock,
+  getEffectiveUnitPrice,
+  isOptionValueAvailable,
+  parseProductVariants,
+  parseVariantOptions,
+} from '../lib/variants';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useFavorites } from '../context/FavoritesContext';
@@ -39,6 +49,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const { toast } = useToast();
 
   const [quantity, setQuantity] = useState(1);
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
   const [reviews, setReviews] = useState<Review[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
   const [hasPurchased, setHasPurchased] = useState(false);
@@ -53,6 +64,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   useEffect(() => {
     if (!product) return;
     setQuantity(1);
+    setSelectedOptions(getDefaultSelectedOptions(product));
     setReviewSuccessMsg('');
 
     let isMounted = true;
@@ -109,11 +121,39 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     };
   }, [product, isAuthenticated, user?.email]);
 
+  const optionGroups = useMemo(
+    () => (product ? parseVariantOptions(product) : []),
+    [product]
+  );
+  const variants = useMemo(
+    () => (product ? parseProductVariants(product) : []),
+    [product]
+  );
+  const hasVariants = variants.length > 0 && optionGroups.length > 0;
+  const selectedVariant = useMemo(
+    () => (product && hasVariants ? findMatchingVariant(product, selectedOptions) : undefined),
+    [product, hasVariants, selectedOptions]
+  );
+
+  useEffect(() => {
+    if (!product) return;
+    const maxAvail = getEffectiveStock(product, selectedVariant);
+    if (maxAvail > 0) {
+      setQuantity((q) => Math.min(Math.max(1, q), maxAvail));
+    } else {
+      setQuantity(1);
+    }
+  }, [product, selectedVariant]);
+
   if (!product) return null;
 
   const isFav = isFavorite(product.id);
   const imageUrl = getProductImageUrl(product);
-  const discount = getProductDiscount(product, flashSale);
+  const effectivePrice = getEffectiveUnitPrice(product, selectedVariant);
+  const effectiveStock = getEffectiveStock(product, selectedVariant);
+  const effectiveProductForDiscount =
+    effectivePrice !== product.price ? { ...product, price: effectivePrice } : product;
+  const discount = getProductDiscount(effectiveProductForDiscount, flashSale);
 
   const computedRating = reviews.length > 0
     ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
@@ -243,7 +283,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
               <div className="flex items-center gap-3 pt-2 flex-wrap">
                 <span className="text-3xl font-extrabold text-slate-900">
-                  ${product.price.toFixed(2)}
+                  ${effectivePrice.toFixed(2)}
                 </span>
                 {discount.isDiscounted && discount.originalPrice !== null && (
                   <>
@@ -257,14 +297,97 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 )}
                 <span
                   className={`text-xs font-bold px-2.5 py-1 rounded-full uppercase ${
-                    product.stock > 0
+                    effectiveStock > 5
                       ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                      : 'bg-rose-50 text-rose-700'
+                      : effectiveStock > 0
+                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                      : 'bg-rose-50 text-rose-700 border border-rose-200'
                   }`}
                 >
-                  {product.stock > 0 ? `In Stock (${product.stock})` : 'Out of Stock'}
+                  {effectiveStock > 0
+                    ? effectiveStock <= 5
+                      ? `Low Stock (${effectiveStock} left)`
+                      : `In Stock (${effectiveStock})`
+                    : 'Out of Stock'}
                 </span>
               </div>
+
+              {/* Product Variant & Option Selectors */}
+              {hasVariants && (
+                <div className="space-y-3 pt-2 border-t border-slate-100">
+                  {optionGroups.map((group) => {
+                    const currentVal = selectedOptions[group.name];
+                    return (
+                      <div key={group.name} className="space-y-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold uppercase tracking-wider text-slate-500">
+                            {group.name}
+                          </span>
+                          <span className="font-bold text-slate-800">{currentVal}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {group.values.map((val) => {
+                            const isSelected = currentVal === val;
+                            const isAvailable = isOptionValueAvailable(
+                              product,
+                              group.name,
+                              val,
+                              selectedOptions
+                            );
+                            const swatchHex =
+                              group.name.toLowerCase().includes('color') ||
+                              group.name.toLowerCase().includes('finish')
+                                ? getColorSwatchHex(val)
+                                : null;
+
+                            return (
+                              <button
+                                key={val}
+                                type="button"
+                                onClick={() =>
+                                  setSelectedOptions((prev) => ({
+                                    ...prev,
+                                    [group.name]: val,
+                                  }))
+                                }
+                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                                  isSelected
+                                    ? isAvailable
+                                      ? 'border-brand-600 bg-brand-50 text-brand-700 ring-2 ring-brand-500/20'
+                                      : 'border-rose-400 bg-rose-50 text-rose-700 ring-2 ring-rose-400/20'
+                                    : isAvailable
+                                    ? 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                                    : 'border-slate-200 bg-slate-50 text-slate-400 line-through opacity-75 hover:opacity-100'
+                                }`}
+                              >
+                                {swatchHex && (
+                                  <span
+                                    className="w-3 h-3 rounded-full border border-black/15 shrink-0"
+                                    style={{ backgroundColor: swatchHex }}
+                                    aria-hidden="true"
+                                  />
+                                )}
+                                <span>{val}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {selectedVariant && (
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
+                      <span>
+                        Selected: <strong className="text-slate-800">{selectedVariant.label}</strong>
+                      </span>
+                      {selectedVariant.sku && (
+                        <span className="font-mono text-slate-400">{selectedVariant.sku}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Actions */}
@@ -274,7 +397,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
                   <button
                     onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                    className="px-3 py-2 text-slate-600 hover:bg-slate-200 font-bold transition-colors"
+                    disabled={effectiveStock <= 0}
+                    className="px-3 py-2 text-slate-600 hover:bg-slate-200 font-bold transition-colors disabled:opacity-40"
                   >
                     -
                   </button>
@@ -282,8 +406,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     {quantity}
                   </span>
                   <button
-                    onClick={() => setQuantity((q) => Math.min(product.stock, q + 1))}
-                    className="px-3 py-2 text-slate-600 hover:bg-slate-200 font-bold transition-colors"
+                    onClick={() => setQuantity((q) => Math.min(Math.max(1, effectiveStock), q + 1))}
+                    disabled={effectiveStock <= 0 || quantity >= effectiveStock}
+                    className="px-3 py-2 text-slate-600 hover:bg-slate-200 font-bold transition-colors disabled:opacity-40"
                   >
                     +
                   </button>
@@ -292,14 +417,16 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 {/* Add to Cart */}
                 <button
                   onClick={() => {
-                    addToCart(product, quantity);
+                    addToCart(product, quantity, selectedVariant);
                     onClose();
                   }}
-                  disabled={product.stock <= 0}
+                  disabled={effectiveStock <= 0 || (hasVariants && !selectedVariant)}
                   className="flex-1 py-3 px-6 rounded-xl bg-brand-600 hover:bg-brand-700 active:scale-95 text-white font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md shadow-brand-500/20 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
                 >
                   <ShoppingBag className="w-4 h-4" />
-                  Add {quantity > 1 ? `(${quantity})` : ''} to Cart • ${(product.price * quantity).toFixed(2)}
+                  {effectiveStock <= 0
+                    ? 'Variant Out of Stock'
+                    : `Add ${quantity > 1 ? `(${quantity})` : ''} to Cart • $${(effectivePrice * quantity).toFixed(2)}`}
                 </button>
 
                 {/* Favorite */}

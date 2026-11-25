@@ -321,9 +321,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 />
                               )}
                               <div>
-                                <p className="font-bold text-slate-800 line-clamp-1">
-                                  {item.name}
-                                </p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="font-bold text-slate-800 line-clamp-1">
+                                    {item.name}
+                                  </p>
+                                  {item.variantLabel && (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200/70 text-slate-700">
+                                      {item.variantLabel}
+                                    </span>
+                                  )}
+                                </div>
                                 <p className="text-[10px] text-slate-400">
                                   Qty: {item.quantity} × ${item.price.toFixed(2)}
                                 </p>

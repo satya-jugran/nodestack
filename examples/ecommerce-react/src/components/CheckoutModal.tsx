@@ -3,6 +3,7 @@ import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { client } from '../lib/nodestack';
+import { getEffectiveUnitPrice } from '../lib/variants';
 import {
   X,
   CheckCircle2,
@@ -67,8 +68,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       productId: i.product.id,
       name: i.product.name,
       quantity: i.quantity,
-      price: i.product.price,
+      price: getEffectiveUnitPrice(i.product, i.variant),
       image: i.product.image,
+      ...(i.variantId ? { variantId: i.variantId } : {}),
+      ...(i.variantLabel ? { variantLabel: i.variantLabel } : {}),
+      ...(i.variantOptions ? { variantOptions: i.variantOptions } : {}),
     }));
 
     try {

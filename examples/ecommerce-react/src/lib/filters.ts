@@ -1,4 +1,5 @@
 import { FlashSaleState, Product } from './types';
+import { getTotalVariantStock, parseProductVariants, parseVariantOptions } from './variants';
 
 export const PRICE_SLIDER_MIN = 10;
 export const PRICE_SLIDER_MAX = 500;
@@ -93,7 +94,12 @@ export function isPriceRangeFiltered(
 }
 
 export function isProductInStock(product: Product): boolean {
-  return product.status !== 'out_of_stock' && product.stock > 0;
+  if (product.status === 'out_of_stock') return false;
+  const variants = parseProductVariants(product);
+  if (variants.length > 0) {
+    return getTotalVariantStock(variants) > 0;
+  }
+  return product.stock > 0;
 }
 
 /**
@@ -139,7 +145,16 @@ export function matchesCatalogFilters(
     const matchesName = product.name.toLowerCase().includes(q);
     const matchesDesc = (product.description || '').toLowerCase().includes(q);
     const matchesCat = product.expand?.category?.name.toLowerCase().includes(q);
-    if (!matchesName && !matchesDesc && !matchesCat) {
+    const matchesVariants =
+      parseProductVariants(product).some(
+        (v) =>
+          v.label?.toLowerCase().includes(q) ||
+          v.sku?.toLowerCase().includes(q)
+      ) ||
+      parseVariantOptions(product).some((g) =>
+        g.values.some((val) => val.toLowerCase().includes(q))
+      );
+    if (!matchesName && !matchesDesc && !matchesCat && !matchesVariants) {
       return false;
     }
   }

@@ -81,6 +81,10 @@ export const App: React.FC = () => {
 
   // Modals state
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
+  const resolvedActiveProduct = useMemo(
+    () => (activeProduct ? products.find((p) => p.id === activeProduct.id) || activeProduct : null),
+    [activeProduct, products]
+  );
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isOrdersOpen, setIsOrdersOpen] = useState(false);
@@ -716,7 +720,7 @@ export const App: React.FC = () => {
 
       {/* Product Detail & Reviews Modal */}
       <ProductModal
-        product={activeProduct}
+        product={resolvedActiveProduct}
         flashSale={flashSale}
         onClose={() => setActiveProduct(null)}
         onOpenAuth={() => setIsAuthOpen(true)}

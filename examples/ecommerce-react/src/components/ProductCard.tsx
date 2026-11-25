@@ -2,7 +2,13 @@ import React from 'react';
 import { FlashSaleState, Product } from '../lib/types';
 import { getProductImageUrl } from '../lib/nodestack';
 import { getProductDiscount } from '../lib/filters';
-import { Star, Heart, ShoppingBag, Check, Sparkles } from 'lucide-react';
+import {
+  getColorSwatchHex,
+  getEffectiveStock,
+  parseProductVariants,
+  parseVariantOptions,
+} from '../lib/variants';
+import { Star, Heart, ShoppingBag, Check, Sparkles, Sliders } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useFavorites } from '../context/FavoritesContext';
 
@@ -21,11 +27,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   const { isFavorite, toggleFavorite } = useFavorites();
 
   const isFav = isFavorite(product.id);
-  const cartItem = items.find((i) => i.product.id === product.id);
-  const inCart = Boolean(cartItem);
+  const productCartQty = items
+    .filter((i) => i.product.id === product.id)
+    .reduce((sum, i) => sum + i.quantity, 0);
+  const inCart = productCartQty > 0;
+
+  const optionGroups = parseVariantOptions(product);
+  const variants = parseProductVariants(product);
+  const hasVariants = variants.length > 0 && optionGroups.length > 0;
+  const totalStock = getEffectiveStock(product);
 
   const imageUrl = getProductImageUrl(product);
-  const isOutOfStock = product.status === 'out_of_stock' || product.stock <= 0;
+  const isOutOfStock = product.status === 'out_of_stock' || totalStock <= 0;
   const discount = getProductDiscount(product, flashSale);
   const isFeatured = Boolean(product.isFeatured);
 
@@ -115,7 +128,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             )}
             <span className="text-slate-400">•</span>
             <span className="text-slate-400">
-              {product.stock > 10 ? `${product.stock} in stock` : `${product.stock} left!`}
+              {totalStock > 10 ? `${totalStock} in stock` : `${totalStock} left!`}
             </span>
           </div>
 
@@ -132,6 +145,49 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
             {product.description}
           </p>
+
+          {/* Variant Options Preview */}
+          {hasVariants && (
+            <div className="pt-1 flex items-center flex-wrap gap-1.5">
+              {optionGroups.map((group) => {
+                const isColorGroup =
+                  group.name.toLowerCase().includes('color') ||
+                  group.name.toLowerCase().includes('finish');
+                if (isColorGroup) {
+                  return (
+                    <div
+                      key={group.name}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200/70"
+                      title={`${group.name}: ${group.values.join(', ')}`}
+                    >
+                      {group.values.slice(0, 4).map((val) => {
+                        const hex = getColorSwatchHex(val);
+                        return hex ? (
+                          <span
+                            key={val}
+                            className="w-2.5 h-2.5 rounded-full border border-black/15"
+                            style={{ backgroundColor: hex }}
+                          />
+                        ) : (
+                          <span key={val} className="text-[10px] font-semibold text-slate-600">
+                            {val}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+                return (
+                  <span
+                    key={group.name}
+                    className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200/70"
+                  >
+                    {group.name}: {group.values.join('/')}
+                  </span>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Price & Action */}
@@ -151,7 +207,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           </div>
 
           <button
-            onClick={() => addToCart(product, 1)}
+            onClick={() => (hasVariants ? onOpenDetails(product) : addToCart(product, 1))}
             disabled={isOutOfStock}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 ${
               isOutOfStock
@@ -164,7 +220,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             {inCart ? (
               <>
                 <Check className="w-3.5 h-3.5" />
-                <span>Added ({cartItem?.quantity})</span>
+                <span>Added ({productCartQty})</span>
+              </>
+            ) : hasVariants ? (
+              <>
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Select Options</span>
               </>
             ) : (
               <>

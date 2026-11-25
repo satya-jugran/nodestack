@@ -7,6 +7,20 @@ export interface Category {
   image?: string;
 }
 
+export interface VariantOptionGroup {
+  name: string;
+  values: string[];
+}
+
+export interface ProductVariant {
+  id: string;
+  sku?: string;
+  label: string;
+  options: Record<string, string>;
+  stock: number;
+  price?: number;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -21,6 +35,8 @@ export interface Product {
   reviewCount?: number;
   isFeatured?: boolean;
   status: 'in_stock' | 'low_stock' | 'out_of_stock' | 'pre_order';
+  variantOptions?: VariantOptionGroup[] | string | null;
+  variants?: ProductVariant[] | string | null;
   created?: string;
   updated?: string;
   expand?: {
@@ -46,6 +62,9 @@ export interface OrderItem {
   quantity: number;
   price: number;
   image?: string;
+  variantId?: string;
+  variantLabel?: string;
+  variantOptions?: Record<string, string>;
 }
 
 export interface Order {
@@ -89,6 +108,10 @@ export interface User {
 export interface CartItem {
   product: Product;
   quantity: number;
+  variantId?: string;
+  variantLabel?: string;
+  variantOptions?: Record<string, string>;
+  variant?: ProductVariant;
 }
 
 export interface CartItemRecord {
@@ -96,6 +119,9 @@ export interface CartItemRecord {
   user: string;
   product: string;
   quantity: number;
+  variantId?: string;
+  variantLabel?: string;
+  variantOptions?: Record<string, string> | string;
   created?: string;
   updated?: string;
   expand?: {
@@ -127,6 +153,7 @@ export interface SimulatedOrderEvent {
   customerName: string;
   productName: string;
   productId: string;
+  variantLabel?: string;
   newStock: number;
   timestamp: number;
 }

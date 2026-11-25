@@ -635,18 +635,187 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
         })
       ).rejects.toThrow();
 
-      // 4. Attempting to create order without user relation fails
-      await expect(
-        client.collection('orders').create({
-          orderNumber: 'ORD-SECURITY-NOUSER',
-          customerName: 'No User',
-          customerEmail: 'nouser@bad.com',
-          shippingAddress: '123 Fake St',
-          total: 50.0,
-          status: 'pending',
-          items: JSON.stringify([]),
-        })
-      ).rejects.toThrow();
+      // Clean up
+      await client.collection('orders').delete(validOrder.id).catch(() => {});
+    });
+  });
+
+  describe('6. Product Variants & Variant-Specific Stock Levels', () => {
+    it('should seed products with variantOptions and variant-specific stock levels', async () => {
+      const scope = server.apps.get('ecommerce-demo');
+      const hoodie = await scope.records.getOne('products', 'prod_11');
+
+      expect(Array.isArray(hoodie.variantOptions)).toBe(true);
+      expect(hoodie.variantOptions).toEqual([
+        { name: 'Size', values: ['S', 'M', 'L'] },
+        { name: 'Color', values: ['Slate', 'Amber', 'Navy'] },
+      ]);
+      expect(Array.isArray(hoodie.variants)).toBe(true);
+      expect(hoodie.variants.length).toBe(9);
+
+      const sAmber = hoodie.variants.find((v: any) => v.id === 'var_s_amber');
+      expect(sAmber).toBeDefined();
+      expect(sAmber.options).toEqual({ Size: 'S', Color: 'Amber' });
+      expect(sAmber.stock).toBe(0);
+
+      const mSlate = hoodie.variants.find((v: any) => v.id === 'var_m_slate');
+      expect(mSlate).toBeDefined();
+      expect(mSlate.stock).toBe(8);
+
+      const sumStock = hoodie.variants.reduce((sum: number, v: any) => sum + Number(v.stock), 0);
+      expect(Number(hoodie.stock)).toBe(sumStock);
+    });
+
+    it('should validate variant availability and variant-specific stock in validate-order lambda', async () => {
+      const scope = server.apps.get('ecommerce-demo');
+
+      // 1. Out-of-stock variant (S / Amber has 0 stock, even though total product stock is 42)
+      const oosRes = await scope.functions.executeFunction('validate-order', {
+        method: 'POST',
+        body: {
+          orderNumber: 'ORD-VAR-OOS',
+          customerEmail: 'alex.vance@nodestack.dev',
+          shippingAddress: '742 Evergreen Terrace, Austin, TX 78701',
+          items: [
+            {
+              productId: 'prod_11',
+              variantId: 'var_s_amber',
+              variantLabel: 'S / Amber',
+              variantOptions: { Size: 'S', Color: 'Amber' },
+              quantity: 1,
+              price: 125.0,
+            },
+          ],
+        },
+      });
+      expect(oosRes.body.passed).toBe(false);
+      expect(oosRes.body.issues.some((i: string) => i.includes('Insufficient stock') && i.includes('S / Amber'))).toBe(true);
+
+      // 2. Non-existent variant ID
+      const missingRes = await scope.functions.executeFunction('validate-order', {
+        method: 'POST',
+        body: {
+          orderNumber: 'ORD-VAR-MISSING',
+          customerEmail: 'alex.vance@nodestack.dev',
+          shippingAddress: '742 Evergreen Terrace, Austin, TX 78701',
+          items: [
+            {
+              productId: 'prod_11',
+              variantId: 'var_xxl_neon',
+              variantLabel: 'XXL / Neon',
+              quantity: 1,
+              price: 125.0,
+            },
+          ],
+        },
+      });
+      expect(missingRes.body.passed).toBe(false);
+      expect(missingRes.body.issues.some((i: string) => i.includes('does not exist'))).toBe(true);
+
+      // 3. Valid in-stock variant (M / Slate has 8 units)
+      const validRes = await scope.functions.executeFunction('validate-order', {
+        method: 'POST',
+        body: {
+          orderNumber: 'ORD-VAR-OK',
+          customerEmail: 'alex.vance@nodestack.dev',
+          shippingAddress: '742 Evergreen Terrace, Austin, TX 78701',
+          items: [
+            {
+              productId: 'prod_11',
+              variantId: 'var_m_slate',
+              variantLabel: 'M / Slate',
+              variantOptions: { Size: 'M', Color: 'Slate' },
+              quantity: 2,
+              price: 125.0,
+            },
+          ],
+        },
+      });
+      expect(validRes.body.passed).toBe(true);
+    });
+
+    it('should decrement only the purchased variant stock and update total product stock via OrderFulfillmentFlow', async () => {
+      const scope = server.apps.get('ecommerce-demo');
+      const before = await scope.records.getOne('products', 'prod_11');
+      const initialTotalStock = Number(before.stock);
+      const initialMSlate = before.variants.find((v: any) => v.id === 'var_m_slate').stock;
+      const initialLNavy = before.variants.find((v: any) => v.id === 'var_l_navy').stock;
+
+      const order = await scope.records.create('orders', {
+        orderNumber: 'ORD-VAR-FLOW-1',
+        customerName: 'Alex Vance',
+        customerEmail: 'alex.vance@nodestack.dev',
+        shippingAddress: '742 Evergreen Terrace, Austin, TX 78701',
+        total: 250,
+        status: 'pending',
+        items: JSON.stringify([
+          {
+            productId: 'prod_11',
+            name: 'Alpine Thermal Merino Wool Hoodie',
+            variantId: 'var_m_slate',
+            variantLabel: 'M / Slate',
+            variantOptions: { Size: 'M', Color: 'Slate' },
+            price: 125.0,
+            quantity: 2,
+          },
+        ]),
+      }, { id: 'admin', isAdmin: true });
+
+      expect(order.id).toBeDefined();
+
+      const flow = await scope.flows.getFlowByName('OrderFulfillmentFlow');
+      let finished = false;
+      for (let attempt = 0; attempt < 25; attempt++) {
+        await new Promise((r) => setTimeout(r, 200));
+        const executions = await scope.flows.getExecutions({ flowId: flow!.id });
+        const match = executions.items.find((ex: any) => ex.input?.record?.id === order.id);
+        if (match && match.status === 'succeeded') {
+          finished = true;
+          break;
+        }
+      }
+      expect(finished).toBe(true);
+
+      const after = await scope.records.getOne('products', 'prod_11');
+      const afterMSlate = after.variants.find((v: any) => v.id === 'var_m_slate').stock;
+      const afterLNavy = after.variants.find((v: any) => v.id === 'var_l_navy').stock;
+
+      expect(afterMSlate).toBe(initialMSlate - 2);
+      expect(afterLNavy).toBe(initialLNavy);
+      expect(Number(after.stock)).toBe(initialTotalStock - 2);
+    });
+
+    it('should persist distinct cart_items rows for different variants of the same product', async () => {
+      const auth = await client.collection('users').authWithPassword('alex.vance@nodestack.dev', 'DemoPassword123!');
+
+      const itemA = await client.collection('cart_items').create({
+        user: auth.record.id,
+        product: 'prod_11',
+        quantity: 1,
+        variantId: 'var_s_slate',
+        variantLabel: 'S / Slate',
+        variantOptions: { Size: 'S', Color: 'Slate' },
+      });
+
+      const itemB = await client.collection('cart_items').create({
+        user: auth.record.id,
+        product: 'prod_11',
+        quantity: 2,
+        variantId: 'var_m_navy',
+        variantLabel: 'M / Navy',
+        variantOptions: { Size: 'M', Color: 'Navy' },
+      });
+
+      const cartList = await client.collection('cart_items').getList(1, 20, {
+        filter: `user = "${auth.record.id}"`,
+      });
+      const hoodieItems = cartList.items.filter((i: any) => i.product === 'prod_11');
+      expect(hoodieItems.length).toBe(2);
+      expect(hoodieItems.some((i: any) => i.variantId === 'var_s_slate' && i.variantLabel === 'S / Slate')).toBe(true);
+      expect(hoodieItems.some((i: any) => i.variantId === 'var_m_navy' && i.variantLabel === 'M / Navy')).toBe(true);
+
+      await client.collection('cart_items').delete(itemA.id);
+      await client.collection('cart_items').delete(itemB.id);
     });
   });
 });

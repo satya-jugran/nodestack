@@ -1,14 +1,23 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { CartItem, Product, AppliedCoupon } from '../lib/types';
+import { CartItem, Product, ProductVariant, AppliedCoupon } from '../lib/types';
 import { client } from '../lib/nodestack';
+import {
+  findMatchingVariant,
+  findVariantById,
+  getCartLineKey,
+  getDefaultSelectedOptions,
+  getEffectiveStock,
+  getEffectiveUnitPrice,
+  hasProductVariants,
+} from '../lib/variants';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 
 interface CartContextType {
   items: CartItem[];
-  addToCart: (product: Product, quantity?: number) => void;
-  removeFromCart: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
+  addToCart: (product: Product, quantity?: number, variant?: ProductVariant) => void;
+  removeFromCart: (lineKeyOrProductId: string) => void;
+  updateQuantity: (lineKeyOrProductId: string, quantity: number) => void;
   clearCart: () => void;
   itemCount: number;
   subtotal: number;
@@ -98,11 +107,28 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
           for (const item of res.items as any[]) {
             const product: Product = item.expand?.product || catalogMap?.[item.product];
             if (product) {
+              const variantId = typeof item.variantId === 'string' && item.variantId ? item.variantId : undefined;
+              const matchedVariant = variantId ? findVariantById(product, variantId) : undefined;
+              let parsedOpts: Record<string, string> | undefined = matchedVariant?.options;
+              if (!parsedOpts && item.variantOptions) {
+                if (typeof item.variantOptions === 'string') {
+                  try {
+                    parsedOpts = JSON.parse(item.variantOptions);
+                  } catch {}
+                } else if (typeof item.variantOptions === 'object') {
+                  parsedOpts = item.variantOptions;
+                }
+              }
+              const lineKey = getCartLineKey(product.id, variantId);
               loadedItems.push({
                 product,
                 quantity: Number(item.quantity) || 1,
+                variantId,
+                variantLabel: item.variantLabel || matchedVariant?.label || undefined,
+                variantOptions: parsedOpts,
+                variant: matchedVariant,
               });
-              rMap[product.id] = item.id;
+              rMap[lineKey] = item.id;
             }
           }
 
@@ -115,10 +141,13 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
               for (const gItem of guestItems) {
                 try {
-                  const existingIdx = loadedItems.findIndex((it) => it.product.id === gItem.product.id);
+                  const gKey = getCartLineKey(gItem.product.id, gItem.variantId);
+                  const existingIdx = loadedItems.findIndex(
+                    (it) => getCartLineKey(it.product.id, it.variantId) === gKey
+                  );
                   if (existingIdx >= 0) {
                     const newQty = loadedItems[existingIdx].quantity + gItem.quantity;
-                    const rId = rMap[gItem.product.id];
+                    const rId = rMap[gKey];
                     if (rId) {
                       await client.collection('cart_items').update(rId, { quantity: newQty });
                     }
@@ -128,8 +157,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
                       user: user.id,
                       product: gItem.product.id,
                       quantity: gItem.quantity,
+                      ...(gItem.variantId ? { variantId: gItem.variantId } : {}),
+                      ...(gItem.variantLabel ? { variantLabel: gItem.variantLabel } : {}),
+                      ...(gItem.variantOptions ? { variantOptions: gItem.variantOptions } : {}),
                     });
-                    rMap[gItem.product.id] = created.id;
+                    rMap[gKey] = created.id;
                     loadedItems.push(gItem);
                   }
                 } catch (itemErr) {
@@ -194,40 +226,92 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [coupon]);
 
-  const addToCart = async (product: Product, quantity: number = 1) => {
+  const matchesLineKey = (item: CartItem, lineKeyOrProductId: string): boolean => {
+    const key = getCartLineKey(item.product.id, item.variantId);
+    return key === lineKeyOrProductId || item.product.id === lineKeyOrProductId;
+  };
+
+  const addToCart = async (product: Product, quantity: number = 1, variant?: ProductVariant) => {
+    const resolvedVariant =
+      variant ||
+      (hasProductVariants(product)
+        ? findMatchingVariant(product, getDefaultSelectedOptions(product))
+        : undefined);
+    const variantId = resolvedVariant?.id;
+    const variantLabel = resolvedVariant?.label;
+    const variantOptions = resolvedVariant?.options;
+    const lineKey = getCartLineKey(product.id, variantId);
+    const maxStock = getEffectiveStock(product, resolvedVariant);
+
+    if (maxStock <= 0) {
+      toast.warning(
+        'Out of stock',
+        variantLabel ? `${product.name} (${variantLabel}) is currently unavailable.` : `${product.name} is out of stock.`,
+        { dedupeKey: `cart-oos:${lineKey}` }
+      );
+      return;
+    }
+
+    const existingItem = items.find((item) => getCartLineKey(item.product.id, item.variantId) === lineKey);
+    const currentQty = existingItem?.quantity || 0;
+    const clampedNewQty = Math.min(maxStock, currentQty + quantity);
+    const addedQty = clampedNewQty - currentQty;
+
     setIsCartOpen(true);
+    if (addedQty <= 0) {
+      toast.info(
+        'Stock limit reached',
+        `Only ${maxStock} ${maxStock === 1 ? 'unit' : 'units'} available${variantLabel ? ` for ${variantLabel}` : ''}.`,
+        { dedupeKey: `cart-max:${lineKey}` }
+      );
+      return;
+    }
+
+    const itemTitle = variantLabel ? `${product.name} (${variantLabel})` : product.name;
     toast.success(
       'Added to cart',
-      quantity > 1 ? `${quantity} × ${product.name}` : product.name,
-      { dedupeKey: `cart-add:${product.id}` }
+      addedQty > 1 ? `${addedQty} × ${itemTitle}` : itemTitle,
+      { dedupeKey: `cart-add:${lineKey}` }
     );
 
     if (isAuthenticated && user) {
-      const existing = items.find((item) => item.product.id === product.id);
-      const newQty = existing ? existing.quantity + quantity : quantity;
-
       // Optimistic UI update
       setItems((prev) => {
-        const exists = prev.find((item) => item.product.id === product.id);
+        const exists = prev.find((item) => getCartLineKey(item.product.id, item.variantId) === lineKey);
         if (exists) {
           return prev.map((item) =>
-            item.product.id === product.id ? { ...item, quantity: item.quantity + quantity } : item
+            getCartLineKey(item.product.id, item.variantId) === lineKey
+              ? { ...item, quantity: clampedNewQty, variant: resolvedVariant || item.variant }
+              : item
           );
         }
-        return [...prev, { product, quantity }];
+        return [
+          ...prev,
+          {
+            product,
+            quantity: clampedNewQty,
+            variantId,
+            variantLabel,
+            variantOptions,
+            variant: resolvedVariant,
+          },
+        ];
       });
 
       try {
-        const existingRecordId = recordIdMap[product.id];
+        const existingRecordId = recordIdMap[lineKey];
         if (existingRecordId) {
-          await client.collection('cart_items').update(existingRecordId, { quantity: newQty });
+          await client.collection('cart_items').update(existingRecordId, { quantity: clampedNewQty });
         } else {
           const created = await client.collection('cart_items').create({
             user: user.id,
             product: product.id,
-            quantity: newQty,
+            quantity: clampedNewQty,
+            ...(variantId ? { variantId } : {}),
+            ...(variantLabel ? { variantLabel } : {}),
+            ...(variantOptions ? { variantOptions } : {}),
           });
-          setRecordIdMap((prev) => ({ ...prev, [product.id]: created.id }));
+          setRecordIdMap((prev) => ({ ...prev, [lineKey]: created.id }));
         }
       } catch (err) {
         console.error('Failed to sync added cart item to NodeStack backend:', err);
@@ -235,10 +319,24 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       // Guest mode
       setItems((prev) => {
-        const existing = prev.find((item) => item.product.id === product.id);
+        const existing = prev.find((item) => getCartLineKey(item.product.id, item.variantId) === lineKey);
         const next = existing
-          ? prev.map((item) => (item.product.id === product.id ? { ...item, quantity: item.quantity + quantity } : item))
-          : [...prev, { product, quantity }];
+          ? prev.map((item) =>
+              getCartLineKey(item.product.id, item.variantId) === lineKey
+                ? { ...item, quantity: clampedNewQty, variant: resolvedVariant || item.variant }
+                : item
+            )
+          : [
+              ...prev,
+              {
+                product,
+                quantity: clampedNewQty,
+                variantId,
+                variantLabel,
+                variantOptions,
+                variant: resolvedVariant,
+              },
+            ];
         try {
           localStorage.setItem(GUEST_CART_KEY, JSON.stringify(next));
         } catch {}
@@ -247,21 +345,26 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const removeFromCart = async (productId: string) => {
-    const removed = items.find((item) => item.product.id === productId);
-    setItems((prev) => prev.filter((item) => item.product.id !== productId));
+  const removeFromCart = async (lineKeyOrProductId: string) => {
+    const removed = items.find((item) => matchesLineKey(item, lineKeyOrProductId));
+    const resolvedKey = removed
+      ? getCartLineKey(removed.product.id, removed.variantId)
+      : lineKeyOrProductId;
+    setItems((prev) => prev.filter((item) => getCartLineKey(item.product.id, item.variantId) !== resolvedKey));
     if (removed) {
-      toast.info('Removed from cart', removed.product.name, {
-        dedupeKey: `cart-remove:${productId}`,
-      });
+      toast.info(
+        'Removed from cart',
+        removed.variantLabel ? `${removed.product.name} (${removed.variantLabel})` : removed.product.name,
+        { dedupeKey: `cart-remove:${resolvedKey}` }
+      );
     }
 
     if (isAuthenticated && user) {
-      const recordId = recordIdMap[productId];
+      const recordId = recordIdMap[resolvedKey];
       if (recordId) {
         setRecordIdMap((prev) => {
           const copy = { ...prev };
-          delete copy[productId];
+          delete copy[resolvedKey];
           return copy;
         });
         try {
@@ -280,21 +383,33 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateQuantity = async (productId: string, quantity: number) => {
+  const updateQuantity = async (lineKeyOrProductId: string, quantity: number) => {
+    const targetItem = items.find((item) => matchesLineKey(item, lineKeyOrProductId));
+    const resolvedKey = targetItem
+      ? getCartLineKey(targetItem.product.id, targetItem.variantId)
+      : lineKeyOrProductId;
+
     if (quantity <= 0) {
-      await removeFromCart(productId);
+      await removeFromCart(resolvedKey);
       return;
     }
 
+    const maxStock = targetItem ? getEffectiveStock(targetItem.product, targetItem.variant) : quantity;
+    const clampedQty = maxStock > 0 ? Math.min(quantity, maxStock) : quantity;
+
     setItems((prev) =>
-      prev.map((item) => (item.product.id === productId ? { ...item, quantity } : item))
+      prev.map((item) =>
+        getCartLineKey(item.product.id, item.variantId) === resolvedKey
+          ? { ...item, quantity: clampedQty }
+          : item
+      )
     );
 
     if (isAuthenticated && user) {
-      const recordId = recordIdMap[productId];
+      const recordId = recordIdMap[resolvedKey];
       if (recordId) {
         try {
-          await client.collection('cart_items').update(recordId, { quantity });
+          await client.collection('cart_items').update(recordId, { quantity: clampedQty });
         } catch (err) {
           console.error('Failed to update cart item quantity in NodeStack backend:', err);
         }
@@ -333,7 +448,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const subtotal = items.reduce(
-    (sum, item) => sum + item.product.price * item.quantity,
+    (sum, item) => sum + getEffectiveUnitPrice(item.product, item.variant) * item.quantity,
     0
   );
 
@@ -408,8 +523,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         items: items.map((i) => ({
           productId: i.product.id,
           name: i.product.name,
-          price: i.product.price,
+          price: getEffectiveUnitPrice(i.product, i.variant),
           quantity: i.quantity,
+          ...(i.variantId ? { variantId: i.variantId } : {}),
+          ...(i.variantLabel ? { variantLabel: i.variantLabel } : {}),
         })),
       };
 
