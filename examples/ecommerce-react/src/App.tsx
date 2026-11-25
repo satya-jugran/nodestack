@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { client, getAdminUrl, getBackendUrl } from './lib/nodestack';
 import { Category, Product, Review, ViewMode, FlashSaleState, SimulatedOrderEvent } from './lib/types';
 import { useAuth } from './context/AuthContext';
+import { useCart } from './context/CartContext';
 import { useToast } from './context/ToastContext';
 import { Navbar } from './components/Navbar';
 import { HeroBanner } from './components/HeroBanner';
@@ -19,6 +20,14 @@ import { StoreManagerView } from './components/StoreManagerView';
 import { ProductFormModal } from './components/ProductFormModal';
 import { FlashSaleController } from './components/FlashSaleController';
 import { FlashSaleBanner } from './components/FlashSaleBanner';
+import { ProductCarousel } from './components/ProductCarousel';
+import {
+  clearRecentlyViewedIds,
+  getCustomersAlsoBoughtProducts,
+  getRecentlyViewedIds,
+  recordRecentlyViewedId,
+  resolveRecentlyViewedProducts,
+} from './lib/recentlyViewed';
 import {
   DEFAULT_PRICE_RANGE,
   RATING_FILTER_OPTIONS,
@@ -50,6 +59,7 @@ export const App: React.FC = () => {
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
 
   const { isAuthenticated, isStoreManager } = useAuth();
+  const { items: cartItems } = useCart();
   const { toast } = useToast();
   const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
 
@@ -81,6 +91,33 @@ export const App: React.FC = () => {
 
   // Modals state
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
+  const [recentlyViewedIds, setRecentlyViewedIds] = useState<string[]>(() =>
+    getRecentlyViewedIds()
+  );
+
+  const handleOpenProduct = (product: Product) => {
+    setActiveProduct(product);
+    setRecentlyViewedIds(recordRecentlyViewedId(product.id));
+  };
+
+  const handleClearRecentlyViewed = () => {
+    setRecentlyViewedIds(clearRecentlyViewedIds());
+  };
+
+  const recentlyViewedProducts = useMemo(
+    () => resolveRecentlyViewedProducts(products, recentlyViewedIds),
+    [products, recentlyViewedIds]
+  );
+
+  const alsoBoughtProducts = useMemo(
+    () =>
+      getCustomersAlsoBoughtProducts(
+        products,
+        recentlyViewedIds,
+        cartItems.map((item) => item.product.id)
+      ),
+    [products, recentlyViewedIds, cartItems]
+  );
   const resolvedActiveProduct = useMemo(
     () => (activeProduct ? products.find((p) => p.id === activeProduct.id) || activeProduct : null),
     [activeProduct, products]
@@ -662,13 +699,23 @@ export const App: React.FC = () => {
                         key={product.id}
                         product={product}
                         flashSale={flashSale}
-                        onOpenDetails={setActiveProduct}
+                        onOpenDetails={handleOpenProduct}
                       />
                     ))}
                   </div>
                 )}
               </div>
             </div>
+
+            {!isLoading && (
+              <ProductCarousel
+                recentlyViewedProducts={recentlyViewedProducts}
+                alsoBoughtProducts={alsoBoughtProducts}
+                flashSale={flashSale}
+                onOpenDetails={handleOpenProduct}
+                onClearRecentlyViewed={handleClearRecentlyViewed}
+              />
+            )}
 
           </main>
         </>
@@ -752,7 +799,7 @@ export const App: React.FC = () => {
         isOpen={isOrdersOpen}
         onClose={() => setIsOrdersOpen(false)}
         onOpenAuth={() => setIsAuthOpen(true)}
-        onReviewProduct={(product) => setActiveProduct(product)}
+        onReviewProduct={handleOpenProduct}
       />
 
       {/* Favorites Modal */}
@@ -760,7 +807,7 @@ export const App: React.FC = () => {
         isOpen={isFavoritesOpen}
         onClose={() => setIsFavoritesOpen(false)}
         products={products}
-        onOpenDetails={setActiveProduct}
+        onOpenDetails={handleOpenProduct}
       />
 
       {/* Auth Modal */}

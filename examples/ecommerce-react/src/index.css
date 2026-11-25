@@ -387,3 +387,113 @@ input[type='checkbox'][switch]:focus-visible {
     opacity: 1;
   }
 }
+
+/* Recently Viewed & Customers Also Bought Carousel */
+.product-carousel-track {
+  display: flex;
+  gap: 1.25rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  touch-action: manipulation;
+  scrollbar-width: none;
+  padding-block: 0.25rem 0.75rem;
+}
+
+.product-carousel-track::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .product-carousel-track {
+    scroll-behavior: smooth;
+  }
+}
+
+.product-carousel-slide {
+  flex: 0 0 82%;
+  scroll-snap-align: start;
+}
+
+@media (min-width: 640px) {
+  .product-carousel-slide {
+    flex: 0 0 calc((100% - 1.25rem) / 2);
+  }
+}
+
+@media (min-width: 1024px) {
+  .product-carousel-slide {
+    flex: 0 0 calc((100% - 2.5rem) / 3);
+  }
+}
+
+@media (min-width: 1280px) {
+  .product-carousel-slide {
+    flex: 0 0 calc((100% - 3.75rem) / 4);
+  }
+}
+
+/* Endless looping via CSS order parking (active when track has >= 3 slides) */
+.product-carousel-track[data-looping='true'] > :first-child {
+  order: clamp(0, var(--current) - (var(--children-count, sibling-count()) - 3), 1);
+}
+
+.product-carousel-track[data-looping='true'] > :last-child {
+  order: calc(-1 * clamp(0, 2 - var(--current), 1));
+}
+
+.carousel-nav-btn {
+  touch-action: manipulation;
+}
+
+.carousel-nav-btn:focus-visible {
+  outline: 2.5px solid #0284c7;
+  outline-offset: 2px;
+}
+
+/* Marker buttons: >= 24x24px accessible hit target with sleek visual pill */
+.carousel-marker-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.carousel-marker-dot {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background-color: #94a3b8;
+  transition: width 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.carousel-marker-btn:hover .carousel-marker-dot {
+  background-color: #475569;
+}
+
+.carousel-marker-btn[aria-current='true'] .carousel-marker-dot {
+  width: 24px;
+  height: 8px;
+  background-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.25);
+}
+
+.carousel-marker-btn:focus-visible {
+  outline: 2px solid #0284c7;
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .carousel-marker-dot {
+    transition: none;
+  }
+}
