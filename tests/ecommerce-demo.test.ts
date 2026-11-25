@@ -818,4 +818,70 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
       await client.collection('cart_items').delete(itemB.id);
     });
   });
+
+  describe('Customer Reviews Enhancements', () => {
+    it('should include helpfulVotes field in reviews SQLite schema and support upvote-review function', async () => {
+      const scope = server.apps.get('ecommerce-demo')!;
+      const reviewsCol = scope.schema.getCollection('reviews');
+      expect(reviewsCol).toBeDefined();
+      expect(reviewsCol!.schema.some((f) => f.name === 'helpfulVotes' && f.type === 'number')).toBe(true);
+
+      const revBefore = await scope.records.getOne('reviews', 'rev_01');
+      const initialVotes = Number(revBefore.helpfulVotes || 0);
+      expect(initialVotes).toBeGreaterThanOrEqual(0);
+
+      const fn = await scope.functions.getFunctionByName('upvote-review');
+      expect(fn).toBeDefined();
+
+      // Increment helpfulVotes via public elevated serverless function
+      let upRes: { success: boolean; reviewId: string; helpfulVotes: number };
+      try {
+        upRes = await client.functions.invoke<{
+          success: boolean;
+          reviewId: string;
+          helpfulVotes: number;
+        }>('upvote-review', { reviewId: 'rev_01', delta: 1 });
+      } catch (err: any) {
+        throw new Error(`upvote-review failed (${err?.status}): ${JSON.stringify(err?.data || err?.message)}`);
+      }
+
+      expect(upRes.success).toBe(true);
+      expect(upRes.reviewId).toBe('rev_01');
+      expect(upRes.helpfulVotes).toBe(initialVotes + 1);
+
+      // Verify persistence in SQLite
+      const rowAfterUp = await scope.db.get<{ helpfulVotes: number }>(
+        'SELECT helpfulVotes FROM "reviews" WHERE id = ?',
+        'rev_01'
+      );
+      expect(Number(rowAfterUp?.helpfulVotes)).toBe(initialVotes + 1);
+
+      // Decrement helpfulVotes back
+      const downRes = await client.functions.invoke<{
+        success: boolean;
+        reviewId: string;
+        helpfulVotes: number;
+      }>('upvote-review', { reviewId: 'rev_01', delta: -1 });
+
+      expect(downRes.success).toBe(true);
+      expect(downRes.helpfulVotes).toBe(initialVotes);
+    });
+
+    it('should support sorting reviews by -created and -rating', async () => {
+      const byRecent = await client.collection('reviews').getList(1, 20, {
+        sort: '-created',
+      });
+      expect(byRecent.items.length).toBeGreaterThan(0);
+
+      const byHighest = await client.collection('reviews').getList(1, 20, {
+        sort: '-rating',
+      });
+      expect(byHighest.items.length).toBeGreaterThan(0);
+      for (let i = 1; i < byHighest.items.length; i++) {
+        expect(Number(byHighest.items[i - 1].rating)).toBeGreaterThanOrEqual(
+          Number(byHighest.items[i].rating)
+        );
+      }
+    });
+  });
 });

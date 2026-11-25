@@ -379,6 +379,32 @@ export class AppManager {
         console.warn(`[AppManager] variant function migration note: ${err.message}`);
       }
 
+      // Ensure reviews collection has helpfulVotes numeric field for existing demo databases
+      try {
+        const reviewsCol = await scope.schema.getCollection('reviews');
+        if (reviewsCol) {
+          const hasHelpful = reviewsCol.schema.some((f) => f.name === 'helpfulVotes');
+          const userField = reviewsCol.schema.find((f) => f.name === 'user');
+          const needsUserRelax = Boolean(userField?.required);
+          if (!hasHelpful || needsUserRelax) {
+            const nextSchema = reviewsCol.schema.map((f) =>
+              f.name === 'user' && f.required ? { ...f, required: false } : f
+            );
+            if (!hasHelpful) {
+              nextSchema.push({ id: 'f_rev_helpful', name: 'helpfulVotes', type: 'number' });
+            }
+            await scope.schema.updateCollection(reviewsCol.id, {
+              schema: nextSchema,
+            });
+            if (!hasHelpful) {
+              await scope.db.run('UPDATE reviews SET helpfulVotes = 0 WHERE helpfulVotes IS NULL');
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[AppManager] reviews helpfulVotes migration note: ${err.message}`);
+      }
+
       return scope;
     } catch (err: any) {
       console.warn(`[AppManager] ensureDemoAppInitialized warning: ${err.message}`);

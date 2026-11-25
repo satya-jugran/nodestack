@@ -25,7 +25,8 @@ import {
   ShieldCheck,
   Send,
   MessageSquare,
-  Sparkles,
+  ThumbsUp,
+  ArrowUpDown,
 } from 'lucide-react';
 
 interface ProductModalProps {
@@ -53,6 +54,17 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const [reviews, setReviews] = useState<Review[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
   const [hasPurchased, setHasPurchased] = useState(false);
+  const [reviewSort, setReviewSort] = useState<'recent' | 'highest'>('recent');
+  const [votedReviewIds, setVotedReviewIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('nodestack_helpful_reviews');
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [votingReviewId, setVotingReviewId] = useState<string | null>(null);
 
   // Review Form State
   const [newRating, setNewRating] = useState(5);
@@ -145,6 +157,36 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     }
   }, [product, selectedVariant]);
 
+  const computedRating = reviews.length > 0
+    ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+    : (product?.rating || 5.0);
+
+  const ratingBreakdown = useMemo(() => {
+    const total = reviews.length;
+    return [5, 4, 3, 2, 1].map((star) => {
+      const count = reviews.filter((r) => Math.min(5, Math.max(1, Math.round(r.rating))) === star).length;
+      const percentage = total > 0 ? Math.round((count / total) * 100) : 0;
+      return { star, count, percentage };
+    });
+  }, [reviews]);
+
+  const sortedReviews = useMemo(() => {
+    const copy = [...reviews];
+    if (reviewSort === 'highest') {
+      return copy.sort((a, b) => {
+        if (b.rating !== a.rating) return b.rating - a.rating;
+        const votesDiff = Number(b.helpfulVotes || 0) - Number(a.helpfulVotes || 0);
+        if (votesDiff !== 0) return votesDiff;
+        return new Date(b.created || 0).getTime() - new Date(a.created || 0).getTime();
+      });
+    }
+    return copy.sort((a, b) => {
+      const timeA = a.created ? new Date(a.created).getTime() : 0;
+      const timeB = b.created ? new Date(b.created).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, [reviews, reviewSort]);
+
   if (!product) return null;
 
   const isFav = isFavorite(product.id);
@@ -155,9 +197,52 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     effectivePrice !== product.price ? { ...product, price: effectivePrice } : product;
   const discount = getProductDiscount(effectiveProductForDiscount, flashSale);
 
-  const computedRating = reviews.length > 0
-    ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-    : (product.rating || 5.0);
+  const handleHelpfulVote = async (review: Review) => {
+    if (votingReviewId === review.id) return;
+    const alreadyVoted = votedReviewIds.includes(review.id);
+    const delta = alreadyVoted ? -1 : 1;
+    const currentVotes = Number(review.helpfulVotes || 0);
+    const optimisticVotes = Math.max(0, currentVotes + delta);
+
+    const nextVotedIds = alreadyVoted
+      ? votedReviewIds.filter((id) => id !== review.id)
+      : [...votedReviewIds, review.id];
+
+    setVotingReviewId(review.id);
+    setVotedReviewIds(nextVotedIds);
+    setReviews((prev) =>
+      prev.map((r) => (r.id === review.id ? { ...r, helpfulVotes: optimisticVotes } : r))
+    );
+    try {
+      localStorage.setItem('nodestack_helpful_reviews', JSON.stringify(nextVotedIds));
+    } catch {}
+
+    try {
+      const res = await client.functions.invoke<{
+        success: boolean;
+        reviewId: string;
+        helpfulVotes: number;
+      }>('upvote-review', { reviewId: review.id, delta });
+
+      if (res && typeof res.helpfulVotes === 'number') {
+        setReviews((prev) =>
+          prev.map((r) => (r.id === review.id ? { ...r, helpfulVotes: res.helpfulVotes } : r))
+        );
+      }
+    } catch (err: any) {
+      // Rollback optimistic update on failure
+      setVotedReviewIds(votedReviewIds);
+      setReviews((prev) =>
+        prev.map((r) => (r.id === review.id ? { ...r, helpfulVotes: currentVotes } : r))
+      );
+      try {
+        localStorage.setItem('nodestack_helpful_reviews', JSON.stringify(votedReviewIds));
+      } catch {}
+      toast.error('Could not update helpful vote', err?.message || 'Please try again.');
+    } finally {
+      setVotingReviewId(null);
+    }
+  };
 
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,6 +258,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         title: newTitle.trim() || 'Product Review',
         content: newContent.trim(),
         verifiedPurchase: hasPurchased ? 1 : 0,
+        helpfulVotes: 0,
       });
 
       const updatedReviews = [created as unknown as Review, ...reviews];
@@ -449,14 +535,84 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
         {/* Customer Reviews Section */}
         <div className="p-6 sm:p-8 bg-slate-50/50 space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-2">
               <MessageSquare className="w-5 h-5 text-brand-600" />
               <h3 className="font-extrabold text-lg text-slate-900">
                 Customer Reviews ({reviews.length})
               </h3>
             </div>
+
+            {reviews.length > 1 && (
+              <div className="flex items-center gap-2">
+                <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+                <label htmlFor="review-sort-select" className="sr-only">
+                  Sort reviews
+                </label>
+                <select
+                  id="review-sort-select"
+                  value={reviewSort}
+                  onChange={(e) => setReviewSort(e.target.value as 'recent' | 'highest')}
+                  className="text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl px-3 py-1.5 outline-none focus:border-brand-500 cursor-pointer shadow-xs"
+                >
+                  <option value="recent">Most Recent</option>
+                  <option value="highest">Highest Rating</option>
+                </select>
+              </div>
+            )}
           </div>
+
+          {/* Visual Rating Breakdown Bar Chart */}
+          {reviews.length > 0 && (
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs grid grid-cols-1 sm:grid-cols-12 gap-5 items-center">
+              <div className="sm:col-span-4 flex flex-col items-center sm:items-start justify-center sm:border-r sm:border-slate-100 sm:pr-5">
+                <div className="text-4xl font-black text-slate-900 tracking-tight">
+                  {computedRating.toFixed(1)}
+                </div>
+                <div className="flex items-center gap-0.5 text-amber-400 my-1.5">
+                  {[...Array(5)].map((_, i) => (
+                    <Star
+                      key={i}
+                      className={`w-4 h-4 ${
+                        i < Math.round(computedRating)
+                          ? 'fill-amber-400 text-amber-400'
+                          : 'text-slate-200'
+                      }`}
+                    />
+                  ))}
+                </div>
+                <span className="text-xs font-medium text-slate-500">
+                  Based on {reviews.length} {reviews.length === 1 ? 'review' : 'reviews'}
+                </span>
+              </div>
+
+              <div className="sm:col-span-8 space-y-2 w-full">
+                {ratingBreakdown.map(({ star, count, percentage }) => (
+                  <div key={star} className="flex items-center gap-3 text-xs">
+                    <span className="w-10 font-bold text-slate-700 flex items-center gap-1 shrink-0">
+                      {star} <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                    </span>
+                    <div
+                      className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden"
+                      role="progressbar"
+                      aria-valuenow={percentage}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`${star} star rating ${percentage}%`}
+                    >
+                      <div
+                        className="h-full bg-amber-400 rounded-full transition-all duration-300"
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
+                    <span className="w-16 text-right font-semibold text-slate-500 tabular-nums shrink-0">
+                      {percentage}% <span className="text-slate-400">({count})</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Write a Review Box */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
@@ -555,48 +711,78 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              {reviews.map((rev) => (
-                <div
-                  key={rev.id}
-                  className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-slate-900">
-                        {rev.author}
-                      </span>
-                      {Boolean(rev.verifiedPurchase) && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                          <ShieldCheck className="w-3 h-3 text-emerald-600" /> Verified Buyer
+              {sortedReviews.map((rev) => {
+                const isVoted = votedReviewIds.includes(rev.id);
+                const helpfulCount = Number(rev.helpfulVotes || 0);
+                return (
+                  <div
+                    key={rev.id}
+                    className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-slate-900">
+                          {rev.author}
                         </span>
-                      )}
+                        {Boolean(rev.verifiedPurchase) && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                            <ShieldCheck className="w-3 h-3 text-emerald-600" /> Verified Buyer
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center text-amber-400">
+                        {[...Array(5)].map((_, i) => (
+                          <Star
+                            key={i}
+                            className={`w-3.5 h-3.5 ${
+                              i < rev.rating
+                                ? 'fill-amber-400 text-amber-400'
+                                : 'text-slate-200'
+                            }`}
+                          />
+                        ))}
+                      </div>
                     </div>
 
-                    <div className="flex items-center text-amber-400">
-                      {[...Array(5)].map((_, i) => (
-                        <Star
-                          key={i}
-                          className={`w-3.5 h-3.5 ${
-                            i < rev.rating
-                              ? 'fill-amber-400 text-amber-400'
-                              : 'text-slate-200'
-                          }`}
-                        />
-                      ))}
+                    {rev.title && (
+                      <h4 className="font-bold text-xs text-slate-800">
+                        {rev.title}
+                      </h4>
+                    )}
+
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      {rev.content}
+                    </p>
+
+                    <div className="pt-1 flex items-center justify-between text-[11px] text-slate-400">
+                      <span>
+                        {rev.created
+                          ? new Date(rev.created).toLocaleDateString(undefined, {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })
+                          : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleHelpfulVote(rev)}
+                        disabled={votingReviewId === rev.id}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold border transition-colors ${
+                          isVoted
+                            ? 'bg-brand-50 border-brand-200 text-brand-700'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+                        }`}
+                      >
+                        <ThumbsUp className={`w-3 h-3 ${isVoted ? 'fill-brand-600 text-brand-600' : ''}`} />
+                        <span>Helpful</span>
+                        <span className="tabular-nums font-bold">({helpfulCount})</span>
+                      </button>
                     </div>
                   </div>
-
-                  {rev.title && (
-                    <h4 className="font-bold text-xs text-slate-800">
-                      {rev.title}
-                    </h4>
-                  )}
-
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    {rev.content}
-                  </p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 

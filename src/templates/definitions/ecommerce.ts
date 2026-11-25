@@ -784,12 +784,13 @@ export const ecommerceTemplate: TemplateDefinition = {
             type: 'relation',
             options: { collectionId: 'products' },
           },
-          { id: 'f_rev_user', name: 'user', type: 'relation', required: true, options: { collectionId: 'users' } },
+          { id: 'f_rev_user', name: 'user', type: 'relation', options: { collectionId: 'users' } },
           { id: 'f_rev_author', name: 'author', type: 'text', required: true },
           { id: 'f_rev_rating', name: 'rating', type: 'number', required: true },
           { id: 'f_rev_title', name: 'title', type: 'text' },
           { id: 'f_rev_content', name: 'content', type: 'text', required: true },
           { id: 'f_rev_verified', name: 'verifiedPurchase', type: 'bool' },
+          { id: 'f_rev_helpful', name: 'helpfulVotes', type: 'number' },
         ],
       },
       seed: async (_ctx: TemplateSeedContext): Promise<Array<Record<string, any>>> => {
@@ -802,6 +803,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'Incredible soundstage and ANC depth',
             content: 'The active noise cancellation blocks low rumble instantly on flights. Bluetooth multipoint switches between MacBook and iPhone seamlessly.',
             verifiedPurchase: 1,
+            helpfulVotes: 14,
           },
           {
             id: 'rev_02',
@@ -811,6 +813,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'Worth every penny for focus work',
             content: 'Battery lasts the entire work week without charging. The memory foam cushions breathe well even during 8-hour sprint sessions.',
             verifiedPurchase: 1,
+            helpfulVotes: 9,
           },
           {
             id: 'rev_03',
@@ -820,6 +823,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'The acoustic profile is pristine',
             content: 'Factory lubrication on the switches gives a deep, satisfying thock without pinging. Keycaps have crisp legends and nice texture.',
             verifiedPurchase: 1,
+            helpfulVotes: 11,
           },
           {
             id: 'rev_04',
@@ -829,6 +833,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'Stunning color reproduction',
             content: '99% DCI-P3 is noticeable for color grading and design reviews. The 90W single-cable USB-C connection powers my laptop flawlessly.',
             verifiedPurchase: 1,
+            helpfulVotes: 7,
           },
           {
             id: 'rev_05',
@@ -838,6 +843,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'Ideal minimalist everyday carry',
             content: 'Survived heavy rain in Tokyo with electronics completely dry. The Fidlock magnetic buckles snap into place with one hand.',
             verifiedPurchase: 1,
+            helpfulVotes: 6,
           },
           {
             id: 'rev_06',
@@ -847,6 +853,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'Lightweight titanium elegance',
             content: 'The titanium weight is astonishingly light on the wrist. Anti-reflective sapphire coating makes the dial readable under direct sunlight.',
             verifiedPurchase: 1,
+            helpfulVotes: 5,
           },
           {
             id: 'rev_07',
@@ -856,6 +863,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'My absolute go-to travel layer',
             content: 'Super soft merino wool with zero scratchiness. Naturally odor-resistant after 3 days of backcountry trekking.',
             verifiedPurchase: 1,
+            helpfulVotes: 8,
           },
           {
             id: 'rev_08',
@@ -865,6 +873,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'Unbelievable traction on wet rock',
             content: 'The Megagrip lugs bite into loose mud and wet granite with immense confidence. Toe cap protection prevents painful stubs.',
             verifiedPurchase: 1,
+            helpfulVotes: 4,
           },
           {
             id: 'rev_09',
@@ -874,6 +883,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'Saved my lower back',
             content: 'The dynamic lumbar support engages naturally when reclining. The mesh seat remains cool through hot summer afternoons.',
             verifiedPurchase: 1,
+            helpfulVotes: 10,
           },
           {
             id: 'rev_10',
@@ -883,6 +893,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'Subtle and grounding scent',
             content: 'Not overpowering like synthetic candles. Fills the room with authentic cedarwood and hinoki forest notes.',
             verifiedPurchase: 1,
+            helpfulVotes: 3,
           },
           {
             id: 'rev_11',
@@ -892,6 +903,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'Perfect pour-over consistency',
             content: 'Rib geometry produces balanced flow rates and clean cup clarity. The ceramic matte glaze looks gorgeous on the coffee bar.',
             verifiedPurchase: 1,
+            helpfulVotes: 6,
           },
           {
             id: 'rev_12',
@@ -901,6 +913,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'Skin feels replenished by morning',
             content: 'Non-comedogenic oil that sinks right in without a greasy film. Calms redness overnight significantly.',
             verifiedPurchase: 1,
+            helpfulVotes: 5,
           },
           {
             id: 'rev_13',
@@ -910,6 +923,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'Sophisticated and long-lasting',
             content: 'Warm sandalwood and amber with a crisp opening. Projects gently without being cloying.',
             verifiedPurchase: 1,
+            helpfulVotes: 4,
           },
           {
             id: 'rev_14',
@@ -919,6 +933,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'Great clarity for podcasts & voice calls',
             content: 'Picks up vocal warmth while rejecting background keyboard clatter. Direct USB-C plug and play on Mac and Windows.',
             verifiedPurchase: 1,
+            helpfulVotes: 7,
           },
           {
             id: 'rev_15',
@@ -928,6 +943,7 @@ export const ecommerceTemplate: TemplateDefinition = {
             title: 'Eliminated eye strain at night',
             content: 'Front desk surface is illuminated brightly while leaving the monitor completely glare-free. The wireless dial is so satisfying.',
             verifiedPurchase: 1,
+            helpfulVotes: 9,
           },
         ];
       },
@@ -1109,6 +1125,21 @@ export const ecommerceTemplate: TemplateDefinition = {
     "elevated": true,
     "env": {},
     "code": "export default async function(core, context) {\n  const logger = core.observability.logger;\n  const auth = context.request?.auth;\n  if (!auth?.role?.includes('admin') && auth?.role !== 'service-role' && !auth?.isAdmin) {\n    return {\n      status: 403,\n      body: {\n        error: 'Forbidden',\n        message: 'Admin or service-role privileges required to send order notification'\n      }\n    };\n  }\n\n  const body = context.request?.body || {};\n  const order = body.record || body.order || body;\n  const tracking = body.fulfillment?.[1] || body.shippingResult || body.tracking || {};\n  const vip = body.vipRewards || {};\n\n  const trackingNumber = tracking.trackingNumber || `TRK-US-${Math.floor(100000 + Math.random() * 900000)}`;\n  const carrier = tracking.carrier || 'FedEx Priority Express';\n  const loyaltyPoints = Number(vip.pointsAwarded || 0);\n\n  logger.log(`[send-order-notification] Finalizing order #${order.orderNumber}: tracking=${trackingNumber}, points=${loyaltyPoints}`);\n\n  if (order.id) {\n    try {\n      await core.sdk.collection('orders').update(order.id, {\n        status: 'processing',\n        trackingNumber: trackingNumber,\n        carrier: carrier,\n        loyaltyPoints: loyaltyPoints\n      });\n      logger.log(`[send-order-notification] Updated order record ${order.id} with tracking number & loyalty points.`);\n    } catch (err) {\n      logger.log(`[send-order-notification] Note updating order record: ${err.message}`);\n    }\n  }\n\n  return {\n    status: 200,\n    body: {\n      notified: true,\n      orderNumber: order.orderNumber,\n      recipient: order.customerEmail,\n      carrier,\n      trackingNumber,\n      loyaltyPoints,\n      sentAt: new Date().toISOString()\n    }\n  };\n}"
+  },
+  {
+    "name": "upvote-review",
+    "description": "Increments or decrements the helpfulVotes counter on a customer review in SQLite",
+    "enabled": true,
+    "authPolicy": "public",
+    "methods": [
+      "POST"
+    ],
+    "timeoutMs": 2000,
+    "memoryLimitMb": 32,
+    "allowedDomains": [],
+    "elevated": true,
+    "env": {},
+    "code": "export default async function(core, context) {\n  const payload = context.request?.body || {};\n  const reviewId = String(payload.reviewId || '').trim();\n  const delta = Number(payload.delta ?? 1);\n\n  if (!reviewId) {\n    return {\n      status: 400,\n      body: { success: false, error: 'reviewId is required' }\n    };\n  }\n\n  try {\n    const review = await core.sdk.collection('reviews').get(reviewId);\n    if (!review) {\n      return {\n        status: 404,\n        body: { success: false, error: 'Review not found' }\n      };\n    }\n\n    const currentVotes = Number(review.helpfulVotes || 0);\n    const nextVotes = Math.max(0, currentVotes + (delta < 0 ? -1 : 1));\n    await core.sdk.collection('reviews').update(reviewId, {\n      helpfulVotes: nextVotes\n    });\n\n    return {\n      status: 200,\n      body: {\n        success: true,\n        reviewId,\n        helpfulVotes: nextVotes\n      }\n    };\n  } catch (err) {\n    return {\n      status: 404,\n      body: { success: false, error: err?.message || 'Review not found' }\n    };\n  }\n}"
   }
 ],
   flows: [

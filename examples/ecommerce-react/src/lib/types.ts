@@ -53,6 +53,7 @@ export interface Review {
   title?: string;
   content: string;
   verifiedPurchase?: boolean | number;
+  helpfulVotes?: number;
   created?: string;
 }
 
