@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { CartItem, Product, AppliedCoupon } from '../lib/types';
 import { client } from '../lib/nodestack';
 import { useAuth } from './AuthContext';
+import { useToast } from './ToastContext';
 
 interface CartContextType {
   items: CartItem[];
@@ -42,6 +43,7 @@ const COUPON_STORAGE_KEY = 'nodestack_ecommerce_coupon';
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
+  const { toast } = useToast();
   const [items, setItems] = useState<CartItem[]>([]);
   // Map productId -> backend cart_items record id
   const [recordIdMap, setRecordIdMap] = useState<Record<string, string>>({});
@@ -194,6 +196,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addToCart = async (product: Product, quantity: number = 1) => {
     setIsCartOpen(true);
+    toast.success(
+      'Added to cart',
+      quantity > 1 ? `${quantity} × ${product.name}` : product.name,
+      { dedupeKey: `cart-add:${product.id}` }
+    );
 
     if (isAuthenticated && user) {
       const existing = items.find((item) => item.product.id === product.id);
@@ -241,7 +248,13 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const removeFromCart = async (productId: string) => {
+    const removed = items.find((item) => item.product.id === productId);
     setItems((prev) => prev.filter((item) => item.product.id !== productId));
+    if (removed) {
+      toast.info('Removed from cart', removed.product.name, {
+        dedupeKey: `cart-remove:${productId}`,
+      });
+    }
 
     if (isAuthenticated && user) {
       const recordId = recordIdMap[productId];
@@ -348,7 +361,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!coupon) return;
 
     if (items.length === 0) {
-      removeCoupon();
+      setCoupon(null);
+      setCouponError(null);
       return;
     }
 
@@ -378,6 +392,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const code = rawCode.trim().toUpperCase();
     if (!code) {
       setCouponError('Please enter a coupon code.');
+      toast.warning('Enter a coupon code', 'Please enter a promo code to apply.', {
+        dedupeKey: 'coupon',
+      });
       return { success: false, message: 'Please enter a coupon code.' };
     }
 
@@ -450,15 +467,55 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
         setCoupon(applied);
         setCouponError(null);
+
+        const qualifies = items.length > 0 && subtotal >= minSpend;
+        let appliedDiscount = 0;
+        if (qualifies) {
+          if (applied.type === 'percent') {
+            appliedDiscount = Math.round(subtotal * (applied.discountPercent / 100) * 100) / 100;
+          } else if (applied.type === 'fixed') {
+            appliedDiscount = Math.min(subtotal, applied.discountAmount);
+          }
+        }
+
+        if (qualifies) {
+          if (appliedDiscount > 0) {
+            toast.success(
+              `Coupon ${applied.code} applied (-$${appliedDiscount.toFixed(2)})`,
+              applied.description,
+              { dedupeKey: 'coupon' }
+            );
+          } else if (applied.freeShipping) {
+            toast.success(
+              `Coupon ${applied.code} applied (Free Shipping)`,
+              applied.description,
+              { dedupeKey: 'coupon' }
+            );
+          } else {
+            toast.success(`Coupon ${applied.code} applied`, applied.description, {
+              dedupeKey: 'coupon',
+            });
+          }
+        } else {
+          const shortfall = Math.max(0, minSpend - subtotal).toFixed(2);
+          toast.warning(
+            `Coupon ${applied.code} saved`,
+            `Add $${shortfall} more to unlock ${applied.description || 'your discount'}.`,
+            { dedupeKey: 'coupon' }
+          );
+        }
+
         return { success: true, message: res.message || 'Coupon applied successfully!' };
       } else {
         const msg = res?.message || `Coupon "${code}" could not be applied.`;
         setCouponError(msg);
+        toast.error('Coupon not applied', msg, { dedupeKey: 'coupon' });
         return { success: false, message: msg };
       }
     } catch (err: any) {
       const msg = err.message || 'Failed to calculate coupon discount.';
       setCouponError(msg);
+      toast.error('Coupon error', msg, { dedupeKey: 'coupon' });
       return { success: false, message: msg };
     } finally {
       setIsApplyingCoupon(false);
@@ -466,8 +523,12 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const removeCoupon = () => {
+    const removedCode = coupon?.code;
     setCoupon(null);
     setCouponError(null);
+    if (removedCode) {
+      toast.info(`Coupon ${removedCode} removed`, undefined, { dedupeKey: 'coupon' });
+    }
   };
 
   return (

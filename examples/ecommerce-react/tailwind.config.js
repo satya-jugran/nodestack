@@ -19,7 +19,16 @@ export default {
           800: '#074b85',
           900: '#0c3f6e',
         }
-      }
+      },
+      keyframes: {
+        'toast-progress': {
+          '0%': { transform: 'scaleX(1)' },
+          '100%': { transform: 'scaleX(0)' },
+        },
+      },
+      animation: {
+        'toast-progress': 'toast-progress linear forwards',
+      },
     },
   },
   plugins: [],

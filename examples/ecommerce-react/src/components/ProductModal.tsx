@@ -4,6 +4,7 @@ import { client, getProductImageUrl } from '../lib/nodestack';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useFavorites } from '../context/FavoritesContext';
+import { useToast } from '../context/ToastContext';
 import {
   X,
   Star,
@@ -32,6 +33,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const { user, isAuthenticated } = useAuth();
   const { addToCart } = useCart();
   const { isFavorite, toggleFavorite } = useFavorites();
+  const { toast } = useToast();
 
   const [quantity, setQuantity] = useState(1);
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -148,9 +150,10 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       setNewTitle('');
       setNewContent('');
       setReviewSuccessMsg('Thank you! Your review has been published.');
+      toast.success('Review published', `Thanks for reviewing ${product.name}.`);
       setTimeout(() => setReviewSuccessMsg(''), 4000);
     } catch (err: any) {
-      alert(`Failed to submit review: ${err.message}`);
+      toast.error('Failed to submit review', err?.message || 'Please try again.');
     } finally {
       setIsSubmittingReview(false);
     }

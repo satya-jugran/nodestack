@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { client, getAdminUrl, getBackendUrl } from './lib/nodestack';
 import { Category, Product, Review, ViewMode, FlashSaleState, SimulatedOrderEvent } from './lib/types';
 import { useAuth } from './context/AuthContext';
+import { useToast } from './context/ToastContext';
 import { Navbar } from './components/Navbar';
 import { HeroBanner } from './components/HeroBanner';
 import { CategoryFilter } from './components/CategoryFilter';
@@ -32,6 +33,7 @@ export const App: React.FC = () => {
   const [inStockOnly, setInStockOnly] = useState(false);
 
   const { isAuthenticated, isStoreManager } = useAuth();
+  const { toast } = useToast();
   const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
 
   // View Mode: Shopper vs Store Manager
@@ -92,8 +94,12 @@ export const App: React.FC = () => {
     }
   }, [isAuthenticated, pendingCheckoutAfterAuth]);
 
-  // Products grid reference for scrolling
+  // Products grid reference for scrolling & latest catalog ref for SSE comparisons
   const catalogRef = useRef<HTMLDivElement>(null);
+  const productsRef = useRef<Product[]>(products);
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
 
   // Fetch initial catalog
   const loadData = async () => {
@@ -151,12 +157,35 @@ export const App: React.FC = () => {
     try {
       client.collection('products').subscribe('*', (e) => {
         if (e.action === 'update') {
+          const incoming = e.record as unknown as Partial<Product>;
+          const prevProduct = productsRef.current.find((p) => p.id === e.record.id);
+
           setRecentlyUpdatedId(e.record.id);
           setTimeout(() => setRecentlyUpdatedId(null), 1500);
           setProducts((prev) =>
             prev.map((p) => (p.id === e.record.id ? { ...p, ...e.record } : p))
           );
+
+          if (prevProduct) {
+            const productName = incoming.name || prevProduct.name;
+            if (typeof incoming.stock === 'number' && incoming.stock !== prevProduct.stock) {
+              toast.realtime(
+                'Realtime: Stock updated',
+                incoming.stock <= 0
+                  ? `${productName} is now Out of Stock`
+                  : `${productName} • ${incoming.stock} ${incoming.stock === 1 ? 'unit' : 'units'} left`,
+                { dedupeKey: `stock:${e.record.id}` }
+              );
+            } else if (typeof incoming.price === 'number' && incoming.price !== prevProduct.price) {
+              toast.realtime(
+                'Realtime: Price updated',
+                `${productName} • $${incoming.price.toFixed(2)}`,
+                { dedupeKey: `price:${e.record.id}` }
+              );
+            }
+          }
         } else if (e.action === 'create') {
+          const alreadyExists = productsRef.current.some((p) => p.id === e.record.id);
           setRecentlyUpdatedId(e.record.id);
           setTimeout(() => setRecentlyUpdatedId(null), 1500);
           setProducts((prev) => {
@@ -165,8 +194,21 @@ export const App: React.FC = () => {
             }
             return [e.record as unknown as Product, ...prev];
           });
+          if (!alreadyExists) {
+            toast.realtime(
+              'Realtime: Product added',
+              (e.record as unknown as Partial<Product>).name || 'New catalog item',
+              { dedupeKey: `create:${e.record.id}` }
+            );
+          }
         } else if (e.action === 'delete') {
+          const removed = productsRef.current.find((p) => p.id === e.record.id);
           setProducts((prev) => prev.filter((p) => p.id !== e.record.id));
+          if (removed) {
+            toast.realtime('Realtime: Product removed', removed.name, {
+              dedupeKey: `delete:${e.record.id}`,
+            });
+          }
         }
       }).then((unsub) => {
         unsubscribeProducts = unsub;
@@ -178,7 +220,7 @@ export const App: React.FC = () => {
     return () => {
       if (unsubscribeProducts) unsubscribeProducts();
     };
-  }, []);
+  }, [toast]);
 
   // Filtered & sorted products computed client-side for ultra-fast instant feedback
   const filteredProducts = useMemo(() => {
@@ -289,9 +331,15 @@ export const App: React.FC = () => {
               try {
                 await client.collection('products').delete(p.id);
                 setProducts((prev) => prev.filter((item) => item.id !== p.id));
+                toast.success('Product deleted', `"${p.name}" removed from catalog.`, {
+                  dedupeKey: `delete:${p.id}`,
+                });
               } catch (err: any) {
                 console.error('Failed to delete product:', err);
-                alert(err?.message || 'Failed to delete product. Ensure you are signed in as Store Manager.');
+                toast.error(
+                  'Failed to delete product',
+                  err?.message || 'Ensure you are signed in as Store Manager.'
+                );
               }
             }}
             onRefresh={loadData}
@@ -518,6 +566,11 @@ export const App: React.FC = () => {
             }
             return [savedProduct, ...prev];
           });
+          toast.success(
+            isNew ? 'Product created' : 'Product updated',
+            savedProduct.name,
+            { dedupeKey: isNew ? `create:${savedProduct.id}` : `update:${savedProduct.id}` }
+          );
         }}
         onDelete={(productId) => {
           setProducts((prev) => prev.filter((p) => p.id !== productId));

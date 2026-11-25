@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Product, FlashSaleState, SimulatedOrderEvent } from '../lib/types';
 import { client } from '../lib/nodestack';
+import { useToast } from '../context/ToastContext';
 import { Zap, Flame, StopCircle, RefreshCw, Clock, Sparkles, TrendingDown } from 'lucide-react';
 
 interface FlashSaleControllerProps {
@@ -31,6 +32,7 @@ export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
   setIsRushActive,
   onSimulatedOrder,
 }) => {
+  const { toast } = useToast();
   const [isApplyingSale, setIsApplyingSale] = useState(false);
   const [isRevertingSale, setIsRevertingSale] = useState(false);
   const rushIntervalRef = useRef<number | null>(null);
@@ -69,6 +71,7 @@ export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
         endsAt: Date.now() + 5 * 60 * 1000, // 5 minutes
         originalPrices: updatedOriginalPrices,
       });
+      toast.success('Flash Sale Active', '25% site-wide discount applied across catalog.');
     } catch (err: any) {
       console.error('Failed to trigger flash sale, rolling back modified items:', err);
 
@@ -100,8 +103,9 @@ export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
         });
       }
 
-      alert(
-        `Failed to apply flash sale: ${err?.message || 'Network error'}. ${
+      toast.error(
+        'Failed to apply flash sale',
+        `${err?.message || 'Network error'}. ${
           successfulUpdates.length - rollbackErrors.length
         } items were safely rolled back.`
       );
@@ -135,6 +139,7 @@ export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
         endsAt: undefined,
         originalPrices: undefined,
       });
+      toast.info('Flash Sale Ended', 'All product prices have been restored.');
     } catch (err: any) {
       console.error('Failed to revert flash sale prices:', err);
       // Retain items that still need reverting so the user can retry
@@ -142,13 +147,14 @@ export const FlashSaleController: React.FC<FlashSaleControllerProps> = ({
         ...prev,
         originalPrices: remainingOriginals,
       }));
-      alert(
-        `Failed to revert some prices: ${err?.message || 'Network error'}. Remaining items can be reverted by retrying.`
+      toast.error(
+        'Failed to revert some prices',
+        `${err?.message || 'Network error'}. Remaining items can be reverted by retrying.`
       );
     } finally {
       setIsRevertingSale(false);
     }
-  }, [setFlashSale]);
+  }, [setFlashSale, toast]);
 
   // 3. Expiry cleanup: automatically revert prices and clear active state when countdown reaches zero
   useEffect(() => {

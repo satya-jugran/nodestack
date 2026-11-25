@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { client } from '../lib/nodestack';
 import {
   X,
@@ -27,6 +28,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 }) => {
   const { items, subtotal, coupon, discountAmount, shippingCost, orderTotal, clearCart } = useCart();
   const { user, isAuthenticated } = useAuth();
+  const { toast } = useToast();
 
   const [customerName, setCustomerName] = useState(
     user?.name || (isAuthenticated && user?.email ? user.email.split('@')[0] : '')
@@ -49,7 +51,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAuthenticated || !user) {
-      alert('Please sign in or use 1-Click Demo Login to place this order.');
+      toast.warning(
+        'Sign in required',
+        'Please sign in or use 1-Click Demo Login to place this order.',
+        { dedupeKey: 'checkout-auth' }
+      );
       return;
     }
     if (!customerEmail || !customerName || !shippingAddress) return;
@@ -82,8 +88,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
       setConfirmedOrderNumber(orderNumber);
       clearCart();
+      toast.success(
+        `Order ${orderNumber} placed`,
+        'OrderFulfillmentFlow pipeline started.',
+        { dedupeKey: `order:${orderNumber}` }
+      );
     } catch (err: any) {
-      alert(`Checkout failed: ${err.message}`);
+      toast.error(
+        'Checkout failed',
+        err?.message || 'Unable to place your order. Please try again.',
+        { dedupeKey: 'checkout-error' }
+      );
     } finally {
       setIsSubmitting(false);
     }

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Product, Category } from '../lib/types';
 import { client, getProductImageUrl } from '../lib/nodestack';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import {
   Package,
   Plus,
@@ -46,17 +47,12 @@ export const StoreManagerView: React.FC<StoreManagerViewProps> = ({
   flashSaleActive = false,
 }) => {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [stockStatusFilter, setStockStatusFilter] = useState<'all' | 'in_stock' | 'low_stock' | 'out_of_stock'>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [isResettingAll, setIsResettingAll] = useState(false);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-
-  const showNotification = (type: 'success' | 'error', message: string) => {
-    setNotification({ type, message });
-    setTimeout(() => setNotification(null), 3500);
-  };
 
   // Metrics
   const metrics = useMemo(() => {
@@ -113,10 +109,18 @@ export const StoreManagerView: React.FC<StoreManagerViewProps> = ({
         stock: clampedStock,
         status: newStatus,
       });
-      showNotification('success', `Stock updated for "${product.name}": ${clampedStock} units`);
+      toast.success(
+        `Stock updated: ${product.name}`,
+        `${clampedStock} ${clampedStock === 1 ? 'unit' : 'units'} available`,
+        { dedupeKey: `stock:${product.id}` }
+      );
     } catch (err: any) {
       console.error('Failed to update stock:', err);
-      showNotification('error', err?.message || 'Failed to update stock (Unauthorized)');
+      toast.error(
+        'Stock update failed',
+        err?.message || 'Failed to update stock (Unauthorized)',
+        { dedupeKey: `stock:${product.id}` }
+      );
     } finally {
       setUpdatingId(null);
     }
@@ -133,9 +137,9 @@ export const StoreManagerView: React.FC<StoreManagerViewProps> = ({
           status: 'in_stock',
         });
       }
-      showNotification('success', 'All product stocks reset to 45 units!');
+      toast.success('All product stocks reset', 'Every catalog item is now set to 45 units.');
     } catch (err: any) {
-      showNotification('error', 'Error resetting stocks: ' + err?.message);
+      toast.error('Error resetting stocks', err?.message || 'Please try again.');
     } finally {
       setIsResettingAll(false);
     }
@@ -143,25 +147,6 @@ export const StoreManagerView: React.FC<StoreManagerViewProps> = ({
 
   return (
     <div className="space-y-6">
-      
-      {/* Toast Notification */}
-      {notification && (
-        <div
-          className={`fixed top-20 right-6 z-50 px-4 py-3 rounded-2xl shadow-xl text-xs font-bold flex items-center gap-2 border animate-in slide-in-from-top-4 duration-200 ${
-            notification.type === 'success'
-              ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
-              : 'bg-rose-50 text-rose-900 border-rose-200'
-          }`}
-        >
-          {notification.type === 'success' ? (
-            <CheckCircle className="w-4 h-4 text-emerald-600" />
-          ) : (
-            <AlertTriangle className="w-4 h-4 text-rose-600" />
-          )}
-          <span>{notification.message}</span>
-        </div>
-      )}
-
       {/* Top Banner & Multi-Tab Testing Guide */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
         <div className="absolute right-0 top-0 w-96 h-96 bg-brand-500/10 rounded-full blur-3xl pointer-events-none" />

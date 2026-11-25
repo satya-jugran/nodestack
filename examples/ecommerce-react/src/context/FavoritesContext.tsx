@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { client } from '../lib/nodestack';
 import { useAuth } from './AuthContext';
+import { useToast } from './ToastContext';
 import { Product } from '../lib/types';
 
 interface FavoritesContextType {
@@ -19,6 +20,7 @@ const LOCAL_FAVS_KEY = 'nodestack_guest_favorites';
 
 export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
+  const { toast } = useToast();
   const [favoriteProductIds, setFavoriteProductIds] = useState<string[]>([]);
   // map productId -> favorite record id (for deletion in NodeStack)
   const [recordIdMap, setRecordIdMap] = useState<Record<string, string>>({});
@@ -109,6 +111,12 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const toggleFavorite = async (product: Product) => {
     const isFav = favoriteProductIds.includes(product.id);
+
+    if (isFav) {
+      toast.info('Removed from favorites', product.name, { dedupeKey: `fav:${product.id}` });
+    } else {
+      toast.success('Saved to favorites', product.name, { dedupeKey: `fav:${product.id}` });
+    }
 
     if (isAuthenticated && user) {
       if (isFav) {
