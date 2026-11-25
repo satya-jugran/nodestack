@@ -275,6 +275,41 @@ export class AppManager {
         console.warn(`[AppManager] cart_items collection note: ${err.message}`);
       }
 
+      // Ensure products collection has optional originalPrice field for item-level discounts
+      try {
+        const prodCol = await scope.schema.getCollection('products');
+        if (prodCol && !prodCol.schema.some((f) => f.name === 'originalPrice')) {
+          const updatedSchema = [...prodCol.schema];
+          const priceIdx = updatedSchema.findIndex((f) => f.name === 'price');
+          const origField = { id: 'f_prod_orig_price', name: 'originalPrice', type: 'number' as const };
+          if (priceIdx >= 0) {
+            updatedSchema.splice(priceIdx + 1, 0, origField);
+          } else {
+            updatedSchema.push(origField);
+          }
+          await scope.schema.updateCollection(prodCol.id, { schema: updatedSchema });
+
+          const seededOriginalPrices: Record<string, number> = {
+            prod_02: 229.0,
+            prod_05: 99.99,
+            prod_08: 119.0,
+            prod_12: 199.0,
+            prod_14: 95.0,
+            prod_18: 110.0,
+          };
+          for (const [id, origPrice] of Object.entries(seededOriginalPrices)) {
+            await scope.db.run(
+              'UPDATE products SET originalPrice = ? WHERE id = ? AND (originalPrice IS NULL OR originalPrice = 0) AND price < ?',
+              origPrice,
+              id,
+              origPrice
+            );
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[AppManager] products originalPrice migration note: ${err.message}`);
+      }
+
       return scope;
     } catch (err: any) {
       console.warn(`[AppManager] ensureDemoAppInitialized warning: ${err.message}`);

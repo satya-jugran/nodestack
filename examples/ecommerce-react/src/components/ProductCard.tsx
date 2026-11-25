@@ -1,16 +1,22 @@
 import React from 'react';
-import { Product } from '../lib/types';
+import { FlashSaleState, Product } from '../lib/types';
 import { getProductImageUrl } from '../lib/nodestack';
-import { Star, Heart, ShoppingBag, Check } from 'lucide-react';
+import { getProductDiscount } from '../lib/filters';
+import { Star, Heart, ShoppingBag, Check, Sparkles } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useFavorites } from '../context/FavoritesContext';
 
 interface ProductCardProps {
   product: Product;
+  flashSale?: FlashSaleState;
   onOpenDetails: (product: Product) => void;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({ product, onOpenDetails }) => {
+export const ProductCard: React.FC<ProductCardProps> = ({
+  product,
+  flashSale,
+  onOpenDetails,
+}) => {
   const { addToCart, items } = useCart();
   const { isFavorite, toggleFavorite } = useFavorites();
 
@@ -19,8 +25,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onOpenDetails
   const inCart = Boolean(cartItem);
 
   const imageUrl = getProductImageUrl(product);
-
   const isOutOfStock = product.status === 'out_of_stock' || product.stock <= 0;
+  const discount = getProductDiscount(product, flashSale);
+  const isFeatured = Boolean(product.isFeatured);
 
   return (
     <div className="group relative bg-white rounded-2xl border border-slate-200/80 hover:border-slate-300 hover:shadow-xl transition-all duration-300 flex flex-col overflow-hidden">
@@ -58,6 +65,23 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onOpenDetails
           <span className="absolute top-3 left-3 px-2.5 py-1 text-[11px] font-bold tracking-wide uppercase rounded-md bg-white/90 backdrop-blur-sm text-slate-700 shadow-xs">
             {product.expand.category.name}
           </span>
+        )}
+
+        {/* Featured & Discount Badges */}
+        {(isFeatured || discount.isDiscounted) && (
+          <div className="absolute bottom-3 left-3 flex items-center gap-1.5 flex-wrap">
+            {isFeatured && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100/95 text-amber-900 border border-amber-200/80 shadow-xs">
+                <Sparkles className="w-3 h-3 text-amber-600" />
+                Featured
+              </span>
+            )}
+            {discount.isDiscounted && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-600 text-white shadow-xs">
+                -{discount.discountPercent}% OFF
+              </span>
+            )}
+          </div>
         )}
 
         {/* Out of Stock overlay */}
@@ -114,9 +138,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onOpenDetails
         <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
           <div>
             <span className="text-xs text-slate-400 block font-medium">Price</span>
-            <span className="text-lg font-extrabold text-slate-900">
-              ${product.price.toFixed(2)}
-            </span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-lg font-extrabold text-slate-900">
+                ${product.price.toFixed(2)}
+              </span>
+              {discount.isDiscounted && discount.originalPrice !== null && (
+                <span className="text-xs font-semibold text-slate-400 line-through">
+                  ${discount.originalPrice.toFixed(2)}
+                </span>
+              )}
+            </div>
           </div>
 
           <button

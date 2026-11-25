@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Product, Review } from '../lib/types';
+import { FlashSaleState, Product, Review } from '../lib/types';
 import { client, getProductImageUrl } from '../lib/nodestack';
+import { getProductDiscount } from '../lib/filters';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useFavorites } from '../context/FavoritesContext';
@@ -19,6 +20,7 @@ import {
 
 interface ProductModalProps {
   product: Product | null;
+  flashSale?: FlashSaleState;
   onClose: () => void;
   onOpenAuth: () => void;
   onReviewSubmitted?: (productId: string, newRating: number, newCount: number) => void;
@@ -26,6 +28,7 @@ interface ProductModalProps {
 
 export const ProductModal: React.FC<ProductModalProps> = ({
   product,
+  flashSale,
   onClose,
   onOpenAuth,
   onReviewSubmitted,
@@ -110,6 +113,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
   const isFav = isFavorite(product.id);
   const imageUrl = getProductImageUrl(product);
+  const discount = getProductDiscount(product, flashSale);
 
   const computedRating = reviews.length > 0
     ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
@@ -237,10 +241,20 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 {product.description}
               </p>
 
-              <div className="flex items-center gap-3 pt-2">
+              <div className="flex items-center gap-3 pt-2 flex-wrap">
                 <span className="text-3xl font-extrabold text-slate-900">
                   ${product.price.toFixed(2)}
                 </span>
+                {discount.isDiscounted && discount.originalPrice !== null && (
+                  <>
+                    <span className="text-base font-semibold text-slate-400 line-through">
+                      ${discount.originalPrice.toFixed(2)}
+                    </span>
+                    <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                      Save {discount.discountPercent}%
+                    </span>
+                  </>
+                )}
                 <span
                   className={`text-xs font-bold px-2.5 py-1 rounded-full uppercase ${
                     product.stock > 0

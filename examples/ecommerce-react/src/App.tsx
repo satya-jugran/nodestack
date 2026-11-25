@@ -6,6 +6,7 @@ import { useToast } from './context/ToastContext';
 import { Navbar } from './components/Navbar';
 import { HeroBanner } from './components/HeroBanner';
 import { CategoryFilter } from './components/CategoryFilter';
+import { FacetedFilters, FacetCounts } from './components/FacetedFilters';
 import { ProductCard } from './components/ProductCard';
 import { ProductModal } from './components/ProductModal';
 import { CartDrawer } from './components/CartDrawer';
@@ -18,7 +19,18 @@ import { StoreManagerView } from './components/StoreManagerView';
 import { ProductFormModal } from './components/ProductFormModal';
 import { FlashSaleController } from './components/FlashSaleController';
 import { FlashSaleBanner } from './components/FlashSaleBanner';
-import { Sparkles, Server, Database, ExternalLink, RefreshCw, Layers } from 'lucide-react';
+import {
+  DEFAULT_PRICE_RANGE,
+  RATING_FILTER_OPTIONS,
+  CatalogFilterState,
+  countActiveFacetFilters,
+  getProductDiscount,
+  isPriceRangeFiltered,
+  isProductInStock,
+  matchesCatalogFilters,
+  sortCatalogProducts,
+} from './lib/filters';
+import { Sparkles, Server, Database, ExternalLink, RefreshCw, Layers, X } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -30,7 +42,12 @@ export const App: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('-created');
+  const [priceRange, setPriceRange] = useState<[number, number]>(DEFAULT_PRICE_RANGE);
+  const [minRating, setMinRating] = useState<number | null>(null);
+  const [featuredOnly, setFeaturedOnly] = useState(false);
+  const [discountedOnly, setDiscountedOnly] = useState(false);
   const [inStockOnly, setInStockOnly] = useState(false);
+  const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
 
   const { isAuthenticated, isStoreManager } = useAuth();
   const { toast } = useToast();
@@ -222,35 +239,106 @@ export const App: React.FC = () => {
     };
   }, [toast]);
 
+  const filterState: CatalogFilterState = useMemo(
+    () => ({
+      selectedCategory,
+      searchQuery,
+      priceRange,
+      minRating,
+      featuredOnly,
+      discountedOnly,
+      inStockOnly,
+    }),
+    [
+      selectedCategory,
+      searchQuery,
+      priceRange,
+      minRating,
+      featuredOnly,
+      discountedOnly,
+      inStockOnly,
+    ]
+  );
+
   // Filtered & sorted products computed client-side for ultra-fast instant feedback
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
-      // Category filter
-      if (selectedCategory && p.category !== selectedCategory) {
-        return false;
-      }
-      // In stock filter
-      if (inStockOnly && (p.status === 'out_of_stock' || p.stock <= 0)) {
-        return false;
-      }
-      // Search filter (name, description, slug)
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchesName = p.name.toLowerCase().includes(q);
-        const matchesDesc = p.description.toLowerCase().includes(q);
-        const matchesCat = p.expand?.category?.name.toLowerCase().includes(q);
-        if (!matchesName && !matchesDesc && !matchesCat) {
-          return false;
-        }
-      }
-      return true;
-    }).sort((a, b) => {
-      if (sortBy === 'price') return a.price - b.price;
-      if (sortBy === '-price') return b.price - a.price;
-      if (sortBy === '-rating') return (b.rating || 0) - (a.rating || 0);
-      return 0; // default order
-    });
-  }, [products, selectedCategory, searchQuery, inStockOnly, sortBy]);
+    const matching = products.filter((p) =>
+      matchesCatalogFilters(p, filterState, flashSale)
+    );
+    return sortCatalogProducts(matching, sortBy);
+  }, [products, filterState, flashSale, sortBy]);
+
+  // Facet counts computed with the target facet omitted so shoppers see real option counts
+  const facetCounts: FacetCounts = useMemo(() => {
+    const rating: Record<string, number> = {};
+    const productsWithoutRating = products.filter((p) =>
+      matchesCatalogFilters(p, filterState, flashSale, 'minRating')
+    );
+    for (const opt of RATING_FILTER_OPTIONS) {
+      const key = opt.value === null ? 'all' : String(opt.value);
+      rating[key] =
+        opt.value === null
+          ? productsWithoutRating.length
+          : productsWithoutRating.filter((p) => (p.rating ?? 0) >= opt.value!).length;
+    }
+
+    const featured = products.filter(
+      (p) =>
+        Boolean(p.isFeatured) &&
+        matchesCatalogFilters(p, filterState, flashSale, 'featuredOnly')
+    ).length;
+
+    const discounted = products.filter(
+      (p) =>
+        getProductDiscount(p, flashSale).isDiscounted &&
+        matchesCatalogFilters(p, filterState, flashSale, 'discountedOnly')
+    ).length;
+
+    const inStock = products.filter(
+      (p) =>
+        isProductInStock(p) &&
+        matchesCatalogFilters(p, filterState, flashSale, 'inStockOnly')
+    ).length;
+
+    return { rating, featured, discounted, inStock };
+  }, [products, filterState, flashSale]);
+
+  // Category pill counts reflecting active facet filters
+  const { categoryCounts, totalUnfilteredCategoryCount } = useMemo(() => {
+    const productsWithoutCategory = products.filter((p) =>
+      matchesCatalogFilters(p, filterState, flashSale, 'selectedCategory')
+    );
+    const counts: Record<string, number> = {};
+    for (const cat of categories) {
+      counts[cat.id] = productsWithoutCategory.filter((p) => p.category === cat.id).length;
+    }
+    return {
+      categoryCounts: counts,
+      totalUnfilteredCategoryCount: productsWithoutCategory.length,
+    };
+  }, [products, categories, filterState, flashSale]);
+
+  const activeFacetCount = useMemo(
+    () => countActiveFacetFilters(filterState),
+    [filterState]
+  );
+
+  const hasAnyActiveFilter =
+    activeFacetCount > 0 || selectedCategory !== null || searchQuery.trim().length > 0;
+
+  const resetFacetFilters = () => {
+    setPriceRange(DEFAULT_PRICE_RANGE);
+    setMinRating(null);
+    setFeaturedOnly(false);
+    setDiscountedOnly(false);
+    setInStockOnly(false);
+  };
+
+  const resetAllFilters = () => {
+    setSearchQuery('');
+    setSelectedCategory(null);
+    resetFacetFilters();
+  };
 
   const scrollToCatalog = () => {
     catalogRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -356,82 +444,227 @@ export const App: React.FC = () => {
           {/* Main Content Area: Shopper Catalog */}
           <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full pb-16" ref={catalogRef}>
             
-            {/* Filters */}
+            {/* Category Pills & Sort Bar */}
             <CategoryFilter
               categories={categories}
               selectedCategory={selectedCategory}
               onSelectCategory={setSelectedCategory}
+              categoryCounts={categoryCounts}
+              totalProductCount={totalUnfilteredCategoryCount}
               sortBy={sortBy}
               onSortChange={setSortBy}
-              inStockOnly={inStockOnly}
-              onToggleInStock={setInStockOnly}
+              activeFilterCount={activeFacetCount}
+              isMobileFiltersOpen={isMobileFiltersOpen}
+              onToggleMobileFilters={() => setIsMobileFiltersOpen((prev) => !prev)}
             />
 
-            {/* Results Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
-                <Layers className="w-4 h-4 text-brand-600" />
-                <span>
-                  {selectedCategory
-                    ? categories.find((c) => c.id === selectedCategory)?.name
-                    : 'All Products'}{' '}
-                  ({filteredProducts.length})
-                </span>
-              </div>
-
-              {searchQuery && (
-                <span className="text-xs text-slate-500">
-                  Filtering by: <strong className="text-slate-800 font-medium">"{searchQuery}"</strong>
-                </span>
-              )}
-            </div>
-
-            {/* Product Grid */}
-            {isLoading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                {[...Array(8)].map((_, i) => (
-                  <div
-                    key={i}
-                    className="bg-white rounded-2xl border border-slate-200 p-4 space-y-4 animate-pulse"
-                  >
-                    <div className="aspect-square bg-slate-100 rounded-xl"></div>
-                    <div className="h-4 bg-slate-100 rounded w-3/4"></div>
-                    <div className="h-3 bg-slate-100 rounded w-1/2"></div>
-                    <div className="h-8 bg-slate-100 rounded"></div>
-                  </div>
-                ))}
-              </div>
-            ) : filteredProducts.length === 0 ? (
-              <div className="text-center py-20 bg-white rounded-3xl border border-slate-200/80 p-8 space-y-3">
-                <div className="w-16 h-16 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
-                  <Sparkles className="w-8 h-8" />
-                </div>
-                <h3 className="text-lg font-bold text-slate-800">No matching products found</h3>
-                <p className="text-sm text-slate-500 max-w-sm mx-auto">
-                  Try adjusting your search keywords, clear category filters, or uncheck "In Stock Only".
-                </p>
-                <button
-                  onClick={() => {
-                    setSearchQuery('');
-                    setSelectedCategory(null);
-                    setInStockOnly(false);
-                  }}
-                  className="px-4 py-2 text-xs font-bold text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-full transition-colors"
-                >
-                  Reset Filters
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                {filteredProducts.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    onOpenDetails={setActiveProduct}
-                  />
-                ))}
+            {/* Mobile Collapsible Faceted Filters */}
+            {isMobileFiltersOpen && (
+              <div className="lg:hidden mb-6">
+                <FacetedFilters
+                  priceRange={priceRange}
+                  onPriceRangeChange={setPriceRange}
+                  minRating={minRating}
+                  onMinRatingChange={setMinRating}
+                  featuredOnly={featuredOnly}
+                  onFeaturedOnlyChange={setFeaturedOnly}
+                  discountedOnly={discountedOnly}
+                  onDiscountedOnlyChange={setDiscountedOnly}
+                  inStockOnly={inStockOnly}
+                  onInStockOnlyChange={setInStockOnly}
+                  facetCounts={facetCounts}
+                  activeFilterCount={activeFacetCount}
+                  onResetAll={resetFacetFilters}
+                />
               </div>
             )}
+
+            {/* Desktop 2-Column Faceted Storefront Layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-8 items-start">
+              {/* Desktop Sticky Faceted Filter Sidebar */}
+              <aside className="hidden lg:block sticky top-20" aria-label="Product filters">
+                <FacetedFilters
+                  priceRange={priceRange}
+                  onPriceRangeChange={setPriceRange}
+                  minRating={minRating}
+                  onMinRatingChange={setMinRating}
+                  featuredOnly={featuredOnly}
+                  onFeaturedOnlyChange={setFeaturedOnly}
+                  discountedOnly={discountedOnly}
+                  onDiscountedOnlyChange={setDiscountedOnly}
+                  inStockOnly={inStockOnly}
+                  onInStockOnlyChange={setInStockOnly}
+                  facetCounts={facetCounts}
+                  activeFilterCount={activeFacetCount}
+                  onResetAll={resetFacetFilters}
+                />
+              </aside>
+
+              {/* Results & Product Grid Column */}
+              <div className="min-w-0">
+                {/* Results Header */}
+                <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+                  <div
+                    className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    <Layers className="w-4 h-4 text-brand-600" aria-hidden="true" />
+                    <span>
+                      {selectedCategory
+                        ? categories.find((c) => c.id === selectedCategory)?.name
+                        : 'All Products'}{' '}
+                      ({filteredProducts.length})
+                    </span>
+                  </div>
+
+                  {searchQuery && (
+                    <span className="text-xs text-slate-500">
+                      Filtering by: <strong className="text-slate-800 font-medium">"{searchQuery}"</strong>
+                    </span>
+                  )}
+                </div>
+
+                {/* Active Filter Chips */}
+                {hasAnyActiveFilter && (
+                  <div className="flex items-center flex-wrap gap-2 mb-5">
+                    {selectedCategory && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCategory(null)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800 transition-colors"
+                      >
+                        <span>
+                          Category: {categories.find((c) => c.id === selectedCategory)?.name}
+                        </span>
+                        <X className="w-3 h-3" aria-hidden="true" />
+                      </button>
+                    )}
+
+                    {isPriceRangeFiltered(priceRange) && (
+                      <button
+                        type="button"
+                        onClick={() => setPriceRange(DEFAULT_PRICE_RANGE)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-brand-50 text-brand-700 border border-brand-200 hover:bg-brand-100 transition-colors"
+                      >
+                        <span>
+                          Price: ${priceRange[0]} – ${priceRange[1]}
+                        </span>
+                        <X className="w-3 h-3" aria-hidden="true" />
+                      </button>
+                    )}
+
+                    {minRating !== null && (
+                      <button
+                        type="button"
+                        onClick={() => setMinRating(null)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition-colors"
+                      >
+                        <span>{minRating}★ &amp; above</span>
+                        <X className="w-3 h-3" aria-hidden="true" />
+                      </button>
+                    )}
+
+                    {featuredOnly && (
+                      <button
+                        type="button"
+                        onClick={() => setFeaturedOnly(false)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition-colors"
+                      >
+                        <span>Featured Only</span>
+                        <X className="w-3 h-3" aria-hidden="true" />
+                      </button>
+                    )}
+
+                    {discountedOnly && (
+                      <button
+                        type="button"
+                        onClick={() => setDiscountedOnly(false)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition-colors"
+                      >
+                        <span>Discounted</span>
+                        <X className="w-3 h-3" aria-hidden="true" />
+                      </button>
+                    )}
+
+                    {inStockOnly && (
+                      <button
+                        type="button"
+                        onClick={() => setInStockOnly(false)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                      >
+                        <span>In Stock Only</span>
+                        <X className="w-3 h-3" aria-hidden="true" />
+                      </button>
+                    )}
+
+                    {searchQuery.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 transition-colors"
+                      >
+                        <span>Search: "{searchQuery.trim()}"</span>
+                        <X className="w-3 h-3" aria-hidden="true" />
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={resetAllFilters}
+                      className="text-xs font-bold text-slate-500 hover:text-slate-900 underline px-1.5 py-1 transition-colors"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                )}
+
+                {/* Product Grid */}
+                {isLoading ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+                    {[...Array(6)].map((_, i) => (
+                      <div
+                        key={i}
+                        className="bg-white rounded-2xl border border-slate-200 p-4 space-y-4 animate-pulse"
+                      >
+                        <div className="aspect-square bg-slate-100 rounded-xl"></div>
+                        <div className="h-4 bg-slate-100 rounded w-3/4"></div>
+                        <div className="h-3 bg-slate-100 rounded w-1/2"></div>
+                        <div className="h-8 bg-slate-100 rounded"></div>
+                      </div>
+                    ))}
+                  </div>
+                ) : filteredProducts.length === 0 ? (
+                  <div className="text-center py-20 bg-white rounded-3xl border border-slate-200/80 p-8 space-y-3">
+                    <div className="w-16 h-16 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                      <Sparkles className="w-8 h-8" />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800">No matching products found</h3>
+                    <p className="text-sm text-slate-500 max-w-sm mx-auto">
+                      Try widening your price range, lowering the rating threshold, or clearing active toggles.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={resetAllFilters}
+                      className="px-4 py-2 text-xs font-bold text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-full transition-colors"
+                    >
+                      Reset All Filters
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+                    {filteredProducts.map((product) => (
+                      <ProductCard
+                        key={product.id}
+                        product={product}
+                        flashSale={flashSale}
+                        onOpenDetails={setActiveProduct}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
 
           </main>
         </>
@@ -484,6 +717,7 @@ export const App: React.FC = () => {
       {/* Product Detail & Reviews Modal */}
       <ProductModal
         product={activeProduct}
+        flashSale={flashSale}
         onClose={() => setActiveProduct(null)}
         onOpenAuth={() => setIsAuthOpen(true)}
         onReviewSubmitted={(productId, newRating, newCount) => {
