@@ -719,6 +719,23 @@ describe('True SQL View Collections (Read-Only Joins & Aggregations)', () => {
       const migKpi = migTargetDriver.prepareSync('SELECT cnt, sum_price FROM item_totals').get<{ cnt: number; sum_price: number }>();
       expect(migKpi).toEqual({ cnt: 2, sum_price: 30 });
 
+      // Corrupt view SQL in snapshot and verify restore throws and rolls back _collections
+      const badSnapDir = path.join(testDir, 'snap_bad_view');
+      fs.mkdirSync(badSnapDir, { recursive: true });
+      const snapPayload = JSON.parse(fs.readFileSync(path.join(snapDir, 'snapshot.json'), 'utf-8'));
+      const viewMeta = snapPayload._collections.find((c: any) => c.name === 'item_totals');
+      viewMeta.options = JSON.stringify({ viewQueries: { sqlite: 'SELECT missing_col FROM items' } });
+      fs.writeFileSync(path.join(badSnapDir, 'snapshot.json'), JSON.stringify(snapPayload), 'utf-8');
+
+      const rollbackDriver = new NodeSqliteDriver(':memory:');
+      const rollbackDb = new DatabaseService(new ConfigService({ dataDir: testDir }), rollbackDriver);
+      rollbackDb.initSync();
+      const rollbackSnap = new LogicalSnapshotDriver(rollbackDb);
+      await expect(rollbackSnap.restoreSnapshot(badSnapDir)).rejects.toThrow(/no such column/i);
+      const leftoverCols = rollbackDriver.prepareSync("SELECT name FROM _collections WHERE name = 'item_totals'").all();
+      expect(leftoverCols).toHaveLength(0);
+
+      await rollbackDb.close();
       await targetDb.close();
       await migTargetDriver.close();
     });
