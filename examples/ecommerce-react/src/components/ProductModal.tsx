@@ -35,6 +35,7 @@ interface ProductModalProps {
   onClose: () => void;
   onOpenAuth: () => void;
   onReviewSubmitted?: (productId: string, newRating: number, newCount: number) => void;
+  onHelpfulVoteChanged?: () => void;
 }
 
 export const ProductModal: React.FC<ProductModalProps> = ({
@@ -43,6 +44,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   onClose,
   onOpenAuth,
   onReviewSubmitted,
+  onHelpfulVoteChanged,
 }) => {
   const { user, isAuthenticated } = useAuth();
   const { addToCart } = useCart();
@@ -228,6 +230,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         setReviews((prev) =>
           prev.map((r) => (r.id === review.id ? { ...r, helpfulVotes: res.helpfulVotes } : r))
         );
+        if (onHelpfulVoteChanged) {
+          onHelpfulVoteChanged();
+        }
       }
     } catch (err: any) {
       // Rollback optimistic update on failure

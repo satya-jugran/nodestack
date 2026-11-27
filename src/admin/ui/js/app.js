@@ -114,13 +114,7 @@ async function parseUrlAndNavigate(initial = false) {
         : (state.collections && Array.isArray(state.collections.items) ? state.collections.items : []);
       const colExists = allCols.some(c => c.name === colName);
       if (colExists) {
-        state.collectionTab = tab;
-        await selectCollection(colName, false);
-        if (tab === 'schema') {
-          switchCollectionTab('schema', false);
-        } else {
-          switchCollectionTab('records', false);
-        }
+        await selectCollection(colName, false, tab);
       } else {
         await selectNav('collections', false);
       }
@@ -310,6 +304,13 @@ async function selectNav(nav, pushState = true) {
   const colActions = document.getElementById('collection-actions');
   if (colActions && nav !== 'collection') {
     colActions.innerHTML = '';
+  }
+
+  if (nav !== 'collection') {
+    state.collectionTab = 'records';
+    if (typeof syncCollectionTabButtons === 'function') {
+      syncCollectionTabButtons('records');
+    }
   }
 
   if (pushState) {

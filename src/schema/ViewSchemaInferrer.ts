@@ -365,7 +365,10 @@ export class ViewSchemaInferrer {
 
   private static inferFromExpressionOrSample(rawExpr: string, sampleVal: any): FieldType {
     const expr = (rawExpr || '').trim();
-    if (/^(COUNT|SUM|AVG|TOTAL|LENGTH|CHAR_LENGTH|INSTR|ROUND|ABS|CEIL|FLOOR|CAST\s*\([\s\S]+AS\s+(?:INT|INTEGER|REAL|FLOAT|NUMERIC|DECIMAL))\s*\(/i.test(expr)) {
+    if (
+      /^(COUNT|SUM|AVG|TOTAL|LENGTH|CHAR_LENGTH|INSTR|ROUND|ABS|CEIL|FLOOR|CAST\s*\([\s\S]+AS\s+(?:INT|INTEGER|REAL|FLOAT|NUMERIC|DECIMAL))\s*\(/i.test(expr) ||
+      /^(COALESCE|IFNULL|ISNULL)\s*\([\s\S]+,\s*-?\d+(?:\.\d+)?\s*\)$/i.test(expr)
+    ) {
       return 'number';
     }
     if (/^EXISTS\s*\(/i.test(expr) || /\bCASE\s+WHEN\b[\s\S]*\bTHEN\s+(?:1|0|TRUE|FALSE)\b/i.test(expr)) {

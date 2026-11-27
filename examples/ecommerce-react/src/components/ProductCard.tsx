@@ -110,8 +110,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       {/* Content */}
       <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
         <div className="space-y-1.5">
-          {/* Rating */}
-          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+          {/* Rating & Social Proof */}
+          <div className="flex items-center flex-wrap gap-1.5 text-xs text-slate-500">
             {product.reviewCount && product.reviewCount > 0 ? (
               <>
                 <div className="flex items-center text-amber-400">
@@ -119,6 +119,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                 </div>
                 <span className="font-bold text-slate-800">{product.rating ? product.rating.toFixed(1) : '5.0'}</span>
                 <span className="text-slate-400">({product.reviewCount})</span>
+                {(product.verifiedReviewCount ?? 0) > 0 && (
+                  <span
+                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80"
+                    title={`${product.verifiedReviewCount} verified buyer ${
+                      product.verifiedReviewCount === 1 ? 'review' : 'reviews'
+                    }`}
+                  >
+                    ✓ {product.verifiedReviewCount} verified
+                  </span>
+                )}
               </>
             ) : (
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400">
@@ -130,6 +140,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             <span className="text-slate-400">
               {totalStock > 10 ? `${totalStock} in stock` : `${totalStock} left!`}
             </span>
+            {(product.favoriteCount ?? 0) > 0 && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-600 border border-rose-200/70"
+                title={`Saved by ${product.favoriteCount} ${
+                  product.favoriteCount === 1 ? 'shopper' : 'shoppers'
+                }`}
+              >
+                ♥ {product.favoriteCount} saved
+              </span>
+            )}
           </div>
 
           {/* Title */}

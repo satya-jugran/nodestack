@@ -109,6 +109,18 @@ describe('Built-in E-Commerce Demo Application (ecommerce-demo)', () => {
       expect(collectionNames).toContain('reviews');
       expect(collectionNames).toContain('favorites');
       expect(collectionNames).toContain('cart_items');
+      expect(collectionNames).toContain('product_social_proof');
+      expect(collectionNames).toContain('manager_order_insights');
+      expect(collectionNames).toContain('manager_catalog_insights');
+
+      const socialProofRes = await client.collection('product_social_proof').getList(1, 50);
+      expect(socialProofRes.totalItems).toBe(20);
+      const auraProof = socialProofRes.items.find((item: any) => item.id === 'prod_01');
+      expect(auraProof).toBeDefined();
+      expect(auraProof.reviewCount).toBe(2);
+      expect(auraProof.avgRating).toBe(5);
+      expect(auraProof.verifiedReviewCount).toBe(2);
+      expect(auraProof.helpfulVotesTotal).toBe(23);
 
       // Orders collection schema check for tracking & points
       const ordersCol = scope.schema.getCollection('orders');

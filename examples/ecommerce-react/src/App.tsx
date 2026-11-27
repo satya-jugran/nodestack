@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { client, getAdminUrl, getBackendUrl } from './lib/nodestack';
-import { Category, Product, Review, ViewMode, FlashSaleState, SimulatedOrderEvent } from './lib/types';
+import { Category, Product, ProductSocialProof, ViewMode, FlashSaleState, SimulatedOrderEvent } from './lib/types';
 import { useAuth } from './context/AuthContext';
 import { useCart } from './context/CartContext';
+import { useFavorites } from './context/FavoritesContext';
 import { useToast } from './context/ToastContext';
 import { Navbar } from './components/Navbar';
 import { HeroBanner } from './components/HeroBanner';
@@ -60,6 +61,7 @@ export const App: React.FC = () => {
 
   const { isAuthenticated, isStoreManager } = useAuth();
   const { items: cartItems } = useCart();
+  const { syncRevision: favoritesSyncRevision } = useFavorites();
   const { toast } = useToast();
   const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
 
@@ -118,6 +120,20 @@ export const App: React.FC = () => {
       ),
     [products, recentlyViewedIds, cartItems]
   );
+  const topRatedProducts = useMemo(() => {
+    return [...products]
+      .filter((p) => (p.reviewCount ?? 0) > 0 && (p.rating ?? 0) > 0)
+      .sort((a, b) => {
+        const ratingDiff = (b.rating ?? 0) - (a.rating ?? 0);
+        if (Math.abs(ratingDiff) > 0.001) return ratingDiff;
+        const revDiff = (b.reviewCount ?? 0) - (a.reviewCount ?? 0);
+        if (revDiff !== 0) return revDiff;
+        const verifiedDiff = (b.verifiedReviewCount ?? 0) - (a.verifiedReviewCount ?? 0);
+        if (verifiedDiff !== 0) return verifiedDiff;
+        return (b.favoriteCount ?? 0) - (a.favoriteCount ?? 0);
+      })
+      .slice(0, 10);
+  }, [products]);
   const resolvedActiveProduct = useMemo(
     () => (activeProduct ? products.find((p) => p.id === activeProduct.id) || activeProduct : null),
     [activeProduct, products]
@@ -159,6 +175,33 @@ export const App: React.FC = () => {
     productsRef.current = products;
   }, [products]);
 
+  // Refresh pre-aggregated product social proof metrics from NodeStack SQL view
+  const refreshSocialProof = async () => {
+    try {
+      const spRes = await client.collection('product_social_proof').getList(1, 200);
+      const socialProofById = new Map<string, ProductSocialProof>();
+      for (const item of spRes.items as unknown as ProductSocialProof[]) {
+        socialProofById.set(item.id, item);
+      }
+      setProducts((prev) =>
+        prev.map((p) => {
+          const sp = socialProofById.get(p.id);
+          if (!sp) return p;
+          return {
+            ...p,
+            rating: Number(sp.avgRating || 0),
+            reviewCount: Number(sp.reviewCount || 0),
+            verifiedReviewCount: Number(sp.verifiedReviewCount || 0),
+            helpfulVotesTotal: Number(sp.helpfulVotesTotal || 0),
+            favoriteCount: Number(sp.favoriteCount || 0),
+          };
+        })
+      );
+    } catch {
+      // Ignore when view is unavailable
+    }
+  };
+
   // Fetch initial catalog
   const loadData = async () => {
     setIsLoading(true);
@@ -167,34 +210,49 @@ export const App: React.FC = () => {
       const catRes = await client.collection('categories').getFullList();
       setCategories(catRes as unknown as Category[]);
 
-      // 2. Fetch all reviews to compute live dynamic product ratings
-      let allReviews: Review[] = [];
+      // 2. Fetch pre-aggregated product social proof (ratings, verified count, helpful votes, saves)
+      const socialProofById = new Map<string, ProductSocialProof>();
+      let hasSocialProofView = false;
       try {
-        const revRes = await client.collection('reviews').getFullList();
-        allReviews = revRes as unknown as Review[];
+        const spRes = await client.collection('product_social_proof').getList(1, 200);
+        hasSocialProofView = true;
+        for (const item of spRes.items as unknown as ProductSocialProof[]) {
+          socialProofById.set(item.id, item);
+        }
       } catch {}
 
-      // 3. Fetch products and apply dynamic ratings from reviews
+      // 3. Fetch products and merge aggregated social proof metrics
       const prodRes = await client.collection('products').getList(1, 100, {
         expand: 'category',
         sort: sortBy,
       });
 
       const prodsWithDynamicRatings = (prodRes.items as unknown as Product[]).map((p) => {
-        const pReviews = allReviews.filter((r) => r.product === p.id);
-        if (pReviews.length > 0) {
-          const avg = pReviews.reduce((sum, r) => sum + r.rating, 0) / pReviews.length;
+        const sp = socialProofById.get(p.id);
+        if (sp) {
           return {
             ...p,
-            rating: Number(avg.toFixed(1)),
-            reviewCount: pReviews.length,
+            rating: Number(sp.avgRating || 0),
+            reviewCount: Number(sp.reviewCount || 0),
+            verifiedReviewCount: Number(sp.verifiedReviewCount || 0),
+            helpfulVotesTotal: Number(sp.helpfulVotesTotal || 0),
+            favoriteCount: Number(sp.favoriteCount || 0),
           };
         }
-        return {
-          ...p,
-          rating: 0,
-          reviewCount: 0,
-        };
+        return hasSocialProofView
+          ? {
+              ...p,
+              rating: 0,
+              reviewCount: 0,
+              verifiedReviewCount: 0,
+              helpfulVotesTotal: 0,
+              favoriteCount: 0,
+            }
+          : {
+              ...p,
+              rating: Number(p.rating || 0),
+              reviewCount: Number(p.reviewCount || 0),
+            };
       });
 
       setProducts(prodsWithDynamicRatings);
@@ -206,6 +264,12 @@ export const App: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (favoritesSyncRevision > 0) {
+      void refreshSocialProof();
+    }
+  }, [favoritesSyncRevision]);
 
   useEffect(() => {
     loadData();
@@ -711,6 +775,7 @@ export const App: React.FC = () => {
               <ProductCarousel
                 recentlyViewedProducts={recentlyViewedProducts}
                 alsoBoughtProducts={alsoBoughtProducts}
+                topRatedProducts={topRatedProducts}
                 flashSale={flashSale}
                 onOpenDetails={handleOpenProduct}
                 onClearRecentlyViewed={handleClearRecentlyViewed}
@@ -784,6 +849,10 @@ export const App: React.FC = () => {
               prev ? { ...prev, rating: newRating, reviewCount: newCount } : null
             );
           }
+          void refreshSocialProof();
+        }}
+        onHelpfulVoteChanged={() => {
+          void refreshSocialProof();
         }}
       />
 

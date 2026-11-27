@@ -6,6 +6,7 @@ import { getEffectiveStock, parseProductVariants, parseVariantOptions } from '..
 import { useCart } from '../context/CartContext';
 import { useFavorites } from '../context/FavoritesContext';
 import {
+  Award,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -18,11 +19,12 @@ import {
   Sliders,
 } from 'lucide-react';
 
-export type CarouselTab = 'recent' | 'also_bought';
+export type CarouselTab = 'recent' | 'also_bought' | 'top_rated';
 
 interface ProductCarouselProps {
   recentlyViewedProducts: Product[];
   alsoBoughtProducts: Product[];
+  topRatedProducts?: Product[];
   flashSale?: FlashSaleState;
   onOpenDetails: (product: Product) => void;
   onClearRecentlyViewed: () => void;
@@ -58,6 +60,7 @@ function getNearestSlideDomIndex(track: HTMLElement): number {
 export const ProductCarousel: React.FC<ProductCarouselProps> = ({
   recentlyViewedProducts,
   alsoBoughtProducts,
+  topRatedProducts = [],
   flashSale,
   onOpenDetails,
   onClearRecentlyViewed,
@@ -66,24 +69,42 @@ export const ProductCarousel: React.FC<ProductCarouselProps> = ({
   const { isFavorite, toggleFavorite } = useFavorites();
 
   const [activeTab, setActiveTab] = useState<CarouselTab>(() =>
-    recentlyViewedProducts.length > 0 ? 'recent' : 'also_bought'
+    recentlyViewedProducts.length > 0
+      ? 'recent'
+      : topRatedProducts.length > 0
+        ? 'top_rated'
+        : 'also_bought'
   );
   const userSelectedTabRef = useRef(false);
 
   // Auto-switch to Recently Viewed the first time an item is viewed if user hasn't manually toggled
   useEffect(() => {
     if (!userSelectedTabRef.current) {
-      setActiveTab(recentlyViewedProducts.length > 0 ? 'recent' : 'also_bought');
-    } else if (activeTab === 'recent' && recentlyViewedProducts.length === 0 && alsoBoughtProducts.length > 0) {
-      setActiveTab('also_bought');
+      setActiveTab(
+        recentlyViewedProducts.length > 0
+          ? 'recent'
+          : topRatedProducts.length > 0
+            ? 'top_rated'
+            : 'also_bought'
+      );
+    } else if (activeTab === 'recent' && recentlyViewedProducts.length === 0) {
+      setActiveTab(topRatedProducts.length > 0 ? 'top_rated' : 'also_bought');
       userSelectedTabRef.current = false;
     }
-  }, [recentlyViewedProducts.length, alsoBoughtProducts.length, activeTab]);
+  }, [recentlyViewedProducts.length, alsoBoughtProducts.length, topRatedProducts.length, activeTab]);
 
-  const activeProducts = useMemo(
-    () => (activeTab === 'recent' && recentlyViewedProducts.length > 0 ? recentlyViewedProducts : alsoBoughtProducts),
-    [activeTab, recentlyViewedProducts, alsoBoughtProducts]
-  );
+  const activeProducts = useMemo(() => {
+    if (activeTab === 'recent' && recentlyViewedProducts.length > 0) {
+      return recentlyViewedProducts;
+    }
+    if (activeTab === 'top_rated' && topRatedProducts.length > 0) {
+      return topRatedProducts;
+    }
+    if (alsoBoughtProducts.length > 0) {
+      return alsoBoughtProducts;
+    }
+    return topRatedProducts;
+  }, [activeTab, recentlyViewedProducts, alsoBoughtProducts, topRatedProducts]);
 
   const isLooping = activeProducts.length >= 3;
 
@@ -336,14 +357,45 @@ export const ProductCarousel: React.FC<ProductCarouselProps> = ({
     handleNavClick,
   ]);
 
-  if (recentlyViewedProducts.length === 0 && alsoBoughtProducts.length === 0) {
+  if (
+    recentlyViewedProducts.length === 0 &&
+    alsoBoughtProducts.length === 0 &&
+    topRatedProducts.length === 0
+  ) {
     return null;
   }
 
   const sectionLabel =
     activeTab === 'recent' && recentlyViewedProducts.length > 0
       ? 'Recently Viewed Products'
-      : 'Customers Also Bought';
+      : activeTab === 'top_rated' && topRatedProducts.length > 0
+        ? 'Top Rated Products'
+        : 'Customers Also Bought';
+
+  const availableTabs: CarouselTab[] = [
+    ...(recentlyViewedProducts.length > 0 ? (['recent'] as CarouselTab[]) : []),
+    ...(topRatedProducts.length > 0 ? (['top_rated'] as CarouselTab[]) : []),
+    ...(alsoBoughtProducts.length > 0 ? (['also_bought'] as CarouselTab[]) : []),
+  ];
+
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (availableTabs.length < 2) return;
+    const currentIdx = availableTabs.indexOf(activeTab);
+    if (currentIdx === -1) return;
+    let nextIdx = -1;
+    if (e.key === 'ArrowRight') nextIdx = (currentIdx + 1) % availableTabs.length;
+    else if (e.key === 'ArrowLeft') nextIdx = (currentIdx - 1 + availableTabs.length) % availableTabs.length;
+    else if (e.key === 'Home') nextIdx = 0;
+    else if (e.key === 'End') nextIdx = availableTabs.length - 1;
+    if (nextIdx >= 0) {
+      e.preventDefault();
+      userSelectedTabRef.current = true;
+      const nextTab = availableTabs[nextIdx];
+      setActiveTab(nextTab);
+      const buttons = e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+      buttons[nextIdx]?.focus();
+    }
+  };
 
   return (
     <section
@@ -355,20 +407,22 @@ export const ProductCarousel: React.FC<ProductCarouselProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div className="flex items-center gap-3 flex-wrap">
           <div
-            className="inline-flex items-center p-1 rounded-xl bg-slate-100 border border-slate-200/80"
+            className="inline-flex items-center p-1 rounded-xl bg-slate-100 border border-slate-200/80 overflow-x-auto max-w-full"
             role="tablist"
             aria-label="Recommendation carousel views"
+            onKeyDown={handleTabKeyDown}
           >
             {recentlyViewedProducts.length > 0 && (
               <button
                 type="button"
                 role="tab"
                 aria-selected={activeTab === 'recent'}
+                tabIndex={activeTab === 'recent' ? 0 : -1}
                 onClick={() => {
                   userSelectedTabRef.current = true;
                   setActiveTab('recent');
                 }}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`store-tab inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
                   activeTab === 'recent'
                     ? 'bg-white text-slate-900 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
@@ -382,16 +436,38 @@ export const ProductCarousel: React.FC<ProductCarouselProps> = ({
               </button>
             )}
 
+            {topRatedProducts.length > 0 && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'top_rated'}
+                tabIndex={activeTab === 'top_rated' ? 0 : -1}
+                onClick={() => {
+                  userSelectedTabRef.current = true;
+                  setActiveTab('top_rated');
+                }}
+                className={`store-tab inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
+                  activeTab === 'top_rated'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Award className="w-3.5 h-3.5 text-amber-500" aria-hidden="true" />
+                <span>Top Rated</span>
+              </button>
+            )}
+
             {alsoBoughtProducts.length > 0 && (
               <button
                 type="button"
                 role="tab"
                 aria-selected={activeTab === 'also_bought'}
+                tabIndex={activeTab === 'also_bought' ? 0 : -1}
                 onClick={() => {
                   userSelectedTabRef.current = true;
                   setActiveTab('also_bought');
                 }}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`store-tab inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
                   activeTab === 'also_bought'
                     ? 'bg-white text-slate-900 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'

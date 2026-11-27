@@ -165,9 +165,26 @@ export class AppManager {
       // serverless functions, and orchestration flows even on partially initialized scopes.
       await scope.templates.apply('ecommerce', { overwrite: Boolean(options?.overwrite) });
 
-      // Ensure baseline snapshot exists for Reset to Demo State
-      if (scope.snapshots.listSnapshots().length === 0) {
+      // Ensure baseline snapshot exists and includes current views for Reset to Demo State
+      const requiredDemoViews = [
+        'product_social_proof',
+        'manager_order_insights',
+        'manager_catalog_insights',
+      ];
+      const existingSnapshots = scope.snapshots.listSnapshots();
+      const baselineSnapshot = existingSnapshots.find((s) => s.name === 'ecommerce-demo-baseline');
+      const baselineMissingViews = Boolean(
+        baselineSnapshot &&
+          requiredDemoViews.some(
+            (viewName) => !baselineSnapshot.collections?.some((c) => c.name === viewName)
+          )
+      );
+
+      if (existingSnapshots.length === 0 || baselineMissingViews) {
         try {
+          if (baselineSnapshot && baselineMissingViews) {
+            await scope.snapshots.deleteSnapshot(baselineSnapshot.id);
+          }
           await scope.snapshots.createSnapshot({
             name: 'ecommerce-demo-baseline',
             description: 'Baseline state for ecommerce-demo storefront and lambdas',
@@ -223,7 +240,7 @@ export class AppManager {
             await scope.db.run('UPDATE users SET passwordHash = ? WHERE email = ?', managerHash, managerEmail);
           }
 
-          // Ensure categories and products collection rules match configured managerEmail
+          // Ensure categories, products, and manager views collection rules match configured managerEmail
           const managerRule = getStoreManagerRule();
           for (const colName of ['categories', 'products']) {
             const col = await scope.schema.getCollection(colName);
@@ -232,6 +249,15 @@ export class AppManager {
                 createRule: managerRule,
                 updateRule: managerRule,
                 deleteRule: managerRule,
+              });
+            }
+          }
+          for (const viewName of ['manager_order_insights', 'manager_catalog_insights']) {
+            const viewCol = await scope.schema.getCollection(viewName);
+            if (viewCol && (viewCol.listRule !== managerRule || viewCol.viewRule !== managerRule)) {
+              await scope.schema.updateCollection(viewCol.id, {
+                listRule: managerRule,
+                viewRule: managerRule,
               });
             }
           }

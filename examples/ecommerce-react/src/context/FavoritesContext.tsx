@@ -9,6 +9,7 @@ interface FavoritesContextType {
   isFavorite: (productId: string) => boolean;
   toggleFavorite: (product: Product) => Promise<void>;
   favoriteCount: number;
+  syncRevision: number;
   isLoading: boolean;
   isFavoritesModalOpen: boolean;
   setIsFavoritesModalOpen: (open: boolean) => void;
@@ -25,6 +26,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // map productId -> favorite record id (for deletion in NodeStack)
   const [recordIdMap, setRecordIdMap] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [syncRevision, setSyncRevision] = useState(0);
   const [isFavoritesModalOpen, setIsFavoritesModalOpen] = useState(false);
 
   // Load favorites whenever auth changes
@@ -79,6 +81,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
             setFavoriteProductIds(ids);
             setRecordIdMap(rMap);
+            setSyncRevision((r) => r + 1);
           }
         } catch (err) {
           console.warn('Could not load favorites from backend, falling back to local', err);
@@ -139,6 +142,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               delete copy[product.id];
               return copy;
             });
+            setSyncRevision((r) => r + 1);
           }
         } catch (err) {
           console.error('Failed to remove favorite from NodeStack:', err);
@@ -152,6 +156,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             product: product.id,
           });
           setRecordIdMap((prev) => ({ ...prev, [product.id]: created.id }));
+          setSyncRevision((r) => r + 1);
         } catch (err) {
           console.error('Failed to save favorite to NodeStack:', err);
         }
@@ -179,6 +184,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         isFavorite,
         toggleFavorite,
         favoriteCount: favoriteProductIds.length,
+        syncRevision,
         isLoading,
         isFavoritesModalOpen,
         setIsFavoritesModalOpen,

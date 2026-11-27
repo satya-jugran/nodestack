@@ -143,10 +143,12 @@ export class TemplateService {
       }
     }
 
-    // 3. Create collections and build collectionIdMap
+    // 3. Create base/auth collections first and build collectionIdMap
     const collectionIdMap = new Map<string, string>();
+    const nonViewCollections = template.collections.filter((c) => c.dto.type !== 'view');
+    const viewCollections = template.collections.filter((c) => c.dto.type === 'view');
 
-    for (const colDef of template.collections) {
+    for (const colDef of nonViewCollections) {
       let col = await this.schemaService.getCollection(colDef.name);
 
       if (!col) {
@@ -186,8 +188,11 @@ export class TemplateService {
     let totalRecords = 0;
     let totalImages = 0;
 
-    for (const colDef of template.collections) {
+    for (const colDef of nonViewCollections) {
       const col = await this.schemaService.getCollectionOrThrow(colDef.name);
+      if (col.type === 'view') {
+        continue;
+      }
       const qTable = this.db.dialect.quoteIdentifier(col.name);
 
       // Check if table already has rows (skip seeding this collection if not overwriting)
@@ -247,8 +252,13 @@ export class TemplateService {
 
       // Database transaction insert
       if (preparedRows.length > 0) {
-        const sampleRow = preparedRows[0];
-        const columns = Object.keys(sampleRow);
+        const columnSet = new Set<string>();
+        for (const row of preparedRows) {
+          for (const key of Object.keys(row)) {
+            columnSet.add(key);
+          }
+        }
+        const columns = Array.from(columnSet);
         const placeholders = columns.map(() => '?').join(', ');
         const insertSql = `INSERT INTO ${qTable} (${columns
           .map((c) => this.db.dialect.quoteIdentifier(c))
@@ -273,6 +283,21 @@ export class TemplateService {
         totalRecords += preparedRows.length;
         seededRecordsMap.set(col.name, preparedRows);
       }
+    }
+
+    // 4b. Create SQL view collections after base tables are seeded
+    for (const colDef of viewCollections) {
+      let col = await this.schemaService.getCollection(colDef.name);
+      if (!col) {
+        const isViewWithoutOverrides = !colDef.dto.schema || colDef.dto.schema.length === 0;
+        const dto = {
+          ...colDef.dto,
+          schema: isViewWithoutOverrides ? undefined : colDef.dto.schema,
+        };
+        col = await this.schemaService.createCollection(dto);
+      }
+      collectionIdMap.set(colDef.name, col.id);
+      collectionIdMap.set(col.id, col.id);
     }
 
     // 5. Seed Functions (Lambdas)

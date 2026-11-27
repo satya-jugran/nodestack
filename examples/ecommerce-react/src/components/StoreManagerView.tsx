@@ -9,6 +9,7 @@ import {
 } from '../lib/variants';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { StoreManagerInsights } from './StoreManagerInsights';
 import {
   Package,
   Plus,
@@ -30,6 +31,7 @@ import {
   ChevronDown,
   ChevronUp,
   Layers,
+  BarChart3,
 } from 'lucide-react';
 
 interface StoreManagerViewProps {
@@ -63,6 +65,8 @@ export const StoreManagerView: React.FC<StoreManagerViewProps> = ({
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [isResettingAll, setIsResettingAll] = useState(false);
   const [expandedVariants, setExpandedVariants] = useState<Record<string, boolean>>({});
+  const [activeTab, setActiveTab] = useState<'inventory' | 'insights'>('inventory');
+  const [insightsRefreshSignal, setInsightsRefreshSignal] = useState(0);
 
   // Metrics
   const metrics = useMemo(() => {
@@ -173,6 +177,7 @@ export const StoreManagerView: React.FC<StoreManagerViewProps> = ({
         `${clampedStock} ${clampedStock === 1 ? 'unit' : 'units'} available`,
         { dedupeKey: `stock:${product.id}` }
       );
+      setInsightsRefreshSignal((s) => s + 1);
     } catch (err: any) {
       console.error('Failed to update stock:', err);
       toast.error(
@@ -308,6 +313,94 @@ export const StoreManagerView: React.FC<StoreManagerViewProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Manager Workspace Tab Switcher */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div
+          role="tablist"
+          aria-label="Store Manager sections"
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'Home' || e.key === 'End') {
+              e.preventDefault();
+              const nextTab = activeTab === 'inventory' ? 'insights' : 'inventory';
+              setActiveTab(nextTab);
+              const targetId = nextTab === 'inventory' ? 'manager-tab-inventory' : 'manager-tab-insights';
+              document.getElementById(targetId)?.focus();
+            }
+          }}
+          className="inline-flex items-center p-1 rounded-2xl bg-slate-200/70 border border-slate-200 overflow-x-auto max-w-full"
+        >
+          <button
+            type="button"
+            id="manager-tab-inventory"
+            role="tab"
+            aria-selected={activeTab === 'inventory'}
+            tabIndex={activeTab === 'inventory' ? 0 : -1}
+            onClick={() => setActiveTab('inventory')}
+            className={`store-tab inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+              activeTab === 'inventory'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Package className="w-3.5 h-3.5 text-brand-600" aria-hidden="true" />
+            <span>Inventory</span>
+          </button>
+
+          <button
+            type="button"
+            id="manager-tab-insights"
+            role="tab"
+            aria-selected={activeTab === 'insights'}
+            tabIndex={activeTab === 'insights' ? 0 : -1}
+            onClick={() => {
+              setActiveTab('insights');
+              setInsightsRefreshSignal((s) => s + 1);
+            }}
+            className={`store-tab inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+              activeTab === 'insights'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-brand-600" aria-hidden="true" />
+            <span>Store Insights</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Store Insights Panel */}
+      <div
+        role="tabpanel"
+        aria-labelledby="manager-tab-insights"
+        hidden={activeTab !== 'insights'}
+      >
+        {activeTab === 'insights' && (
+          <StoreManagerInsights
+            refreshSignal={insightsRefreshSignal}
+            onRestockProduct={async (productId, nextStock) => {
+              const target = products.find((p) => p.id === productId);
+              if (!target) {
+                await client.collection('products').update(productId, {
+                  stock: nextStock,
+                  status: calculateStatus(nextStock),
+                });
+                await onRefresh();
+                return;
+              }
+              await handleUpdateStock(target, nextStock);
+            }}
+          />
+        )}
+      </div>
+
+      {/* Inventory Panel */}
+      <div
+        role="tabpanel"
+        aria-labelledby="manager-tab-inventory"
+        hidden={activeTab !== 'inventory'}
+        className="space-y-6"
+      >
 
       {/* Metrics Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -715,6 +808,8 @@ export const StoreManagerView: React.FC<StoreManagerViewProps> = ({
             </tbody>
           </table>
         </div>
+      </div>
+
       </div>
 
     </div>

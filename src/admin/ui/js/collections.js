@@ -72,7 +72,7 @@ function renderCollectionsHubView() {
               <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); selectCollection('${escapeHtml(col.name)}')">
                 Open Data Grid ➔
               </button>
-              <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); selectCollection('${escapeHtml(col.name)}'); switchCollectionTab('schema');" title="Configure schema">
+              <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); selectCollection('${escapeHtml(col.name)}', true, 'schema');" title="Configure schema">
                 ⚙️ Schema
               </button>
             </div>
@@ -236,9 +236,22 @@ function renderCollectionsList() {
   }
 }
 
+function syncCollectionTabButtons(tab) {
+  const resolvedTab = tab === 'schema' ? 'schema' : 'records';
+  const recordsBtn = document.getElementById('tab-records');
+  const schemaBtn = document.getElementById('tab-schema');
+  if (recordsBtn) recordsBtn.className = resolvedTab === 'records' ? 'tab-btn active' : 'tab-btn';
+  if (schemaBtn) schemaBtn.className = resolvedTab === 'schema' ? 'tab-btn active' : 'tab-btn';
+}
+
 // Select Collection
-async function selectCollection(name, pushState = true) {
+async function selectCollection(name, pushState = true, initialTab) {
   state.activeNav = 'collection';
+  if (initialTab === 'records' || initialTab === 'schema') {
+    state.collectionTab = initialTab;
+  } else if (state.collectionTab !== 'schema') {
+    state.collectionTab = 'records';
+  }
   const allCols = Array.isArray(state.collections)
     ? state.collections
     : (state.collections && Array.isArray(state.collections.items) ? state.collections.items : []);
@@ -261,6 +274,7 @@ async function selectCollection(name, pushState = true) {
   renderCollectionsList();
 
   document.getElementById('collection-tabs').style.display = 'flex';
+  syncCollectionTabButtons(state.collectionTab);
 
   document.getElementById('view-title').textContent = state.activeCollection ? state.activeCollection.name : name;
   document.getElementById('view-title').style.display = 'inline-block';
@@ -290,9 +304,8 @@ async function selectCollection(name, pushState = true) {
 
 // Collection Tabs
 function switchCollectionTab(tab, pushState = true) {
-  state.collectionTab = tab;
-  document.getElementById('tab-records').className = tab === 'records' ? 'tab-btn active' : 'tab-btn';
-  document.getElementById('tab-schema').className = tab === 'schema' ? 'tab-btn active' : 'tab-btn';
+  state.collectionTab = tab === 'schema' ? 'schema' : 'records';
+  syncCollectionTabButtons(state.collectionTab);
 
   updateBreadcrumbs();
 
@@ -352,6 +365,23 @@ function updateBreadcrumbs() {
     }
   } else if (state.activeNav === 'collections') {
     crumbs.push({ label: 'Collections', active: true });
+  } else if (state.activeNav === 'view-designer') {
+    crumbs.push({
+      label: 'Collections',
+      clickable: true,
+      action: () => selectNav('collections')
+    });
+    const vd = typeof viewDesignerState !== 'undefined' ? viewDesignerState : window.viewDesignerState;
+    if (vd && vd.mode === 'edit' && vd.originalName) {
+      crumbs.push({
+        label: vd.originalName,
+        clickable: true,
+        action: () => selectCollection(vd.originalName)
+      });
+      crumbs.push({ label: 'Edit SQL View', active: true });
+    } else {
+      crumbs.push({ label: 'SQL View Designer', active: true });
+    }
   } else if (state.activeNav === 'plugins') {
     crumbs.push({ label: 'Plugins', active: true });
   } else if (state.activeNav === 'webhooks') {
@@ -480,6 +510,7 @@ if (typeof window !== 'undefined') {
   window.renderCollectionsList = renderCollectionsList;
   window.selectCollection = selectCollection;
   window.switchCollectionTab = switchCollectionTab;
+  window.syncCollectionTabButtons = syncCollectionTabButtons;
   window.updateBreadcrumbs = updateBreadcrumbs;
   window.handleBreadcrumbClick = handleBreadcrumbClick;
   window.toggleCollectionCreateMenu = toggleCollectionCreateMenu;

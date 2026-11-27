@@ -273,13 +273,16 @@
     const titleEl = document.getElementById('view-title');
     if (titleEl) {
       titleEl.textContent = viewDesignerState.mode === 'edit' ? `Edit SQL View: ${viewDesignerState.originalName}` : 'SQL View Designer';
-      titleEl.style.display = 'inline-block';
+      titleEl.style.display = 'none';
     }
     const badgeEl = document.getElementById('view-badge');
     if (badgeEl) {
       badgeEl.style.display = 'inline-flex';
       badgeEl.textContent = 'VIEW';
       badgeEl.className = 'badge badge-warning';
+    }
+    if (typeof updateBreadcrumbs === 'function') {
+      updateBreadcrumbs();
     }
 
     renderViewDesigner();

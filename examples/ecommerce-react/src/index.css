@@ -497,3 +497,133 @@ input[type='checkbox'][switch]:focus-visible {
     transition: none;
   }
 }
+
+/* Accessible Tab Active Underline (color + shape indicator without layout shift) */
+.store-tab {
+  position: relative;
+}
+
+.store-tab[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0.5rem;
+  inset-block-end: 0;
+  border-block-end: 2.5px solid #0284c7;
+  border-radius: 999px;
+}
+
+/* Responsive Store Insights Data Table (sticky headers + container-query mobile cards) */
+.insights-table-wrapper {
+  overflow: auto;
+  max-inline-size: 100%;
+  max-block-size: min(520px, 75vh);
+  container-type: inline-size;
+}
+
+.insights-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  --label-2: 'Category';
+  --label-3: 'Stock';
+  --label-4: 'In Carts';
+  --label-5: 'Saved';
+  --label-6: 'Reviews';
+  --label-7: 'Inventory Value';
+}
+
+.insights-table thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+}
+
+.insights-table tbody th[scope='row'] {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  background: #ffffff;
+}
+
+.insights-table tbody tr:hover th[scope='row'] {
+  background: #f8fafc;
+}
+
+@container (width < 640px) {
+  .insights-table-wrapper {
+    max-block-size: none;
+  }
+
+  .insights-table,
+  .insights-table thead,
+  .insights-table tbody,
+  .insights-table tr,
+  .insights-table th,
+  .insights-table td {
+    display: block;
+  }
+
+  .insights-table thead {
+    display: none;
+  }
+
+  .insights-table tbody tr {
+    margin-block-end: 0.875rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 1rem;
+    overflow: hidden;
+    background: #ffffff;
+  }
+
+  .insights-table tbody th[scope='row'] {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 2;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .insights-table tbody td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    text-align: right;
+  }
+
+  .insights-table tbody td:nth-child(2)::before {
+    content: var(--label-2) ': ';
+    font-weight: 700;
+    color: #64748b;
+  }
+
+  .insights-table tbody td:nth-child(3)::before {
+    content: var(--label-3) ': ';
+    font-weight: 700;
+    color: #64748b;
+  }
+
+  .insights-table tbody td:nth-child(4)::before {
+    content: var(--label-4) ': ';
+    font-weight: 700;
+    color: #64748b;
+  }
+
+  .insights-table tbody td:nth-child(5)::before {
+    content: var(--label-5) ': ';
+    font-weight: 700;
+    color: #64748b;
+  }
+
+  .insights-table tbody td:nth-child(6)::before {
+    content: var(--label-6) ': ';
+    font-weight: 700;
+    color: #64748b;
+  }
+
+  .insights-table tbody td:nth-child(7)::before {
+    content: var(--label-7) ': ';
+    font-weight: 700;
+    color: #64748b;
+  }
+}

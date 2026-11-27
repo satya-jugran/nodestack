@@ -33,6 +33,9 @@ export interface Product {
   image: string;
   rating?: number;
   reviewCount?: number;
+  verifiedReviewCount?: number;
+  helpfulVotesTotal?: number;
+  favoriteCount?: number;
   isFeatured?: boolean;
   status: 'in_stock' | 'low_stock' | 'out_of_stock' | 'pre_order';
   variantOptions?: VariantOptionGroup[] | string | null;
@@ -147,6 +150,55 @@ export interface FlashSaleState {
   discountPercent: number;
   endsAt?: number;
   originalPrices?: Record<string, number>;
+}
+
+export interface ProductSocialProof {
+  id: string;
+  name: string;
+  slug: string;
+  category: string;
+  price: number;
+  originalPrice?: number;
+  stock: number;
+  status: 'in_stock' | 'low_stock' | 'out_of_stock' | 'pre_order';
+  isFeatured?: boolean | number;
+  discountPercent: number;
+  reviewCount: number;
+  avgRating: number;
+  verifiedReviewCount: number;
+  helpfulVotesTotal: number;
+  favoriteCount: number;
+}
+
+export interface ManagerOrderInsight {
+  id: string;
+  status: string;
+  paymentStatus: string;
+  couponCode: string;
+  orderCount: number;
+  grossRevenue: number;
+  totalDiscount: number;
+  avgOrderValue: number;
+  loyaltyPointsIssued: number;
+}
+
+export interface ManagerCatalogInsight {
+  id: string;
+  name: string;
+  slug: string;
+  category: string;
+  categoryName: string;
+  price: number;
+  originalPrice?: number;
+  stock: number;
+  status: 'in_stock' | 'low_stock' | 'out_of_stock' | 'pre_order';
+  inventoryValue: number;
+  reviewCount: number;
+  avgRating: number;
+  helpfulVotesTotal: number;
+  favoriteCount: number;
+  inCartUnits: number;
+  cartShoppersCount: number;
 }
 
 export interface SimulatedOrderEvent {

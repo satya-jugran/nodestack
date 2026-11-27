@@ -365,6 +365,54 @@ describe('Navigation, Spatial Awareness & Wayfinding', () => {
       expect(trail.textContent).toContain('Records');
     });
 
+    it('should keep active tab button in sync with Records Data Grid when navigating away from Schema tab and back to a collection', async () => {
+      const { win, doc } = createTestDOM();
+
+      await win.selectCollection('products');
+      win.switchCollectionTab('schema');
+      expect(win.state.collectionTab).toBe('schema');
+      expect(doc.getElementById('tab-schema')?.classList.contains('active')).toBe(true);
+      expect(doc.getElementById('tab-records')?.classList.contains('active')).toBe(false);
+
+      // Navigate away to Collections hub and then to Home, then back to a collection
+      await win.selectNav('collections');
+      await win.selectNav('home');
+      await win.selectCollection('orders');
+
+      expect(win.state.collectionTab).toBe('records');
+      expect(doc.getElementById('tab-records')?.classList.contains('active')).toBe(true);
+      expect(doc.getElementById('tab-schema')?.classList.contains('active')).toBe(false);
+    });
+
+    it('should hide #view-title in top header and show Edit SQL View breadcrumb when opening View Designer', () => {
+      const { win, doc } = createTestDOM({
+        collections: [
+          {
+            name: 'manager_order_insights',
+            type: 'view',
+            system: false,
+            schema: [],
+            options: { viewQueries: { sqlite: 'SELECT 1 AS id' } },
+          },
+        ],
+      });
+
+      win.openViewDesigner({
+        mode: 'edit',
+        existingCol: {
+          name: 'manager_order_insights',
+          type: 'view',
+          options: { viewQueries: { sqlite: 'SELECT 1 AS id' } },
+        },
+      });
+
+      expect(doc.getElementById('view-title')?.style.display).toBe('none');
+      const items = Array.from(doc.querySelectorAll('#breadcrumb-trail .breadcrumb-item')).map((el: any) =>
+        el.textContent.replace('/', '').trim()
+      );
+      expect(items).toEqual(['NodeStack', 'Collections', 'manager_order_insights', 'Edit SQL View']);
+    });
+
     it('should render "NodeStack / Audit Logs" when in audit logs view', async () => {
       const { win, doc } = createTestDOM();
 
