@@ -133,7 +133,7 @@ describe('True SQL View Collections (Read-Only Joins & Aggregations)', () => {
       expect(sqlite.dropViewIfExists('kpi_view')).toBe('DROP VIEW IF EXISTS "kpi_view"');
 
       expect(pg.createViewSql('kpi_view', 'SELECT 1 AS c')).toBe('CREATE OR REPLACE VIEW "kpi_view" AS SELECT 1 AS c');
-      expect(pg.dropViewIfExists('kpi_view')).toBe('DROP VIEW IF EXISTS "kpi_view" CASCADE');
+      expect(pg.dropViewIfExists('kpi_view')).toBe('DROP VIEW IF EXISTS "kpi_view"');
       expect(pg.renameViewSql('old_v', 'new_v')).toBe('ALTER VIEW "old_v" RENAME TO "new_v"');
 
       expect(mssql.createViewSql('kpi_view', 'SELECT 1 AS c')).toBe('CREATE VIEW [kpi_view] AS SELECT 1 AS c');

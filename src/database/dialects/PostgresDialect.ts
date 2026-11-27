@@ -311,7 +311,7 @@ export class PostgresDialect implements ISqlDialect {
   }
 
   public dropViewIfExists(viewName: string): string {
-    return `DROP VIEW IF EXISTS ${this.quoteIdentifier(viewName)} CASCADE`;
+    return `DROP VIEW IF EXISTS ${this.quoteIdentifier(viewName)}`;
   }
 
   public renameViewSql(oldName: string, newName: string): string {
