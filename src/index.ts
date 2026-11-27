@@ -37,6 +37,8 @@ export {
 } from './schema/SchemaInferenceService';
 export { TypeGenerator } from './schema/TypeGenerator';
 export { OpenApiGenerator, OpenApiGeneratorOptions } from './schema/OpenApiGenerator';
+export { ViewQueryValidator } from './schema/ViewQueryValidator';
+export { ViewSchemaInferrer, ViewInferenceParams, ViewSchemaDiff } from './schema/ViewSchemaInferrer';
 export * from './schema/models/Collection';
 export * from './schema/models/Field';
 

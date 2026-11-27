@@ -8,7 +8,7 @@ import { RealtimeService } from '../realtime/RealtimeService';
 import { CollectionModel } from '../schema/models/Collection';
 import { SchemaField } from '../schema/models/Field';
 import { FakerEngine, FakerContext, GeneratedFilePayload } from './FakerEngine';
-import { ValidationError, NotFoundError } from '../core/errors/AppError';
+import { ValidationError, NotFoundError, AppError } from '../core/errors/AppError';
 import { RecordValidator } from './RecordValidator';
 
 export interface MockGenerateOptions {
@@ -46,6 +46,9 @@ export class MockDataService {
     const col = await this.schemaService.getCollectionOrThrow(collectionName);
     if (col.system || col.name.startsWith('_')) {
       throw new Error(`Mock data generation is not allowed for system collection '${col.name}'`);
+    }
+    if (col.type === 'view') {
+      throw new AppError(`Mock data generation is not allowed for read-only view '${col.name}'`, 405);
     }
     const count = Math.max(1, Math.min(500, Number(options.count) || 25));
     const downloadFiles = options.downloadFiles !== false;

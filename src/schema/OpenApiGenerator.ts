@@ -413,17 +413,23 @@ export class OpenApiGenerator {
         description: `Operations for the '${col.name}' collection (${col.type} type)`,
       });
 
+      const isView = col.type === 'view';
+      const hasViewId = !isView || col.schema.some((f) => f.name === 'id');
+
       // --- Build Record Properties ---
-      const recordProps: Record<string, any> = {
-        id: { type: 'string', readOnly: true, example: `r_${Math.random().toString(36).slice(2, 8)}` },
-        created: { type: 'string', format: 'date-time', readOnly: true },
-        updated: { type: 'string', format: 'date-time', readOnly: true },
-      };
+      const recordProps: Record<string, any> = isView
+        ? {}
+        : {
+            id: { type: 'string', readOnly: true, example: `r_${Math.random().toString(36).slice(2, 8)}` },
+            created: { type: 'string', format: 'date-time', readOnly: true },
+            updated: { type: 'string', format: 'date-time', readOnly: true },
+          };
 
       const createProps: Record<string, any> = {};
       const updateProps: Record<string, any> = {};
       const multipartCreateProps: Record<string, any> = {};
       const createRequired: string[] = [];
+      const viewRequired: string[] = [];
       let hasFileFields = false;
 
       if (col.type === 'auth') {
@@ -442,7 +448,9 @@ export class OpenApiGenerator {
         updateProps.emailVisibility = { type: 'boolean' };
       }
 
-      const systemFieldsToSkip = new Set(['id', 'created', 'updated']);
+      const systemFieldsToSkip = isView
+        ? new Set<string>()
+        : new Set(['id', 'created', 'updated']);
       if (col.type === 'auth') {
         systemFieldsToSkip.add('email');
         systemFieldsToSkip.add('emailVisibility');
@@ -455,7 +463,7 @@ export class OpenApiGenerator {
         if (systemFieldsToSkip.has(field.name)) continue;
 
         const openApiField = this.mapFieldToOpenApi(field);
-        recordProps[field.name] = openApiField;
+        recordProps[field.name] = isView ? { ...openApiField, readOnly: true } : openApiField;
         createProps[field.name] = openApiField;
         updateProps[field.name] = openApiField;
 
@@ -472,6 +480,9 @@ export class OpenApiGenerator {
         if (field.required) {
           createRequired.push(field.name);
         }
+        if (isView && (field.required || field.name === 'id')) {
+          viewRequired.push(field.name);
+        }
       }
 
       // Record schema includes optional expand property
@@ -481,22 +492,25 @@ export class OpenApiGenerator {
         description: 'Expanded relations if requested via the ?expand query parameter',
       };
 
+      const recordRequired = isView ? viewRequired : ['id', 'created', 'updated'];
       schemas[recordSchemaName] = {
         type: 'object',
         properties: recordProps,
-        required: ['id', 'created', 'updated'],
+        ...(recordRequired.length > 0 ? { required: recordRequired } : {}),
       };
 
-      schemas[createSchemaName] = {
-        type: 'object',
-        properties: createProps,
-        ...(createRequired.length > 0 ? { required: createRequired } : {}),
-      };
+      if (!isView) {
+        schemas[createSchemaName] = {
+          type: 'object',
+          properties: createProps,
+          ...(createRequired.length > 0 ? { required: createRequired } : {}),
+        };
 
-      schemas[updateSchemaName] = {
-        type: 'object',
-        properties: updateProps,
-      };
+        schemas[updateSchemaName] = {
+          type: 'object',
+          properties: updateProps,
+        };
+      }
 
       schemas[listSchemaName] = {
         type: 'object',
@@ -626,6 +640,7 @@ export class OpenApiGenerator {
       };
 
       // 2. Create Record (POST)
+      if (!isView) {
       const postRequestContent: Record<string, any> = {
         'application/json': {
           schema: { $ref: `#/components/schemas/${createSchemaName}` },
@@ -678,8 +693,10 @@ export class OpenApiGenerator {
           },
         },
       };
+      }
 
       // 3. Get One Record (GET)
+      if (hasViewId) {
       paths[recordItemPath] = paths[recordItemPath] || {};
       paths[recordItemPath].get = {
         tags: [col.name],
@@ -734,8 +751,10 @@ export class OpenApiGenerator {
           },
         },
       };
+      }
 
       // 4. Update Record (PATCH)
+      if (!isView) {
       const patchRequestContent: Record<string, any> = {
         'application/json': {
           schema: { $ref: `#/components/schemas/${updateSchemaName}` },
@@ -842,6 +861,7 @@ export class OpenApiGenerator {
           },
         },
       };
+      }
 
       // 6. Auth collection login route
       if (col.type === 'auth') {

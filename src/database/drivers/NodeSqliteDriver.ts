@@ -88,6 +88,23 @@ export class NodeSqliteDriver implements IDatabaseDriver {
     this.db.exec(sql);
   }
 
+  public getQueryColumnMetadata(sql: string): Array<{ name: string; type: string | null }> {
+    this.checkOpen();
+    try {
+      const stmt = this.db.prepare(sql);
+      if (typeof stmt.columns === 'function') {
+        const cols = stmt.columns() || [];
+        return cols.map((c: any) => ({
+          name: String(c.name || ''),
+          type: c.type ? String(c.type) : null,
+        }));
+      }
+    } catch {
+      // ignore if prepare or columns() fails
+    }
+    return [];
+  }
+
   public prepare(sql: string): IPreparedStatement {
     this.checkOpen();
     const stmt = this.db.prepare(sql);

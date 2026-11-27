@@ -201,6 +201,7 @@
               </div>
             </div>
 
+            ${col.type !== 'view' ? `
             <button class="btn btn-secondary btn-sm" onclick="openImportModal()" title="Drag & drop CSV import with visual column mapping">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               <span>Import CSV</span>
@@ -216,6 +217,7 @@
             <button class="btn btn-primary btn-sm" onclick="openNewRecordModal()">
               <span>+ New Record</span>
             </button>
+            ` : ''}
           </div>
         </div>
 
@@ -350,18 +352,23 @@
       if (!thContainer || !tbContainer) return;
 
       // Columns to display
+      const isView = col.type === 'view';
       const displayFields = [];
       if (col.type === 'auth' && !col.schema.some(f => f.name === 'email')) {
         displayFields.push('email');
       }
       displayFields.push(...col.schema.map(f => f.name));
 
-      thContainer.innerHTML = `
-        ${renderSortableTh('id', 'ID')}
-        ${displayFields.map(f => renderSortableTh(f, f)).join('')}
-        ${renderSortableTh('created', 'Created')}
-        <th style="cursor:default;">Actions</th>
-      `;
+      thContainer.innerHTML = isView
+        ? `
+          ${displayFields.map(f => renderSortableTh(f, f)).join('')}
+        `
+        : `
+          ${renderSortableTh('id', 'ID')}
+          ${displayFields.map(f => renderSortableTh(f, f)).join('')}
+          ${renderSortableTh('created', 'Created')}
+          <th style="cursor:default;">Actions</th>
+        `;
 
       if (state.records.length === 0) {
         if (state.recordsFilter) {
@@ -436,11 +443,8 @@
       }
 
       tbContainer.innerHTML = state.records.map(rec => {
-        const safeRecId = escapeHtml(rec.id);
-        return `
-        <tr class="record-row ${state.selectedRecordId === rec.id ? 'row-selected' : ''}" data-id="${safeRecId}" tabindex="0" role="button" aria-label="Record ${safeRecId}, press Enter to view details" onclick="handleRecordRowClick(this)" onkeydown="handleRecordRowKeyDown(event, this)">
-          <td><span class="id-pill">${safeRecId}</span></td>
-          ${displayFields.map(f => {
+        const safeRecId = escapeHtml(rec.id || '');
+        const cellsHtml = displayFields.map(f => {
             const schemaField = col.schema.find(sf => sf.name === f);
             const val = rec[f];
             if (val === null || val === undefined || val === '') return '<td style="color:#6b7280; font-style:italic;">NULL</td>';
@@ -457,7 +461,20 @@
             if (typeof val === 'boolean') return `<td><span class="badge ${val ? 'badge-get' : 'badge-delete'}">${val ? 'TRUE' : 'FALSE'}</span></td>`;
             if (typeof val === 'object') return `<td><code>${escapeHtml(JSON.stringify(val).slice(0, 30))}...</code></td>`;
             return `<td>${escapeHtml(String(val))}</td>`;
-          }).join('')}
+          }).join('');
+
+        if (isView) {
+          return `
+            <tr class="record-row">
+              ${cellsHtml}
+            </tr>
+          `;
+        }
+
+        return `
+        <tr class="record-row ${state.selectedRecordId === rec.id ? 'row-selected' : ''}" data-id="${safeRecId}" tabindex="0" role="button" aria-label="Record ${safeRecId}, press Enter to view details" onclick="handleRecordRowClick(this)" onkeydown="handleRecordRowKeyDown(event, this)">
+          <td><span class="id-pill">${safeRecId}</span></td>
+          ${cellsHtml}
           <td style="color:var(--text-muted);font-size:12px;">${new Date(rec.created).toLocaleString()}</td>
           <td>
             <div style="display:flex; align-items:center; gap:4px;">

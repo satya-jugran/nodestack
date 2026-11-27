@@ -89,8 +89,24 @@ export class SqliteDialect implements ISqlDialect {
     };
   }
 
+  public viewExistsSql(): string {
+    return `SELECT 1 FROM sqlite_master WHERE type = 'view' AND name = ?`;
+  }
+
+  public getViewColumnsSql(viewName: string): { sql: string; mapRow: (row: any) => ColumnMetadata } {
+    return this.getTableColumnsSql(viewName);
+  }
+
   public createTableIfNotExists(table: string, columnsSql: string): string {
     return `CREATE TABLE IF NOT EXISTS ${this.quoteIdentifier(table)} (${columnsSql})`;
+  }
+
+  public createViewSql(viewName: string, selectSql: string): string {
+    return `CREATE VIEW ${this.quoteIdentifier(viewName)} AS ${selectSql}`;
+  }
+
+  public dropViewIfExists(viewName: string): string {
+    return `DROP VIEW IF EXISTS ${this.quoteIdentifier(viewName)}`;
   }
 
   public createIndexIfNotExists(

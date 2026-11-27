@@ -261,7 +261,7 @@ function initRouter() {
 
 
 function showPageView(viewName) {
-  const views = ['home', 'collections', 'plugins', 'webhooks', 'functions', 'flows', 'queues', 'schedules', 'api-keys', 'analytics', 'snapshots', 'database', 'logs'];
+  const views = ['home', 'collections', 'view-designer', 'plugins', 'webhooks', 'functions', 'flows', 'queues', 'schedules', 'api-keys', 'analytics', 'snapshots', 'database', 'logs'];
   for (const v of views) {
     const el = document.getElementById('page-view-' + v);
     if (el) {
@@ -288,6 +288,17 @@ function clearSidebarNavActive() {
 }
 
 async function selectNav(nav, pushState = true) {
+  if (
+    state.activeNav === 'view-designer' &&
+    nav !== 'view-designer' &&
+    typeof isViewDesignerDirty === 'function' &&
+    isViewDesignerDirty()
+  ) {
+    if (typeof confirmLeaveViewDesigner === 'function') {
+      confirmLeaveViewDesigner(() => selectNav(nav, pushState));
+      return;
+    }
+  }
   state.activeNav = nav;
 
   if (typeof stopAnalyticsAutoRefresh === 'function') {

@@ -730,6 +730,9 @@ export class HttpServer {
     app.post('/api/apps/:appId/collections/import-json', { preHandler: requireAdmin }, (req: any, reply) =>
       this.collectionController.importJson(req, reply)
     );
+    app.post('/api/apps/:appId/collections/preview-view', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.collectionController.previewView(req, reply)
+    );
     app.get('/api/apps/:appId/collections/:collection', { preHandler: requireAdmin }, (req: any, reply) =>
       this.collectionController.getOne(req, reply)
     );
@@ -1225,6 +1228,9 @@ export class HttpServer {
     );
     app.post('/api/collections/import-json', { preHandler: requireAdmin }, (req: any, reply) =>
       this.collectionController.importJson(req, reply)
+    );
+    app.post('/api/collections/preview-view', { preHandler: requireAdmin }, (req: any, reply) =>
+      this.collectionController.previewView(req, reply)
     );
     app.patch('/api/collections/:collection', { preHandler: requireAdmin }, (req: any, reply) =>
       this.collectionController.update(req, reply)

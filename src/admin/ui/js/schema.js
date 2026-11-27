@@ -123,15 +123,33 @@
             <input type="text" class="form-input" id="schema-col-name" value="${col.name}" ${col.system ? 'disabled' : ''}>
           </div>
 
+          ${col.type === 'view' ? `
+            <div style="border:1px solid var(--border-subtle); border-radius:8px; padding:1.25rem; background:var(--bg-card);">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; gap:0.5rem; flex-wrap:wrap;">
+                <h3 style="font-size:14px; font-weight:700; margin:0;">SQL View Query (Read-Only)</h3>
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                  <span class="badge badge-warning" style="font-size:10px;">AUTO-INFERS SCHEMA</span>
+                  <button type="button" class="btn btn-secondary btn-sm" onclick="openViewDesigner({ existingCol: state.activeCollection })">Open in View Designer</button>
+                </div>
+              </div>
+              <textarea class="form-textarea" id="schema-view-query" rows="6" style="font-family: var(--font-mono); font-size: 12px; width:100%;">${escapeHtml((col.options?.viewQueries && col.options.viewQueries[(typeof databaseState !== 'undefined' && databaseState?.status?.provider ? databaseState.status.provider.toLowerCase() : 'sqlite')]) || '')}</textarea>
+              <p style="font-size:11px; color:var(--text-muted); margin:6px 0 0 0;">
+                Saving updates the SQL <code>VIEW</code> for the active dialect and re-infers output columns automatically.
+              </p>
+            </div>
+          ` : ''}
+
           <div style="border:1px solid var(--border-subtle); border-radius:8px; padding:1.25rem; background:var(--bg-card);">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; gap:0.5rem; flex-wrap:wrap;">
-              <h3 style="font-size:14px; font-weight:700;">Fields Schema</h3>
+              <h3 style="font-size:14px; font-weight:700;">${col.type === 'view' ? 'Inferred View Columns' : 'Fields Schema'}</h3>
+              ${col.type !== 'view' ? `
               <div style="display:flex; align-items:center; gap:0.5rem;">
                 ${col.type === 'auth' && !(col.schema || []).some(f => f.name === 'role') ? `
                   <button type="button" id="btn-add-role-field" class="btn btn-secondary btn-sm" onclick="addRoleFieldPreset()" title="Scaffold a Protected select 'role' field (user, editor, moderator)">+ Add Role Field</button>
                 ` : ''}
                 <button type="button" class="btn btn-secondary btn-sm" onclick="addFieldToSchema()">+ Add Field</button>
               </div>
+              ` : ''}
             </div>
             <div id="schema-fields-container" style="display:flex; flex-direction:column; gap:0.75rem;">
               <!-- Field rows -->
@@ -327,10 +345,25 @@
           schema: col.schema,
           listRule: getRuleValueToSave('list'),
           viewRule: getRuleValueToSave('view'),
-          createRule: getRuleValueToSave('create'),
-          updateRule: getRuleValueToSave('update'),
-          deleteRule: getRuleValueToSave('delete'),
+          createRule: col.type === 'view' ? null : getRuleValueToSave('create'),
+          updateRule: col.type === 'view' ? null : getRuleValueToSave('update'),
+          deleteRule: col.type === 'view' ? null : getRuleValueToSave('delete'),
         };
+
+        if (col.type === 'view') {
+          const viewQueryEl = document.getElementById('schema-view-query');
+          const activeDialect = (typeof databaseState !== 'undefined' && databaseState?.status?.provider)
+            ? String(databaseState.status.provider).toLowerCase()
+            : 'sqlite';
+          const existingQueries = col.options?.viewQueries || {};
+          body.options = {
+            ...(col.options || {}),
+            viewQueries: {
+              ...existingQueries,
+              ...(viewQueryEl ? { [activeDialect]: viewQueryEl.value.trim() } : {}),
+            },
+          };
+        }
 
         const updated = await api(`/api/collections/${col.name}`, {
           method: 'PATCH',

@@ -101,9 +101,41 @@ export class MssqlDialect implements ISqlDialect {
     };
   }
 
+  public viewExistsSql(): string {
+    return `SELECT 1 FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = SCHEMA_NAME() AND TABLE_NAME = ?`;
+  }
+
+  public getViewColumnsSql(_viewName: string): { sql: string; mapRow: (row: any) => ColumnMetadata } {
+    return {
+      sql: `SELECT COLUMN_NAME AS name, DATA_TYPE AS type, IS_NULLABLE, COLUMN_DEFAULT AS default_value
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = SCHEMA_NAME() AND TABLE_NAME = ?
+            ORDER BY ORDINAL_POSITION ASC`,
+      mapRow: (row: any) => ({
+        name: row.name,
+        type: row.type || '',
+        notNull: row.IS_NULLABLE === 'NO',
+        defaultValue: row.default_value,
+        isPrimaryKey: false,
+      }),
+    };
+  }
+
   public createTableIfNotExists(table: string, columnsSql: string): string {
     return `IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE t.name = '${table.replace(/'/g, "''")}' AND s.name = SCHEMA_NAME())
             CREATE TABLE ${this.quoteIdentifier(table)} (${columnsSql})`;
+  }
+
+  public createViewSql(viewName: string, selectSql: string): string {
+    return `CREATE VIEW ${this.quoteIdentifier(viewName)} AS ${selectSql}`;
+  }
+
+  public dropViewIfExists(viewName: string): string {
+    return `IF OBJECT_ID('${viewName.replace(/'/g, "''")}', 'V') IS NOT NULL DROP VIEW ${this.quoteIdentifier(viewName)}`;
+  }
+
+  public renameViewSql(oldName: string, newName: string): string {
+    return `EXEC sp_rename '${oldName.replace(/'/g, "''")}', '${newName.replace(/'/g, "''")}'`;
   }
 
   public createIndexIfNotExists(

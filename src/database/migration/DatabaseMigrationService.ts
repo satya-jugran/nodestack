@@ -1,6 +1,8 @@
 import * as path from 'path';
 import { IDatabaseDriver } from '../drivers/IDatabaseDriver';
 import { SystemMigrations } from '../migrations/SystemMigrations';
+import { ViewQueryValidator } from '../../schema/ViewQueryValidator';
+import { ViewSchemaInferrer } from '../../schema/ViewSchemaInferrer';
 
 export interface MigrationSummary {
   appsCount: number;
@@ -419,10 +421,12 @@ export class DatabaseMigrationService {
     let collectionsCount = 0;
     let recordsCount = 0;
 
-    // 2. Read collections from source
-    const collections = await sourceDriver
+    // 2. Read collections from source (partition physical tables before SQL views)
+    const allCollections = await sourceDriver
       .prepare('SELECT * FROM _collections ORDER BY created ASC')
       .all<any>();
+    const collections = allCollections.filter((c: any) => c.type !== 'view');
+    const viewCollections = allCollections.filter((c: any) => c.type === 'view');
 
     const systemTables = [
       '_admins',
@@ -634,6 +638,117 @@ export class DatabaseMigrationService {
         throw new Error(
           `Migration verification failed for collection '${col.name}': count mismatch (source: ${total}, target: ${targetTotal})`
         );
+      }
+    }
+
+    // 2.5 Migrate SQL view collections inside a single atomic transaction (with execution & schema-drift verification)
+    if (viewCollections.length > 0) {
+      const migrateViewsInTx = async (txDriver: IDatabaseDriver) => {
+        const rawExistingCols = await txDriver.prepare('SELECT * FROM _collections').all<any>();
+        const knownCols = (rawExistingCols || []).map((c: any) => ({
+          ...c,
+          schema: typeof c.schema === 'string' ? JSON.parse(c.schema || '[]') : (c.schema || []),
+          indexes: typeof c.indexes === 'string' ? JSON.parse(c.indexes || '[]') : (c.indexes || []),
+          options: typeof c.options === 'string' ? JSON.parse(c.options || '{}') : (c.options || {}),
+        }));
+
+        const dbAdapter: any = {
+          dialect: txDriver.dialect,
+          getRootDriver: () => txDriver,
+          all: <T = any>(sql: string, ...params: any[]) => txDriver.prepare(sql).all<T>(...params),
+        };
+
+        const authColNames = new Set<string>(['users']);
+        for (const kc of knownCols) {
+          if (kc.type === 'auth' && kc.name) authColNames.add(kc.name.toLowerCase());
+        }
+
+        let pendingViews = [...viewCollections];
+        let maxPasses = pendingViews.length + 1;
+        let lastErr: any;
+
+        while (pendingViews.length > 0 && maxPasses-- > 0) {
+          const nextPending: any[] = [];
+          for (const col of pendingViews) {
+            const opts = typeof col.options === 'string' ? JSON.parse(col.options || '{}') : (col.options || {});
+            const viewQuery = ViewQueryValidator.resolveViewQuery(opts, txDriver.dialect.name);
+            if (!viewQuery || !viewQuery.trim()) {
+              throw new Error(`View '${col.name}' has no SQL query defined for target dialect '${txDriver.dialect.name}'`);
+            }
+            const validatedSql = ViewQueryValidator.validate(viewQuery, txDriver.dialect.name, col.name, authColNames);
+
+            try {
+              await txDriver.exec(txDriver.dialect.dropViewIfExists(col.name));
+              await txDriver.exec(txDriver.dialect.createViewSql(col.name, validatedSql));
+              await txDriver.prepare(`SELECT * FROM ${txDriver.dialect.quoteIdentifier(col.name)} WHERE 1 = 0`).all();
+
+              const targetInferred = await ViewSchemaInferrer.infer({
+                db: dbAdapter,
+                viewName: col.name,
+                selectSql: validatedSql,
+                existingCollections: knownCols,
+              });
+              const sourceSchema = typeof col.schema === 'string' ? JSON.parse(col.schema || '[]') : (col.schema || []);
+              ViewSchemaInferrer.assertNoSchemaDrift(sourceSchema, targetInferred, col.name);
+
+              const exists = await txDriver
+                .prepare('SELECT id FROM _collections WHERE name = ?')
+                .get(col.name);
+
+              if (!exists) {
+                await txDriver.prepare(`
+                  INSERT INTO _collections (
+                    id, name, type, system, schema, indexes, listRule, viewRule,
+                    createRule, updateRule, deleteRule, options, created, updated
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `).run(
+                  col.id,
+                  col.name,
+                  col.type,
+                  col.system ? 1 : 0,
+                  JSON.stringify(targetInferred),
+                  typeof col.indexes === 'string' ? col.indexes : JSON.stringify(col.indexes || []),
+                  col.listRule,
+                  col.viewRule,
+                  null,
+                  null,
+                  null,
+                  typeof col.options === 'string' ? col.options : JSON.stringify(col.options || {}),
+                  col.created,
+                  col.updated
+                );
+              }
+              knownCols.push({ ...col, schema: targetInferred, options: opts });
+              collectionsCount++;
+            } catch (err: any) {
+              lastErr = err;
+              if (err?.statusCode === 400 && /Schema drift detected/i.test(err?.message || '')) {
+                throw err;
+              }
+              nextPending.push(col);
+            }
+          }
+
+          if (nextPending.length > 0 && (nextPending.length === pendingViews.length || maxPasses === 0)) {
+            throw lastErr || new Error('Failed to migrate view collections');
+          }
+          pendingViews = nextPending;
+        }
+      };
+
+      if (targetDriver.dialect.name === 'sqlite') {
+        await DatabaseMigrationService.executeSqliteTransaction(targetDriver, () => migrateViewsInTx(targetDriver));
+      } else if (typeof targetDriver.transaction === 'function') {
+        await targetDriver.transaction(migrateViewsInTx);
+      } else {
+        await targetDriver.exec('BEGIN;');
+        try {
+          await migrateViewsInTx(targetDriver);
+          await targetDriver.exec('COMMIT;');
+        } catch (err) {
+          try { await targetDriver.exec('ROLLBACK;'); } catch {}
+          throw err;
+        }
       }
     }
 

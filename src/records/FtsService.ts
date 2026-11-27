@@ -39,7 +39,7 @@ export function isFtsField(field: SchemaField): boolean {
 }
 
 export function getFtsFields(col: CollectionModel): SchemaField[] {
-  if (!col || !Array.isArray(col.schema)) return [];
+  if (!col || col.type === 'view' || !Array.isArray(col.schema)) return [];
   return col.schema.filter(isFtsField);
 }
 
@@ -137,6 +137,9 @@ export class FtsService {
   }
 
   public syncCollection(col: CollectionModel): Promise<void> | void {
+    if (!col || col.type === 'view') {
+      return;
+    }
     const key = (col.name || '').toLowerCase().trim();
     const existingLock = this.rebuildLocks.get(key);
 

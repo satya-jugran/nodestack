@@ -103,7 +103,9 @@ export class TypeGenerator {
       const fieldsToRender: Array<{ name: string; typeStr: string; required: boolean }> = [];
       const relationFields: Array<{ name: string; targetColName?: string; isMulti: boolean }> = [];
 
-      const systemFieldsToSkip = new Set(['id', 'created', 'updated']);
+      const systemFieldsToSkip = col.type === 'view'
+        ? new Set<string>()
+        : new Set(['id', 'created', 'updated']);
       if (col.type === 'auth') {
         systemFieldsToSkip.add('email');
         systemFieldsToSkip.add('emailVisibility');
@@ -135,7 +137,7 @@ export class TypeGenerator {
         fieldsToRender.push({
           name: field.name,
           typeStr,
-          required: Boolean(field.required),
+          required: Boolean(field.required || (col.type === 'view' && field.name === 'id')),
         });
       }
 
@@ -145,8 +147,12 @@ export class TypeGenerator {
       }
 
       // 2. Collection Record Interface
-      const baseInterface = col.type === 'auth' ? 'AuthSystemFields' : 'BaseSystemFields';
-      lines.push(`export interface ${recordName} extends ${baseInterface} {`);
+      if (col.type === 'view') {
+        lines.push(`export interface ${recordName} {`);
+      } else {
+        const baseInterface = col.type === 'auth' ? 'AuthSystemFields' : 'BaseSystemFields';
+        lines.push(`export interface ${recordName} extends ${baseInterface} {`);
+      }
       for (const f of fieldsToRender) {
         const formattedName = this.formatPropertyName(f.name);
         const optionalFlag = f.required ? '' : '?';

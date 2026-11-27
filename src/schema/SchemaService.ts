@@ -1,9 +1,12 @@
 import * as crypto from 'crypto';
 import { DatabaseService } from '../database/DatabaseService';
-import { CollectionModel, CreateCollectionDto, UpdateCollectionDto } from './models/Collection';
+import { CollectionModel, CollectionOptions, CreateCollectionDto, UpdateCollectionDto, ViewDialect } from './models/Collection';
 import { SchemaField, FieldType } from './models/Field';
 import { AppError, ConflictError, NotFoundError } from '../core/errors/AppError';
 import { FtsService, isReservedFtsFieldName } from '../records/FtsService';
+import { ViewQueryValidator } from './ViewQueryValidator';
+import { ViewSchemaDiff, ViewSchemaInferrer } from './ViewSchemaInferrer';
+import { RuleEngine } from '../rules/RuleEngine';
 
 export class SchemaService {
   constructor(private db: DatabaseService, private ftsService?: FtsService) {}
@@ -87,21 +90,48 @@ export class SchemaService {
     const id = (dto.id && String(dto.id).trim()) || `c_${crypto.randomBytes(6).toString('hex')}`;
     const now = new Date().toISOString();
     const type = dto.type || 'base';
+    const indexes = dto.indexes || [];
+    const options = dto.options || {};
 
-    if (dto.schema && Array.isArray(dto.schema)) {
+    let validatedViewQuery: string | undefined;
+    if (type === 'view') {
+      if (indexes.length > 0) {
+        throw new AppError('View collections cannot define physical indexes', 400);
+      }
+      if (!this.isAsyncDriver()) {
+        const authCols = this.getAuthCollectionNames(this.getAllCollections());
+        validatedViewQuery = this.validateViewQueriesForOptions(options, this.db.dialect?.name, cleanName, authCols);
+      }
+    } else if (dto.schema && Array.isArray(dto.schema)) {
       this.validateSchemaFields(dto.schema, type);
     }
+
     const schema = (dto.schema || []).map((f) => ({
       ...f,
       id: f.id || `f_${crypto.randomBytes(4).toString('hex')}`,
     }));
-    const indexes = dto.indexes || [];
-    const options = dto.options || {};
+
+    const effectiveCreateRule = type === 'view' ? null : (dto.createRule !== undefined ? dto.createRule : null);
+    const effectiveUpdateRule = type === 'view' ? null : (dto.updateRule !== undefined ? dto.updateRule : null);
+    const effectiveDeleteRule = type === 'view' ? null : (dto.deleteRule !== undefined ? dto.deleteRule : null);
 
     const executeCreateSync = () => {
       return this.db.transactionSync(() => {
-        // 1. Create SQL table
-        this.createSqlTable(cleanName, type, schema);
+        let finalSchema = schema;
+        if (type === 'view' && validatedViewQuery) {
+          const existingCols = this.getAllCollections();
+          this.recreateSqlViewSync(cleanName, cleanName, validatedViewQuery);
+          finalSchema = ViewSchemaInferrer.infer({
+            db: this.db,
+            viewName: cleanName,
+            selectSql: validatedViewQuery,
+            existingCollections: existingCols,
+            overrides: dto.schema,
+          }) as SchemaField[];
+        } else {
+          // 1. Create SQL table
+          this.createSqlTable(cleanName, type, schema);
+        }
 
         // 2. Insert into _collections
         this.db.prepareSync(`
@@ -113,20 +143,20 @@ export class SchemaService {
           cleanName,
           type,
           isSystem ? 1 : 0,
-          JSON.stringify(schema),
+          JSON.stringify(finalSchema),
           JSON.stringify(indexes),
           dto.listRule !== undefined ? dto.listRule : null,
           dto.viewRule !== undefined ? dto.viewRule : null,
-          dto.createRule !== undefined ? dto.createRule : null,
-          dto.updateRule !== undefined ? dto.updateRule : null,
-          dto.deleteRule !== undefined ? dto.deleteRule : null,
+          effectiveCreateRule,
+          effectiveUpdateRule,
+          effectiveDeleteRule,
           JSON.stringify(options),
           now,
           now
         );
 
         const created = this.getCollectionOrThrow(id);
-        if (this.ftsService) {
+        if (this.ftsService && type !== 'view') {
           this.ftsService.syncCollection(created);
         }
         return created;
@@ -135,8 +165,23 @@ export class SchemaService {
 
     const executeCreateAsync = async () => {
       return this.db.transaction(async () => {
-        // 1. Create SQL table
-        await this.createSqlTable(cleanName, type, schema);
+        let finalSchema = schema;
+        if (type === 'view') {
+          const existingCols = await this.getAllCollections();
+          const authCols = this.getAuthCollectionNames(existingCols);
+          const viewSql = this.validateViewQueriesForOptions(options, this.db.dialect?.name, cleanName, authCols);
+          await this.recreateSqlViewAsync(cleanName, cleanName, viewSql);
+          finalSchema = await ViewSchemaInferrer.infer({
+            db: this.db,
+            viewName: cleanName,
+            selectSql: viewSql,
+            existingCollections: existingCols,
+            overrides: dto.schema,
+          });
+        } else {
+          // 1. Create SQL table
+          await this.createSqlTable(cleanName, type, schema);
+        }
 
         // 2. Insert into _collections
         await this.db.prepare(`
@@ -148,20 +193,20 @@ export class SchemaService {
           cleanName,
           type,
           isSystem ? 1 : 0,
-          JSON.stringify(schema),
+          JSON.stringify(finalSchema),
           JSON.stringify(indexes),
           dto.listRule !== undefined ? dto.listRule : null,
           dto.viewRule !== undefined ? dto.viewRule : null,
-          dto.createRule !== undefined ? dto.createRule : null,
-          dto.updateRule !== undefined ? dto.updateRule : null,
-          dto.deleteRule !== undefined ? dto.deleteRule : null,
+          effectiveCreateRule,
+          effectiveUpdateRule,
+          effectiveDeleteRule,
           JSON.stringify(options),
           now,
           now
         );
 
         const created = await this.getCollectionOrThrow(id);
-        if (this.ftsService) {
+        if (this.ftsService && type !== 'view') {
           await this.ftsService.syncCollection(created);
         }
         return created;
@@ -271,30 +316,52 @@ export class SchemaService {
           }
         }
 
-        const newSchema = dto.schema !== undefined ? dto.schema : current.schema;
-        if (dto.schema) {
+        let newSchema = dto.schema !== undefined ? dto.schema : current.schema;
+        if (dto.schema && current.type !== 'view') {
           this.validateSchemaFields(dto.schema, current.type);
         }
 
         const listRule = dto.listRule !== undefined ? dto.listRule : current.listRule;
         const viewRule = dto.viewRule !== undefined ? dto.viewRule : current.viewRule;
-        const createRule = dto.createRule !== undefined ? dto.createRule : current.createRule;
-        const updateRule = dto.updateRule !== undefined ? dto.updateRule : current.updateRule;
-        const deleteRule = dto.deleteRule !== undefined ? dto.deleteRule : current.deleteRule;
+        const createRule = current.type === 'view' ? null : (dto.createRule !== undefined ? dto.createRule : current.createRule);
+        const updateRule = current.type === 'view' ? null : (dto.updateRule !== undefined ? dto.updateRule : current.updateRule);
+        const deleteRule = current.type === 'view' ? null : (dto.deleteRule !== undefined ? dto.deleteRule : current.deleteRule);
         const options = dto.options !== undefined ? dto.options : current.options;
         const indexes = dto.indexes !== undefined ? dto.indexes : current.indexes;
 
-        return this.db.transaction(async () => {
-          if (cleanNewName && cleanNewName !== current.name) {
-            if (this.ftsService) {
-              await this.ftsService.dropCollectionFts(current.name);
-            }
-            await this.db.exec(this.db.dialect.renameTableSql(current.name, cleanNewName));
-            targetName = cleanNewName;
-          }
+        if (current.type === 'view' && Array.isArray(indexes) && indexes.length > 0) {
+          throw new AppError('View collections cannot define physical indexes', 400);
+        }
 
-          if (dto.schema) {
-            await this.syncTableColumns(targetName, current.schema, newSchema);
+        return this.db.transaction(async () => {
+          if (current.type === 'view') {
+            if (cleanNewName && cleanNewName !== current.name) {
+              targetName = cleanNewName;
+            }
+            const allCols = await this.getAllCollections();
+            const authCols = this.getAuthCollectionNames(allCols);
+            const viewSql = this.validateViewQueriesForOptions(options, this.db.dialect?.name, cleanNewName || current.name, authCols);
+            await this.recreateSqlViewAsync(current.name, targetName, viewSql);
+            newSchema = await ViewSchemaInferrer.infer({
+              db: this.db,
+              viewName: targetName,
+              selectSql: viewSql,
+              existingCollections: allCols.filter((c: CollectionModel) => c.id !== current.id),
+              overrides: dto.schema,
+            });
+            this.assertViewRulesValid(targetName, listRule, viewRule, newSchema);
+          } else {
+            if (cleanNewName && cleanNewName !== current.name) {
+              if (this.ftsService) {
+                await this.ftsService.dropCollectionFts(current.name);
+              }
+              await this.db.exec(this.db.dialect.renameTableSql(current.name, cleanNewName));
+              targetName = cleanNewName;
+            }
+
+            if (dto.schema) {
+              await this.syncTableColumns(targetName, current.schema, newSchema);
+            }
           }
 
           await this.db.prepare(`
@@ -325,7 +392,7 @@ export class SchemaService {
           );
 
           const updated = await this.getCollectionOrThrow(current.id);
-          if (this.ftsService) {
+          if (this.ftsService && updated.type !== 'view') {
             await this.ftsService.syncCollection(updated);
           }
           return updated;
@@ -338,37 +405,58 @@ export class SchemaService {
     const now = new Date().toISOString();
 
     return this.db.transactionSync(() => {
-      // Handle rename if provided and changed
+      let cleanNewName: string | undefined;
       if (dto.name && dto.name.trim().toLowerCase() !== current.name) {
         if (current.system) {
           throw new AppError('Cannot rename system collections', 400);
         }
-        const cleanNewName = dto.name.trim().toLowerCase();
+        cleanNewName = dto.name.trim().toLowerCase();
         const existing = this.getCollection(cleanNewName);
         if (existing && existing.id !== current.id) {
           throw new ConflictError(`Collection '${cleanNewName}' already exists`);
         }
-        if (this.ftsService) {
-          this.ftsService.dropCollectionFts(current.name);
-        }
-        this.db.execSync(this.db.dialect.renameTableSql(current.name, cleanNewName));
         targetName = cleanNewName;
-      }
-
-      // Handle schema additions
-      const newSchema = dto.schema !== undefined ? dto.schema : current.schema;
-      if (dto.schema) {
-        this.validateSchemaFields(dto.schema, current.type);
-        this.syncTableColumns(targetName, current.schema, newSchema);
       }
 
       const listRule = dto.listRule !== undefined ? dto.listRule : current.listRule;
       const viewRule = dto.viewRule !== undefined ? dto.viewRule : current.viewRule;
-      const createRule = dto.createRule !== undefined ? dto.createRule : current.createRule;
-      const updateRule = dto.updateRule !== undefined ? dto.updateRule : current.updateRule;
-      const deleteRule = dto.deleteRule !== undefined ? dto.deleteRule : current.deleteRule;
+      const createRule = current.type === 'view' ? null : (dto.createRule !== undefined ? dto.createRule : current.createRule);
+      const updateRule = current.type === 'view' ? null : (dto.updateRule !== undefined ? dto.updateRule : current.updateRule);
+      const deleteRule = current.type === 'view' ? null : (dto.deleteRule !== undefined ? dto.deleteRule : current.deleteRule);
       const options = dto.options !== undefined ? dto.options : current.options;
       const indexes = dto.indexes !== undefined ? dto.indexes : current.indexes;
+
+      if (current.type === 'view' && Array.isArray(indexes) && indexes.length > 0) {
+        throw new AppError('View collections cannot define physical indexes', 400);
+      }
+
+      let newSchema = dto.schema !== undefined ? dto.schema : current.schema;
+      if (current.type === 'view') {
+        const allCols = this.getAllCollections();
+        const authCols = this.getAuthCollectionNames(allCols);
+        const validatedViewQuery = this.validateViewQueriesForOptions(options, this.db.dialect?.name, targetName, authCols);
+        this.recreateSqlViewSync(current.name, targetName, validatedViewQuery);
+        newSchema = ViewSchemaInferrer.infer({
+          db: this.db,
+          viewName: targetName,
+          selectSql: validatedViewQuery,
+          existingCollections: allCols.filter((c: CollectionModel) => c.id !== current.id),
+          overrides: dto.schema,
+        }) as SchemaField[];
+        this.assertViewRulesValid(targetName, listRule, viewRule, newSchema);
+      } else {
+        if (cleanNewName && cleanNewName !== current.name) {
+          if (this.ftsService) {
+            this.ftsService.dropCollectionFts(current.name);
+          }
+          this.db.execSync(this.db.dialect.renameTableSql(current.name, cleanNewName));
+        }
+
+        if (dto.schema) {
+          this.validateSchemaFields(dto.schema, current.type);
+          this.syncTableColumns(targetName, current.schema, newSchema);
+        }
+      }
 
       this.db.prepareSync(`
         UPDATE _collections SET
@@ -398,7 +486,7 @@ export class SchemaService {
       );
 
       const updated = this.getCollectionOrThrow(current.id);
-      if (this.ftsService) {
+      if (this.ftsService && updated.type !== 'view') {
         this.ftsService.syncCollection(updated);
       }
       return updated;
@@ -422,10 +510,13 @@ export class SchemaService {
           throw new AppError('Cannot delete system collection', 400);
         }
         return this.db.transaction(async () => {
-          if (this.ftsService) {
+          if (this.ftsService && current.type !== 'view') {
             await this.ftsService.dropCollectionFts(current.name);
           }
-          await this.db.exec(this.db.dialect.dropTableIfExists(current.name));
+          const dropSql = current.type === 'view'
+            ? this.db.dialect.dropViewIfExists(current.name)
+            : this.db.dialect.dropTableIfExists(current.name);
+          await this.db.exec(dropSql);
           await this.db.prepare('DELETE FROM _collections WHERE id = ?').run(current.id);
         });
       })();
@@ -436,12 +527,209 @@ export class SchemaService {
       throw new AppError('Cannot delete system collection', 400);
     }
     return this.db.transactionSync(() => {
-      if (this.ftsService) {
+      if (this.ftsService && current.type !== 'view') {
         this.ftsService.dropCollectionFts(current.name);
       }
-      this.db.execSync(this.db.dialect.dropTableIfExists(current.name));
+      const dropSql = current.type === 'view'
+        ? this.db.dialect.dropViewIfExists(current.name)
+        : this.db.dialect.dropTableIfExists(current.name);
+      this.db.execSync(dropSql);
       this.db.prepareSync('DELETE FROM _collections WHERE id = ?').run(current.id);
     });
+  }
+
+  public async previewViewQuery(params: {
+    name?: string;
+    viewQueries?: Partial<Record<ViewDialect, string>>;
+    dialect?: ViewDialect;
+    limit?: number;
+  }): Promise<{
+    valid: boolean;
+    staticOnly?: boolean;
+    activeDialect: string;
+    error?: string;
+    schema: SchemaField[];
+    rows: Array<Record<string, any>>;
+    schemaDiff?: ViewSchemaDiff;
+    ruleWarnings?: string[];
+  }> {
+    const dialect = this.db.dialect;
+    const activeDialect = (dialect?.name || 'sqlite') as ViewDialect;
+    const targetDialect = (params.dialect || activeDialect) as ViewDialect;
+    const limit = Math.max(1, Math.min(50, Number(params.limit) || 25));
+    const cleanViewName = params.name ? params.name.trim().toLowerCase() : undefined;
+    const rawQuery = params.viewQueries?.[targetDialect] || '';
+
+    const existingColsForAuth = !this.isAsyncDriver()
+      ? this.getAllCollections()
+      : await this.getAllCollections();
+    const authCols = this.getAuthCollectionNames(existingColsForAuth);
+
+    let validatedSql: string;
+    try {
+      validatedSql = ViewQueryValidator.validate(rawQuery, targetDialect, cleanViewName, authCols);
+    } catch (err: any) {
+      return {
+        valid: false,
+        staticOnly: targetDialect !== activeDialect,
+        activeDialect,
+        error: err?.message || 'Invalid view query',
+        schema: [],
+        rows: [],
+      };
+    }
+
+    if (targetDialect !== activeDialect) {
+      return {
+        valid: true,
+        staticOnly: true,
+        activeDialect,
+        schema: [],
+        rows: [],
+      };
+    }
+
+    const tempViewName = `_nodestack_preview_${crypto.randomBytes(4).toString('hex')}`;
+    const previewSelect = dialect.paginate(
+      `SELECT * FROM ${dialect.quoteIdentifier(tempViewName)}`,
+      limit,
+      0
+    );
+
+    const buildDiffAndWarnings = (existingCols: CollectionModel[], inferred: SchemaField[]) => {
+      if (!cleanViewName) return {};
+      const existing = existingCols.find((c) => c.name === cleanViewName && c.type === 'view');
+      if (!existing) return {};
+      const schemaDiff = ViewSchemaInferrer.diffSchemas(existing.schema, inferred);
+      const ruleWarnings = this.collectViewRuleWarnings(existing.listRule, existing.viewRule, inferred);
+      return { schemaDiff, ruleWarnings };
+    };
+
+    if (!this.isAsyncDriver()) {
+      try {
+        const existingCols = this.getAllCollections();
+        this.recreateSqlViewSync(tempViewName, tempViewName, validatedSql);
+        const inferred = ViewSchemaInferrer.infer({
+          db: this.db,
+          viewName: tempViewName,
+          selectSql: validatedSql,
+          existingCollections: existingCols,
+        }) as SchemaField[];
+        const rows = this.db.prepareSync(previewSelect).all<Record<string, any>>() || [];
+        return {
+          valid: true,
+          activeDialect,
+          schema: inferred,
+          rows,
+          ...buildDiffAndWarnings(existingCols, inferred),
+        };
+      } catch (err: any) {
+        return {
+          valid: false,
+          activeDialect,
+          error: err?.message || 'Failed to execute view query',
+          schema: [],
+          rows: [],
+        };
+      } finally {
+        try {
+          this.db.execSync(dialect.dropViewIfExists(tempViewName));
+        } catch {}
+      }
+    }
+
+    try {
+      const existingCols = await this.getAllCollections();
+      await this.recreateSqlViewAsync(tempViewName, tempViewName, validatedSql);
+      const inferred = await ViewSchemaInferrer.infer({
+        db: this.db,
+        viewName: tempViewName,
+        selectSql: validatedSql,
+        existingCollections: existingCols,
+      });
+      const rows = (await this.db.all<Record<string, any>>(previewSelect)) || [];
+      return {
+        valid: true,
+        activeDialect,
+        schema: inferred,
+        rows,
+        ...buildDiffAndWarnings(existingCols, inferred),
+      };
+    } catch (err: any) {
+      return {
+        valid: false,
+        activeDialect,
+        error: err?.message || 'Failed to execute view query',
+        schema: [],
+        rows: [],
+      };
+    } finally {
+      try {
+        await this.db.exec(dialect.dropViewIfExists(tempViewName));
+      } catch {}
+    }
+  }
+
+  private getAuthCollectionNames(collections: CollectionModel[]): Set<string> {
+    const authCols = new Set<string>(['users']);
+    for (const c of collections || []) {
+      if (c.type === 'auth' && c.name) {
+        authCols.add(c.name.toLowerCase());
+      }
+    }
+    return authCols;
+  }
+
+  private validateViewQueriesForOptions(
+    options: CollectionOptions,
+    activeDialectName: string,
+    viewName: string,
+    authCols?: Set<string>
+  ): string {
+    const activeQuery = ViewQueryValidator.resolveViewQuery(options, activeDialectName);
+    const validatedActive = ViewQueryValidator.validate(activeQuery, activeDialectName, viewName, authCols);
+
+    const viewQueries = options?.viewQueries;
+    if (viewQueries && typeof viewQueries === 'object') {
+      for (const d of ['sqlite', 'postgres', 'mssql'] as ViewDialect[]) {
+        if (d === activeDialectName) continue;
+        const sql = viewQueries[d];
+        if (typeof sql === 'string' && sql.trim()) {
+          ViewQueryValidator.validate(sql, d, viewName, authCols);
+        }
+      }
+    }
+
+    return validatedActive;
+  }
+
+  private collectViewRuleWarnings(
+    listRule: string | null | undefined,
+    viewRule: string | null | undefined,
+    newSchema: SchemaField[]
+  ): string[] {
+    const allowed = new Set(newSchema.map((f) => f.name));
+    const warnings: string[] = [];
+    for (const [label, rule] of [['listRule', listRule], ['viewRule', viewRule]] as const) {
+      for (const ref of RuleEngine.extractReferencedFields(rule)) {
+        if (!allowed.has(ref)) {
+          warnings.push(`${label} references missing column '${ref}'`);
+        }
+      }
+    }
+    return warnings;
+  }
+
+  private assertViewRulesValid(
+    viewName: string,
+    listRule: string | null | undefined,
+    viewRule: string | null | undefined,
+    newSchema: SchemaField[]
+  ): void {
+    const warnings = this.collectViewRuleWarnings(listRule, viewRule, newSchema);
+    if (warnings.length > 0) {
+      throw new AppError(`Cannot update view '${viewName}': ${warnings.join('; ')}`, 400);
+    }
   }
 
   private validateSchemaFields(schema: SchemaField[], type?: string): void {
@@ -480,6 +768,43 @@ export class SchemaService {
 
   private isAsyncDriver(): boolean {
     return Boolean(this.db.dialect && this.db.dialect.name !== 'sqlite');
+  }
+
+  private recreateSqlViewSync(oldName: string, targetName: string, selectSql: string): void {
+    const dialect = this.db.dialect;
+    const dropOld = dialect.dropViewIfExists(oldName);
+    const dropTarget = oldName !== targetName ? dialect.dropViewIfExists(targetName) : null;
+    const createSql = dialect.createViewSql(targetName, selectSql);
+    const verifySql = `SELECT * FROM ${dialect.quoteIdentifier(targetName)} WHERE 1 = 0`;
+
+    const rootDriver = typeof (this.db as any).getRootDriver === 'function'
+      ? (this.db as any).getRootDriver()
+      : (this.db as any).getDriver?.();
+
+    if (rootDriver && typeof (rootDriver as any).execSync === 'function') {
+      (rootDriver as any).execSync(dropOld);
+      if (dropTarget) (rootDriver as any).execSync(dropTarget);
+      (rootDriver as any).execSync(createSql);
+      (rootDriver as any).prepareSync(verifySql).all();
+      return;
+    }
+
+    this.db.execSync(dropOld);
+    if (dropTarget) this.db.execSync(dropTarget);
+    this.db.execSync(createSql);
+    this.db.prepareSync(verifySql).all();
+  }
+
+  private async recreateSqlViewAsync(oldName: string, targetName: string, selectSql: string): Promise<void> {
+    const dialect = this.db.dialect;
+    await this.db.exec(dialect.dropViewIfExists(oldName));
+    if (oldName !== targetName) {
+      await this.db.exec(dialect.dropViewIfExists(targetName));
+    }
+    // Execute CREATE VIEW in its own batch (required by MSSQL)
+    await this.db.exec(dialect.createViewSql(targetName, selectSql));
+    // Force engine to resolve tables, columns, and functions at save time
+    await this.db.all(`SELECT * FROM ${dialect.quoteIdentifier(targetName)} WHERE 1 = 0`);
   }
 
   private createSqlTable(name: string, type: string, schema: SchemaField[]): any {
