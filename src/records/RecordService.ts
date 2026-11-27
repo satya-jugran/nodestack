@@ -240,7 +240,11 @@ export class RecordService {
 
     // Fallback if search was passed but no FTS table is available
     if (searchTerm && !hasFts) {
-      const textFields = col.schema.filter((f) => f.type === 'text' || f.type === 'email' || f.type === 'url');
+      const textFields = col.schema.filter(
+        (f) =>
+          (f.type === 'text' || f.type === 'email' || f.type === 'url') &&
+          !(f.options?.authEmail && !auth?.isAdmin)
+      );
       if (textFields.length === 0) {
         return {
           page,
@@ -782,7 +786,11 @@ export class RecordService {
       }
     } else {
       if (searchTerm && !hasFts) {
-        const textFields = col.schema.filter((f) => f.type === 'text' || f.type === 'email' || f.type === 'url');
+        const textFields = col.schema.filter(
+          (f) =>
+            (f.type === 'text' || f.type === 'email' || f.type === 'url') &&
+            !(f.options?.authEmail && !auth?.isAdmin)
+        );
         if (textFields.length === 0) {
           rawItems = [];
         } else {
@@ -1021,10 +1029,17 @@ export class RecordService {
   }
 
   private buildAllowedFields(col: CollectionModel, auth?: any): Set<string> {
-    const allowedFields = new Set(col.schema.map((f) => f.name));
     if (col.type === 'view') {
+      const allowedFields = new Set<string>();
+      for (const f of col.schema) {
+        if (f.options?.authEmail && !auth?.isAdmin) {
+          continue;
+        }
+        allowedFields.add(f.name);
+      }
       return allowedFields;
     }
+    const allowedFields = new Set(col.schema.map((f) => f.name));
     allowedFields.add('id');
     allowedFields.add('created');
     allowedFields.add('updated');

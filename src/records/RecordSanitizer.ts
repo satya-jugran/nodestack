@@ -69,6 +69,22 @@ export class RecordSanitizer {
       if (!clean.emailVisibility && !isRecordOwner && !isAdmin) {
         delete clean.email;
       }
+    } else if (col.type === 'view') {
+      for (const field of SENSITIVE_AUTH_FIELDS) {
+        delete clean[field];
+      }
+      const isAdmin = Boolean(auth?.isAdmin);
+      for (const field of col.schema || []) {
+        if (field.options?.authEmail) {
+          const visField = field.options.authEmailVisibilityField;
+          const isEmailVisible = visField ? Boolean(clean[visField]) : false;
+          const idField = field.options.authIdField;
+          const isRecordOwner = isOwner || Boolean(auth?.id && idField && clean[idField] === auth.id);
+          if (!isEmailVisible && !isRecordOwner && !isAdmin) {
+            delete clean[field.name];
+          }
+        }
+      }
     }
 
     return clean;

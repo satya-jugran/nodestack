@@ -147,10 +147,25 @@ export class ViewSchemaInferrer {
     }
 
     const fields: SchemaField[] = [];
+    const authVisibilityColByCollection = new Map<string, string>();
+    const authIdColByCollection = new Map<string, string>();
+
     for (const col of columns) {
       const lowerName = col.name.toLowerCase();
       const proj = projectionByName.get(lowerName);
-      const sourceField = this.resolveSourceField(col.name, proj, aliasMap, colLookup);
+      const resolved = this.resolveSourceField(col.name, proj, aliasMap, colLookup);
+      const sourceField = resolved?.field;
+      const sourceCol = resolved?.sourceCol;
+
+      if (sourceCol?.type === 'auth' && sourceField) {
+        const srcName = (proj?.sourceColumn || col.name).toLowerCase();
+        if (srcName === 'emailvisibility' && !authVisibilityColByCollection.has(sourceCol.name)) {
+          authVisibilityColByCollection.set(sourceCol.name, col.name);
+        }
+        if (srcName === 'id' && !authIdColByCollection.has(sourceCol.name)) {
+          authIdColByCollection.set(sourceCol.name, col.name);
+        }
+      }
 
       let fieldType: FieldType;
       let fieldOptions: Record<string, any> | undefined;
@@ -158,6 +173,9 @@ export class ViewSchemaInferrer {
       if (sourceField) {
         fieldType = sourceField.type;
         fieldOptions = sourceField.options ? { ...sourceField.options } : undefined;
+        if ((sourceField as any).hidden || (sourceField as any).private) {
+          fieldOptions = { ...(fieldOptions || {}), hidden: true };
+        }
       } else {
         const declaredType = col.type || stmtTypeByCol.get(lowerName) || '';
         const mappedFromSql = this.mapSqlTypeToFieldType(declaredType, dialectName);
@@ -170,12 +188,23 @@ export class ViewSchemaInferrer {
         } else {
           fieldType = 'text';
         }
+
+        // Detect expressions referencing an auth collection's email (e.g. LOWER(u.email))
+        const authEmailCol = proj ? this.findReferencedAuthEmailCollection(proj.rawExpr, aliasMap, colLookup) : undefined;
+        if (authEmailCol) {
+          fieldOptions = { ...(fieldOptions || {}), authEmail: true, authCollection: authEmailCol.name };
+        }
       }
 
       const ov = overrideMap.get(lowerName);
       if (ov) {
         if (ov.type) fieldType = ov.type;
-        if (ov.options) fieldOptions = { ...(fieldOptions || {}), ...ov.options };
+        if (ov.options) {
+          const preservedAuth = fieldOptions?.authEmail
+            ? { authEmail: true, authCollection: fieldOptions.authCollection }
+            : {};
+          fieldOptions = { ...(fieldOptions || {}), ...ov.options, ...preservedAuth };
+        }
       }
 
       const fieldId =
@@ -191,6 +220,16 @@ export class ViewSchemaInferrer {
       });
     }
 
+    // Link authEmail fields to projected emailVisibility / id columns from the same auth collection
+    for (const f of fields) {
+      if (f.options?.authEmail && f.options.authCollection) {
+        const visCol = authVisibilityColByCollection.get(f.options.authCollection);
+        const idCol = authIdColByCollection.get(f.options.authCollection);
+        if (visCol) f.options.authEmailVisibilityField = visCol;
+        if (idCol) f.options.authIdField = idCol;
+      }
+    }
+
     return fields;
   }
 
@@ -199,7 +238,7 @@ export class ViewSchemaInferrer {
     proj: ProjectedColumnHint | undefined,
     aliasMap: Map<string, string>,
     colLookup: Map<string, CollectionModel>
-  ): SchemaField | undefined {
+  ): { field: SchemaField; sourceCol: CollectionModel } | undefined {
     const candidateColName = (proj?.sourceColumn || outputColName).toLowerCase();
 
     const lookupInCollection = (col: CollectionModel): SchemaField | undefined => {
@@ -210,7 +249,15 @@ export class ViewSchemaInferrer {
         return { id: candidateColName, name: candidateColName, type: 'date', required: true };
       }
       if (col.type === 'auth') {
-        if (candidateColName === 'email') return { id: 'email', name: 'email', type: 'email', required: true };
+        if (candidateColName === 'email') {
+          return {
+            id: 'email',
+            name: 'email',
+            type: 'email',
+            required: true,
+            options: { authEmail: true, authCollection: col.name },
+          };
+        }
         if (candidateColName === 'emailvisibility' || candidateColName === 'verified') {
           return { id: candidateColName, name: candidateColName, type: 'bool', required: true };
         }
@@ -222,26 +269,55 @@ export class ViewSchemaInferrer {
       const resolvedTable = aliasMap.get(proj.sourceTableOrAlias.toLowerCase()) || proj.sourceTableOrAlias.toLowerCase();
       const sourceCol = colLookup.get(resolvedTable);
       if (sourceCol) {
-        return lookupInCollection(sourceCol);
+        const field = lookupInCollection(sourceCol);
+        return field ? { field, sourceCol } : undefined;
       }
       return undefined;
     }
 
     // Unqualified column or wildcard: search referenced collections if unambiguous
     if (aliasMap.size > 0) {
-      const matches: SchemaField[] = [];
+      const matches: Array<{ field: SchemaField; sourceCol: CollectionModel }> = [];
       const seenTables = new Set(aliasMap.values());
       for (const tableName of seenTables) {
         const sourceCol = colLookup.get(tableName);
         if (!sourceCol) continue;
         const found = lookupInCollection(sourceCol);
-        if (found) matches.push(found);
+        if (found) matches.push({ field: found, sourceCol });
       }
       if (matches.length === 1) {
         return matches[0];
       }
     }
 
+    return undefined;
+  }
+
+  private static findReferencedAuthEmailCollection(
+    rawExpr: string,
+    aliasMap: Map<string, string>,
+    colLookup: Map<string, CollectionModel>
+  ): CollectionModel | undefined {
+    if (!rawExpr) return undefined;
+    const authCols: CollectionModel[] = [];
+    for (const tableName of new Set(aliasMap.values())) {
+      const c = colLookup.get(tableName);
+      if (c?.type === 'auth') authCols.push(c);
+    }
+    if (authCols.length === 0) return undefined;
+
+    for (const [aliasOrTable, tableName] of aliasMap.entries()) {
+      const c = colLookup.get(tableName);
+      if (c?.type !== 'auth') continue;
+      const qualifiedRe = new RegExp(`\\b${aliasOrTable}\\s*\\.\\s*email\\b`, 'i');
+      if (qualifiedRe.test(rawExpr)) {
+        return c;
+      }
+    }
+
+    if (/\bemail\b/i.test(rawExpr) && authCols.length === 1) {
+      return authCols[0];
+    }
     return undefined;
   }
 

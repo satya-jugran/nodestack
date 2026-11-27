@@ -457,6 +457,86 @@ describe('True SQL View Collections (Read-Only Joins & Aggregations)', () => {
       const leftover = db.prepareSync("SELECT name FROM sqlite_master WHERE type = 'view' AND name LIKE '_nodestack_preview_%'").all();
       expect(leftover).toHaveLength(0);
     });
+
+    it('masks auth email projections unless emailVisibility is true, caller is owner, or caller is admin, and blocks non-admin filter probing', async () => {
+      await schema.createCollection({
+        name: 'members',
+        type: 'auth',
+        schema: [{ id: 'f_nick', name: 'nickname', type: 'text' }],
+        listRule: '',
+        viewRule: '',
+      });
+
+      const hiddenMember = await records.create('members', {
+        id: 'mem_hidden',
+        email: 'secret@example.com',
+        password: 'Password123!',
+        emailVisibility: false,
+        nickname: 'SecretUser',
+      }, { isAdmin: true });
+
+      const publicMember = await records.create('members', {
+        id: 'mem_public',
+        email: 'public@example.com',
+        password: 'Password123!',
+        emailVisibility: true,
+        nickname: 'PublicUser',
+      }, { isAdmin: true });
+
+      // 1. View projecting aliased auth email + expression without emailVisibility or id
+      await schema.createCollection({
+        name: 'member_contacts_masked',
+        type: 'view',
+        options: {
+          viewQueries: {
+            sqlite: 'SELECT id AS row_id, nickname, email AS member_email, LOWER(email) AS lower_email FROM members',
+          },
+        },
+        listRule: '',
+        viewRule: '',
+      });
+
+      const anonList = await records.getList('member_contacts_masked', { sort: 'nickname' });
+      expect(anonList.totalItems).toBe(2);
+      expect(anonList.items[0].member_email).toBeUndefined();
+      expect(anonList.items[0].lower_email).toBeUndefined();
+      expect(anonList.items[1].member_email).toBeUndefined();
+
+      // Non-admin filter/search probing on authEmail column must be rejected / not leak
+      await expect(
+        records.getList('member_contacts_masked', { filter: "member_email = 'secret@example.com'" })
+      ).rejects.toThrow(/Invalid filter field/i);
+
+      const anonSearch = await records.getList('member_contacts_masked', { search: 'secret@example.com' });
+      expect(anonSearch.totalItems).toBe(0);
+
+      // Admin sees projected emails
+      const adminList = await records.getList('member_contacts_masked', { sort: 'nickname' }, { isAdmin: true });
+      expect(adminList.items.map((r) => r.member_email)).toEqual(['public@example.com', 'secret@example.com']);
+
+      // 2. View projecting auth id and emailVisibility preserves per-row visibility & owner access
+      await schema.createCollection({
+        name: 'member_contacts_with_vis',
+        type: 'view',
+        options: {
+          viewQueries: {
+            sqlite: 'SELECT m.id AS uid, m.nickname, m.email AS contact_email, m.emailVisibility AS vis FROM members m',
+          },
+        },
+        listRule: '',
+      });
+
+      const anonVisList = await records.getList('member_contacts_with_vis', { sort: 'nickname' });
+      const pubRow = anonVisList.items.find((r) => r.uid === publicMember.id);
+      const hidRow = anonVisList.items.find((r) => r.uid === hiddenMember.id);
+      expect(pubRow?.contact_email).toBe('public@example.com');
+      expect(hidRow?.contact_email).toBeUndefined();
+
+      // Owner sees their own hidden email
+      const ownerList = await records.getList('member_contacts_with_vis', {}, { id: hiddenMember.id });
+      const ownerRow = ownerList.items.find((r) => r.uid === hiddenMember.id);
+      expect(ownerRow?.contact_email).toBe('secret@example.com');
+    });
   });
 
   // ------------------------------------------------------------------
