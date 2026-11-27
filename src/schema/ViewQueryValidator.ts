@@ -90,6 +90,7 @@ export class ViewQueryValidator {
     }
 
     const stripped = this.stripCommentsAndLiterals(trimmed);
+    const noStringSql = this.stripCommentsAndStringLiteralsOnly(trimmed);
 
     if (stripped.includes(';')) {
       throw new ValidationError('View query must be a single SQL SELECT statement (multiple statements are not allowed)');
@@ -101,15 +102,26 @@ export class ViewQueryValidator {
       throw new ValidationError('View query must start with SELECT or WITH');
     }
 
-    // Check forbidden keywords outside string literals and comments
+    // Check forbidden keywords outside string literals, quoted identifiers, and comments
     const tokens = stripped.match(/[a-zA-Z_][a-zA-Z0-9_]*/g) || [];
     for (const token of tokens) {
       const upper = token.toUpperCase();
       if (FORBIDDEN_KEYWORDS.has(upper)) {
         throw new ValidationError(`View query contains forbidden keyword '${upper}'`);
       }
-      if (RESTRICTED_AUTH_COLUMNS.has(token.toLowerCase())) {
-        throw new ValidationError(`View query cannot reference restricted column '${token}'`);
+    }
+
+    // Check restricted auth columns across both unquoted and quoted ("...", [...]) identifiers
+    const identRegex = /"((?:[^"]|"")+)"|\[((?:[^\]]|\]\])+)\]|([a-zA-Z_][a-zA-Z0-9_]*)/g;
+    let identMatch: RegExpExecArray | null;
+    while ((identMatch = identRegex.exec(noStringSql)) !== null) {
+      const ident = identMatch[1] !== undefined
+        ? identMatch[1].replace(/""/g, '"')
+        : identMatch[2] !== undefined
+          ? identMatch[2].replace(/\]\]/g, ']')
+          : identMatch[3];
+      if (ident && RESTRICTED_AUTH_COLUMNS.has(ident.toLowerCase())) {
+        throw new ValidationError(`View query cannot reference restricted column '${ident}'`);
       }
     }
 
@@ -127,7 +139,6 @@ export class ViewQueryValidator {
     }
     const referencedAuthAliases = new Map<string, string>();
     const sqlKeywords = new Set(['WHERE', 'ON', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'CROSS', 'FULL', 'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'OFFSET', 'UNION', 'EXCEPT', 'INTERSECT', 'SET', 'AS']);
-    const noStringSql = this.stripCommentsAndStringLiteralsOnly(trimmed);
     const tableRefRegex = /\b(?:FROM|JOIN)\s+(?:"([^"]+)"|\[([^\]]+)\]|([a-zA-Z_][a-zA-Z0-9_]*))(?:\s+(?:AS\s+)?(?:"([^"]+)"|\[([^\]]+)\]|([a-zA-Z_][a-zA-Z0-9_]*)))?/gi;
     let match: RegExpExecArray | null;
     while ((match = tableRefRegex.exec(noStringSql)) !== null) {

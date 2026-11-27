@@ -87,6 +87,10 @@ describe('True SQL View Collections (Read-Only Joins & Aggregations)', () => {
       expect(() => ViewQueryValidator.validate('SELECT id, email FROM _admins', 'sqlite')).toThrow(/restricted system table/i);
       expect(() => ViewQueryValidator.validate('SELECT id FROM _api_keys', 'sqlite')).toThrow(/restricted system table/i);
       expect(() => ViewQueryValidator.validate('SELECT id, passwordHash FROM users', 'sqlite')).toThrow(/restricted column/i);
+      expect(() => ViewQueryValidator.validate('SELECT id, "passwordHash" FROM users', 'sqlite')).toThrow(/restricted column/i);
+      expect(() => ViewQueryValidator.validate('SELECT id, [passwordHash] FROM users', 'mssql')).toThrow(/restricted column/i);
+      expect(() => ViewQueryValidator.validate('SELECT id, u."tokenKey" FROM users u', 'postgres')).toThrow(/restricted column/i);
+      expect(() => ViewQueryValidator.validate("SELECT id, 'passwordHash' AS label FROM users", 'sqlite')).not.toThrow();
       expect(() => ViewQueryValidator.validate('SELECT id, tokenKey FROM users', 'sqlite')).toThrow(/restricted column/i);
       expect(() => ViewQueryValidator.validate('SELECT * FROM users', 'sqlite')).toThrow(/wildcard/i);
       expect(() => ViewQueryValidator.validate('SELECT u.* FROM orders o JOIN users u ON u.id = o.user_id', 'sqlite')).toThrow(/wildcard/i);
