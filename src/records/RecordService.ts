@@ -120,17 +120,7 @@ export class RecordService {
       }
     }
 
-    const allowedFields = new Set(col.schema.map((f) => f.name));
-    allowedFields.add('id');
-    allowedFields.add('created');
-    allowedFields.add('updated');
-    if (col.type === 'auth') {
-      if (auth?.isAdmin) {
-        allowedFields.add('email');
-      }
-      allowedFields.add('emailVisibility');
-      allowedFields.add('verified');
-    }
+    const allowedFields = this.buildAllowedFields(col, auth);
 
     // Rule check: listRule & row-level scope extraction
     const listRuleResult = this.ruleEngine.buildListFilter(col.listRule, { auth, query: options }, allowedFields);
@@ -147,7 +137,7 @@ export class RecordService {
 
     const searchTerm = typeof options.search === 'string' ? options.search.trim() : '';
     const ftsFields = this.ftsService.getFtsFields(col);
-    const hasFtsIndex = await this.ftsService.hasFtsIndex(col.name);
+    const hasFtsIndex = col.type !== 'view' && (await this.ftsService.hasFtsIndex(col.name));
     const hasFts = Boolean(searchTerm && ftsFields.length > 0 && hasFtsIndex);
 
     if (hasFts) {
@@ -269,9 +259,16 @@ export class RecordService {
       effectiveFilter,
       allowedFields,
       undefined,
-      dialect
+      dialect,
+      col.type !== 'view'
     );
-    const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, undefined, dialect);
+    const orderClause = QueryFilterParser.parseSort(
+      options.sort,
+      allowedFields,
+      undefined,
+      dialect,
+      col.type !== 'view'
+    );
 
     // Count query
     const countSql = `SELECT COUNT(*) as count FROM ${dialect.quoteIdentifier(col.name)} ${whereClause}`;
@@ -318,6 +315,9 @@ export class RecordService {
     auth?: any
   ): Promise<Record<string, any>> {
     const col = await this.schemaService.getCollectionOrThrow(collectionName);
+    if (col.type === 'view' && !col.schema.some((f) => f.name === 'id')) {
+      throw new AppError(`View collection '${col.name}' does not expose an 'id' column`, 400);
+    }
     const dialect = this.db.dialect;
     const raw = await this.db.get<any>(
       `SELECT * FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('id')} = ?`,
@@ -354,6 +354,9 @@ export class RecordService {
     httpContext?: any
   ): Promise<Record<string, any>> {
     const col = await this.schemaService.getCollectionOrThrow(collectionName);
+    if (col.type === 'view') {
+      throw new AppError(`Collection '${col.name}' is a read-only view`, 405);
+    }
     const dialect = this.db.dialect;
 
     if (auth?.isApiKey) {
@@ -518,6 +521,9 @@ export class RecordService {
     httpContext?: any
   ): Promise<Record<string, any>> {
     const col = await this.schemaService.getCollectionOrThrow(collectionName);
+    if (col.type === 'view') {
+      throw new AppError(`Collection '${col.name}' is a read-only view`, 405);
+    }
     const dialect = this.db.dialect;
     const current = await this.db.get<any>(
       `SELECT * FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('id')} = ?`,
@@ -640,6 +646,9 @@ export class RecordService {
     httpContext?: any
   ): Promise<void> {
     const col = await this.schemaService.getCollectionOrThrow(collectionName);
+    if (col.type === 'view') {
+      throw new AppError(`Collection '${col.name}' is a read-only view`, 405);
+    }
     const dialect = this.db.dialect;
     const current = await this.db.get<any>(
       `SELECT * FROM ${dialect.quoteIdentifier(col.name)} WHERE ${dialect.quoteIdentifier('id')} = ?`,
@@ -699,17 +708,7 @@ export class RecordService {
       }
     }
 
-    const allowedFields = new Set(col.schema.map((f) => f.name));
-    allowedFields.add('id');
-    allowedFields.add('created');
-    allowedFields.add('updated');
-    if (col.type === 'auth') {
-      if (auth?.isAdmin) {
-        allowedFields.add('email');
-      }
-      allowedFields.add('emailVisibility');
-      allowedFields.add('verified');
-    }
+    const allowedFields = this.buildAllowedFields(col, auth);
 
     // Rule check: listRule & row-level scope extraction
     const listRuleResult = this.ruleEngine.buildListFilter(col.listRule, { auth, query: options }, allowedFields);
@@ -725,7 +724,7 @@ export class RecordService {
     }
     const searchTerm = typeof options.search === 'string' ? options.search.trim() : '';
     const ftsFields = this.ftsService.getFtsFields(col);
-    const hasFtsIndex = await this.ftsService.hasFtsIndex(col.name);
+    const hasFtsIndex = col.type !== 'view' && (await this.ftsService.hasFtsIndex(col.name));
     const hasFts = Boolean(searchTerm && ftsFields.length > 0 && hasFtsIndex);
 
     let rawItems: any[];
@@ -794,9 +793,10 @@ export class RecordService {
             effectiveFilter,
             allowedFields,
             undefined,
-            dialect
+            dialect,
+            col.type !== 'view'
           );
-          const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, undefined, dialect);
+          const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, undefined, dialect, col.type !== 'view');
           const querySql = `SELECT * FROM ${dialect.quoteIdentifier(col.name)} ${whereClause} ${orderClause}`;
           rawItems = await this.db.all<any>(querySql, ...filterParams);
         }
@@ -805,9 +805,10 @@ export class RecordService {
           effectiveFilter,
           allowedFields,
           undefined,
-          dialect
+          dialect,
+          col.type !== 'view'
         );
-        const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, undefined, dialect);
+        const orderClause = QueryFilterParser.parseSort(options.sort, allowedFields, undefined, dialect, col.type !== 'view');
         const querySql = `SELECT * FROM ${dialect.quoteIdentifier(col.name)} ${whereClause} ${orderClause}`;
         rawItems = await this.db.all<any>(querySql, ...filterParams);
       }
@@ -832,14 +833,19 @@ export class RecordService {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
     if (format === 'csv') {
-      const headers: string[] = ['id'];
-      if (col.type === 'auth') {
-        headers.push('email', 'verified', 'emailVisibility');
+      let headers: string[];
+      if (col.type === 'view') {
+        headers = col.schema.map((f) => f.name);
+      } else {
+        headers = ['id'];
+        if (col.type === 'auth') {
+          headers.push('email', 'verified', 'emailVisibility');
+        }
+        for (const field of col.schema) {
+          headers.push(field.name);
+        }
+        headers.push('created', 'updated');
       }
-      for (const field of col.schema) {
-        headers.push(field.name);
-      }
-      headers.push('created', 'updated');
 
       const csvData = CsvHelper.serialize(headers, items);
 
@@ -865,6 +871,9 @@ export class RecordService {
     httpContext?: any
   ): Promise<ImportResult> {
     const col = await this.schemaService.getCollectionOrThrow(collectionName);
+    if (col.type === 'view') {
+      throw new AppError(`Collection '${col.name}' is a read-only view`, 405);
+    }
     const dialect = this.db.dialect;
 
     if (auth?.isApiKey) {
@@ -1009,6 +1018,24 @@ export class RecordService {
       failed: errors.length,
       errors,
     };
+  }
+
+  private buildAllowedFields(col: CollectionModel, auth?: any): Set<string> {
+    const allowedFields = new Set(col.schema.map((f) => f.name));
+    if (col.type === 'view') {
+      return allowedFields;
+    }
+    allowedFields.add('id');
+    allowedFields.add('created');
+    allowedFields.add('updated');
+    if (col.type === 'auth') {
+      if (auth?.isAdmin) {
+        allowedFields.add('email');
+      }
+      allowedFields.add('emailVisibility');
+      allowedFields.add('verified');
+    }
+    return allowedFields;
   }
 
   private validateField(field: SchemaField, value: any): void {

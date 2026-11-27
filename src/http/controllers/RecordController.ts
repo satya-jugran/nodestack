@@ -7,6 +7,7 @@ import { FileStorageService } from '../../files/FileStorageService';
 import { SchemaService } from '../../schema/SchemaService';
 import { MockDataService, MockGenerateOptions } from '../../records/MockDataService';
 import { RecordValidator } from '../../records/RecordValidator';
+import { AppError } from '../../core/errors/AppError';
 
 export class RecordController extends BaseController {
   constructor(
@@ -63,6 +64,9 @@ export class RecordController extends BaseController {
     const files = this.getFiles(req);
     const records = this.getRecords(req);
     const col = await schema.getCollectionOrThrow(collection);
+    if (col.type === 'view') {
+      throw new AppError(`Collection '${col.name}' is a read-only view`, 405);
+    }
 
     let data: Record<string, any> = {};
 
@@ -121,6 +125,9 @@ export class RecordController extends BaseController {
     const files = this.getFiles(req);
     const records = this.getRecords(req);
     const col = await schema.getCollectionOrThrow(collection);
+    if (col.type === 'view') {
+      throw new AppError(`Collection '${col.name}' is a read-only view`, 405);
+    }
 
     let data: Record<string, any> = {};
 

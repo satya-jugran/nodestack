@@ -37,13 +37,24 @@ export class QueryFilterParser {
     sortStr?: string,
     allowedFields?: Set<string>,
     tablePrefix?: string,
-    dialect: ISqlDialect = defaultDialect
+    dialect: ISqlDialect = defaultDialect,
+    allowSystemFields: boolean = true
   ): string {
     const defaultPrefix = tablePrefix ? `${dialect.quoteIdentifier(tablePrefix)}.` : '';
-    if (!sortStr || !sortStr.trim()) {
+    const defaultSort = (): string => {
+      if (allowedFields && !allowSystemFields && !allowedFields.has('created')) {
+        if (allowedFields.has('id')) {
+          return `ORDER BY ${defaultPrefix}${dialect.quoteIdentifier('id')} ASC`;
+        }
+        return '';
+      }
       return tablePrefix
         ? `ORDER BY ${defaultPrefix}${dialect.quoteIdentifier('created')} DESC`
         : 'ORDER BY created DESC';
+    };
+
+    if (!sortStr || !sortStr.trim()) {
+      return defaultSort();
     }
 
     const parts = sortStr.split(',').map((s) => s.trim()).filter(Boolean);
@@ -63,7 +74,8 @@ export class QueryFilterParser {
 
       // Sanitize field name: only alphanumeric and underscores allowed
       if (/^[a-zA-Z0-9_]+$/.test(field)) {
-        if (!allowedFields || allowedFields.has(field) || ['id', 'created', 'updated'].includes(field)) {
+        const isAllowed = !allowedFields || allowedFields.has(field) || (allowSystemFields && ['id', 'created', 'updated'].includes(field));
+        if (isAllowed) {
           orderClauses.push(`${defaultPrefix}${dialect.quoteIdentifier(field)} ${direction}`);
         }
       }
@@ -71,7 +83,7 @@ export class QueryFilterParser {
 
     return orderClauses.length > 0
       ? `ORDER BY ${orderClauses.join(', ')}`
-      : (tablePrefix ? `ORDER BY ${defaultPrefix}${dialect.quoteIdentifier('created')} DESC` : 'ORDER BY created DESC');
+      : defaultSort();
   }
 
   /**
@@ -82,7 +94,8 @@ export class QueryFilterParser {
     filterStr?: string,
     allowedFields?: Set<string>,
     tablePrefix?: string,
-    dialect: ISqlDialect = defaultDialect
+    dialect: ISqlDialect = defaultDialect,
+    allowSystemFields: boolean = true
   ): ParsedFilter {
     if (!filterStr || !filterStr.trim()) {
       return { clause: '', params: [] };
@@ -91,7 +104,7 @@ export class QueryFilterParser {
     const trimmed = filterStr.trim();
     const params: any[] = [];
 
-    const parsedSql = this.convertFilterExpression(trimmed, params, allowedFields, tablePrefix, dialect);
+    const parsedSql = this.convertFilterExpression(trimmed, params, allowedFields, tablePrefix, dialect, allowSystemFields);
     return {
       clause: parsedSql ? `WHERE ${parsedSql}` : '',
       params,
@@ -103,7 +116,8 @@ export class QueryFilterParser {
     params: any[],
     allowedFields?: Set<string>,
     tablePrefix?: string,
-    dialect: ISqlDialect = defaultDialect
+    dialect: ISqlDialect = defaultDialect,
+    allowSystemFields: boolean = true
   ): string {
     // 1. Split top-level ||
     const orParts = this.splitTopLevel(expr, '||');
@@ -114,7 +128,7 @@ export class QueryFilterParser {
         if (!sub) {
           throw new AppError(`Empty operand in '||' expression in filter: "${expr}"`, 400);
         }
-        const res = this.convertFilterExpression(sub, params, allowedFields, tablePrefix, dialect);
+        const res = this.convertFilterExpression(sub, params, allowedFields, tablePrefix, dialect, allowSystemFields);
         if (res) {
           sqlParts.push(res);
         }
@@ -131,7 +145,7 @@ export class QueryFilterParser {
         if (!sub) {
           throw new AppError(`Empty operand in '&&' expression in filter: "${expr}"`, 400);
         }
-        const res = this.convertFilterExpression(sub, params, allowedFields, tablePrefix, dialect);
+        const res = this.convertFilterExpression(sub, params, allowedFields, tablePrefix, dialect, allowSystemFields);
         if (res) {
           sqlParts.push(res);
         }
@@ -143,13 +157,13 @@ export class QueryFilterParser {
     const trimmed = expr.trim();
     if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
       if (this.isFullyEnclosed(trimmed)) {
-        const inner = this.convertFilterExpression(trimmed.slice(1, -1).trim(), params, allowedFields, tablePrefix, dialect);
+        const inner = this.convertFilterExpression(trimmed.slice(1, -1).trim(), params, allowedFields, tablePrefix, dialect, allowSystemFields);
         return inner ? `(${inner})` : '';
       }
     }
 
     // 4. Comparison parsing
-    return this.parseSingleComparison(trimmed, params, allowedFields, tablePrefix, dialect);
+    return this.parseSingleComparison(trimmed, params, allowedFields, tablePrefix, dialect, allowSystemFields);
   }
 
   private static parseSingleComparison(
@@ -157,7 +171,8 @@ export class QueryFilterParser {
     params: any[],
     allowedFields?: Set<string>,
     tablePrefix?: string,
-    dialect: ISqlDialect = defaultDialect
+    dialect: ISqlDialect = defaultDialect,
+    allowSystemFields: boolean = true
   ): string {
     const operators = ['!=', '>=', '<=', '=', '>', '<', '!~', '~'];
     const prefix = tablePrefix ? `${dialect.quoteIdentifier(tablePrefix)}.` : '';
@@ -175,7 +190,7 @@ export class QueryFilterParser {
           if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(baseField) || !subPath.every((s) => /^[a-zA-Z0-9_]+$/.test(s))) {
             throw new AppError(`Invalid field name '${fieldName}' in filter expression`, 400);
           }
-          if (allowedFields && !allowedFields.has(baseField) && !['id', 'created', 'updated'].includes(baseField)) {
+          if (allowedFields && !allowedFields.has(baseField) && !(allowSystemFields && ['id', 'created', 'updated'].includes(baseField))) {
             throw new AppError(`Invalid filter field '${fieldName}'`, 400);
           }
           columnExpr = dialect.jsonExtractTextSql(`${prefix}${dialect.quoteIdentifier(baseField)}`, subPath.join('.'));
@@ -185,7 +200,7 @@ export class QueryFilterParser {
             throw new AppError(`Invalid field name '${fieldName}' in filter expression`, 400);
           }
 
-          if (allowedFields && !allowedFields.has(fieldName) && !['id', 'created', 'updated'].includes(fieldName)) {
+          if (allowedFields && !allowedFields.has(fieldName) && !(allowSystemFields && ['id', 'created', 'updated'].includes(fieldName))) {
             throw new AppError(`Invalid filter field '${fieldName}'`, 400);
           }
           columnExpr = `${prefix}${dialect.quoteIdentifier(fieldName)}`;

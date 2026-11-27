@@ -624,15 +624,16 @@
               </div>
               <div class="form-group">
                 <label class="form-label">Type</label>
-                <select class="form-select" id="new-col-type">
+                <select class="form-select" id="new-col-type" onchange="toggleNewCollectionViewQuery(this.value)">
                   <option value="base">Base Collection</option>
                   <option value="auth">Auth Collection (Users, Members)</option>
+                  <option value="view">SQL View (Read-Only)</option>
                 </select>
               </div>
             </div>
             <div class="modal-footer">
               <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-              <button class="btn btn-primary" onclick="submitNewCollection()">Create</button>
+              <button class="btn btn-primary" id="btn-create-collection-submit" onclick="submitNewCollection()">Create</button>
             </div>
           </div>
         </div>
@@ -1104,9 +1105,23 @@
       }
     }
 
+    function toggleNewCollectionViewQuery(type) {
+      const btn = document.getElementById('btn-create-collection-submit');
+      if (btn) btn.textContent = type === 'view' ? 'Proceed' : 'Create';
+    }
+
     async function submitNewCollection() {
       const name = document.getElementById('new-col-name').value.trim();
       const type = document.getElementById('new-col-type').value;
+
+      if (type === 'view') {
+        closeModal();
+        if (typeof openViewDesigner === 'function') {
+          openViewDesigner({ name });
+        }
+        return;
+      }
+
       if (!name) return;
 
       try {
@@ -2376,6 +2391,7 @@
       window.submitEditRecord = submitEditRecord;
       window.deleteRecord = deleteRecord;
       window.openNewCollectionModal = openNewCollectionModal;
+      window.toggleNewCollectionViewQuery = toggleNewCollectionViewQuery;
       window.openImportJsonModal = openImportJsonModal;
       window.submitNewCollection = submitNewCollection;
       window.openImportModal = openImportModal;

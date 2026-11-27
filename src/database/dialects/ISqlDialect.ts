@@ -37,8 +37,13 @@ export interface ISqlDialect {
 
   tableExistsSql(): string;
   getTableColumnsSql(table: string): { sql: string; mapRow: (row: any) => ColumnMetadata };
+  viewExistsSql(): string;
+  getViewColumnsSql(viewName: string): { sql: string; mapRow: (row: any) => ColumnMetadata };
 
   createTableIfNotExists(table: string, columnsSql: string): string;
+  createViewSql(viewName: string, selectSql: string): string;
+  dropViewIfExists(viewName: string): string;
+  renameViewSql?(oldName: string, newName: string): string;
   createIndexIfNotExists(
     indexName: string,
     tableName: string,

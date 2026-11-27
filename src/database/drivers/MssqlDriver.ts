@@ -184,12 +184,21 @@ export class MssqlDriver implements IDatabaseDriver {
     const s = this.schemaName;
     let out = sql.replace(/\bSCHEMA_NAME\(\)/gi, `'${s}'`);
 
-    // Qualify table names: FROM, INTO, UPDATE, TABLE, JOIN, MERGE INTO
+    // Collect CTE names so they are not erroneously schema-qualified
+    const cteNames = new Set<string>();
+    const cteRegex = /(?:^|\bWITH|,)\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\([^)]*\))?\s+AS\s*\(/gi;
+    let cteMatch: RegExpExecArray | null;
+    while ((cteMatch = cteRegex.exec(out)) !== null) {
+      cteNames.add(cteMatch[1].toLowerCase());
+    }
+
+    // Qualify table/view names: FROM, INTO, UPDATE, TABLE, VIEW, JOIN, MERGE INTO
     out = out.replace(
-      /\b(FROM|INTO|UPDATE|TABLE|JOIN|MERGE\s+INTO)\s+((?:\[[a-zA-Z0-9_]+\])|(?:"[a-zA-Z0-9_]+")|(?:[a-zA-Z_][a-zA-Z0-9_]*))(?!\s*\.)/gi,
+      /\b(FROM|INTO|UPDATE|TABLE|VIEW|JOIN|MERGE\s+INTO)\s+((?:\[[a-zA-Z0-9_]+\])|(?:"[a-zA-Z0-9_]+")|(?:[a-zA-Z_][a-zA-Z0-9_]*))(?!\s*\.)/gi,
       (match, clause, table) => {
         const cleanTable = table.replace(/[\[\]"]/g, '');
         if (
+          cteNames.has(cleanTable.toLowerCase()) ||
           cleanTable.startsWith('sys') ||
           cleanTable.startsWith('INFORMATION_SCHEMA') ||
           cleanTable.toUpperCase() === 'VALUES' ||

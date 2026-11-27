@@ -286,6 +286,38 @@ export class PostgresDialect implements ISqlDialect {
     };
   }
 
+  public viewExistsSql(): string {
+    return `SELECT 1 FROM information_schema.views WHERE table_schema = current_schema() AND table_name = ?`;
+  }
+
+  public getViewColumnsSql(_viewName: string): { sql: string; mapRow: (row: any) => ColumnMetadata } {
+    return {
+      sql: `SELECT column_name AS name, data_type AS type, udt_name, is_nullable, column_default AS default_value
+            FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = ?
+            ORDER BY ordinal_position ASC`,
+      mapRow: (row: any) => ({
+        name: row.name,
+        type: row.type === 'USER-DEFINED' && row.udt_name ? row.udt_name : (row.type || row.udt_name || ''),
+        notNull: row.is_nullable === 'NO',
+        defaultValue: row.default_value,
+        isPrimaryKey: false,
+      }),
+    };
+  }
+
+  public createViewSql(viewName: string, selectSql: string): string {
+    return `CREATE OR REPLACE VIEW ${this.quoteIdentifier(viewName)} AS ${selectSql}`;
+  }
+
+  public dropViewIfExists(viewName: string): string {
+    return `DROP VIEW IF EXISTS ${this.quoteIdentifier(viewName)} CASCADE`;
+  }
+
+  public renameViewSql(oldName: string, newName: string): string {
+    return `ALTER VIEW ${this.quoteIdentifier(oldName)} RENAME TO ${this.quoteIdentifier(newName)}`;
+  }
+
   public quoteColumnDefinitions(columnsSql: string): string {
     const defs = splitTopLevel(columnsSql, ',');
     const formatted = defs.map((def) => {

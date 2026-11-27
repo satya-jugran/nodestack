@@ -45,6 +45,7 @@ export class AdminUIBundler {
         'rules.js',
         'schema.js',
         'records.js',
+        'view-designer.js',
         'modals.js',
         'snapshots.js',
         'analytics.js',

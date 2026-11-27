@@ -2,6 +2,13 @@ import { SchemaField } from './Field';
 
 export type CollectionType = 'base' | 'auth' | 'view';
 
+export type ViewDialect = 'sqlite' | 'postgres' | 'mssql';
+
+export interface CollectionOptions {
+  viewQueries?: Partial<Record<ViewDialect, string>>;
+  [key: string]: any;
+}
+
 export interface CollectionModel {
   id: string;
   name: string;
@@ -14,7 +21,7 @@ export interface CollectionModel {
   createRule: string | null;
   updateRule: string | null;
   deleteRule: string | null;
-  options: Record<string, any>;
+  options: CollectionOptions;
   created: string;
   updated: string;
 }
@@ -31,7 +38,7 @@ export interface CreateCollectionDto {
   createRule?: string | null;
   updateRule?: string | null;
   deleteRule?: string | null;
-  options?: Record<string, any>;
+  options?: CollectionOptions;
 }
 
 export interface UpdateCollectionDto {
@@ -43,5 +50,5 @@ export interface UpdateCollectionDto {
   createRule?: string | null;
   updateRule?: string | null;
   deleteRule?: string | null;
-  options?: Record<string, any>;
+  options?: CollectionOptions;
 }

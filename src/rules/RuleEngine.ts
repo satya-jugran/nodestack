@@ -14,6 +14,61 @@ export interface RuleEvaluationContext {
 
 export class RuleEngine {
   /**
+   * Extracts record field names referenced by a rule expression
+   * (excluding literals and @request.* tokens).
+   */
+  public static extractReferencedFields(rule: string | null | undefined): string[] {
+    if (!rule || !rule.trim()) {
+      return [];
+    }
+    const engine = new RuleEngine();
+    const fields = new Set<string>();
+    engine.collectFieldsFromExpr(rule.trim(), fields);
+    return Array.from(fields);
+  }
+
+  private collectFieldsFromExpr(expr: string, outFields: Set<string>): void {
+    const orParts = this.splitTopLevel(expr, '||');
+    if (orParts.length > 1) {
+      for (const p of orParts) this.collectFieldsFromExpr(p.trim(), outFields);
+      return;
+    }
+
+    const andParts = this.splitTopLevel(expr, '&&');
+    if (andParts.length > 1) {
+      for (const p of andParts) this.collectFieldsFromExpr(p.trim(), outFields);
+      return;
+    }
+
+    const trimmed = expr.trim();
+    if (!trimmed) return;
+    if (trimmed.startsWith('(') && trimmed.endsWith(')') && this.isFullyEnclosed(trimmed)) {
+      this.collectFieldsFromExpr(trimmed.slice(1, -1).trim(), outFields);
+      return;
+    }
+
+    const addIfField = (token: string) => {
+      const t = token.trim();
+      if (!t || t.startsWith('@request.') || this.isLiteralToken(t)) return;
+      const base = t.includes('.') ? t.split('.')[0] : t;
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(base)) {
+        outFields.add(base);
+      }
+    };
+
+    const operators = ['!=', '==', '>=', '<=', '=', '>', '<', '!~', '~'];
+    for (const op of operators) {
+      const idx = this.findOperatorIndex(trimmed, op);
+      if (idx !== -1) {
+        addIfField(trimmed.substring(0, idx));
+        addIfField(trimmed.substring(idx + op.length));
+        return;
+      }
+    }
+
+    addIfField(trimmed);
+  }
+  /**
    * Evaluates an access rule for a request in the context of listing records.
    * - If context.auth?.isAdmin is true, returns allowed: true with no filter.
    * - If rule is null: disallowed for non-admin.

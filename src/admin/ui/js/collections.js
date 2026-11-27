@@ -59,12 +59,14 @@ function renderCollectionsHubView() {
                 <span>${escapeHtml(col.name)}</span>
               </div>
               <div style="display:flex; align-items:center; gap:4px;">
-                <span class="badge ${col.type === 'auth' ? 'badge-post' : 'badge-get'}" style="font-size:10px;">${escapeHtml(col.type)}</span>
+                <span class="badge ${col.type === 'auth' ? 'badge-post' : (col.type === 'view' ? 'badge-warning' : 'badge-get')}" style="font-size:10px;">${escapeHtml(col.type)}</span>
                 ${isSys ? `<span class="badge badge-warning" style="font-size:9.5px;">SYSTEM</span>` : ''}
               </div>
             </div>
             <div class="hub-card-desc">
-              ${fieldCount} schema fields defined. Managed embedded table with automatic API rules and validation.
+              ${col.type === 'view'
+                ? `${fieldCount} inferred columns. Read-only SQL view with automatic filtering and API rules.`
+                : `${fieldCount} schema fields defined. Managed embedded table with automatic API rules and validation.`}
             </div>
             <div class="hub-card-footer">
               <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); selectCollection('${escapeHtml(col.name)}')">
@@ -266,7 +268,7 @@ async function selectCollection(name, pushState = true) {
   if (badge && state.activeCollection) {
     badge.style.display = 'inline-flex';
     badge.textContent = state.activeCollection.type.toUpperCase();
-    badge.className = 'badge ' + (state.activeCollection.type === 'auth' ? 'badge-post' : 'badge-get');
+    badge.className = 'badge ' + (state.activeCollection.type === 'auth' ? 'badge-post' : (state.activeCollection.type === 'view' ? 'badge-warning' : 'badge-get'));
   }
 
   updateBreadcrumbs();

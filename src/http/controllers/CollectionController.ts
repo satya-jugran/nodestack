@@ -2,7 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { SchemaService } from '../../schema/SchemaService';
 import { SchemaInferenceService, ImportJsonOptions } from '../../schema/SchemaInferenceService';
-import { CreateCollectionDto, UpdateCollectionDto } from '../../schema/models/Collection';
+import { CreateCollectionDto, UpdateCollectionDto, ViewDialect } from '../../schema/models/Collection';
 import { FileStorageService } from '../../files/FileStorageService';
 import { AppError } from '../../core/errors/AppError';
 
@@ -113,5 +113,19 @@ export class CollectionController extends BaseController {
     }
     const result = await inference.importJson(req.body);
     this.ok(reply, result, 201);
+  }
+
+  public async previewView(
+    req: FastifyRequest<{ Body: { name?: string; viewQueries?: Partial<Record<ViewDialect, string>>; dialect?: ViewDialect; limit?: number } }>,
+    reply: FastifyReply
+  ): Promise<void> {
+    const schema = this.getSchema(req);
+    const result = await schema.previewViewQuery({
+      name: req.body?.name,
+      viewQueries: req.body?.viewQueries,
+      dialect: req.body?.dialect,
+      limit: req.body?.limit,
+    });
+    this.ok(reply, result);
   }
 }

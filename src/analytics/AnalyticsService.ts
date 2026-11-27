@@ -164,6 +164,14 @@ export class AnalyticsService {
     const collectionsBreakdown: CollectionRecordCount[] = [];
 
     for (const col of collections || []) {
+      if (col.type === 'view') {
+        collectionsBreakdown.push({
+          collection: col.name,
+          type: col.type,
+          count: 0,
+        });
+        continue;
+      }
       try {
         const row = await this.db.get<{ count: number }>(
           `SELECT COUNT(*) as count FROM ${this.db.dialect.quoteIdentifier(col.name)}`
@@ -188,6 +196,7 @@ export class AnalyticsService {
     if (this.db.dialect?.name === 'postgres' && effectiveSizeBytes === 0 && Array.isArray(collections) && collections.length > 0) {
       let fallbackSum = 0;
       for (const col of collections) {
+        if (col.type === 'view') continue;
         try {
           const relRow = await this.db.get<{ size: number | string }>(
             `SELECT pg_total_relation_size(${this.db.dialect.quoteIdentifier(col.name)}) as size`

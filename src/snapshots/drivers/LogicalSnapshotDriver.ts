@@ -3,6 +3,7 @@ import * as path from 'path';
 import { DatabaseService } from '../../database/DatabaseService';
 import { ISnapshotDriver } from './ISnapshotDriver';
 import { DatabaseMigrationService } from '../../database/migration/DatabaseMigrationService';
+import { ViewQueryValidator } from '../../schema/ViewQueryValidator';
 
 export class LogicalSnapshotDriver implements ISnapshotDriver {
   constructor(private db: DatabaseService) {}
@@ -15,6 +16,7 @@ export class LogicalSnapshotDriver implements ISnapshotDriver {
     };
 
     for (const col of collections) {
+      if (col.type === 'view') continue;
       try {
         const rows = await this.db.all<any>(`SELECT * FROM ${this.db.dialect.quoteIdentifier(col.name)}`);
         dump[col.name] = rows;
@@ -69,8 +71,13 @@ export class LogicalSnapshotDriver implements ISnapshotDriver {
     const driver = this.db.getRootDriver();
 
     // 1. If _collections exists in data, ensure physical collection tables and indexes exist on the target
+    const viewCols: any[] = [];
     if (Array.isArray(data._collections)) {
       for (const col of data._collections) {
+        if (col.type === 'view') {
+          viewCols.push(col);
+          continue;
+        }
         try {
           await DatabaseMigrationService.ensurePhysicalCollectionTable(col, driver);
           await DatabaseMigrationService.ensureCollectionIndexes(col, driver);
@@ -80,10 +87,12 @@ export class LogicalSnapshotDriver implements ISnapshotDriver {
       }
     }
 
+    const viewNames = new Set(viewCols.map((v: any) => v.name));
+
     // 2. Clear and restore tables with dialect-aware serialization
     await driver.transaction(async (tx) => {
       for (const [table, rows] of Object.entries(data)) {
-        if (!Array.isArray(rows)) continue;
+        if (!Array.isArray(rows) || viewNames.has(table)) continue;
         try {
           await tx.exec(`DELETE FROM ${this.db.dialect.quoteIdentifier(table)}`);
           if (rows.length === 0) continue;
@@ -96,5 +105,19 @@ export class LogicalSnapshotDriver implements ISnapshotDriver {
         }
       }
     });
+
+    // 3. Recreate SQL views after physical tables and rows are restored
+    for (const col of viewCols) {
+      try {
+        const opts = typeof col.options === 'string' ? JSON.parse(col.options || '{}') : (col.options || {});
+        const viewQuery = ViewQueryValidator.resolveViewQuery(opts, this.db.dialect.name);
+        if (viewQuery) {
+          await driver.exec(this.db.dialect.dropViewIfExists(col.name));
+          await driver.exec(this.db.dialect.createViewSql(col.name, viewQuery));
+        }
+      } catch {
+        // ignore view restore error
+      }
+    }
   }
 }

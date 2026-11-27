@@ -137,6 +137,19 @@ async function selectApp(slugOrId) {
   const app = (state.apps || []).find(a => a.slug === slugOrId || a.id === slugOrId);
   if (!app) return;
 
+  if (
+    state.activeApp?.slug !== app.slug &&
+    state.activeNav === 'view-designer' &&
+    typeof isViewDesignerDirty === 'function' &&
+    isViewDesignerDirty()
+  ) {
+    closeAppSwitcher();
+    if (typeof confirmLeaveViewDesigner === 'function') {
+      confirmLeaveViewDesigner(() => selectApp(slugOrId));
+      return;
+    }
+  }
+
   state.activeApp = app;
   localStorage.setItem('nodestack_active_app', JSON.stringify(app));
   updateAppSwitcherUI();
@@ -177,6 +190,9 @@ async function selectApp(slugOrId) {
     }
     if (typeof fetchDatabaseStatus === 'function') {
       await fetchDatabaseStatus(true);
+    }
+    if (typeof onViewDesignerAppSwitched === 'function') {
+      onViewDesignerAppSwitched();
     }
     if (typeof loadWebhookStats === 'function') {
       await loadWebhookStats();
