@@ -5,6 +5,7 @@ import { AppError } from '../core/errors/AppError';
 import { CollectionModel } from './models/Collection';
 import { FieldType, SchemaField } from './models/Field';
 import { inferFieldType } from './SchemaInferenceService';
+import { RESTRICTED_AUTH_COLUMNS } from './ViewQueryValidator';
 
 interface ProjectedColumnHint {
   outputName: string;
@@ -152,6 +153,9 @@ export class ViewSchemaInferrer {
 
     for (const col of columns) {
       const lowerName = col.name.toLowerCase();
+      if (RESTRICTED_AUTH_COLUMNS.has(lowerName)) {
+        throw new AppError(`View query cannot project restricted auth column '${col.name}'`, 400);
+      }
       const proj = projectionByName.get(lowerName);
       const resolved = this.resolveSourceField(col.name, proj, aliasMap, colLookup);
       const sourceField = resolved?.field;

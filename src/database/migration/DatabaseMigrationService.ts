@@ -658,6 +658,11 @@ export class DatabaseMigrationService {
           all: <T = any>(sql: string, ...params: any[]) => txDriver.prepare(sql).all<T>(...params),
         };
 
+        const authColNames = new Set<string>(['users']);
+        for (const kc of knownCols) {
+          if (kc.type === 'auth' && kc.name) authColNames.add(kc.name.toLowerCase());
+        }
+
         let pendingViews = [...viewCollections];
         let maxPasses = pendingViews.length + 1;
         let lastErr: any;
@@ -670,7 +675,7 @@ export class DatabaseMigrationService {
             if (!viewQuery || !viewQuery.trim()) {
               throw new Error(`View '${col.name}' has no SQL query defined for target dialect '${txDriver.dialect.name}'`);
             }
-            const validatedSql = ViewQueryValidator.validate(viewQuery, txDriver.dialect.name, col.name);
+            const validatedSql = ViewQueryValidator.validate(viewQuery, txDriver.dialect.name, col.name, authColNames);
 
             try {
               await txDriver.exec(txDriver.dialect.dropViewIfExists(col.name));

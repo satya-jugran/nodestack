@@ -36,7 +36,7 @@ const RESTRICTED_SYSTEM_TABLES = new Set([
   '_cron_runs',
 ]);
 
-const RESTRICTED_AUTH_COLUMNS = new Set([
+export const RESTRICTED_AUTH_COLUMNS = new Set([
   'passwordhash',
   'password_hash',
   'tokenkey',
@@ -74,7 +74,12 @@ export class ViewQueryValidator {
    * Validates and normalizes a declarative SQL SELECT query for a specific dialect.
    * Returns the normalized SQL (without trailing semicolon).
    */
-  public static validate(rawQuery: string, dialectName: string = 'sqlite', viewName?: string): string {
+  public static validate(
+    rawQuery: string,
+    dialectName: string = 'sqlite',
+    viewName?: string,
+    authCollections?: Set<string>
+  ): string {
     if (typeof rawQuery !== 'string' || !rawQuery.trim()) {
       throw new ValidationError(`View collections require a non-empty options.viewQueries.${dialectName} SELECT statement`);
     }
@@ -112,12 +117,22 @@ export class ViewQueryValidator {
       throw new ValidationError('View query cannot contain row-locking clauses (FOR UPDATE / FOR SHARE)');
     }
 
-    // Check FROM / JOIN table references for restricted system tables and self-reference
+    // Check FROM / JOIN table references for restricted system tables, self-reference, and auth wildcard projections
     const cleanViewName = viewName ? viewName.trim().toLowerCase() : undefined;
-    const tableRefRegex = /\b(?:FROM|JOIN)\s+(?:"([^"]+)"|\[([^\]]+)\]|([a-zA-Z_][a-zA-Z0-9_]*))/gi;
+    const authNames = new Set<string>(['users']);
+    if (authCollections) {
+      for (const a of authCollections) {
+        if (a) authNames.add(a.trim().toLowerCase());
+      }
+    }
+    const referencedAuthAliases = new Map<string, string>();
+    const sqlKeywords = new Set(['WHERE', 'ON', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'CROSS', 'FULL', 'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'OFFSET', 'UNION', 'EXCEPT', 'INTERSECT', 'SET', 'AS']);
+    const noStringSql = this.stripCommentsAndStringLiteralsOnly(trimmed);
+    const tableRefRegex = /\b(?:FROM|JOIN)\s+(?:"([^"]+)"|\[([^\]]+)\]|([a-zA-Z_][a-zA-Z0-9_]*))(?:\s+(?:AS\s+)?(?:"([^"]+)"|\[([^\]]+)\]|([a-zA-Z_][a-zA-Z0-9_]*)))?/gi;
     let match: RegExpExecArray | null;
-    while ((match = tableRefRegex.exec(this.stripCommentsAndStringLiteralsOnly(trimmed))) !== null) {
+    while ((match = tableRefRegex.exec(noStringSql)) !== null) {
       const tableName = (match[1] || match[2] || match[3] || '').trim().toLowerCase();
+      const aliasRaw = (match[4] || match[5] || match[6] || '').trim().toLowerCase();
       if (!tableName) continue;
       if (RESTRICTED_SYSTEM_TABLES.has(tableName)) {
         throw new ValidationError(`View query cannot reference restricted system table '${tableName}'`);
@@ -125,6 +140,16 @@ export class ViewQueryValidator {
       if (cleanViewName && tableName === cleanViewName) {
         throw new ValidationError(`View query cannot reference itself ('${cleanViewName}')`);
       }
+      if (authNames.has(tableName)) {
+        referencedAuthAliases.set(tableName, tableName);
+        if (aliasRaw && !sqlKeywords.has(aliasRaw.toUpperCase())) {
+          referencedAuthAliases.set(aliasRaw, tableName);
+        }
+      }
+    }
+
+    if (referencedAuthAliases.size > 0) {
+      this.assertNoAuthWildcardProjection(noStringSql, referencedAuthAliases);
     }
 
     // MSSQL forbids top-level ORDER BY in CREATE VIEW unless TOP or OFFSET ... FETCH is present
@@ -137,6 +162,58 @@ export class ViewQueryValidator {
     this.assertDialectCompatibleSyntax(stripped, dialectName);
 
     return trimmed;
+  }
+
+  private static assertNoAuthWildcardProjection(
+    noStringSql: string,
+    referencedAuthAliases: Map<string, string>
+  ): void {
+    // Strip COUNT(*) / COUNT(ALL *) so aggregate counts do not trigger wildcard rejection
+    const withoutCountStar = noStringSql.replace(/\bCOUNT\s*\(\s*(?:ALL\s+)?\*\s*\)/gi, 'COUNT(1)');
+
+    // Check qualified wildcards: alias.* or "alias".* or [alias].*
+    const qualifiedWildcardRe = /(?:(?:"([^"]+)"|\[([^\]]+)\]|([a-zA-Z_][a-zA-Z0-9_]*)))\s*\.\s*\*/g;
+    let qm: RegExpExecArray | null;
+    while ((qm = qualifiedWildcardRe.exec(withoutCountStar)) !== null) {
+      const qualifier = (qm[1] || qm[2] || qm[3] || '').trim().toLowerCase();
+      const authTable = referencedAuthAliases.get(qualifier);
+      if (authTable) {
+        throw new ValidationError(
+          `View query cannot use wildcard '${qualifier}.*' on auth collection '${authTable}'. Select explicit non-sensitive columns instead.`
+        );
+      }
+    }
+
+    // Check bare SELECT * (or SELECT ..., * ...) in any SELECT projection clause
+    const selectClauseRe = /\bSELECT\s+(?:DISTINCT\s+|ALL\s+)?(?:TOP\s+\d+\s+)?([\s\S]*?)\bFROM\b/gi;
+    let sm: RegExpExecArray | null;
+    while ((sm = selectClauseRe.exec(withoutCountStar)) !== null) {
+      const clause = sm[1];
+      // Remove any remaining safe qualified wildcards (e.g. orders.*) before checking bare *
+      const strippedQualified = clause.replace(/(?:"[^"]+"|\[[^\]]+\]|[a-zA-Z_][a-zA-Z0-9_]*)\s*\.\s*\*/g, '');
+      // Split by top-level commas and check if any projection item is bare *
+      let depth = 0;
+      let item = '';
+      const checkItem = (rawItem: string) => {
+        if (/^\*$/.test(rawItem.trim())) {
+          throw new ValidationError(
+            'View query cannot use wildcard SELECT * when querying an auth collection. Select explicit non-sensitive columns instead.'
+          );
+        }
+      };
+      for (let i = 0; i < strippedQualified.length; i++) {
+        const ch = strippedQualified[i];
+        if (ch === '(') depth++;
+        else if (ch === ')' && depth > 0) depth--;
+        else if (ch === ',' && depth === 0) {
+          checkItem(item);
+          item = '';
+          continue;
+        }
+        item += ch;
+      }
+      checkItem(item);
+    }
   }
 
   private static assertDialectCompatibleSyntax(strippedSql: string, dialectName: string): void {

@@ -98,7 +98,10 @@ export class SchemaService {
       if (indexes.length > 0) {
         throw new AppError('View collections cannot define physical indexes', 400);
       }
-      validatedViewQuery = this.validateViewQueriesForOptions(options, this.db.dialect?.name, cleanName);
+      if (!this.isAsyncDriver()) {
+        const authCols = this.getAuthCollectionNames(this.getAllCollections());
+        validatedViewQuery = this.validateViewQueriesForOptions(options, this.db.dialect?.name, cleanName, authCols);
+      }
     } else if (dto.schema && Array.isArray(dto.schema)) {
       this.validateSchemaFields(dto.schema, type);
     }
@@ -163,13 +166,15 @@ export class SchemaService {
     const executeCreateAsync = async () => {
       return this.db.transaction(async () => {
         let finalSchema = schema;
-        if (type === 'view' && validatedViewQuery) {
+        if (type === 'view') {
           const existingCols = await this.getAllCollections();
-          await this.recreateSqlViewAsync(cleanName, cleanName, validatedViewQuery);
+          const authCols = this.getAuthCollectionNames(existingCols);
+          const viewSql = this.validateViewQueriesForOptions(options, this.db.dialect?.name, cleanName, authCols);
+          await this.recreateSqlViewAsync(cleanName, cleanName, viewSql);
           finalSchema = await ViewSchemaInferrer.infer({
             db: this.db,
             viewName: cleanName,
-            selectSql: validatedViewQuery,
+            selectSql: viewSql,
             existingCollections: existingCols,
             overrides: dto.schema,
           });
@@ -328,22 +333,19 @@ export class SchemaService {
           throw new AppError('View collections cannot define physical indexes', 400);
         }
 
-        let validatedViewQuery: string | undefined;
-        if (current.type === 'view') {
-          validatedViewQuery = this.validateViewQueriesForOptions(options, this.db.dialect?.name, cleanNewName || current.name);
-        }
-
         return this.db.transaction(async () => {
-          if (current.type === 'view' && validatedViewQuery) {
+          if (current.type === 'view') {
             if (cleanNewName && cleanNewName !== current.name) {
               targetName = cleanNewName;
             }
             const allCols = await this.getAllCollections();
-            await this.recreateSqlViewAsync(current.name, targetName, validatedViewQuery);
+            const authCols = this.getAuthCollectionNames(allCols);
+            const viewSql = this.validateViewQueriesForOptions(options, this.db.dialect?.name, cleanNewName || current.name, authCols);
+            await this.recreateSqlViewAsync(current.name, targetName, viewSql);
             newSchema = await ViewSchemaInferrer.infer({
               db: this.db,
               viewName: targetName,
-              selectSql: validatedViewQuery,
+              selectSql: viewSql,
               existingCollections: allCols.filter((c: CollectionModel) => c.id !== current.id),
               overrides: dto.schema,
             });
@@ -430,8 +432,9 @@ export class SchemaService {
 
       let newSchema = dto.schema !== undefined ? dto.schema : current.schema;
       if (current.type === 'view') {
-        const validatedViewQuery = this.validateViewQueriesForOptions(options, this.db.dialect?.name, targetName);
         const allCols = this.getAllCollections();
+        const authCols = this.getAuthCollectionNames(allCols);
+        const validatedViewQuery = this.validateViewQueriesForOptions(options, this.db.dialect?.name, targetName, authCols);
         this.recreateSqlViewSync(current.name, targetName, validatedViewQuery);
         newSchema = ViewSchemaInferrer.infer({
           db: this.db,
@@ -557,9 +560,14 @@ export class SchemaService {
     const cleanViewName = params.name ? params.name.trim().toLowerCase() : undefined;
     const rawQuery = params.viewQueries?.[targetDialect] || '';
 
+    const existingColsForAuth = !this.isAsyncDriver()
+      ? this.getAllCollections()
+      : await this.getAllCollections();
+    const authCols = this.getAuthCollectionNames(existingColsForAuth);
+
     let validatedSql: string;
     try {
-      validatedSql = ViewQueryValidator.validate(rawQuery, targetDialect, cleanViewName);
+      validatedSql = ViewQueryValidator.validate(rawQuery, targetDialect, cleanViewName, authCols);
     } catch (err: any) {
       return {
         valid: false,
@@ -662,13 +670,24 @@ export class SchemaService {
     }
   }
 
+  private getAuthCollectionNames(collections: CollectionModel[]): Set<string> {
+    const authCols = new Set<string>(['users']);
+    for (const c of collections || []) {
+      if (c.type === 'auth' && c.name) {
+        authCols.add(c.name.toLowerCase());
+      }
+    }
+    return authCols;
+  }
+
   private validateViewQueriesForOptions(
     options: CollectionOptions,
     activeDialectName: string,
-    viewName: string
+    viewName: string,
+    authCols?: Set<string>
   ): string {
     const activeQuery = ViewQueryValidator.resolveViewQuery(options, activeDialectName);
-    const validatedActive = ViewQueryValidator.validate(activeQuery, activeDialectName, viewName);
+    const validatedActive = ViewQueryValidator.validate(activeQuery, activeDialectName, viewName, authCols);
 
     const viewQueries = options?.viewQueries;
     if (viewQueries && typeof viewQueries === 'object') {
@@ -676,7 +695,7 @@ export class SchemaService {
         if (d === activeDialectName) continue;
         const sql = viewQueries[d];
         if (typeof sql === 'string' && sql.trim()) {
-          ViewQueryValidator.validate(sql, d, viewName);
+          ViewQueryValidator.validate(sql, d, viewName, authCols);
         }
       }
     }

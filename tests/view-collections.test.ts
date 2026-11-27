@@ -83,11 +83,14 @@ describe('True SQL View Collections (Read-Only Joins & Aggregations)', () => {
       expect(() => ViewQueryValidator.validate('SELECT * FROM users FOR UPDATE', 'postgres')).toThrow();
     });
 
-    it('blocks sensitive system tables, auth secrets, and self-references', () => {
+    it('blocks sensitive system tables, auth secrets, wildcard auth projections, and self-references', () => {
       expect(() => ViewQueryValidator.validate('SELECT id, email FROM _admins', 'sqlite')).toThrow(/restricted system table/i);
       expect(() => ViewQueryValidator.validate('SELECT id FROM _api_keys', 'sqlite')).toThrow(/restricted system table/i);
       expect(() => ViewQueryValidator.validate('SELECT id, passwordHash FROM users', 'sqlite')).toThrow(/restricted column/i);
       expect(() => ViewQueryValidator.validate('SELECT id, tokenKey FROM users', 'sqlite')).toThrow(/restricted column/i);
+      expect(() => ViewQueryValidator.validate('SELECT * FROM users', 'sqlite')).toThrow(/wildcard/i);
+      expect(() => ViewQueryValidator.validate('SELECT u.* FROM orders o JOIN users u ON u.id = o.user_id', 'sqlite')).toThrow(/wildcard/i);
+      expect(() => ViewQueryValidator.validate('SELECT COUNT(*) AS total FROM users', 'sqlite')).not.toThrow();
       expect(() => ViewQueryValidator.validate('SELECT * FROM my_view', 'sqlite', 'my_view')).toThrow(/cannot reference itself/i);
     });
 
@@ -536,6 +539,30 @@ describe('True SQL View Collections (Read-Only Joins & Aggregations)', () => {
       const ownerList = await records.getList('member_contacts_with_vis', {}, { id: hiddenMember.id });
       const ownerRow = ownerList.items.find((r) => r.uid === hiddenMember.id);
       expect(ownerRow?.contact_email).toBe('secret@example.com');
+
+      // 3. Rejects wildcard projections over custom auth collections (direct, aliased, and CTE)
+      expect(() =>
+        schema.createCollection({
+          name: 'leaky_members_1',
+          type: 'view',
+          options: { viewQueries: { sqlite: 'SELECT * FROM members' } },
+        })
+      ).toThrow(/wildcard/i);
+
+      expect(() =>
+        schema.createCollection({
+          name: 'leaky_members_2',
+          type: 'view',
+          options: { viewQueries: { sqlite: 'SELECT m.* FROM members m' } },
+        })
+      ).toThrow(/wildcard/i);
+
+      const previewLeak = await schema.previewViewQuery({
+        viewQueries: { sqlite: 'SELECT m.* FROM members m' },
+        dialect: 'sqlite',
+      });
+      expect(previewLeak.valid).toBe(false);
+      expect(previewLeak.error).toMatch(/wildcard/i);
     });
   });
 
