@@ -129,7 +129,7 @@ export class ViewQueryValidator {
       throw new ValidationError('View query cannot contain row-locking clauses (FOR UPDATE / FOR SHARE)');
     }
 
-    // Check FROM / JOIN table references for restricted system tables, self-reference, and auth wildcard projections
+    // Check FROM / JOIN table references (including schema/catalog-qualified names like main._admins, dbo._admins)
     const cleanViewName = viewName ? viewName.trim().toLowerCase() : undefined;
     const authNames = new Set<string>(['users']);
     if (authCollections) {
@@ -138,13 +138,8 @@ export class ViewQueryValidator {
       }
     }
     const referencedAuthAliases = new Map<string, string>();
-    const sqlKeywords = new Set(['WHERE', 'ON', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'CROSS', 'FULL', 'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'OFFSET', 'UNION', 'EXCEPT', 'INTERSECT', 'SET', 'AS']);
-    const tableRefRegex = /\b(?:FROM|JOIN)\s+(?:"([^"]+)"|\[([^\]]+)\]|([a-zA-Z_][a-zA-Z0-9_]*))(?:\s+(?:AS\s+)?(?:"([^"]+)"|\[([^\]]+)\]|([a-zA-Z_][a-zA-Z0-9_]*)))?/gi;
-    let match: RegExpExecArray | null;
-    while ((match = tableRefRegex.exec(noStringSql)) !== null) {
-      const tableName = (match[1] || match[2] || match[3] || '').trim().toLowerCase();
-      const aliasRaw = (match[4] || match[5] || match[6] || '').trim().toLowerCase();
-      if (!tableName) continue;
+    for (const ref of ViewQueryValidator.extractTableReferences(noStringSql)) {
+      const tableName = ref.tableName;
       if (RESTRICTED_SYSTEM_TABLES.has(tableName)) {
         throw new ValidationError(`View query cannot reference restricted system table '${tableName}'`);
       }
@@ -153,8 +148,8 @@ export class ViewQueryValidator {
       }
       if (authNames.has(tableName)) {
         referencedAuthAliases.set(tableName, tableName);
-        if (aliasRaw && !sqlKeywords.has(aliasRaw.toUpperCase())) {
-          referencedAuthAliases.set(aliasRaw, tableName);
+        if (ref.alias) {
+          referencedAuthAliases.set(ref.alias, tableName);
         }
       }
     }
@@ -173,6 +168,88 @@ export class ViewQueryValidator {
     this.assertDialectCompatibleSyntax(stripped, dialectName);
 
     return trimmed;
+  }
+
+  /**
+   * Extracts referenced tables (resolving schema/catalog-qualified names such as main._admins or [dbo].[users]
+   * to their final object name) and optional aliases from FROM and JOIN clauses.
+   */
+  public static extractTableReferences(noStringSql: string): Array<{ tableName: string; alias?: string }> {
+    const refs: Array<{ tableName: string; alias?: string }> = [];
+    const sqlKeywords = new Set([
+      'WHERE', 'ON', 'USING', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'CROSS', 'FULL', 'NATURAL',
+      'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'OFFSET', 'FETCH', 'UNION', 'EXCEPT', 'INTERSECT', 'SET',
+      'AS', 'VALUES', 'WITH', 'INTO', 'FOR',
+    ]);
+    const identPart = '(?:"(?:[^"]|"")+"|\\[(?:[^\\]]|\\]\\])+\\]|[a-zA-Z_][a-zA-Z0-9_]*)';
+    const qualifiedIdent = `(${identPart}(?:\\s*\\.\\s*${identPart})*)`;
+    const tableItemRegex = new RegExp(`^\\s*${qualifiedIdent}(?:\\s+(?:AS\\s+)?(${identPart}))?`, 'i');
+    const clauseKeywordRegex = /\b(?:FROM|JOIN)\b/gi;
+
+    const unquoteIdent = (raw: string): string => {
+      const t = raw.trim();
+      if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
+        return t.slice(1, -1).replace(/""/g, '"').toLowerCase();
+      }
+      if (t.startsWith('[') && t.endsWith(']') && t.length >= 2) {
+        return t.slice(1, -1).replace(/\]\]/g, ']').toLowerCase();
+      }
+      return t.toLowerCase();
+    };
+
+    const extractLastPart = (qualified: string): string => {
+      const partRe = new RegExp(identPart, 'g');
+      let last = '';
+      let pm: RegExpExecArray | null;
+      while ((pm = partRe.exec(qualified)) !== null) {
+        last = unquoteIdent(pm[0]);
+      }
+      return last;
+    };
+
+    let cm: RegExpExecArray | null;
+    while ((cm = clauseKeywordRegex.exec(noStringSql)) !== null) {
+      let cursor = cm.index + cm[0].length;
+      const isFrom = cm[0].toUpperCase() === 'FROM';
+
+      while (cursor < noStringSql.length) {
+        const slice = noStringSql.slice(cursor);
+        const ws = slice.match(/^\s*/)?.[0] || '';
+        cursor += ws.length;
+        const rest = noStringSql.slice(cursor);
+        if (!rest || rest.startsWith('(') || rest.startsWith(')')) break;
+
+        const m = tableItemRegex.exec(rest);
+        if (!m) break;
+
+        const firstWord = m[1].trim().split(/[\s.]+/)[0].toUpperCase();
+        if (sqlKeywords.has(firstWord)) break;
+
+        const tableName = extractLastPart(m[1]);
+        let alias: string | undefined;
+        let consumed = m[1].length;
+        if (m[2]) {
+          const cand = unquoteIdent(m[2]);
+          if (!sqlKeywords.has(cand.toUpperCase())) {
+            alias = cand;
+            consumed = m[0].length;
+          }
+        }
+
+        if (tableName) {
+          refs.push({ tableName, ...(alias ? { alias } : {}) });
+        }
+
+        cursor += consumed;
+        if (!isFrom) break;
+
+        const afterMatch = noStringSql.slice(cursor).match(/^\s*,/);
+        if (!afterMatch) break;
+        cursor += afterMatch[0].length;
+      }
+    }
+
+    return refs;
   }
 
   private static assertNoAuthWildcardProjection(

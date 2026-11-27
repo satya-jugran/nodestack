@@ -85,6 +85,9 @@ describe('True SQL View Collections (Read-Only Joins & Aggregations)', () => {
 
     it('blocks sensitive system tables, auth secrets, wildcard auth projections, and self-references', () => {
       expect(() => ViewQueryValidator.validate('SELECT id, email FROM _admins', 'sqlite')).toThrow(/restricted system table/i);
+      expect(() => ViewQueryValidator.validate('SELECT id, email FROM main._admins', 'sqlite')).toThrow(/restricted system table/i);
+      expect(() => ViewQueryValidator.validate('SELECT id, email FROM [dbo].[_admins]', 'mssql')).toThrow(/restricted system table/i);
+      expect(() => ViewQueryValidator.validate('SELECT id FROM orders, main._admins', 'sqlite')).toThrow(/restricted system table/i);
       expect(() => ViewQueryValidator.validate('SELECT id FROM _api_keys', 'sqlite')).toThrow(/restricted system table/i);
       expect(() => ViewQueryValidator.validate('SELECT id, passwordHash FROM users', 'sqlite')).toThrow(/restricted column/i);
       expect(() => ViewQueryValidator.validate('SELECT id, "passwordHash" FROM users', 'sqlite')).toThrow(/restricted column/i);
@@ -93,9 +96,11 @@ describe('True SQL View Collections (Read-Only Joins & Aggregations)', () => {
       expect(() => ViewQueryValidator.validate("SELECT id, 'passwordHash' AS label FROM users", 'sqlite')).not.toThrow();
       expect(() => ViewQueryValidator.validate('SELECT id, tokenKey FROM users', 'sqlite')).toThrow(/restricted column/i);
       expect(() => ViewQueryValidator.validate('SELECT * FROM users', 'sqlite')).toThrow(/wildcard/i);
+      expect(() => ViewQueryValidator.validate('SELECT u.* FROM orders o JOIN public.users u ON u.id = o.user_id', 'postgres')).toThrow(/wildcard/i);
       expect(() => ViewQueryValidator.validate('SELECT u.* FROM orders o JOIN users u ON u.id = o.user_id', 'sqlite')).toThrow(/wildcard/i);
       expect(() => ViewQueryValidator.validate('SELECT COUNT(*) AS total FROM users', 'sqlite')).not.toThrow();
       expect(() => ViewQueryValidator.validate('SELECT * FROM my_view', 'sqlite', 'my_view')).toThrow(/cannot reference itself/i);
+      expect(() => ViewQueryValidator.validate('SELECT * FROM "public"."my_view"', 'postgres', 'my_view')).toThrow(/cannot reference itself/i);
     });
 
     it('rejects bare top-level ORDER BY on MSSQL views', () => {

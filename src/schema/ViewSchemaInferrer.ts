@@ -5,7 +5,7 @@ import { AppError } from '../core/errors/AppError';
 import { CollectionModel } from './models/Collection';
 import { FieldType, SchemaField } from './models/Field';
 import { inferFieldType } from './SchemaInferenceService';
-import { RESTRICTED_AUTH_COLUMNS } from './ViewQueryValidator';
+import { RESTRICTED_AUTH_COLUMNS, ViewQueryValidator } from './ViewQueryValidator';
 
 interface ProjectedColumnHint {
   outputName: string;
@@ -389,16 +389,10 @@ export class ViewSchemaInferrer {
 
   private static extractTableAliases(selectSql: string): Map<string, string> {
     const map = new Map<string, string>();
-    const regex = /\b(?:FROM|JOIN)\s+(?:"([^"]+)"|\[([^\]]+)\]|([a-zA-Z_][a-zA-Z0-9_]*))(?:\s+(?:AS\s+)?(?:"([^"]+)"|\[([^\]]+)\]|([a-zA-Z_][a-zA-Z0-9_]*)))?/gi;
-    const sqlKeywords = new Set(['WHERE', 'ON', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'CROSS', 'FULL', 'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'OFFSET', 'UNION', 'EXCEPT', 'INTERSECT', 'SET']);
-    let m: RegExpExecArray | null;
-    while ((m = regex.exec(selectSql)) !== null) {
-      const tableName = (m[1] || m[2] || m[3] || '').toLowerCase();
-      const aliasRaw = (m[4] || m[5] || m[6] || '').toLowerCase();
-      if (!tableName) continue;
-      map.set(tableName, tableName);
-      if (aliasRaw && !sqlKeywords.has(aliasRaw.toUpperCase())) {
-        map.set(aliasRaw, tableName);
+    for (const ref of ViewQueryValidator.extractTableReferences(selectSql)) {
+      map.set(ref.tableName, ref.tableName);
+      if (ref.alias) {
+        map.set(ref.alias, ref.tableName);
       }
     }
     return map;
