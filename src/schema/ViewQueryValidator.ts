@@ -300,9 +300,9 @@ export class ViewQueryValidator {
     if (typeof rawQuery !== 'string' || !rawQuery.trim()) {
       return [];
     }
-    const knownSet = knownCollections instanceof Set
-      ? knownCollections
-      : new Set(Array.from(knownCollections, (name) => String(name).trim().toLowerCase()));
+    const knownSet = new Set(
+      Array.from(knownCollections, (name) => String(name).trim().toLowerCase())
+    );
     const noStringSql = this.stripCommentsAndStringLiteralsOnly(rawQuery);
     const cteNames = this.extractCteNames(noStringSql);
     const refs = this.extractTableReferences(noStringSql);

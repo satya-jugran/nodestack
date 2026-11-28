@@ -38,6 +38,14 @@ describe('SQL View Dependency Validation, Force & Cascade', () => {
       expect(refs).not.toContain('cte_temp');
       expect(refs).not.toContain('products');
       expect(refs).not.toContain('other_view');
+
+      // Case-insensitive normalization must apply to Set inputs just like arrays
+      const mixedCaseSetRefs = ViewQueryValidator.extractReferencedCollections(
+        sql,
+        new Set(['Orders', 'Customers', 'Products'])
+      );
+      expect(mixedCaseSetRefs).toEqual(expect.arrayContaining(['customers', 'orders']));
+      expect(mixedCaseSetRefs).not.toContain('products');
     });
 
     it('rewrites collection references across SQL dialects while preserving aliases, CTEs, and strings', () => {
