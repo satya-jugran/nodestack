@@ -1278,6 +1278,68 @@ export class SchemaService {
     return false;
   }
 
+  private isDependentViewIncompatibilityError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+    const anyErr = err as any;
+
+    // Never swallow JS runtime/programming errors as view incompatibility
+    if (
+      err instanceof TypeError ||
+      err instanceof ReferenceError ||
+      err instanceof RangeError ||
+      err instanceof SyntaxError
+    ) {
+      return false;
+    }
+
+    // NodeStack validation & schema-inference 4xx errors (e.g. ValidationError, SchemaDrift, invalid rule field)
+    if (err instanceof AppError) {
+      return err.statusCode >= 400 && err.statusCode < 500;
+    }
+
+    // SQLite compilation / missing table or column errors (exclude BUSY, LOCKED, IOERR, etc.)
+    if (anyErr.code === 'ERR_SQLITE_ERROR' || anyErr.code === 'SQLITE_ERROR') {
+      return anyErr.errcode === undefined || anyErr.errcode === 1;
+    }
+
+    // PostgreSQL SQLSTATE codes for missing columns/tables/functions, datatype mismatch, ambiguous/invalid SQL defs
+    if (typeof anyErr.code === 'string') {
+      const pgIncompatCodes = new Set([
+        '42703', // undefined_column
+        '42P01', // undefined_table
+        '42883', // undefined_function
+        '42804', // datatype_mismatch
+        '42P10', // invalid_column_reference
+        '42P16', // invalid_table_definition
+        '42702', // ambiguous_column
+        '42601', // syntax_error
+      ]);
+      if (pgIncompatCodes.has(anyErr.code)) {
+        return true;
+      }
+    }
+
+    // MSSQL / Tedious SQL error numbers for missing columns/objects, ambiguity, or view definition errors
+    if (typeof anyErr.number === 'number') {
+      const mssqlIncompatNumbers = new Set([
+        102,  // Incorrect syntax near
+        156,  // Incorrect syntax near keyword
+        207,  // Invalid column name
+        208,  // Invalid object name
+        209,  // Ambiguous column name
+        241,  // Conversion failed (date/time)
+        245,  // Conversion failed
+        4511, // Create View failed (missing column name)
+        8114, // Error converting data type
+      ]);
+      if (mssqlIncompatNumbers.has(anyErr.number)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   private replayDependentViewsSync(
     dependents: CollectionModel[],
     oldTargetName: string,
@@ -1321,7 +1383,10 @@ export class SchemaService {
         this.db
           .prepareSync('UPDATE _collections SET schema = ?, options = ?, updated = ? WHERE id = ?')
           .run(JSON.stringify(nextSchema), JSON.stringify(nextOptions), now, dep.id);
-      } catch {
+      } catch (err) {
+        if (!this.isDependentViewIncompatibilityError(err)) {
+          throw err;
+        }
         this.db.execSync(this.db.dialect.dropViewIfExists(dep.name));
         this.db.prepareSync('DELETE FROM _collections WHERE id = ?').run(dep.id);
         removedSet.add(dep.name.toLowerCase());
@@ -1380,10 +1445,13 @@ export class SchemaService {
         if (usePgSavepoint) {
           await this.db.exec('RELEASE SAVEPOINT nodestack_dep_replay');
         }
-      } catch {
+      } catch (err) {
         if (usePgSavepoint) {
           await this.db.exec('ROLLBACK TO SAVEPOINT nodestack_dep_replay');
           await this.db.exec('RELEASE SAVEPOINT nodestack_dep_replay');
+        }
+        if (!this.isDependentViewIncompatibilityError(err)) {
+          throw err;
         }
         await this.db.exec(this.db.dialect.dropViewIfExists(dep.name));
         await this.db.prepare('DELETE FROM _collections WHERE id = ?').run(dep.id);

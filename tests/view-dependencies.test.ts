@@ -13,6 +13,7 @@ import { RuleEngine } from '../src/rules/RuleEngine';
 import { EventBus } from '../src/core/events/EventBus';
 import { RealtimeService } from '../src/realtime/RealtimeService';
 import { ViewQueryValidator } from '../src/schema/ViewQueryValidator';
+import { ViewSchemaInferrer } from '../src/schema/ViewSchemaInferrer';
 import { OpenApiGenerator } from '../src/schema/OpenApiGenerator';
 import { NodeSqliteDriver } from '../src/database/drivers/NodeSqliteDriver';
 import { AdminUIBundler } from '../src/admin/AdminUIBundler';
@@ -303,6 +304,45 @@ describe('SQL View Dependency Validation, Force & Cascade', () => {
         `SELECT name FROM sqlite_master WHERE type = 'view' AND name = 'vip_orders'`
       );
       expect(staleSqlViews).toHaveLength(0);
+    });
+
+    it('rethrows operational/unexpected errors during cascade replay and rolls back without deleting dependent views', async () => {
+      const origInfer = ViewSchemaInferrer.infer.bind(ViewSchemaInferrer);
+      const inferSpy = vi.spyOn(ViewSchemaInferrer, 'infer').mockImplementation((params: any) => {
+        if (params.viewName === 'vip_orders') {
+          const busyErr: any = new Error('SQLITE_BUSY: database is locked');
+          busyErr.code = 'ERR_SQLITE_BUSY';
+          busyErr.errcode = 5;
+          throw busyErr;
+        }
+        return origInfer(params);
+      });
+
+      try {
+        expect(() =>
+          schema.updateCollection(
+            'order_summary',
+            {
+              options: {
+                viewQueries: {
+                  sqlite: 'SELECT id, customer, total FROM orders WHERE total > 0',
+                },
+              },
+            },
+            { force: true, cascade: true }
+          )
+        ).toThrow(/SQLITE_BUSY/);
+
+        // Both parent view edit and dependent view must be rolled back intact
+        expect(schema.getCollection('order_summary')?.options?.viewQueries?.sqlite).toBe(
+          'SELECT id, customer, total FROM orders'
+        );
+        expect(schema.getCollection('vip_orders')).toBeDefined();
+        const vipRows = await records.getList('vip_orders', 1, 10);
+        expect(vipRows.items).toHaveLength(1);
+      } finally {
+        inferSpy.mockRestore();
+      }
     });
   });
 
