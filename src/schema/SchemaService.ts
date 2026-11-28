@@ -328,12 +328,14 @@ export class SchemaService {
     operation: 'delete' | 'rename' | 'modify',
     options?: { force?: boolean; cascade?: boolean }
   ): void | Promise<void> {
-    this.validateForceAndCascade(options?.force, options?.cascade);
+    const force = this.resolveStrictBooleanFlag('force', options?.force);
+    const cascade = this.resolveStrictBooleanFlag('cascade', options?.cascade);
+    this.validateForceAndCascade(force, cascade);
     const colRes = this.getCollectionOrThrow(nameOrId);
     if (this.isAsyncDriver() || (colRes && typeof (colRes as any).then === 'function')) {
       return (async () => {
         const col = colRes && typeof (colRes as any).then === 'function' ? await colRes : colRes;
-        if (options?.force) return;
+        if (force) return;
         const allCols = await this.getAllCollections();
         const dependents = this.computeDependentViews(allCols, col.name);
         if (dependents.length > 0) {
@@ -342,7 +344,7 @@ export class SchemaService {
       })();
     }
     const col = colRes as CollectionModel;
-    if (options?.force) return;
+    if (force) return;
     const allCols = this.getAllCollections();
     const dependents = this.computeDependentViews(allCols, col.name);
     if (dependents.length > 0) {
@@ -365,8 +367,8 @@ export class SchemaService {
     dto: UpdateCollectionDto,
     options?: { force?: boolean; cascade?: boolean }
   ): any {
-    const force = Boolean(options?.force || dto.force);
-    const cascade = Boolean(options?.cascade || dto.cascade);
+    const force = this.resolveStrictBooleanFlag('force', options?.force, dto.force);
+    const cascade = this.resolveStrictBooleanFlag('cascade', options?.cascade, dto.cascade);
     this.validateForceAndCascade(force, cascade);
 
     const currentRes = this.getCollectionOrThrow(nameOrId);
@@ -649,8 +651,8 @@ export class SchemaService {
       throw new AppError('Cannot delete system collection', 400);
     }
 
-    const force = Boolean(options?.force);
-    const cascade = Boolean(options?.cascade);
+    const force = this.resolveStrictBooleanFlag('force', options?.force);
+    const cascade = this.resolveStrictBooleanFlag('cascade', options?.cascade);
     this.validateForceAndCascade(force, cascade);
 
     const dropSchemaSync = (current: CollectionModel, dependents: CollectionModel[]): void => {
@@ -1104,6 +1106,21 @@ export class SchemaService {
       default:
         return "''";
     }
+  }
+
+  private resolveStrictBooleanFlag(
+    name: 'force' | 'cascade',
+    primary?: unknown,
+    fallback?: unknown
+  ): boolean {
+    if (primary !== undefined && typeof primary !== 'boolean') {
+      throw new AppError(`Invalid value for '${name}': expected a boolean`, 400);
+    }
+    if (fallback !== undefined && typeof fallback !== 'boolean') {
+      throw new AppError(`Invalid value for '${name}': expected a boolean`, 400);
+    }
+    const effective = primary !== undefined ? primary : fallback;
+    return effective === true;
   }
 
   private validateForceAndCascade(force?: boolean, cascade?: boolean): void {

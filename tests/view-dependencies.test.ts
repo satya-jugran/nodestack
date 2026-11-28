@@ -142,6 +142,23 @@ describe('SQL View Dependency Validation, Force & Cascade', () => {
       ).toThrow(/requires 'force=true'/);
     });
 
+    it('rejects non-boolean force/cascade strings (e.g. "false") rather than coercing to true', () => {
+      expect(() =>
+        schema.updateCollection('orders', {
+          name: 'orders_v2',
+          force: 'false' as any,
+          cascade: 'false' as any,
+        })
+      ).toThrow(/expected a boolean/);
+
+      expect(() =>
+        schema.deleteCollection('orders', { force: 'false' as any })
+      ).toThrow(/expected a boolean/);
+
+      expect(schema.getCollection('orders')).toBeDefined();
+      expect(schema.getCollection('order_summary')).toBeDefined();
+    });
+
     it('blocks delete with ConflictError (409) listing direct and transitive dependents', () => {
       let caught: any;
       try {
@@ -375,7 +392,36 @@ describe('SQL View Dependency Validation, Force & Cascade', () => {
       expect(delErr.data?.data?.dependentViews).toEqual(['item_titles']);
       expect(fs.existsSync(path.join(colStorageDir, 'keep.txt'))).toBe(true);
 
-      // 2. Rename without force -> 409
+      // 2. Reject non-boolean body/query force & cascade values (e.g. "false" string) rather than coercing to true
+      await expect(
+        client.collections.update('items', {
+          name: 'catalog_items',
+          force: 'false' as any,
+          cascade: 'false' as any,
+        })
+      ).rejects.toMatchObject({ status: 400 });
+
+      const badQueryRes = await fetch(`http://127.0.0.1:${port}/api/collections/items?force=notabool`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${client.authStore.token}`,
+        },
+        body: JSON.stringify({ name: 'catalog_items' }),
+      });
+      expect(badQueryRes.status).toBe(400);
+
+      const falseQueryRes = await fetch(`http://127.0.0.1:${port}/api/collections/items?force=false&cascade=false`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${client.authStore.token}`,
+        },
+        body: JSON.stringify({ name: 'catalog_items' }),
+      });
+      expect(falseQueryRes.status).toBe(409);
+
+      // 3. Rename without force -> 409
       await expect(
         client.collections.update('items', { name: 'catalog_items' })
       ).rejects.toMatchObject({ status: 409 });

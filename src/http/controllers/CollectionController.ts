@@ -57,15 +57,31 @@ export class CollectionController extends BaseController {
     this.ok(reply, col, 201);
   }
 
-  private parseBoolFlag(val: unknown): boolean {
-    if (val === true) return true;
-    const str = String(val ?? '').trim().toLowerCase();
-    return str === 'true' || str === '1';
+  private parseQueryBoolFlag(name: 'force' | 'cascade', val: unknown): boolean | undefined {
+    if (val === undefined) return undefined;
+    if (typeof val === 'boolean') return val;
+    if (typeof val === 'string') {
+      const str = val.trim().toLowerCase();
+      if (str === '' || str === 'false' || str === '0') return false;
+      if (str === 'true' || str === '1') return true;
+    }
+    throw new AppError(`Invalid boolean value for query parameter '${name}'`, 400);
+  }
+
+  private parseBodyBoolFlag(name: 'force' | 'cascade', val: unknown): boolean | undefined {
+    if (val === undefined) return undefined;
+    if (typeof val === 'boolean') return val;
+    throw new AppError(`Invalid value for '${name}': expected a boolean`, 400);
   }
 
   private getForceCascadeOptions(req: any): { force: boolean; cascade: boolean } {
-    const force = this.parseBoolFlag(req?.query?.force) || req?.body?.force === true;
-    const cascade = this.parseBoolFlag(req?.query?.cascade) || req?.body?.cascade === true;
+    const queryForce = this.parseQueryBoolFlag('force', req?.query?.force);
+    const bodyForce = this.parseBodyBoolFlag('force', req?.body?.force);
+    const queryCascade = this.parseQueryBoolFlag('cascade', req?.query?.cascade);
+    const bodyCascade = this.parseBodyBoolFlag('cascade', req?.body?.cascade);
+
+    const force = queryForce !== undefined ? queryForce : (bodyForce ?? false);
+    const cascade = queryCascade !== undefined ? queryCascade : (bodyCascade ?? false);
     if (cascade && !force) {
       throw new AppError("Query parameter 'cascade=true' requires 'force=true'", 400);
     }
