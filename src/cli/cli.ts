@@ -613,30 +613,161 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
 
   // Command: collection / collections
   program
-    .command('collection [action] [name]')
+    .command('collection [action] [name] [target]')
     .alias('collections')
-    .description('Manage database collections (list, delete)')
+    .description('Manage database collections (list, rename, delete)')
     .option('-d, --dir <path>', 'The directory where data is stored', './nodestack_data')
-    .action(async (actionArg, nameArg, options) => {
+    .option('-f, --force', 'Override SQL view dependency checks', false)
+    .option('-c, --cascade', 'Requires --force. Cascade-delete or rewrite dependent SQL views', false)
+    .action(async (actionArg, nameArg, targetArg, options) => {
       const app = new NodeStack({ dataDir: options.dir });
+      const askYesNo = async (promptText: string): Promise<boolean> => {
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+        const answer = await new Promise<string>((resolve) => rl.question(promptText, resolve));
+        rl.close();
+        const clean = answer.trim().toLowerCase();
+        return clean === 'y' || clean === 'yes';
+      };
+
       try {
         const action = actionArg;
         const name = nameArg;
+        const isInteractive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+
+        if (options.cascade && !options.force) {
+          throw new Error("Option '--cascade' requires '--force'.");
+        }
 
         if (action === 'delete' || action === 'rm' || action === 'drop') {
           if (!name) {
             console.error(chalk.red('\n✗ Collection name is required: npx nodestack collection delete <name>\n'));
             process.exit(1);
           }
-          const col = await app.schema.getCollectionOrThrow(name);
-          // Clean storage files before dropping the collection to prevent orphaned files
+          let effectiveForce = Boolean(options.force);
+          let effectiveCascade = Boolean(options.cascade);
+          let deletedDependents: string[] = [];
+
+          const deleteStorage = async (col: any, deps: any[]) => {
+            deletedDependents = deps.map((d) => d.name);
+            try {
+              await app.files.deleteCollectionFiles(col.id);
+            } catch (fileErr: any) {
+              throw new Error(
+                `Failed to delete storage directory for collection '${name}': ${fileErr.message}. Aborting deletion to prevent orphaned data.`
+              );
+            }
+          };
+
           try {
-            await app.files.deleteCollectionFiles(col.id);
-          } catch (fileErr: any) {
-            throw new Error(`Failed to delete storage directory for collection '${name}': ${fileErr.message}. Aborting deletion to prevent orphaned data.`);
+            await app.schema.deleteCollection(name, {
+              force: effectiveForce,
+              cascade: effectiveCascade,
+              beforeDrop: deleteStorage,
+            });
+          } catch (err: any) {
+            if (err?.statusCode === 409 && err?.data?.code === 'VIEW_DEPENDENCY_CONFLICT') {
+              const depNames: string[] = err.data.dependentViews || [];
+              const depList = depNames.join(', ');
+              if (!isInteractive) {
+                console.error(
+                  chalk.red(
+                    `\n✗ Cannot delete '${name}': ${depNames.length} SQL view(s) depend on it (${depList}). Re-run with --force (and optionally --cascade) to proceed.\n`
+                  )
+                );
+                process.exit(1);
+              }
+              console.log(
+                chalk.yellow(
+                  `\n⚠ Warning: ${depNames.length} SQL view(s) depend on '${name}': ${depList}\n`
+                )
+              );
+              const confirmed = await askYesNo(`Proceed with deleting '${name}'? (y/N): `);
+              if (!confirmed) {
+                console.log(chalk.yellow('\nAborted. No changes were made.\n'));
+                return;
+              }
+              effectiveForce = true;
+              effectiveCascade = await askYesNo(
+                `Also cascade-delete dependent views (${depList})? (y/N): `
+              );
+              await app.schema.deleteCollection(name, {
+                force: true,
+                cascade: effectiveCascade,
+                beforeDrop: deleteStorage,
+              });
+            } else {
+              throw err;
+            }
           }
-          await app.schema.deleteCollection(name);
-          console.log(chalk.green(`\n✓ Collection '${name}' and its SQLite table were successfully deleted!\n`));
+
+          if (deletedDependents.length > 0 && effectiveForce && effectiveCascade) {
+            console.log(
+              chalk.green(
+                `\n✓ Collection '${name}' and ${deletedDependents.length} dependent view(s) (${deletedDependents.join(', ')}) were successfully deleted!\n`
+              )
+            );
+          } else {
+            console.log(chalk.green(`\n✓ Collection '${name}' and its SQLite table were successfully deleted!\n`));
+          }
+        } else if (action === 'rename' || action === 'mv') {
+          const newName = targetArg;
+          if (!name || !newName) {
+            console.error(chalk.red('\n✗ Usage: npx nodestack collection rename <oldName> <newName>\n'));
+            process.exit(1);
+          }
+          let effectiveForce = Boolean(options.force);
+          let effectiveCascade = Boolean(options.cascade);
+          let updated: any;
+
+          try {
+            updated = await app.schema.runSerialized(() =>
+              app.schema.updateCollection(
+                name,
+                { name: newName },
+                { force: effectiveForce, cascade: effectiveCascade }
+              )
+            );
+          } catch (err: any) {
+            if (err?.statusCode === 409 && err?.data?.code === 'VIEW_DEPENDENCY_CONFLICT') {
+              const depNames: string[] = err.data.dependentViews || [];
+              const depList = depNames.join(', ');
+              if (!isInteractive) {
+                console.error(
+                  chalk.red(
+                    `\n✗ Cannot rename '${name}': ${depNames.length} SQL view(s) depend on it (${depList}). Re-run with --force (and optionally --cascade) to proceed.\n`
+                  )
+                );
+                process.exit(1);
+              }
+              console.log(
+                chalk.yellow(
+                  `\n⚠ Warning: ${depNames.length} SQL view(s) depend on '${name}': ${depList}\n`
+                )
+              );
+              const confirmed = await askYesNo(`Proceed with renaming '${name}' -> '${newName}'? (y/N): `);
+              if (!confirmed) {
+                console.log(chalk.yellow('\nAborted. No changes were made.\n'));
+                return;
+              }
+              effectiveForce = true;
+              effectiveCascade = await askYesNo(
+                `Also rewrite SQL references in dependent views (${depList})? (y/N): `
+              );
+              updated = await app.schema.runSerialized(() =>
+                app.schema.updateCollection(
+                  name,
+                  { name: newName },
+                  { force: true, cascade: effectiveCascade }
+                )
+              );
+            } else {
+              throw err;
+            }
+          }
+          console.log(chalk.green(`\n✓ Collection '${name}' renamed to '${updated.name}'!\n`));
         } else {
           // List collections
           const collections = await app.schema.getAllCollections();
@@ -652,7 +783,10 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             );
           }
           console.log(
-            chalk.dim('\n  Delete a collection with: npx nodestack collection delete <name>\n')
+            chalk.dim('\n  Delete: npx nodestack collection delete <name> [--force] [--cascade]')
+          );
+          console.log(
+            chalk.dim('  Rename: npx nodestack collection rename <oldName> <newName> [--force] [--cascade]\n')
           );
         }
       } catch (err: any) {

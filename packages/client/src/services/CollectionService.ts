@@ -35,11 +35,24 @@ export class CollectionService extends BaseService {
     });
   }
 
+  private buildForceQuery(options?: { force?: boolean; cascade?: boolean }): string {
+    const params = new URLSearchParams();
+    if (options?.force) params.set('force', 'true');
+    if (options?.cascade) params.set('cascade', 'true');
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
+  }
+
   /**
    * Updates an existing collection schema.
    */
-  public async update(nameOrId: string, data: any): Promise<any> {
-    return this.send<any>(`/api/collections/${encodeURIComponent(nameOrId)}`, {
+  public async update(
+    nameOrId: string,
+    data: any,
+    options?: { force?: boolean; cascade?: boolean }
+  ): Promise<any> {
+    const qs = this.buildForceQuery(options);
+    return this.send<any>(`/api/collections/${encodeURIComponent(nameOrId)}${qs}`, {
       method: 'PATCH',
       body: data,
     });
@@ -48,8 +61,12 @@ export class CollectionService extends BaseService {
   /**
    * Deletes a collection schema and its corresponding SQLite table.
    */
-  public async delete(nameOrId: string): Promise<boolean> {
-    await this.send<void>(`/api/collections/${encodeURIComponent(nameOrId)}`, {
+  public async delete(
+    nameOrId: string,
+    options?: { force?: boolean; cascade?: boolean }
+  ): Promise<boolean> {
+    const qs = this.buildForceQuery(options);
+    await this.send<void>(`/api/collections/${encodeURIComponent(nameOrId)}${qs}`, {
       method: 'DELETE',
     });
     return true;

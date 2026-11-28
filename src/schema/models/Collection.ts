@@ -51,4 +51,6 @@ export interface UpdateCollectionDto {
   updateRule?: string | null;
   deleteRule?: string | null;
   options?: CollectionOptions;
+  force?: boolean;
+  cascade?: boolean;
 }

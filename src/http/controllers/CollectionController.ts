@@ -2,7 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { SchemaService } from '../../schema/SchemaService';
 import { SchemaInferenceService, ImportJsonOptions } from '../../schema/SchemaInferenceService';
-import { CreateCollectionDto, UpdateCollectionDto, ViewDialect } from '../../schema/models/Collection';
+import { CollectionModel, CreateCollectionDto, UpdateCollectionDto, ViewDialect } from '../../schema/models/Collection';
 import { FileStorageService } from '../../files/FileStorageService';
 import { AppError } from '../../core/errors/AppError';
 
@@ -53,8 +53,39 @@ export class CollectionController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const schema = this.getSchema(req);
-    const col = await schema.createCollection(req.body);
+    const col = await schema.runSerialized(() => schema.createCollection(req.body));
     this.ok(reply, col, 201);
+  }
+
+  private parseQueryBoolFlag(name: 'force' | 'cascade', val: unknown): boolean | undefined {
+    if (val === undefined) return undefined;
+    if (typeof val === 'boolean') return val;
+    if (typeof val === 'string') {
+      const str = val.trim().toLowerCase();
+      if (str === '' || str === 'false' || str === '0') return false;
+      if (str === 'true' || str === '1') return true;
+    }
+    throw new AppError(`Invalid boolean value for query parameter '${name}'`, 400);
+  }
+
+  private parseBodyBoolFlag(name: 'force' | 'cascade', val: unknown): boolean | undefined {
+    if (val === undefined) return undefined;
+    if (typeof val === 'boolean') return val;
+    throw new AppError(`Invalid value for '${name}': expected a boolean`, 400);
+  }
+
+  private getForceCascadeOptions(req: any): { force: boolean; cascade: boolean } {
+    const queryForce = this.parseQueryBoolFlag('force', req?.query?.force);
+    const bodyForce = this.parseBodyBoolFlag('force', req?.body?.force);
+    const queryCascade = this.parseQueryBoolFlag('cascade', req?.query?.cascade);
+    const bodyCascade = this.parseBodyBoolFlag('cascade', req?.body?.cascade);
+
+    const force = queryForce !== undefined ? queryForce : (bodyForce ?? false);
+    const cascade = queryCascade !== undefined ? queryCascade : (bodyCascade ?? false);
+    if (cascade && !force) {
+      throw new AppError("Query parameter 'cascade=true' requires 'force=true'", 400);
+    }
+    return { force, cascade };
   }
 
   public async update(
@@ -62,7 +93,10 @@ export class CollectionController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const schema = this.getSchema(req);
-    const col = await schema.updateCollection(req.params.collection, req.body);
+    const { force, cascade } = this.getForceCascadeOptions(req);
+    const col = await schema.runSerialized(() =>
+      schema.updateCollection(req.params.collection, req.body, { force, cascade })
+    );
     this.ok(reply, col);
   }
 
@@ -75,19 +109,23 @@ export class CollectionController extends BaseController {
     }
     const schema = this.getSchema(req);
     const files = this.getFiles(req);
-    const col = await schema.getCollectionOrThrow(req.params.collection);
-    // Clean storage files before dropping the collection to prevent orphaned files
-    if (files) {
-      try {
-        await files.deleteCollectionFiles(col.id);
-      } catch (err: any) {
-        throw new AppError(
-          `Failed to delete storage files for collection '${req.params.collection}': ${err.message}. Aborting deletion to prevent orphaned data.`,
-          500
-        );
-      }
-    }
-    await schema.deleteCollection(req.params.collection);
+    const { force, cascade } = this.getForceCascadeOptions(req);
+
+    await schema.deleteCollection(req.params.collection, {
+      force,
+      cascade,
+      beforeDrop: async (col: CollectionModel) => {
+        if (!files) return;
+        try {
+          await files.deleteCollectionFiles(col.id);
+        } catch (err: any) {
+          throw new AppError(
+            `Failed to delete storage files for collection '${req.params.collection}': ${err.message}. Aborting deletion to prevent orphaned data.`,
+            500
+          );
+        }
+      },
+    });
     this.noContent(reply);
   }
 
