@@ -2,7 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController } from './BaseController';
 import { SchemaService } from '../../schema/SchemaService';
 import { SchemaInferenceService, ImportJsonOptions } from '../../schema/SchemaInferenceService';
-import { CreateCollectionDto, UpdateCollectionDto, ViewDialect } from '../../schema/models/Collection';
+import { CollectionModel, CreateCollectionDto, UpdateCollectionDto, ViewDialect } from '../../schema/models/Collection';
 import { FileStorageService } from '../../files/FileStorageService';
 import { AppError } from '../../core/errors/AppError';
 
@@ -53,7 +53,7 @@ export class CollectionController extends BaseController {
     reply: FastifyReply
   ): Promise<void> {
     const schema = this.getSchema(req);
-    const col = await schema.createCollection(req.body);
+    const col = await schema.runSerialized(() => schema.createCollection(req.body));
     this.ok(reply, col, 201);
   }
 
@@ -78,7 +78,9 @@ export class CollectionController extends BaseController {
   ): Promise<void> {
     const schema = this.getSchema(req);
     const { force, cascade } = this.getForceCascadeOptions(req);
-    const col = await schema.updateCollection(req.params.collection, req.body, { force, cascade });
+    const col = await schema.runSerialized(() =>
+      schema.updateCollection(req.params.collection, req.body, { force, cascade })
+    );
     this.ok(reply, col);
   }
 
@@ -92,23 +94,22 @@ export class CollectionController extends BaseController {
     const schema = this.getSchema(req);
     const files = this.getFiles(req);
     const { force, cascade } = this.getForceCascadeOptions(req);
-    const col = await schema.getCollectionOrThrow(req.params.collection);
 
-    // Check view dependencies BEFORE deleting storage files so a 409 block never wipes files
-    await schema.assertNoViewDependents(col.name, 'delete', { force, cascade });
-
-    // Clean storage files before dropping the collection to prevent orphaned files
-    if (files) {
-      try {
-        await files.deleteCollectionFiles(col.id);
-      } catch (err: any) {
-        throw new AppError(
-          `Failed to delete storage files for collection '${req.params.collection}': ${err.message}. Aborting deletion to prevent orphaned data.`,
-          500
-        );
-      }
-    }
-    await schema.deleteCollection(req.params.collection, { force, cascade });
+    await schema.deleteCollection(req.params.collection, {
+      force,
+      cascade,
+      beforeDrop: async (col: CollectionModel) => {
+        if (!files) return;
+        try {
+          await files.deleteCollectionFiles(col.id);
+        } catch (err: any) {
+          throw new AppError(
+            `Failed to delete storage files for collection '${req.params.collection}': ${err.message}. Aborting deletion to prevent orphaned data.`,
+            500
+          );
+        }
+      },
+    });
     this.noContent(reply);
   }
 

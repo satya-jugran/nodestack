@@ -646,48 +646,67 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             console.error(chalk.red('\n✗ Collection name is required: npx nodestack collection delete <name>\n'));
             process.exit(1);
           }
-          const col = await app.schema.getCollectionOrThrow(name);
-          const dependents = await app.schema.findDependentViews(col.name);
           let effectiveForce = Boolean(options.force);
           let effectiveCascade = Boolean(options.cascade);
+          let deletedDependents: string[] = [];
 
-          if (dependents.length > 0 && !effectiveForce) {
-            const depList = dependents.map((d) => d.name).join(', ');
-            if (!isInteractive) {
-              console.error(
-                chalk.red(
-                  `\n✗ Cannot delete '${name}': ${dependents.length} SQL view(s) depend on it (${depList}). Re-run with --force (and optionally --cascade) to proceed.\n`
+          const deleteStorage = async (col: any, deps: any[]) => {
+            deletedDependents = deps.map((d) => d.name);
+            try {
+              await app.files.deleteCollectionFiles(col.id);
+            } catch (fileErr: any) {
+              throw new Error(
+                `Failed to delete storage directory for collection '${name}': ${fileErr.message}. Aborting deletion to prevent orphaned data.`
+              );
+            }
+          };
+
+          try {
+            await app.schema.deleteCollection(name, {
+              force: effectiveForce,
+              cascade: effectiveCascade,
+              beforeDrop: deleteStorage,
+            });
+          } catch (err: any) {
+            if (err?.statusCode === 409 && err?.data?.code === 'VIEW_DEPENDENCY_CONFLICT') {
+              const depNames: string[] = err.data.dependentViews || [];
+              const depList = depNames.join(', ');
+              if (!isInteractive) {
+                console.error(
+                  chalk.red(
+                    `\n✗ Cannot delete '${name}': ${depNames.length} SQL view(s) depend on it (${depList}). Re-run with --force (and optionally --cascade) to proceed.\n`
+                  )
+                );
+                process.exit(1);
+              }
+              console.log(
+                chalk.yellow(
+                  `\n⚠ Warning: ${depNames.length} SQL view(s) depend on '${name}': ${depList}\n`
                 )
               );
-              process.exit(1);
+              const confirmed = await askYesNo(`Proceed with deleting '${name}'? (y/N): `);
+              if (!confirmed) {
+                console.log(chalk.yellow('\nAborted. No changes were made.\n'));
+                return;
+              }
+              effectiveForce = true;
+              effectiveCascade = await askYesNo(
+                `Also cascade-delete dependent views (${depList})? (y/N): `
+              );
+              await app.schema.deleteCollection(name, {
+                force: true,
+                cascade: effectiveCascade,
+                beforeDrop: deleteStorage,
+              });
+            } else {
+              throw err;
             }
-            console.log(
-              chalk.yellow(
-                `\n⚠ Warning: ${dependents.length} SQL view(s) depend on '${name}': ${depList}\n`
-              )
-            );
-            const confirmed = await askYesNo(`Proceed with deleting '${name}'? (y/N): `);
-            if (!confirmed) {
-              console.log(chalk.yellow('\nAborted. No changes were made.\n'));
-              return;
-            }
-            effectiveForce = true;
-            effectiveCascade = await askYesNo(
-              `Also cascade-delete dependent views (${depList})? (y/N): `
-            );
           }
 
-          // Clean storage files AFTER dependency check passes to avoid orphaned/wiped assets on abort
-          try {
-            await app.files.deleteCollectionFiles(col.id);
-          } catch (fileErr: any) {
-            throw new Error(`Failed to delete storage directory for collection '${name}': ${fileErr.message}. Aborting deletion to prevent orphaned data.`);
-          }
-          await app.schema.deleteCollection(name, { force: effectiveForce, cascade: effectiveCascade });
-          if (dependents.length > 0 && effectiveForce && effectiveCascade) {
+          if (deletedDependents.length > 0 && effectiveForce && effectiveCascade) {
             console.log(
               chalk.green(
-                `\n✓ Collection '${name}' and ${dependents.length} dependent view(s) (${dependents.map((d) => d.name).join(', ')}) were successfully deleted!\n`
+                `\n✓ Collection '${name}' and ${deletedDependents.length} dependent view(s) (${deletedDependents.join(', ')}) were successfully deleted!\n`
               )
             );
           } else {
@@ -699,42 +718,55 @@ export async function runCli(argv = process.argv): Promise<Command | undefined> 
             console.error(chalk.red('\n✗ Usage: npx nodestack collection rename <oldName> <newName>\n'));
             process.exit(1);
           }
-          const col = await app.schema.getCollectionOrThrow(name);
-          const dependents = await app.schema.findDependentViews(col.name);
           let effectiveForce = Boolean(options.force);
           let effectiveCascade = Boolean(options.cascade);
+          let updated: any;
 
-          if (dependents.length > 0 && !effectiveForce) {
-            const depList = dependents.map((d) => d.name).join(', ');
-            if (!isInteractive) {
-              console.error(
-                chalk.red(
-                  `\n✗ Cannot rename '${name}': ${dependents.length} SQL view(s) depend on it (${depList}). Re-run with --force (and optionally --cascade) to proceed.\n`
-                )
-              );
-              process.exit(1);
-            }
-            console.log(
-              chalk.yellow(
-                `\n⚠ Warning: ${dependents.length} SQL view(s) depend on '${name}': ${depList}\n`
+          try {
+            updated = await app.schema.runSerialized(() =>
+              app.schema.updateCollection(
+                name,
+                { name: newName },
+                { force: effectiveForce, cascade: effectiveCascade }
               )
             );
-            const confirmed = await askYesNo(`Proceed with renaming '${name}' -> '${newName}'? (y/N): `);
-            if (!confirmed) {
-              console.log(chalk.yellow('\nAborted. No changes were made.\n'));
-              return;
+          } catch (err: any) {
+            if (err?.statusCode === 409 && err?.data?.code === 'VIEW_DEPENDENCY_CONFLICT') {
+              const depNames: string[] = err.data.dependentViews || [];
+              const depList = depNames.join(', ');
+              if (!isInteractive) {
+                console.error(
+                  chalk.red(
+                    `\n✗ Cannot rename '${name}': ${depNames.length} SQL view(s) depend on it (${depList}). Re-run with --force (and optionally --cascade) to proceed.\n`
+                  )
+                );
+                process.exit(1);
+              }
+              console.log(
+                chalk.yellow(
+                  `\n⚠ Warning: ${depNames.length} SQL view(s) depend on '${name}': ${depList}\n`
+                )
+              );
+              const confirmed = await askYesNo(`Proceed with renaming '${name}' -> '${newName}'? (y/N): `);
+              if (!confirmed) {
+                console.log(chalk.yellow('\nAborted. No changes were made.\n'));
+                return;
+              }
+              effectiveForce = true;
+              effectiveCascade = await askYesNo(
+                `Also rewrite SQL references in dependent views (${depList})? (y/N): `
+              );
+              updated = await app.schema.runSerialized(() =>
+                app.schema.updateCollection(
+                  name,
+                  { name: newName },
+                  { force: true, cascade: effectiveCascade }
+                )
+              );
+            } else {
+              throw err;
             }
-            effectiveForce = true;
-            effectiveCascade = await askYesNo(
-              `Also rewrite SQL references in dependent views (${depList})? (y/N): `
-            );
           }
-
-          const updated = await app.schema.updateCollection(
-            name,
-            { name: newName },
-            { force: effectiveForce, cascade: effectiveCascade }
-          );
           console.log(chalk.green(`\n✓ Collection '${name}' renamed to '${updated.name}'!\n`));
         } else {
           // List collections

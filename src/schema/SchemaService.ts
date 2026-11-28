@@ -9,7 +9,22 @@ import { ViewSchemaDiff, ViewSchemaInferrer } from './ViewSchemaInferrer';
 import { RuleEngine } from '../rules/RuleEngine';
 
 export class SchemaService {
+  private schemaMutationQueue: Promise<void> = Promise.resolve();
+
   constructor(private db: DatabaseService, private ftsService?: FtsService) {}
+
+  /**
+   * Serializes async schema operations (such as file cleanup + collection drops or concurrent HTTP/CLI mutations)
+   * so dependency checks and destructive filesystem/schema mutations execute under one serialized lock.
+   */
+  public runSerialized<T>(fn: () => Promise<T> | T): Promise<T> {
+    const run = this.schemaMutationQueue.then(fn, fn);
+    this.schemaMutationQueue = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  }
 
   public setFtsService(ftsService: FtsService): void {
     this.ftsService = ftsService;
@@ -608,6 +623,14 @@ export class SchemaService {
 
   public deleteCollection(
     nameOrId: string,
+    options: {
+      force?: boolean;
+      cascade?: boolean;
+      beforeDrop: (col: CollectionModel, dependents: CollectionModel[]) => Promise<void> | void;
+    }
+  ): Promise<void>;
+  public deleteCollection(
+    nameOrId: string,
     options?: { force?: boolean; cascade?: boolean }
   ): void;
   public deleteCollection(
@@ -616,7 +639,11 @@ export class SchemaService {
   ): Promise<void>;
   public deleteCollection(
     nameOrId: string,
-    options?: { force?: boolean; cascade?: boolean }
+    options?: {
+      force?: boolean;
+      cascade?: boolean;
+      beforeDrop?: (col: CollectionModel, dependents: CollectionModel[]) => Promise<void> | void;
+    }
   ): any {
     if (nameOrId.startsWith('_')) {
       throw new AppError('Cannot delete system collection', 400);
@@ -626,37 +653,82 @@ export class SchemaService {
     const cascade = Boolean(options?.cascade);
     this.validateForceAndCascade(force, cascade);
 
-    const currentRes = this.getCollectionOrThrow(nameOrId);
-    if (this.isAsyncDriver() || (currentRes && typeof (currentRes as any).then === 'function')) {
-      return (async () => {
-        const current = currentRes && typeof (currentRes as any).then === 'function'
-          ? await currentRes
-          : currentRes;
+    const dropSchemaSync = (current: CollectionModel, dependents: CollectionModel[]): void => {
+      this.db.transactionSync(() => {
+        if (dependents.length > 0 && force && cascade) {
+          for (const dep of [...dependents].reverse()) {
+            this.db.execSync(this.db.dialect.dropViewIfExists(dep.name));
+            this.db.prepareSync('DELETE FROM _collections WHERE id = ?').run(dep.id);
+          }
+        }
+        if (this.ftsService && current.type !== 'view') {
+          this.ftsService.dropCollectionFts(current.name);
+        }
+        const dropSql = current.type === 'view'
+          ? this.db.dialect.dropViewIfExists(current.name)
+          : this.db.dialect.dropTableIfExists(current.name);
+        this.db.execSync(dropSql);
+        this.db.prepareSync('DELETE FROM _collections WHERE id = ?').run(current.id);
+      });
+    };
+
+    const dropSchemaAsync = async (current: CollectionModel, dependents: CollectionModel[]): Promise<void> => {
+      await this.db.transaction(async () => {
+        if (dependents.length > 0 && force && cascade) {
+          for (const dep of [...dependents].reverse()) {
+            await this.db.exec(this.db.dialect.dropViewIfExists(dep.name));
+            await this.db.prepare('DELETE FROM _collections WHERE id = ?').run(dep.id);
+          }
+        }
+        if (this.ftsService && current.type !== 'view') {
+          await this.ftsService.dropCollectionFts(current.name);
+        }
+        const dropSql = current.type === 'view'
+          ? this.db.dialect.dropViewIfExists(current.name)
+          : this.db.dialect.dropTableIfExists(current.name);
+        await this.db.exec(dropSql);
+        await this.db.prepare('DELETE FROM _collections WHERE id = ?').run(current.id);
+      });
+    };
+
+    if (options?.beforeDrop || this.isAsyncDriver()) {
+      return this.runSerialized(async () => {
+        const current = await Promise.resolve(this.getCollectionOrThrow(nameOrId));
         if (current.system) {
           throw new AppError('Cannot delete system collection', 400);
         }
-        const allCols = await this.getAllCollections();
+        const allCols = await Promise.resolve(this.getAllCollections());
         const dependents = this.computeDependentViews(allCols, current.name);
         if (dependents.length > 0 && !force) {
           throw this.buildViewDependencyConflict(current.name, 'delete', dependents);
         }
-        return this.db.transaction(async () => {
-          if (dependents.length > 0 && force && cascade) {
-            for (const dep of [...dependents].reverse()) {
-              await this.db.exec(this.db.dialect.dropViewIfExists(dep.name));
-              await this.db.prepare('DELETE FROM _collections WHERE id = ?').run(dep.id);
-            }
-          }
-          if (this.ftsService && current.type !== 'view') {
-            await this.ftsService.dropCollectionFts(current.name);
-          }
-          const dropSql = current.type === 'view'
-            ? this.db.dialect.dropViewIfExists(current.name)
-            : this.db.dialect.dropTableIfExists(current.name);
-          await this.db.exec(dropSql);
-          await this.db.prepare('DELETE FROM _collections WHERE id = ?').run(current.id);
-        });
-      })();
+
+        if (options?.beforeDrop) {
+          await options.beforeDrop(current, dependents);
+        }
+
+        if (this.isAsyncDriver()) {
+          await dropSchemaAsync(current, dependents);
+        } else {
+          dropSchemaSync(current, dependents);
+        }
+      });
+    }
+
+    const currentRes = this.getCollectionOrThrow(nameOrId);
+    if (currentRes && typeof (currentRes as any).then === 'function') {
+      return this.runSerialized(async () => {
+        const current = await (currentRes as unknown as Promise<CollectionModel>);
+        if (current.system) {
+          throw new AppError('Cannot delete system collection', 400);
+        }
+        const allCols = await Promise.resolve(this.getAllCollections());
+        const dependents = this.computeDependentViews(allCols, current.name);
+        if (dependents.length > 0 && !force) {
+          throw this.buildViewDependencyConflict(current.name, 'delete', dependents);
+        }
+        await dropSchemaAsync(current, dependents);
+      });
     }
 
     const current = currentRes as CollectionModel;
@@ -668,22 +740,7 @@ export class SchemaService {
     if (dependents.length > 0 && !force) {
       throw this.buildViewDependencyConflict(current.name, 'delete', dependents);
     }
-    return this.db.transactionSync(() => {
-      if (dependents.length > 0 && force && cascade) {
-        for (const dep of [...dependents].reverse()) {
-          this.db.execSync(this.db.dialect.dropViewIfExists(dep.name));
-          this.db.prepareSync('DELETE FROM _collections WHERE id = ?').run(dep.id);
-        }
-      }
-      if (this.ftsService && current.type !== 'view') {
-        this.ftsService.dropCollectionFts(current.name);
-      }
-      const dropSql = current.type === 'view'
-        ? this.db.dialect.dropViewIfExists(current.name)
-        : this.db.dialect.dropTableIfExists(current.name);
-      this.db.execSync(dropSql);
-      this.db.prepareSync('DELETE FROM _collections WHERE id = ?').run(current.id);
-    });
+    return dropSchemaSync(current, dependents);
   }
 
   public async previewViewQuery(params: {

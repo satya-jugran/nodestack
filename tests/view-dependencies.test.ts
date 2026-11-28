@@ -396,6 +396,66 @@ describe('SQL View Dependency Validation, Force & Cascade', () => {
       expect(cols.some((c) => c.name === 'catalog_items')).toBe(false);
       expect(cols.some((c) => c.name === 'item_titles')).toBe(false);
     });
+
+    it('serializes dependency check, file cleanup, and schema drop against concurrent view creation', async () => {
+      await client.collections.create({
+        name: 'concurrent_base',
+        type: 'base',
+        schema: [{ id: 'f_name', name: 'name', type: 'text', required: true }],
+      });
+      const col = server.schema.getCollection('concurrent_base')!;
+      const colStorageDir = path.join(testDir, 'storage', col.id);
+      fs.mkdirSync(colStorageDir, { recursive: true });
+      fs.writeFileSync(path.join(colStorageDir, 'asset.txt'), 'payload');
+
+      const origDeleteFiles = server.files.deleteCollectionFiles.bind(server.files);
+      let notifyBeforeDropEntered!: () => void;
+      const beforeDropEntered = new Promise<void>((r) => {
+        notifyBeforeDropEntered = r;
+      });
+      let releaseBeforeDrop!: () => void;
+      const beforeDropGate = new Promise<void>((r) => {
+        releaseBeforeDrop = r;
+      });
+
+      (server.files as any).deleteCollectionFiles = async (colId: string) => {
+        if (colId === col.id) {
+          notifyBeforeDropEntered();
+          await beforeDropGate;
+        }
+        return origDeleteFiles(colId);
+      };
+
+      try {
+        // Start DELETE while no dependent views exist
+        const deletePromise = client.collections.delete('concurrent_base');
+        await beforeDropEntered;
+
+        // Launch a concurrent POST trying to create a dependent SQL view while file deletion is in flight
+        const createViewPromise = client.collections
+          .create({
+            name: 'late_view',
+            type: 'view',
+            options: { viewQueries: { sqlite: 'SELECT id, name FROM concurrent_base' } },
+          })
+          .then(
+            () => ({ ok: true as const }),
+            (err) => ({ ok: false as const, status: err?.status })
+          );
+
+        // Give the event loop a tick, then allow file cleanup + schema drop to finish
+        await new Promise((r) => setTimeout(r, 20));
+        releaseBeforeDrop();
+
+        await expect(deletePromise).resolves.toBe(true);
+        const viewCreateResult = await createViewPromise;
+        // Concurrent view creation must run AFTER deletion finishes and therefore fail validation cleanly
+        expect(viewCreateResult.ok).toBe(false);
+        expect(server.schema.getCollection('concurrent_base')).toBeUndefined();
+      } finally {
+        (server.files as any).deleteCollectionFiles = origDeleteFiles;
+      }
+    });
   });
 
   describe('CLI collection rename & delete dependency flags', () => {
