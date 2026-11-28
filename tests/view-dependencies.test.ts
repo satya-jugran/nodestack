@@ -59,6 +59,31 @@ describe('SQL View Dependency Validation, Force & Cascade', () => {
       const cteSql = `WITH orders AS (SELECT id FROM items) SELECT id FROM orders`;
       expect(ViewQueryValidator.rewriteCollectionReference(cteSql, 'orders', 'sales_orders')).toBe(cteSql);
     });
+
+    it('blocks backtick-quoted wildcards on auth collections while allowing explicit backtick-quoted columns', () => {
+      const authCols = new Set(['users']);
+
+      expect(() =>
+        ViewQueryValidator.validate('SELECT `u`.* FROM `users` AS `u`', 'sqlite', 'v_users', authCols)
+      ).toThrow(/cannot use wildcard 'u\.\*' on auth collection 'users'/i);
+
+      expect(() =>
+        ViewQueryValidator.validate('SELECT `users`.* FROM `users`', 'sqlite', 'v_users', authCols)
+      ).toThrow(/cannot use wildcard 'users\.\*' on auth collection 'users'/i);
+
+      expect(() =>
+        ViewQueryValidator.validate('SELECT * FROM `users`', 'sqlite', 'v_users', authCols)
+      ).toThrow(/cannot use wildcard SELECT \*/i);
+
+      expect(() =>
+        ViewQueryValidator.validate(
+          'SELECT `u`.`id`, `u`.`email` FROM `users` AS `u`',
+          'sqlite',
+          'v_users',
+          authCols
+        )
+      ).not.toThrow();
+    });
   });
 
   describe('SchemaService direct dependency guard & cascade behavior (SQLite)', () => {

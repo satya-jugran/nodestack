@@ -170,6 +170,23 @@ export class ViewQueryValidator {
     return trimmed;
   }
 
+  private static readonly IDENT_PART =
+    '(?:"(?:[^"]|"")+"|\\[(?:[^\\]]|\\]\\])+\\]|`(?:[^`]|``)+`|[a-zA-Z_][a-zA-Z0-9_]*)';
+
+  private static unquoteIdentifier(raw: string): string {
+    const t = raw.trim();
+    if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
+      return t.slice(1, -1).replace(/""/g, '"').toLowerCase();
+    }
+    if (t.startsWith('[') && t.endsWith(']') && t.length >= 2) {
+      return t.slice(1, -1).replace(/\]\]/g, ']').toLowerCase();
+    }
+    if (t.startsWith('`') && t.endsWith('`') && t.length >= 2) {
+      return t.slice(1, -1).replace(/``/g, '`').toLowerCase();
+    }
+    return t.toLowerCase();
+  }
+
   /**
    * Extracts referenced tables (resolving schema/catalog-qualified names such as main._admins or [dbo].[users]
    * to their final object name) and optional aliases from FROM and JOIN clauses.
@@ -181,31 +198,17 @@ export class ViewQueryValidator {
       'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'OFFSET', 'FETCH', 'UNION', 'EXCEPT', 'INTERSECT', 'SET',
       'AS', 'VALUES', 'WITH', 'INTO', 'FOR',
     ]);
-    const identPart = '(?:"(?:[^"]|"")+"|\\[(?:[^\\]]|\\]\\])+\\]|`(?:[^`]|``)+`|[a-zA-Z_][a-zA-Z0-9_]*)';
+    const identPart = this.IDENT_PART;
     const qualifiedIdent = `(${identPart}(?:\\s*\\.\\s*${identPart})*)`;
     const tableItemRegex = new RegExp(`^\\s*${qualifiedIdent}(?:\\s+(?:AS\\s+)?(${identPart}))?`, 'i');
     const clauseKeywordRegex = /\b(?:FROM|JOIN)\b/gi;
-
-    const unquoteIdent = (raw: string): string => {
-      const t = raw.trim();
-      if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
-        return t.slice(1, -1).replace(/""/g, '"').toLowerCase();
-      }
-      if (t.startsWith('[') && t.endsWith(']') && t.length >= 2) {
-        return t.slice(1, -1).replace(/\]\]/g, ']').toLowerCase();
-      }
-      if (t.startsWith('`') && t.endsWith('`') && t.length >= 2) {
-        return t.slice(1, -1).replace(/``/g, '`').toLowerCase();
-      }
-      return t.toLowerCase();
-    };
 
     const extractLastPart = (qualified: string): string => {
       const partRe = new RegExp(identPart, 'g');
       let last = '';
       let pm: RegExpExecArray | null;
       while ((pm = partRe.exec(qualified)) !== null) {
-        last = unquoteIdent(pm[0]);
+        last = this.unquoteIdentifier(pm[0]);
       }
       return last;
     };
@@ -232,7 +235,7 @@ export class ViewQueryValidator {
         let alias: string | undefined;
         let consumed = m[1].length;
         if (m[2]) {
-          const cand = unquoteIdent(m[2]);
+          const cand = this.unquoteIdentifier(m[2]);
           if (!sqlKeywords.has(cand.toUpperCase())) {
             alias = cand;
             consumed = m[0].length;
@@ -260,31 +263,16 @@ export class ViewQueryValidator {
    */
   public static extractCteNames(noStringSql: string): Set<string> {
     const cteNames = new Set<string>();
-    const identPart = '(?:"(?:[^"]|"")+"|\\[(?:[^\\]]|\\]\\])+\\]|`(?:[^`]|``)+`|[a-zA-Z_][a-zA-Z0-9_]*)';
-    const unquoteIdent = (raw: string): string => {
-      const t = raw.trim();
-      if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
-        return t.slice(1, -1).replace(/""/g, '"').toLowerCase();
-      }
-      if (t.startsWith('[') && t.endsWith(']') && t.length >= 2) {
-        return t.slice(1, -1).replace(/\]\]/g, ']').toLowerCase();
-      }
-      if (t.startsWith('`') && t.endsWith('`') && t.length >= 2) {
-        return t.slice(1, -1).replace(/``/g, '`').toLowerCase();
-      }
-      return t.toLowerCase();
-    };
-
     const withRe = /\bWITH\b(?:\s+RECURSIVE\b)?/gi;
     let wm: RegExpExecArray | null;
     while ((wm = withRe.exec(noStringSql)) !== null) {
       let cursor = wm.index + wm[0].length;
       while (cursor < noStringSql.length) {
         const rest = noStringSql.slice(cursor);
-        const nameMatch = rest.match(new RegExp(`^\\s*(${identPart})\\s*(?:\\([^)]*\\)\\s*)?AS\\s*\\(`, 'i'));
+        const nameMatch = rest.match(new RegExp(`^\\s*(${this.IDENT_PART})\\s*(?:\\([^)]*\\)\\s*)?AS\\s*\\(`, 'i'));
         if (!nameMatch) break;
 
-        cteNames.add(unquoteIdent(nameMatch[1]));
+        cteNames.add(this.unquoteIdentifier(nameMatch[1]));
         cursor += nameMatch[0].length;
 
         // Walk balanced parentheses for the CTE body
@@ -364,18 +352,7 @@ export class ViewQueryValidator {
       return cleanNew;
     };
 
-    const unquote = (token: string): string => {
-      if (token.startsWith('"') && token.endsWith('"') && token.length >= 2) {
-        return token.slice(1, -1).replace(/""/g, '"').toLowerCase();
-      }
-      if (token.startsWith('[') && token.endsWith(']') && token.length >= 2) {
-        return token.slice(1, -1).replace(/\]\]/g, ']').toLowerCase();
-      }
-      if (token.startsWith('`') && token.endsWith('`') && token.length >= 2) {
-        return token.slice(1, -1).replace(/``/g, '`').toLowerCase();
-      }
-      return token.toLowerCase();
-    };
+    const unquote = (token: string): string => this.unquoteIdentifier(token);
 
     // Tokenize SQL preserving whitespace, comments, and string literals verbatim
     const tokens: Array<{ kind: 'verbatim' | 'ident' | 'punct' | 'ws'; text: string }> = [];
@@ -577,11 +554,11 @@ export class ViewQueryValidator {
     // Strip COUNT(*) / COUNT(ALL *) so aggregate counts do not trigger wildcard rejection
     const withoutCountStar = noStringSql.replace(/\bCOUNT\s*\(\s*(?:ALL\s+)?\*\s*\)/gi, 'COUNT(1)');
 
-    // Check qualified wildcards: alias.* or "alias".* or [alias].*
-    const qualifiedWildcardRe = /(?:(?:"([^"]+)"|\[([^\]]+)\]|([a-zA-Z_][a-zA-Z0-9_]*)))\s*\.\s*\*/g;
+    // Check qualified wildcards: alias.*, "alias".*, [alias].*, or `alias`.*
+    const qualifiedWildcardRe = new RegExp(`(${this.IDENT_PART})\\s*\\.\\s*\\*`, 'g');
     let qm: RegExpExecArray | null;
     while ((qm = qualifiedWildcardRe.exec(withoutCountStar)) !== null) {
-      const qualifier = (qm[1] || qm[2] || qm[3] || '').trim().toLowerCase();
+      const qualifier = this.unquoteIdentifier(qm[1] || '');
       const authTable = referencedAuthAliases.get(qualifier);
       if (authTable) {
         throw new ValidationError(
@@ -595,8 +572,8 @@ export class ViewQueryValidator {
     let sm: RegExpExecArray | null;
     while ((sm = selectClauseRe.exec(withoutCountStar)) !== null) {
       const clause = sm[1];
-      // Remove any remaining safe qualified wildcards (e.g. orders.*) before checking bare *
-      const strippedQualified = clause.replace(/(?:"[^"]+"|\[[^\]]+\]|[a-zA-Z_][a-zA-Z0-9_]*)\s*\.\s*\*/g, '');
+      // Remove any remaining safe qualified wildcards (e.g. orders.*, `orders`.*) before checking bare *
+      const strippedQualified = clause.replace(new RegExp(`${this.IDENT_PART}\\s*\\.\\s*\\*`, 'g'), '');
       // Split by top-level commas and check if any projection item is bare *
       let depth = 0;
       let item = '';
@@ -674,6 +651,7 @@ export class ViewQueryValidator {
     let inSingle = false;
     let inDouble = false;
     let inBracket = false;
+    let inBacktick = false;
     let inLineComment = false;
     let inBlockComment = false;
 
@@ -741,6 +719,19 @@ export class ViewQueryValidator {
         continue;
       }
 
+      if (inBacktick) {
+        if (ch === '`' && next === '`') {
+          out += stripQuotedIdentifiers ? '  ' : '``';
+          i++;
+        } else if (ch === '`') {
+          inBacktick = false;
+          out += stripQuotedIdentifiers ? ' ' : '`';
+        } else {
+          out += stripQuotedIdentifiers ? ' ' : ch;
+        }
+        continue;
+      }
+
       if (ch === '-' && next === '-') {
         inLineComment = true;
         out += '  ';
@@ -766,6 +757,11 @@ export class ViewQueryValidator {
       if (ch === '[') {
         inBracket = true;
         out += stripQuotedIdentifiers ? ' ' : '[';
+        continue;
+      }
+      if (ch === '`') {
+        inBacktick = true;
+        out += stripQuotedIdentifiers ? ' ' : '`';
         continue;
       }
 
