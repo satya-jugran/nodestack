@@ -2293,6 +2293,90 @@
       openApplyTemplateConfirmModal(templateId);
     }
 
+    function buildForceCascadeQuery(force, cascade) {
+      const params = [];
+      if (force) params.push('force=true');
+      if (cascade) params.push('cascade=true');
+      return params.length ? `?${params.join('&')}` : '';
+    }
+
+    function openViewDependencyConfirmModal(errData, onConfirm) {
+      const dependentViews = Array.isArray(errData?.dependentViews) ? errData.dependentViews : [];
+      const operation = errData?.operation || 'update';
+      const target = errData?.target || 'collection';
+      const safeTarget = typeof escapeHtml === 'function' ? escapeHtml(target) : String(target);
+      const safeOp = typeof escapeHtml === 'function' ? escapeHtml(operation) : String(operation);
+
+      let cascadeLabel = 'Also update/clean up dependent views (cascade)';
+      let cascadeHint = 'Updates or removes downstream SQL views automatically so none are left stale.';
+      if (operation === 'delete') {
+        cascadeLabel = 'Also cascade-delete all dependent views';
+        cascadeHint = 'Drops and deletes every downstream SQL view listed above alongside the target.';
+      } else if (operation === 'rename') {
+        cascadeLabel = 'Also update SQL references in dependent views';
+        cascadeHint = 'Rewrites references from the old name to the new name and refreshes their schemas.';
+      } else if (operation === 'modify') {
+        cascadeLabel = 'Also refresh or clean up dependent views';
+        cascadeHint = 'Refreshes compatible downstream views and deletes any views invalidated by removed columns.';
+      }
+
+      const viewsListHtml = dependentViews.map(v => {
+        const safeName = typeof escapeHtml === 'function' ? escapeHtml(v) : String(v);
+        return `<li style="font-family:var(--font-mono); font-size:12px;">${safeName}</li>`;
+      }).join('');
+
+      const modal = document.getElementById('modal-root');
+      modal.innerHTML = `
+        <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+          <div class="modal confirm-dialog" style="max-width:480px;">
+            <div class="modal-header" style="border-bottom-color:rgba(245, 158, 11, 0.25);">
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                <span style="font-size:18px;">⚠️</span>
+                <h2 class="modal-title" style="font-size:16px; color:#f59e0b;">Dependent SQL Views Found</h2>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body" style="padding:1.25rem; display:flex; flex-direction:column; gap:0.9rem;">
+              <p style="font-size:13px; color:var(--text-main, #cbd5e1); line-height:1.5; margin:0;">
+                Cannot ${safeOp} <strong style="color: var(--text-heading); font-family:var(--font-mono);">${safeTarget}</strong> without confirmation because the following SQL view(s) depend on it:
+              </p>
+              <div class="confirm-dialog-banner" style="background:rgba(245, 158, 11, 0.08); border:1px solid rgba(245, 158, 11, 0.28); padding:0.75rem 0.9rem; border-radius:6px;">
+                <ul style="margin:0; padding-left:1.2rem; display:flex; flex-direction:column; gap:0.25rem;">
+                  ${viewsListHtml}
+                </ul>
+              </div>
+              <label style="display:flex; align-items:flex-start; gap:0.55rem; font-size:13px; cursor:pointer; color:var(--text-main, #cbd5e1);">
+                <input type="checkbox" id="confirm-patch-cascade-views" style="margin-top:3px;">
+                <span>
+                  <strong>${cascadeLabel}</strong><br>
+                  <span style="font-size:11.5px; opacity:0.8;">${cascadeHint} Leave unchecked to apply only to <code>${safeTarget}</code> (<code>force=true</code>).</span>
+                </span>
+              </label>
+            </div>
+            <div class="modal-footer" style="padding:0.75rem 1.25rem;">
+              <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+              <button class="btn btn-danger" id="btn-confirm-view-dep-proceed">
+                Proceed Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const proceedBtn = document.getElementById('btn-confirm-view-dep-proceed');
+      if (proceedBtn) {
+        proceedBtn.addEventListener('click', () => {
+          const cascade = Boolean(document.getElementById('confirm-patch-cascade-views')?.checked);
+          closeModal();
+          if (typeof onConfirm === 'function') {
+            onConfirm({ force: true, cascade });
+          }
+        });
+      }
+
+      focusFirstModalField(modal);
+    }
+
     // Delete Collection Modal
     function openDeleteCollectionModal(colName) {
       const col = state.collections.find(c => c.name === colName) || { name: colName };
@@ -2337,19 +2421,20 @@
           btn.disabled = (input.value.trim() !== col.name);
         });
         input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' && input.value.trim() === col.name) {
-            submitDeleteCollection(col.name);
+          const currentBtn = document.getElementById('btn-confirm-delete-col');
+          if (e.key === 'Enter' && input.value.trim() === col.name && currentBtn && !currentBtn.disabled) {
+            currentBtn.click();
           }
         });
-        btn.addEventListener('click', () => {
-          submitDeleteCollection(col.name);
-        });
+        btn.onclick = () => {
+          submitDeleteCollection(col.name, false, false);
+        };
       }
 
       focusFirstModalField(modal);
     }
 
-    async function submitDeleteCollection(colName) {
+    async function submitDeleteCollection(colName, force = false, cascade = false) {
       const btn = document.getElementById('btn-confirm-delete-col');
       if (btn) {
         btn.disabled = true;
@@ -2360,7 +2445,8 @@
       }
 
       try {
-        await api('/api/collections/' + encodeURIComponent(colName), {
+        const query = buildForceCascadeQuery(force, cascade);
+        await api('/api/collections/' + encodeURIComponent(colName) + query, {
           method: 'DELETE',
         });
 
@@ -2374,10 +2460,51 @@
         await loadCollections();
         selectNav('home');
       } catch (err) {
+        const conflict = err && err.status === 409 && err.data && err.data.data && err.data.data.code === 'VIEW_DEPENDENCY_CONFLICT'
+          ? err.data.data
+          : null;
+        const modalBody = document.querySelector('#modal-root .modal-body');
+
+        if (conflict && !force && modalBody) {
+          document.getElementById('delete-col-dep-warning')?.remove();
+          const depViews = Array.isArray(conflict.dependentViews) ? conflict.dependentViews : [];
+          const viewsListHtml = depViews.map(v => {
+            const safeName = typeof escapeHtml === 'function' ? escapeHtml(v) : String(v);
+            return `<li style="font-family:var(--font-mono); font-size:12px;">${safeName}</li>`;
+          }).join('');
+
+          const warningEl = document.createElement('div');
+          warningEl.id = 'delete-col-dep-warning';
+          warningEl.style.cssText = 'background:rgba(245, 158, 11, 0.08); border:1px solid rgba(245, 158, 11, 0.35); border-radius:6px; padding:0.75rem 0.9rem; display:flex; flex-direction:column; gap:0.5rem;';
+          warningEl.innerHTML = `
+            <div style="font-size:12.5px; font-weight:600; color:#f59e0b;">
+              ⚠️ Dependent SQL Views Detected
+            </div>
+            <ul style="margin:0; padding-left:1.15rem; display:flex; flex-direction:column; gap:0.2rem;">
+              ${viewsListHtml}
+            </ul>
+            <label style="display:flex; align-items:flex-start; gap:0.5rem; font-size:12.5px; cursor:pointer; color:var(--text-main, #cbd5e1); margin-top:0.2rem;">
+              <input type="checkbox" id="confirm-delete-cascade-views" style="margin-top:2px;">
+              <span>Also cascade-delete dependent views (<code>cascade=true</code>). Leave unchecked to delete only the target.</span>
+            </label>
+          `;
+          modalBody.appendChild(warningEl);
+
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Force Delete';
+            btn.onclick = () => {
+              const cascadeChecked = Boolean(document.getElementById('confirm-delete-cascade-views')?.checked);
+              submitDeleteCollection(colName, true, cascadeChecked);
+            };
+          }
+          return;
+        }
+
         toast(`Failed to delete collection: ${err.message || String(err)}`, 'error');
         if (btn) {
           btn.disabled = false;
-          btn.innerHTML = 'Delete Permanently';
+          btn.innerHTML = force ? 'Force Delete' : 'Delete Permanently';
         }
       }
     }
@@ -2400,6 +2527,8 @@
       window.openApplyTemplateConfirmModal = openApplyTemplateConfirmModal;
       window.openDeleteCollectionModal = openDeleteCollectionModal;
       window.submitDeleteCollection = submitDeleteCollection;
+      window.openViewDependencyConfirmModal = openViewDependencyConfirmModal;
+      window.buildForceCascadeQuery = buildForceCascadeQuery;
       window.handleToggleChange = handleToggleChange;
       window.validateJsonField = validateJsonField;
       window.formatJsonField = formatJsonField;

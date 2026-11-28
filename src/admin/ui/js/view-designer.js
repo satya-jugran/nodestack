@@ -744,7 +744,10 @@
     }
   }
 
-  async function saveViewDesigner() {
+  async function saveViewDesigner(opts = {}) {
+    const force = Boolean(opts && typeof opts === 'object' && opts.force === true);
+    const cascade = Boolean(opts && typeof opts === 'object' && opts.cascade === true);
+
     syncCurrentTabFromEditor();
     const nameEl = document.getElementById('vd-view-name');
     const name = (nameEl ? nameEl.value : viewDesignerState.name).trim();
@@ -762,7 +765,7 @@
     }
 
     const activeVal = viewDesignerState.validations[viewDesignerState.activeDialect];
-    if (viewDesignerState.mode === 'edit' && activeVal?.schemaDiff?.hasBreakingChanges) {
+    if (!force && viewDesignerState.mode === 'edit' && activeVal?.schemaDiff?.hasBreakingChanges) {
       const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
         ? window.confirm('This edit removes or changes the type of existing view columns, which may affect generated types or rules. Save anyway?')
         : true;
@@ -779,7 +782,10 @@
     try {
       let saved;
       if (viewDesignerState.mode === 'edit' && viewDesignerState.originalName) {
-        saved = await api(`/api/collections/${encodeURIComponent(viewDesignerState.originalName)}`, {
+        const query = typeof buildForceCascadeQuery === 'function'
+          ? buildForceCascadeQuery(force, cascade)
+          : (force ? `?force=true${cascade ? '&cascade=true' : ''}` : '');
+        saved = await api(`/api/collections/${encodeURIComponent(viewDesignerState.originalName)}${query}`, {
           method: 'PATCH',
           body: JSON.stringify({
             name,
@@ -802,6 +808,13 @@
       await loadCollections();
       selectCollection(saved.name);
     } catch (err) {
+      const conflict = err && err.status === 409 && err.data && err.data.data && err.data.data.code === 'VIEW_DEPENDENCY_CONFLICT'
+        ? err.data.data
+        : null;
+      if (conflict && !force && typeof openViewDependencyConfirmModal === 'function') {
+        openViewDependencyConfirmModal(conflict, (nextOpts) => saveViewDesigner(nextOpts));
+        return;
+      }
       toast(err.message || 'Failed to save SQL view', 'error');
     } finally {
       viewDesignerState.isSaving = false;

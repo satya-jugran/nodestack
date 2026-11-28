@@ -292,9 +292,68 @@ export class SchemaService {
     return processExisting(existingRes);
   }
 
-  public updateCollection(nameOrId: string, dto: UpdateCollectionDto): CollectionModel;
-  public updateCollection(nameOrId: string, dto: UpdateCollectionDto): Promise<CollectionModel>;
-  public updateCollection(nameOrId: string, dto: UpdateCollectionDto): any {
+  public findDependentViews(nameOrId: string): CollectionModel[];
+  public findDependentViews(nameOrId: string): Promise<CollectionModel[]>;
+  public findDependentViews(nameOrId: string): any {
+    const colRes = this.getCollectionOrThrow(nameOrId);
+    if (this.isAsyncDriver() || (colRes && typeof (colRes as any).then === 'function')) {
+      return (async () => {
+        const col = colRes && typeof (colRes as any).then === 'function' ? await colRes : colRes;
+        const allCols = await this.getAllCollections();
+        return this.computeDependentViews(allCols, col.name);
+      })();
+    }
+    const col = colRes as CollectionModel;
+    const allCols = this.getAllCollections();
+    return this.computeDependentViews(allCols, col.name);
+  }
+
+  public assertNoViewDependents(
+    nameOrId: string,
+    operation: 'delete' | 'rename' | 'modify',
+    options?: { force?: boolean; cascade?: boolean }
+  ): void | Promise<void> {
+    this.validateForceAndCascade(options?.force, options?.cascade);
+    const colRes = this.getCollectionOrThrow(nameOrId);
+    if (this.isAsyncDriver() || (colRes && typeof (colRes as any).then === 'function')) {
+      return (async () => {
+        const col = colRes && typeof (colRes as any).then === 'function' ? await colRes : colRes;
+        if (options?.force) return;
+        const allCols = await this.getAllCollections();
+        const dependents = this.computeDependentViews(allCols, col.name);
+        if (dependents.length > 0) {
+          throw this.buildViewDependencyConflict(col.name, operation, dependents);
+        }
+      })();
+    }
+    const col = colRes as CollectionModel;
+    if (options?.force) return;
+    const allCols = this.getAllCollections();
+    const dependents = this.computeDependentViews(allCols, col.name);
+    if (dependents.length > 0) {
+      throw this.buildViewDependencyConflict(col.name, operation, dependents);
+    }
+  }
+
+  public updateCollection(
+    nameOrId: string,
+    dto: UpdateCollectionDto,
+    options?: { force?: boolean; cascade?: boolean }
+  ): CollectionModel;
+  public updateCollection(
+    nameOrId: string,
+    dto: UpdateCollectionDto,
+    options?: { force?: boolean; cascade?: boolean }
+  ): Promise<CollectionModel>;
+  public updateCollection(
+    nameOrId: string,
+    dto: UpdateCollectionDto,
+    options?: { force?: boolean; cascade?: boolean }
+  ): any {
+    const force = Boolean(options?.force || dto.force);
+    const cascade = Boolean(options?.cascade || dto.cascade);
+    this.validateForceAndCascade(force, cascade);
+
     const currentRes = this.getCollectionOrThrow(nameOrId);
     if (this.isAsyncDriver() || (currentRes && typeof (currentRes as any).then === 'function')) {
       return (async () => {
@@ -316,6 +375,22 @@ export class SchemaService {
           }
         }
 
+        const isRename = Boolean(cleanNewName && cleanNewName !== current.name);
+        const isViewQueryEdit =
+          current.type === 'view' &&
+          this.hasViewQueriesChanged(current.options?.viewQueries, dto.options?.viewQueries);
+        const depOperation: 'rename' | 'modify' | null = isRename
+          ? 'rename'
+          : isViewQueryEdit
+            ? 'modify'
+            : null;
+
+        const initialAllCols = await this.getAllCollections();
+        const dependents = depOperation ? this.computeDependentViews(initialAllCols, current.name) : [];
+        if (depOperation && dependents.length > 0 && !force) {
+          throw this.buildViewDependencyConflict(current.name, depOperation, dependents);
+        }
+
         let newSchema = dto.schema !== undefined ? dto.schema : current.schema;
         if (dto.schema && current.type !== 'view') {
           this.validateSchemaFields(dto.schema, current.type);
@@ -326,7 +401,7 @@ export class SchemaService {
         const createRule = current.type === 'view' ? null : (dto.createRule !== undefined ? dto.createRule : current.createRule);
         const updateRule = current.type === 'view' ? null : (dto.updateRule !== undefined ? dto.updateRule : current.updateRule);
         const deleteRule = current.type === 'view' ? null : (dto.deleteRule !== undefined ? dto.deleteRule : current.deleteRule);
-        const options = dto.options !== undefined ? dto.options : current.options;
+        const optionsVal = dto.options !== undefined ? dto.options : current.options;
         const indexes = dto.indexes !== undefined ? dto.indexes : current.indexes;
 
         if (current.type === 'view' && Array.isArray(indexes) && indexes.length > 0) {
@@ -334,13 +409,19 @@ export class SchemaService {
         }
 
         return this.db.transaction(async () => {
+          if (depOperation && dependents.length > 0 && force && cascade) {
+            for (const dep of [...dependents].reverse()) {
+              await this.db.exec(this.db.dialect.dropViewIfExists(dep.name));
+            }
+          }
+
           if (current.type === 'view') {
             if (cleanNewName && cleanNewName !== current.name) {
               targetName = cleanNewName;
             }
             const allCols = await this.getAllCollections();
             const authCols = this.getAuthCollectionNames(allCols);
-            const viewSql = this.validateViewQueriesForOptions(options, this.db.dialect?.name, cleanNewName || current.name, authCols);
+            const viewSql = this.validateViewQueriesForOptions(optionsVal, this.db.dialect?.name, cleanNewName || current.name, authCols);
             await this.recreateSqlViewAsync(current.name, targetName, viewSql);
             newSchema = await ViewSchemaInferrer.infer({
               db: this.db,
@@ -386,7 +467,7 @@ export class SchemaService {
             createRule,
             updateRule,
             deleteRule,
-            JSON.stringify(options),
+            JSON.stringify(optionsVal),
             now,
             current.id
           );
@@ -395,6 +476,11 @@ export class SchemaService {
           if (this.ftsService && updated.type !== 'view') {
             await this.ftsService.syncCollection(updated);
           }
+
+          if (depOperation && dependents.length > 0 && force && cascade) {
+            await this.replayDependentViewsAsync(dependents, current.name, targetName, isRename, now);
+          }
+
           return updated;
         });
       })();
@@ -418,23 +504,45 @@ export class SchemaService {
         targetName = cleanNewName;
       }
 
+      const isRename = Boolean(cleanNewName && cleanNewName !== current.name);
+      const isViewQueryEdit =
+        current.type === 'view' &&
+        this.hasViewQueriesChanged(current.options?.viewQueries, dto.options?.viewQueries);
+      const depOperation: 'rename' | 'modify' | null = isRename
+        ? 'rename'
+        : isViewQueryEdit
+          ? 'modify'
+          : null;
+
+      const initialAllCols = this.getAllCollections();
+      const dependents = depOperation ? this.computeDependentViews(initialAllCols, current.name) : [];
+      if (depOperation && dependents.length > 0 && !force) {
+        throw this.buildViewDependencyConflict(current.name, depOperation, dependents);
+      }
+
       const listRule = dto.listRule !== undefined ? dto.listRule : current.listRule;
       const viewRule = dto.viewRule !== undefined ? dto.viewRule : current.viewRule;
       const createRule = current.type === 'view' ? null : (dto.createRule !== undefined ? dto.createRule : current.createRule);
       const updateRule = current.type === 'view' ? null : (dto.updateRule !== undefined ? dto.updateRule : current.updateRule);
       const deleteRule = current.type === 'view' ? null : (dto.deleteRule !== undefined ? dto.deleteRule : current.deleteRule);
-      const options = dto.options !== undefined ? dto.options : current.options;
+      const optionsVal = dto.options !== undefined ? dto.options : current.options;
       const indexes = dto.indexes !== undefined ? dto.indexes : current.indexes;
 
       if (current.type === 'view' && Array.isArray(indexes) && indexes.length > 0) {
         throw new AppError('View collections cannot define physical indexes', 400);
       }
 
+      if (depOperation && dependents.length > 0 && force && cascade) {
+        for (const dep of [...dependents].reverse()) {
+          this.db.execSync(this.db.dialect.dropViewIfExists(dep.name));
+        }
+      }
+
       let newSchema = dto.schema !== undefined ? dto.schema : current.schema;
       if (current.type === 'view') {
         const allCols = this.getAllCollections();
         const authCols = this.getAuthCollectionNames(allCols);
-        const validatedViewQuery = this.validateViewQueriesForOptions(options, this.db.dialect?.name, targetName, authCols);
+        const validatedViewQuery = this.validateViewQueriesForOptions(optionsVal, this.db.dialect?.name, targetName, authCols);
         this.recreateSqlViewSync(current.name, targetName, validatedViewQuery);
         newSchema = ViewSchemaInferrer.infer({
           db: this.db,
@@ -480,7 +588,7 @@ export class SchemaService {
         createRule,
         updateRule,
         deleteRule,
-        JSON.stringify(options),
+        JSON.stringify(optionsVal),
         now,
         current.id
       );
@@ -489,16 +597,34 @@ export class SchemaService {
       if (this.ftsService && updated.type !== 'view') {
         this.ftsService.syncCollection(updated);
       }
+
+      if (depOperation && dependents.length > 0 && force && cascade) {
+        this.replayDependentViewsSync(dependents, current.name, targetName, isRename, now);
+      }
+
       return updated;
     });
   }
 
-  public deleteCollection(nameOrId: string): void;
-  public deleteCollection(nameOrId: string): Promise<void>;
-  public deleteCollection(nameOrId: string): any {
+  public deleteCollection(
+    nameOrId: string,
+    options?: { force?: boolean; cascade?: boolean }
+  ): void;
+  public deleteCollection(
+    nameOrId: string,
+    options?: { force?: boolean; cascade?: boolean }
+  ): Promise<void>;
+  public deleteCollection(
+    nameOrId: string,
+    options?: { force?: boolean; cascade?: boolean }
+  ): any {
     if (nameOrId.startsWith('_')) {
       throw new AppError('Cannot delete system collection', 400);
     }
+
+    const force = Boolean(options?.force);
+    const cascade = Boolean(options?.cascade);
+    this.validateForceAndCascade(force, cascade);
 
     const currentRes = this.getCollectionOrThrow(nameOrId);
     if (this.isAsyncDriver() || (currentRes && typeof (currentRes as any).then === 'function')) {
@@ -509,7 +635,18 @@ export class SchemaService {
         if (current.system) {
           throw new AppError('Cannot delete system collection', 400);
         }
+        const allCols = await this.getAllCollections();
+        const dependents = this.computeDependentViews(allCols, current.name);
+        if (dependents.length > 0 && !force) {
+          throw this.buildViewDependencyConflict(current.name, 'delete', dependents);
+        }
         return this.db.transaction(async () => {
+          if (dependents.length > 0 && force && cascade) {
+            for (const dep of [...dependents].reverse()) {
+              await this.db.exec(this.db.dialect.dropViewIfExists(dep.name));
+              await this.db.prepare('DELETE FROM _collections WHERE id = ?').run(dep.id);
+            }
+          }
           if (this.ftsService && current.type !== 'view') {
             await this.ftsService.dropCollectionFts(current.name);
           }
@@ -526,7 +663,18 @@ export class SchemaService {
     if (current.system) {
       throw new AppError('Cannot delete system collection', 400);
     }
+    const allCols = this.getAllCollections();
+    const dependents = this.computeDependentViews(allCols, current.name);
+    if (dependents.length > 0 && !force) {
+      throw this.buildViewDependencyConflict(current.name, 'delete', dependents);
+    }
     return this.db.transactionSync(() => {
+      if (dependents.length > 0 && force && cascade) {
+        for (const dep of [...dependents].reverse()) {
+          this.db.execSync(this.db.dialect.dropViewIfExists(dep.name));
+          this.db.prepareSync('DELETE FROM _collections WHERE id = ?').run(dep.id);
+        }
+      }
       if (this.ftsService && current.type !== 'view') {
         this.ftsService.dropCollectionFts(current.name);
       }
@@ -898,6 +1046,275 @@ export class SchemaService {
         return "'{}'";
       default:
         return "''";
+    }
+  }
+
+  private validateForceAndCascade(force?: boolean, cascade?: boolean): void {
+    if (cascade && !force) {
+      throw new AppError("Option 'cascade=true' requires 'force=true'", 400);
+    }
+  }
+
+  private buildViewDependencyConflict(
+    targetName: string,
+    operation: 'delete' | 'rename' | 'modify',
+    dependents: CollectionModel[]
+  ): ConflictError {
+    const depNames = dependents.map((d) => d.name);
+    return new ConflictError(
+      `Cannot ${operation} '${targetName}' because ${depNames.length} view(s) depend on it: ${depNames.join(', ')}. Pass force=true to proceed.`,
+      {
+        code: 'VIEW_DEPENDENCY_CONFLICT',
+        operation,
+        target: targetName,
+        dependentViews: depNames,
+        requiresForce: true,
+        supportsCascade: true,
+      }
+    );
+  }
+
+  private hasViewQueriesChanged(
+    prev?: Partial<Record<ViewDialect, string>>,
+    next?: Partial<Record<ViewDialect, string>>
+  ): boolean {
+    if (next === undefined) return false;
+    for (const d of ['sqlite', 'postgres', 'mssql'] as ViewDialect[]) {
+      const prevSql = typeof prev?.[d] === 'string' ? prev[d]!.trim() : '';
+      const nextSql = typeof next?.[d] === 'string' ? next[d]!.trim() : '';
+      if (prevSql !== nextSql) return true;
+    }
+    return false;
+  }
+
+  private computeDependentViews(allCols: CollectionModel[], targetName: string): CollectionModel[] {
+    const cleanTarget = targetName.trim().toLowerCase();
+    const knownCollections = new Set(allCols.map((c) => c.name.toLowerCase()));
+    const viewByName = new Map<string, CollectionModel>();
+    const directDepsOf = new Map<string, Set<string>>();
+    const parentsOf = new Map<string, Set<string>>();
+
+    for (const col of allCols) {
+      if (col.type !== 'view') continue;
+      const vLower = col.name.toLowerCase();
+      viewByName.set(vLower, col);
+      const vParents = new Set<string>();
+      const queries = col.options?.viewQueries;
+      if (queries && typeof queries === 'object') {
+        for (const sql of Object.values(queries)) {
+          if (typeof sql !== 'string' || !sql.trim()) continue;
+          for (const ref of ViewQueryValidator.extractReferencedCollections(sql, knownCollections)) {
+            if (ref === vLower) continue;
+            vParents.add(ref);
+            if (!directDepsOf.has(ref)) directDepsOf.set(ref, new Set<string>());
+            directDepsOf.get(ref)!.add(vLower);
+          }
+        }
+      }
+      parentsOf.set(vLower, vParents);
+    }
+
+    const reachable = new Set<string>();
+    const bfsQueue = Array.from(directDepsOf.get(cleanTarget) || []).sort();
+    for (const name of bfsQueue) {
+      if (!reachable.has(name)) {
+        reachable.add(name);
+      }
+    }
+    for (let i = 0; i < bfsQueue.length; i++) {
+      const cur = bfsQueue[i];
+      for (const child of Array.from(directDepsOf.get(cur) || []).sort()) {
+        if (!reachable.has(child)) {
+          reachable.add(child);
+          bfsQueue.push(child);
+        }
+      }
+    }
+
+    if (reachable.size === 0) return [];
+
+    // Topological sort (parent-before-child) via Kahn's algorithm on the reachable subgraph
+    const inDegree = new Map<string, number>();
+    for (const node of reachable) {
+      let deg = 0;
+      for (const p of parentsOf.get(node) || []) {
+        if (reachable.has(p)) deg++;
+      }
+      inDegree.set(node, deg);
+    }
+
+    const ready = Array.from(reachable)
+      .filter((n) => (inDegree.get(n) || 0) === 0)
+      .sort();
+    const ordered: string[] = [];
+
+    while (ready.length > 0) {
+      const cur = ready.shift()!;
+      ordered.push(cur);
+      for (const child of Array.from(directDepsOf.get(cur) || []).sort()) {
+        if (!reachable.has(child)) continue;
+        const nextDeg = (inDegree.get(child) || 0) - 1;
+        inDegree.set(child, nextDeg);
+        if (nextDeg === 0) {
+          ready.push(child);
+          ready.sort();
+        }
+      }
+    }
+
+    if (ordered.length < reachable.size) {
+      for (const node of Array.from(reachable).sort()) {
+        if (!ordered.includes(node)) ordered.push(node);
+      }
+    }
+
+    return ordered.map((name) => viewByName.get(name)!).filter(Boolean);
+  }
+
+  private buildRewrittenViewOptions(
+    dep: CollectionModel,
+    oldName: string,
+    newName: string
+  ): CollectionOptions {
+    const nextOptions: CollectionOptions = { ...(dep.options || {}) };
+    if (dep.options?.viewQueries) {
+      const rewritten: Partial<Record<ViewDialect, string>> = {};
+      for (const [dialectKey, sql] of Object.entries(dep.options.viewQueries)) {
+        if (typeof sql === 'string' && sql.trim()) {
+          rewritten[dialectKey as ViewDialect] = ViewQueryValidator.rewriteCollectionReference(
+            sql,
+            oldName,
+            newName
+          );
+        }
+      }
+      nextOptions.viewQueries = rewritten;
+    }
+    return nextOptions;
+  }
+
+  private depReferencesRemoved(dep: CollectionModel, removedSet: Set<string>, known: Set<string>): boolean {
+    if (removedSet.size === 0) return false;
+    for (const sql of Object.values(dep.options?.viewQueries || {})) {
+      if (typeof sql !== 'string' || !sql.trim()) continue;
+      for (const ref of ViewQueryValidator.extractReferencedCollections(sql, known)) {
+        if (removedSet.has(ref)) return true;
+      }
+    }
+    return false;
+  }
+
+  private replayDependentViewsSync(
+    dependents: CollectionModel[],
+    oldTargetName: string,
+    newTargetName: string,
+    isRename: boolean,
+    now: string
+  ): void {
+    const removedSet = new Set<string>();
+    const initialKnown = new Set(this.getAllCollections().map((c) => c.name.toLowerCase()));
+    for (const d of dependents) initialKnown.add(d.name.toLowerCase());
+
+    for (const dep of dependents) {
+      if (this.depReferencesRemoved(dep, removedSet, initialKnown)) {
+        this.db.execSync(this.db.dialect.dropViewIfExists(dep.name));
+        this.db.prepareSync('DELETE FROM _collections WHERE id = ?').run(dep.id);
+        removedSet.add(dep.name.toLowerCase());
+        continue;
+      }
+
+      const nextOptions = isRename
+        ? this.buildRewrittenViewOptions(dep, oldTargetName, newTargetName)
+        : { ...(dep.options || {}) };
+
+      try {
+        const allColsNow = this.getAllCollections();
+        const authCols = this.getAuthCollectionNames(allColsNow);
+        const viewSql = this.validateViewQueriesForOptions(
+          nextOptions,
+          this.db.dialect?.name,
+          dep.name,
+          authCols
+        );
+        this.recreateSqlViewSync(dep.name, dep.name, viewSql);
+        const nextSchema = ViewSchemaInferrer.infer({
+          db: this.db,
+          viewName: dep.name,
+          selectSql: viewSql,
+          existingCollections: allColsNow.filter((c) => c.id !== dep.id),
+        }) as SchemaField[];
+        this.assertViewRulesValid(dep.name, dep.listRule, dep.viewRule, nextSchema);
+        this.db
+          .prepareSync('UPDATE _collections SET schema = ?, options = ?, updated = ? WHERE id = ?')
+          .run(JSON.stringify(nextSchema), JSON.stringify(nextOptions), now, dep.id);
+      } catch {
+        this.db.execSync(this.db.dialect.dropViewIfExists(dep.name));
+        this.db.prepareSync('DELETE FROM _collections WHERE id = ?').run(dep.id);
+        removedSet.add(dep.name.toLowerCase());
+      }
+    }
+  }
+
+  private async replayDependentViewsAsync(
+    dependents: CollectionModel[],
+    oldTargetName: string,
+    newTargetName: string,
+    isRename: boolean,
+    now: string
+  ): Promise<void> {
+    const removedSet = new Set<string>();
+    const initialCols = await this.getAllCollections();
+    const initialKnown = new Set(initialCols.map((c) => c.name.toLowerCase()));
+    for (const d of dependents) initialKnown.add(d.name.toLowerCase());
+    const usePgSavepoint = this.db.dialect?.name === 'postgres';
+
+    for (const dep of dependents) {
+      if (this.depReferencesRemoved(dep, removedSet, initialKnown)) {
+        await this.db.exec(this.db.dialect.dropViewIfExists(dep.name));
+        await this.db.prepare('DELETE FROM _collections WHERE id = ?').run(dep.id);
+        removedSet.add(dep.name.toLowerCase());
+        continue;
+      }
+
+      const nextOptions = isRename
+        ? this.buildRewrittenViewOptions(dep, oldTargetName, newTargetName)
+        : { ...(dep.options || {}) };
+
+      if (usePgSavepoint) {
+        await this.db.exec('SAVEPOINT nodestack_dep_replay');
+      }
+      try {
+        const allColsNow = await this.getAllCollections();
+        const authCols = this.getAuthCollectionNames(allColsNow);
+        const viewSql = this.validateViewQueriesForOptions(
+          nextOptions,
+          this.db.dialect?.name,
+          dep.name,
+          authCols
+        );
+        await this.recreateSqlViewAsync(dep.name, dep.name, viewSql);
+        const nextSchema = await ViewSchemaInferrer.infer({
+          db: this.db,
+          viewName: dep.name,
+          selectSql: viewSql,
+          existingCollections: allColsNow.filter((c) => c.id !== dep.id),
+        });
+        this.assertViewRulesValid(dep.name, dep.listRule, dep.viewRule, nextSchema);
+        await this.db
+          .prepare('UPDATE _collections SET schema = ?, options = ?, updated = ? WHERE id = ?')
+          .run(JSON.stringify(nextSchema), JSON.stringify(nextOptions), now, dep.id);
+        if (usePgSavepoint) {
+          await this.db.exec('RELEASE SAVEPOINT nodestack_dep_replay');
+        }
+      } catch {
+        if (usePgSavepoint) {
+          await this.db.exec('ROLLBACK TO SAVEPOINT nodestack_dep_replay');
+          await this.db.exec('RELEASE SAVEPOINT nodestack_dep_replay');
+        }
+        await this.db.exec(this.db.dialect.dropViewIfExists(dep.name));
+        await this.db.prepare('DELETE FROM _collections WHERE id = ?').run(dep.id);
+        removedSet.add(dep.name.toLowerCase());
+      }
     }
   }
 

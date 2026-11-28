@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NodeStack } from '../src/NodeStack';
@@ -453,22 +453,41 @@ describe('Starter Templates / Recipes Tests', () => {
       }
     });
 
-    it('should delete existing collection via CLI "nodestack collection delete <name>"', async () => {
+    it('should block CLI delete when dependent views exist without --force and cascade-delete with --force --cascade', async () => {
       const logs: string[] = [];
+      const errors: string[] = [];
       const origLog = console.log;
+      const origError = console.error;
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+        throw new Error(`process.exit(${code})`);
+      }) as any);
       console.log = (...args: any[]) => logs.push(args.join(' '));
+      console.error = (...args: any[]) => errors.push(args.join(' '));
 
       try {
-        await runCli(['node', 'nodestack', 'collection', 'delete', 'reviews', '-d', cliTestDir]);
-        const output = logs.join('\n');
-        expect(output).toContain("Collection 'reviews' and its SQLite table were successfully deleted!");
+        // Without --force, non-interactive CLI must exit(1) and leave reviews & dependents intact
+        await expect(
+          runCli(['node', 'nodestack', 'collection', 'delete', 'reviews', '-d', cliTestDir])
+        ).rejects.toThrow('process.exit(1)');
+        expect(errors.join('\n')).toContain("Cannot delete 'reviews'");
+        expect(errors.join('\n')).toContain('product_social_proof');
 
-        // Verify reviews collection is gone
+        // With --force --cascade, deletes reviews and dependent views cleanly
+        await runCli(['node', 'nodestack', 'collection', 'delete', 'reviews', '--force', '--cascade', '-d', cliTestDir]);
+        const output = logs.join('\n');
+        expect(output).toContain("Collection 'reviews' and 2 dependent view(s)");
+        expect(output).toContain('were successfully deleted!');
+
+        // Verify reviews and its dependent views are all gone
         const appCheck = new NodeStack({ dataDir: cliTestDir });
         expect(appCheck.schema.getCollection('reviews')).toBeUndefined();
+        expect(appCheck.schema.getCollection('product_social_proof')).toBeUndefined();
+        expect(appCheck.schema.getCollection('manager_catalog_insights')).toBeUndefined();
         await appCheck.close();
       } finally {
         console.log = origLog;
+        console.error = origError;
+        exitSpy.mockRestore();
       }
     });
   });

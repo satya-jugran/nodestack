@@ -181,7 +181,7 @@ export class ViewQueryValidator {
       'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'OFFSET', 'FETCH', 'UNION', 'EXCEPT', 'INTERSECT', 'SET',
       'AS', 'VALUES', 'WITH', 'INTO', 'FOR',
     ]);
-    const identPart = '(?:"(?:[^"]|"")+"|\\[(?:[^\\]]|\\]\\])+\\]|[a-zA-Z_][a-zA-Z0-9_]*)';
+    const identPart = '(?:"(?:[^"]|"")+"|\\[(?:[^\\]]|\\]\\])+\\]|`(?:[^`]|``)+`|[a-zA-Z_][a-zA-Z0-9_]*)';
     const qualifiedIdent = `(${identPart}(?:\\s*\\.\\s*${identPart})*)`;
     const tableItemRegex = new RegExp(`^\\s*${qualifiedIdent}(?:\\s+(?:AS\\s+)?(${identPart}))?`, 'i');
     const clauseKeywordRegex = /\b(?:FROM|JOIN)\b/gi;
@@ -193,6 +193,9 @@ export class ViewQueryValidator {
       }
       if (t.startsWith('[') && t.endsWith(']') && t.length >= 2) {
         return t.slice(1, -1).replace(/\]\]/g, ']').toLowerCase();
+      }
+      if (t.startsWith('`') && t.endsWith('`') && t.length >= 2) {
+        return t.slice(1, -1).replace(/``/g, '`').toLowerCase();
       }
       return t.toLowerCase();
     };
@@ -250,6 +253,321 @@ export class ViewQueryValidator {
     }
 
     return refs;
+  }
+
+  /**
+   * Extracts CTE names declared in WITH ... clauses so they are not treated as physical tables/views.
+   */
+  public static extractCteNames(noStringSql: string): Set<string> {
+    const cteNames = new Set<string>();
+    const identPart = '(?:"(?:[^"]|"")+"|\\[(?:[^\\]]|\\]\\])+\\]|`(?:[^`]|``)+`|[a-zA-Z_][a-zA-Z0-9_]*)';
+    const unquoteIdent = (raw: string): string => {
+      const t = raw.trim();
+      if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
+        return t.slice(1, -1).replace(/""/g, '"').toLowerCase();
+      }
+      if (t.startsWith('[') && t.endsWith(']') && t.length >= 2) {
+        return t.slice(1, -1).replace(/\]\]/g, ']').toLowerCase();
+      }
+      if (t.startsWith('`') && t.endsWith('`') && t.length >= 2) {
+        return t.slice(1, -1).replace(/``/g, '`').toLowerCase();
+      }
+      return t.toLowerCase();
+    };
+
+    const withRe = /\bWITH\b(?:\s+RECURSIVE\b)?/gi;
+    let wm: RegExpExecArray | null;
+    while ((wm = withRe.exec(noStringSql)) !== null) {
+      let cursor = wm.index + wm[0].length;
+      while (cursor < noStringSql.length) {
+        const rest = noStringSql.slice(cursor);
+        const nameMatch = rest.match(new RegExp(`^\\s*(${identPart})\\s*(?:\\([^)]*\\)\\s*)?AS\\s*\\(`, 'i'));
+        if (!nameMatch) break;
+
+        cteNames.add(unquoteIdent(nameMatch[1]));
+        cursor += nameMatch[0].length;
+
+        // Walk balanced parentheses for the CTE body
+        let depth = 1;
+        while (cursor < noStringSql.length && depth > 0) {
+          const ch = noStringSql[cursor];
+          if (ch === '(') depth++;
+          else if (ch === ')') depth--;
+          cursor++;
+        }
+
+        const commaMatch = noStringSql.slice(cursor).match(/^\s*,/);
+        if (!commaMatch) break;
+        cursor += commaMatch[0].length;
+      }
+    }
+
+    return cteNames;
+  }
+
+  /**
+   * Extracts referenced collection names from a SQL query, excluding CTE aliases and comments/literals.
+   */
+  public static extractReferencedCollections(rawQuery: string, knownCollections: Iterable<string>): string[] {
+    if (typeof rawQuery !== 'string' || !rawQuery.trim()) {
+      return [];
+    }
+    const knownSet = knownCollections instanceof Set
+      ? knownCollections
+      : new Set(Array.from(knownCollections, (name) => String(name).trim().toLowerCase()));
+    const noStringSql = this.stripCommentsAndStringLiteralsOnly(rawQuery);
+    const cteNames = this.extractCteNames(noStringSql);
+    const refs = this.extractTableReferences(noStringSql);
+    const found = new Set<string>();
+
+    for (const ref of refs) {
+      if (!cteNames.has(ref.tableName) && knownSet.has(ref.tableName)) {
+        found.add(ref.tableName);
+      }
+    }
+    return Array.from(found);
+  }
+
+  /**
+   * Rewrites references to a renamed collection (`oldName` -> `newName`) in FROM/JOIN table positions
+   * and unaliased `oldName.column` qualifiers while preserving string literals, comments, and CTEs.
+   */
+  public static rewriteCollectionReference(rawQuery: string, oldName: string, newName: string): string {
+    if (typeof rawQuery !== 'string' || !rawQuery.trim()) return rawQuery;
+    const oldLower = oldName.trim().toLowerCase();
+    const cleanNew = newName.trim();
+    if (!oldLower || !cleanNew || oldLower === cleanNew.toLowerCase()) return rawQuery;
+
+    const noStringSql = this.stripCommentsAndStringLiteralsOnly(rawQuery);
+    const cteNames = this.extractCteNames(noStringSql);
+    if (cteNames.has(oldLower)) {
+      // If a CTE shadows oldName, avoid rewriting CTE references indiscriminately
+      // Only rewrite if a FROM/JOIN explicitly schema-qualifies or doesn't shadow; skip qualifier rewrite
+    }
+
+    const refs = this.extractTableReferences(noStringSql);
+    const hasShadowingAlias = refs.some(
+      (r) => r.alias === oldLower && r.tableName !== oldLower
+    );
+    const shouldRewriteQualifier = !cteNames.has(oldLower) && !hasShadowingAlias;
+
+    const formatReplacement = (originalToken: string): string => {
+      if (originalToken.startsWith('"') && originalToken.endsWith('"')) {
+        return `"${cleanNew.replace(/"/g, '""')}"`;
+      }
+      if (originalToken.startsWith('[') && originalToken.endsWith(']')) {
+        return `[${cleanNew.replace(/\]/g, ']]')}]`;
+      }
+      if (originalToken.startsWith('`') && originalToken.endsWith('`')) {
+        return `\`${cleanNew.replace(/`/g, '``')}\``;
+      }
+      return cleanNew;
+    };
+
+    const unquote = (token: string): string => {
+      if (token.startsWith('"') && token.endsWith('"') && token.length >= 2) {
+        return token.slice(1, -1).replace(/""/g, '"').toLowerCase();
+      }
+      if (token.startsWith('[') && token.endsWith(']') && token.length >= 2) {
+        return token.slice(1, -1).replace(/\]\]/g, ']').toLowerCase();
+      }
+      if (token.startsWith('`') && token.endsWith('`') && token.length >= 2) {
+        return token.slice(1, -1).replace(/``/g, '`').toLowerCase();
+      }
+      return token.toLowerCase();
+    };
+
+    // Tokenize SQL preserving whitespace, comments, and string literals verbatim
+    const tokens: Array<{ kind: 'verbatim' | 'ident' | 'punct' | 'ws'; text: string }> = [];
+    let i = 0;
+    while (i < rawQuery.length) {
+      const ch = rawQuery[i];
+      const next = rawQuery[i + 1];
+
+      // Line comment
+      if (ch === '-' && next === '-') {
+        let j = i + 2;
+        while (j < rawQuery.length && rawQuery[j] !== '\n') j++;
+        tokens.push({ kind: 'verbatim', text: rawQuery.slice(i, j) });
+        i = j;
+        continue;
+      }
+      // Block comment
+      if (ch === '/' && next === '*') {
+        let j = i + 2;
+        while (j < rawQuery.length && !(rawQuery[j] === '*' && rawQuery[j + 1] === '/')) j++;
+        j = Math.min(rawQuery.length, j + 2);
+        tokens.push({ kind: 'verbatim', text: rawQuery.slice(i, j) });
+        i = j;
+        continue;
+      }
+      // Single-quoted string literal
+      if (ch === "'") {
+        let j = i + 1;
+        while (j < rawQuery.length) {
+          if (rawQuery[j] === "'" && rawQuery[j + 1] === "'") {
+            j += 2;
+          } else if (rawQuery[j] === "'") {
+            j++;
+            break;
+          } else {
+            j++;
+          }
+        }
+        tokens.push({ kind: 'verbatim', text: rawQuery.slice(i, j) });
+        i = j;
+        continue;
+      }
+      // Double-quoted identifier
+      if (ch === '"') {
+        let j = i + 1;
+        while (j < rawQuery.length) {
+          if (rawQuery[j] === '"' && rawQuery[j + 1] === '"') {
+            j += 2;
+          } else if (rawQuery[j] === '"') {
+            j++;
+            break;
+          } else {
+            j++;
+          }
+        }
+        tokens.push({ kind: 'ident', text: rawQuery.slice(i, j) });
+        i = j;
+        continue;
+      }
+      // Bracketed identifier
+      if (ch === '[') {
+        let j = i + 1;
+        while (j < rawQuery.length) {
+          if (rawQuery[j] === ']' && rawQuery[j + 1] === ']') {
+            j += 2;
+          } else if (rawQuery[j] === ']') {
+            j++;
+            break;
+          } else {
+            j++;
+          }
+        }
+        tokens.push({ kind: 'ident', text: rawQuery.slice(i, j) });
+        i = j;
+        continue;
+      }
+      // Backtick-quoted identifier
+      if (ch === '`') {
+        let j = i + 1;
+        while (j < rawQuery.length) {
+          if (rawQuery[j] === '`' && rawQuery[j + 1] === '`') {
+            j += 2;
+          } else if (rawQuery[j] === '`') {
+            j++;
+            break;
+          } else {
+            j++;
+          }
+        }
+        tokens.push({ kind: 'ident', text: rawQuery.slice(i, j) });
+        i = j;
+        continue;
+      }
+      // Whitespace
+      if (/\s/.test(ch)) {
+        let j = i + 1;
+        while (j < rawQuery.length && /\s/.test(rawQuery[j])) j++;
+        tokens.push({ kind: 'ws', text: rawQuery.slice(i, j) });
+        i = j;
+        continue;
+      }
+      // Unquoted word / identifier
+      if (/[a-zA-Z_]/.test(ch)) {
+        let j = i + 1;
+        while (j < rawQuery.length && /[a-zA-Z0-9_]/.test(rawQuery[j])) j++;
+        tokens.push({ kind: 'ident', text: rawQuery.slice(i, j) });
+        i = j;
+        continue;
+      }
+      // Other punctuation / digits
+      tokens.push({ kind: 'punct', text: ch });
+      i++;
+    }
+
+    const nonWsIndices: number[] = [];
+    for (let idx = 0; idx < tokens.length; idx++) {
+      if (tokens[idx].kind !== 'ws' && tokens[idx].kind !== 'verbatim') {
+        nonWsIndices.push(idx);
+      }
+    }
+
+    const sqlKeywords = new Set([
+      'WHERE', 'ON', 'USING', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'CROSS', 'FULL', 'NATURAL',
+      'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'OFFSET', 'FETCH', 'UNION', 'EXCEPT', 'INTERSECT', 'SET',
+      'AS', 'VALUES', 'WITH', 'INTO', 'FOR', 'SELECT',
+    ]);
+
+    // 1. Rewrite FROM / JOIN table identifiers
+    for (let n = 0; n < nonWsIndices.length; n++) {
+      const tok = tokens[nonWsIndices[n]];
+      if (tok.kind !== 'ident') continue;
+      const upper = tok.text.toUpperCase();
+      if (upper !== 'FROM' && upper !== 'JOIN') continue;
+
+      let pos = n + 1;
+      const isFrom = upper === 'FROM';
+      while (pos < nonWsIndices.length) {
+        const firstTok = tokens[nonWsIndices[pos]];
+        if (firstTok.kind !== 'ident' || sqlKeywords.has(firstTok.text.toUpperCase())) break;
+
+        // Consume optional schema qualifiers: schema.table
+        let lastIdentPos = pos;
+        while (
+          lastIdentPos + 2 < nonWsIndices.length &&
+          tokens[nonWsIndices[lastIdentPos + 1]].text === '.' &&
+          tokens[nonWsIndices[lastIdentPos + 2]].kind === 'ident'
+        ) {
+          lastIdentPos += 2;
+        }
+
+        const tableTokIdx = nonWsIndices[lastIdentPos];
+        const tableTok = tokens[tableTokIdx];
+        const hasSchemaQualifier = lastIdentPos > pos;
+        if (unquote(tableTok.text) === oldLower && (hasSchemaQualifier || !cteNames.has(oldLower))) {
+          tokens[tableTokIdx] = { ...tableTok, text: formatReplacement(tableTok.text) };
+        }
+
+        pos = lastIdentPos + 1;
+        // Skip optional [AS] alias
+        if (pos < nonWsIndices.length && tokens[nonWsIndices[pos]].text.toUpperCase() === 'AS') {
+          pos += 2;
+        } else if (
+          pos < nonWsIndices.length &&
+          tokens[nonWsIndices[pos]].kind === 'ident' &&
+          !sqlKeywords.has(tokens[nonWsIndices[pos]].text.toUpperCase())
+        ) {
+          pos += 1;
+        }
+
+        if (!isFrom) break;
+        if (pos < nonWsIndices.length && tokens[nonWsIndices[pos]].text === ',') {
+          pos += 1;
+          continue;
+        }
+        break;
+      }
+    }
+
+    // 2. Rewrite unaliased `oldName.column` qualifiers
+    if (shouldRewriteQualifier) {
+      for (let n = 0; n + 1 < nonWsIndices.length; n++) {
+        const tokIdx = nonWsIndices[n];
+        const nextTokIdx = nonWsIndices[n + 1];
+        const tok = tokens[tokIdx];
+        const nextTok = tokens[nextTokIdx];
+        if (tok.kind === 'ident' && nextTok.text === '.' && unquote(tok.text) === oldLower) {
+          tokens[tokIdx] = { ...tok, text: formatReplacement(tok.text) };
+        }
+      }
+    }
+
+    return tokens.map((t) => t.text).join('');
   }
 
   private static assertNoAuthWildcardProjection(

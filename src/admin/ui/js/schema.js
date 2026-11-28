@@ -337,8 +337,10 @@
       renderAccessRulesSection(state.activeCollection);
     }
 
-    async function saveSchemaChanges() {
+    async function saveSchemaChanges(opts = {}) {
       const col = state.activeCollection;
+      const force = Boolean(opts && typeof opts === 'object' && opts.force === true);
+      const cascade = Boolean(opts && typeof opts === 'object' && opts.cascade === true);
       try {
         const body = {
           name: document.getElementById('schema-col-name').value.trim(),
@@ -365,7 +367,11 @@
           };
         }
 
-        const updated = await api(`/api/collections/${col.name}`, {
+        const query = typeof buildForceCascadeQuery === 'function'
+          ? buildForceCascadeQuery(force, cascade)
+          : (force ? `?force=true${cascade ? '&cascade=true' : ''}` : '');
+
+        const updated = await api(`/api/collections/${encodeURIComponent(col.name)}${query}`, {
           method: 'PATCH',
           body: JSON.stringify(body),
         });
@@ -374,6 +380,13 @@
         await loadCollections();
         selectCollection(updated.name);
       } catch (e) {
+        const conflict = e && e.status === 409 && e.data && e.data.data && e.data.data.code === 'VIEW_DEPENDENCY_CONFLICT'
+          ? e.data.data
+          : null;
+        if (conflict && !force && typeof openViewDependencyConfirmModal === 'function') {
+          openViewDependencyConfirmModal(conflict, (nextOpts) => saveSchemaChanges(nextOpts));
+          return;
+        }
         toast(e.message, 'error');
       }
     }

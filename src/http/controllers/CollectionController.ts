@@ -57,12 +57,28 @@ export class CollectionController extends BaseController {
     this.ok(reply, col, 201);
   }
 
+  private parseBoolFlag(val: unknown): boolean {
+    if (val === true) return true;
+    const str = String(val ?? '').trim().toLowerCase();
+    return str === 'true' || str === '1';
+  }
+
+  private getForceCascadeOptions(req: any): { force: boolean; cascade: boolean } {
+    const force = this.parseBoolFlag(req?.query?.force) || req?.body?.force === true;
+    const cascade = this.parseBoolFlag(req?.query?.cascade) || req?.body?.cascade === true;
+    if (cascade && !force) {
+      throw new AppError("Query parameter 'cascade=true' requires 'force=true'", 400);
+    }
+    return { force, cascade };
+  }
+
   public async update(
     req: FastifyRequest<{ Params: { collection: string }; Body: UpdateCollectionDto }>,
     reply: FastifyReply
   ): Promise<void> {
     const schema = this.getSchema(req);
-    const col = await schema.updateCollection(req.params.collection, req.body);
+    const { force, cascade } = this.getForceCascadeOptions(req);
+    const col = await schema.updateCollection(req.params.collection, req.body, { force, cascade });
     this.ok(reply, col);
   }
 
@@ -75,7 +91,12 @@ export class CollectionController extends BaseController {
     }
     const schema = this.getSchema(req);
     const files = this.getFiles(req);
+    const { force, cascade } = this.getForceCascadeOptions(req);
     const col = await schema.getCollectionOrThrow(req.params.collection);
+
+    // Check view dependencies BEFORE deleting storage files so a 409 block never wipes files
+    await schema.assertNoViewDependents(col.name, 'delete', { force, cascade });
+
     // Clean storage files before dropping the collection to prevent orphaned files
     if (files) {
       try {
@@ -87,7 +108,7 @@ export class CollectionController extends BaseController {
         );
       }
     }
-    await schema.deleteCollection(req.params.collection);
+    await schema.deleteCollection(req.params.collection, { force, cascade });
     this.noContent(reply);
   }
 

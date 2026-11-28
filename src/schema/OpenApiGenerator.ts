@@ -1342,6 +1342,8 @@ export class OpenApiGenerator {
         security: [{ BearerAuth: [] }],
         parameters: [
           { name: 'collection', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'force', in: 'query', required: false, schema: { type: 'boolean' }, description: 'Override SQL view dependency checks on rename or view query edits' },
+          { name: 'cascade', in: 'query', required: false, schema: { type: 'boolean' }, description: 'Requires force=true. Rewrite references on rename or revalidate/clean up dependent views on edit' },
         ],
         requestBody: {
           required: true,
@@ -1362,6 +1364,7 @@ export class OpenApiGenerator {
           },
           '400': { description: 'Invalid schema update' },
           '404': { description: 'Collection not found' },
+          '409': { description: 'SQL view dependency conflict (pass force=true to proceed)' },
         },
       },
       delete: {
@@ -1371,11 +1374,14 @@ export class OpenApiGenerator {
         security: [{ BearerAuth: [] }],
         parameters: [
           { name: 'collection', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'force', in: 'query', required: false, schema: { type: 'boolean' }, description: 'Override SQL view dependency checks' },
+          { name: 'cascade', in: 'query', required: false, schema: { type: 'boolean' }, description: 'Requires force=true. Cascade-delete dependent SQL views' },
         ],
         responses: {
           '204': { description: 'Collection deleted' },
-          '400': { description: 'Cannot delete system collection' },
+          '400': { description: 'Cannot delete system collection or invalid cascade usage' },
           '404': { description: 'Collection not found' },
+          '409': { description: 'SQL view dependency conflict (pass force=true to proceed)' },
         },
       },
     };

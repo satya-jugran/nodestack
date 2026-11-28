@@ -137,7 +137,7 @@ export class TemplateService {
             await this.fileStorageService.deleteRecordFiles(existing.id, '');
           } catch {}
           try {
-            await this.schemaService.deleteCollection(existing.name);
+            await this.schemaService.deleteCollection(existing.name, { force: true, cascade: true });
           } catch {}
         }
       }
