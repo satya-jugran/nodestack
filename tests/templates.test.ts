@@ -226,6 +226,41 @@ describe('Starter Templates / Recipes Tests', () => {
       const products = await app.db.all<any>('SELECT * FROM "products"');
       expect(products.length).toBe(20);
     });
+
+    it('should block overwrite with 409 ConflictError and preserve user-created views referencing template collections', async () => {
+      app.schema.createCollection({
+        name: 'custom_product_report',
+        type: 'view',
+        options: {
+          viewQueries: {
+            sqlite: 'SELECT id, name, price FROM products',
+          },
+        },
+        listRule: '',
+        viewRule: '',
+      });
+
+      let caught: any;
+      try {
+        await app.templates.apply('ecommerce', { overwrite: true });
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeDefined();
+      expect(caught.statusCode).toBe(409);
+      expect(caught.data?.code).toBe('VIEW_DEPENDENCY_CONFLICT');
+      expect(caught.data?.dependentViews).toContain('custom_product_report');
+
+      // Neither the external user view nor existing template data/collections should be deleted
+      expect(app.schema.getCollection('custom_product_report')).toBeDefined();
+      expect(app.schema.getCollection('products')).toBeDefined();
+      const products = await app.db.all<any>('SELECT * FROM "products"');
+      expect(products.length).toBe(20);
+
+      // Clean up the external user view so downstream template tests stay isolated
+      app.schema.deleteCollection('custom_product_report');
+    });
   });
 
   describe('📝 Blog / Content Starter Template Application', () => {

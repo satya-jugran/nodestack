@@ -6,7 +6,7 @@ import { EventBus } from '../core/events/EventBus';
 import { RealtimeService } from '../realtime/RealtimeService';
 import { FunctionService } from '../functions/FunctionService';
 import { FlowService } from '../flows/FlowService';
-import { NotFoundError } from '../core/errors/AppError';
+import { ConflictError, NotFoundError } from '../core/errors/AppError';
 import { RecordValidator } from '../records/RecordValidator';
 import { STARTER_TEMPLATES } from './definitions';
 import {
@@ -128,17 +128,72 @@ export class TemplateService {
       };
     }
 
-    // 2. If overwrite is requested, drop existing collections in reverse order
+    // 2. If overwrite is requested, check for external view dependents first, then drop template-owned collections leaf-first
     if (options.overwrite) {
+      const templateNames = new Set(template.collections.map((c) => c.name.toLowerCase()));
+      const existingCols = [];
       for (const colDef of [...template.collections].reverse()) {
         const existing = await this.schemaService.getCollection(colDef.name);
         if (existing) {
-          try {
-            await this.fileStorageService.deleteRecordFiles(existing.id, '');
-          } catch {}
-          try {
-            await this.schemaService.deleteCollection(existing.name, { force: true, cascade: true });
-          } catch {}
+          existingCols.push(existing);
+        }
+      }
+
+      // Abort before deleting any files/tables if a user-created view depends on a template collection
+      for (const existing of existingCols) {
+        const dependents = await this.schemaService.findDependentViews(existing.name);
+        const externalDeps = dependents.filter((d) => !templateNames.has(d.name.toLowerCase()));
+        if (externalDeps.length > 0) {
+          const depNames = externalDeps.map((d) => d.name);
+          throw new ConflictError(
+            `Cannot overwrite template '${template.name}' because external view(s) depend on '${existing.name}': ${depNames.join(', ')}. Delete or update those views first.`,
+            {
+              code: 'VIEW_DEPENDENCY_CONFLICT',
+              operation: 'delete',
+              target: existing.name,
+              dependentViews: depNames,
+              requiresForce: true,
+              supportsCascade: false,
+            }
+          );
+        }
+      }
+
+      // Drop only template-owned collections in dependency leaf-first order (without cascading external views)
+      const deleteTemplateCollection = async (colName: string) => {
+        await this.schemaService.deleteCollection(colName, {
+          beforeDrop: async (target) => {
+            try {
+              await this.fileStorageService.deleteRecordFiles(target.id, '');
+            } catch {}
+          },
+        });
+      };
+
+      const remaining = [...existingCols];
+      while (remaining.length > 0) {
+        const remainingNames = new Set(remaining.map((c) => c.name.toLowerCase()));
+        let droppedIndex = -1;
+
+        for (let i = 0; i < remaining.length; i++) {
+          const candidate = remaining[i];
+          const dependents = await this.schemaService.findDependentViews(candidate.name);
+          const hasRemainingTemplateDep = dependents.some((d) =>
+            remainingNames.has(d.name.toLowerCase())
+          );
+          if (!hasRemainingTemplateDep) {
+            await deleteTemplateCollection(candidate.name);
+            droppedIndex = i;
+            break;
+          }
+        }
+
+        if (droppedIndex === -1) {
+          // Fallback if a circular reference prevents finding a leaf; preserve ConflictError if thrown
+          const candidate = remaining.shift()!;
+          await deleteTemplateCollection(candidate.name);
+        } else {
+          remaining.splice(droppedIndex, 1);
         }
       }
     }
