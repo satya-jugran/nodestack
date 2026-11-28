@@ -344,6 +344,111 @@ describe('SQL View Dependency Validation, Force & Cascade', () => {
         inferSpy.mockRestore();
       }
     });
+
+    it('uses transaction-local driver and carries updated dependent metadata forward in multi-level async cascades', async () => {
+      const innerDriver = new NodeSqliteDriver(':memory:');
+      const innerDialect = innerDriver.dialect;
+      let inTx = false;
+
+      const wrapPrepared = (sql: string) => {
+        const stmt = innerDriver.prepare(sql);
+        return {
+          all: async (...p: any[]) => stmt.all(...p),
+          get: async (...p: any[]) => stmt.get(...p),
+          run: async (...p: any[]) => stmt.run(...p),
+        };
+      };
+
+      const asyncTxAwareDriver: any = {
+        // Non-sqlite name triggers SchemaService async transaction path while reusing SQLite DDL/queries
+        dialect: Object.assign(Object.create(Object.getPrototypeOf(innerDialect)), innerDialect, {
+          name: 'mssql',
+          getViewColumnsSql: () => ({
+            sql: 'SELECT name, type FROM pragma_table_info(?)',
+            mapRow: (r: any) => ({ name: r.name, dataType: r.type || '' }),
+          }),
+        }),
+        isOpen: () => innerDriver.isOpen(),
+        close: () => innerDriver.close(),
+        exec: async (sql: string) => {
+          if (inTx) throw new Error('Leaked exec to rootDriver inside active transaction');
+          return innerDriver.execSync(sql);
+        },
+        prepare: (sql: string) => {
+          if (inTx) throw new Error('Leaked prepare to rootDriver inside active transaction');
+          return wrapPrepared(sql);
+        },
+        transaction: async (fn: (tx: any) => Promise<any>) => {
+          inTx = true;
+          const txDriver = {
+            dialect: asyncTxAwareDriver.dialect,
+            isOpen: () => innerDriver.isOpen(),
+            close: () => innerDriver.close(),
+            exec: async (sql: string) => innerDriver.execSync(sql),
+            prepare: (sql: string) => wrapPrepared(sql),
+            transaction: async (nested: any) => nested(txDriver),
+          };
+          try {
+            return await innerDriver.transaction(async () => await fn(txDriver));
+          } finally {
+            inTx = false;
+          }
+        },
+      };
+
+      const asyncConfig = new ConfigService({ dataDir: testDir });
+      const asyncDb = new DatabaseService(asyncConfig, asyncTxAwareDriver);
+      await asyncDb.init();
+      const asyncSchema = new SchemaService(asyncDb);
+
+      await asyncSchema.createCollection({
+        name: 'base_items',
+        type: 'base',
+        schema: [
+          { id: 'f1', name: 'label', type: 'text', required: true },
+          { id: 'f2', name: 'amount', type: 'number', required: true },
+        ],
+      });
+      await asyncSchema.createCollection({
+        name: 'lvl1_items',
+        type: 'view',
+        options: {
+          viewQueries: {
+            mssql: 'SELECT id, label, amount FROM base_items',
+          },
+        },
+      });
+      await asyncSchema.createCollection({
+        name: 'lvl2_items',
+        type: 'view',
+        options: {
+          viewQueries: {
+            mssql: 'SELECT id, label, amount FROM lvl1_items WHERE amount > 0',
+          },
+        },
+      });
+
+      const inferSpy = vi.spyOn(ViewSchemaInferrer, 'infer');
+      try {
+        const renamed = await asyncSchema.updateCollection(
+          'base_items',
+          { name: 'renamed_items' },
+          { force: true, cascade: true }
+        );
+        expect(renamed.name).toBe('renamed_items');
+
+        const lvl2Call = inferSpy.mock.calls.find(([arg]) => arg?.viewName === 'lvl2_items');
+        expect(lvl2Call).toBeDefined();
+        const lvl1SeenByLvl2 = lvl2Call![0].existingCollections.find(
+          (c: any) => c.name === 'lvl1_items'
+        );
+        expect(lvl1SeenByLvl2?.options?.viewQueries?.mssql).toContain('renamed_items');
+        expect(await asyncSchema.getCollection('lvl2_items')).toBeDefined();
+      } finally {
+        inferSpy.mockRestore();
+        await asyncDb.close();
+      }
+    });
   });
 
   describe('HTTP API, OpenAPI & Client SDK integration', () => {

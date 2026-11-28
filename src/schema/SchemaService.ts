@@ -33,11 +33,11 @@ export class SchemaService {
   public getAllCollections(): CollectionModel[];
   public getAllCollections(): Promise<CollectionModel[]>;
   public getAllCollections(): any {
-    const rootDriver = typeof (this.db as any).getRootDriver === 'function'
-      ? (this.db as any).getRootDriver()
-      : (this.db as any).getDriver?.();
-    if (rootDriver && typeof (rootDriver as any).prepareSync === 'function') {
-      const rows = (rootDriver as any).prepareSync('SELECT * FROM _collections ORDER BY name ASC').all();
+    const activeDriver = typeof (this.db as any).getDriver === 'function'
+      ? (this.db as any).getDriver()
+      : (this.db as any).getRootDriver?.();
+    if (activeDriver && typeof (activeDriver as any).prepareSync === 'function') {
+      const rows = (activeDriver as any).prepareSync('SELECT * FROM _collections ORDER BY name ASC').all();
       return (rows || []).map((x: any) => this.mapRowToCollection(x));
     }
     const rows = this.db.all<any>('SELECT * FROM _collections ORDER BY name ASC');
@@ -47,11 +47,11 @@ export class SchemaService {
   public getCollection(nameOrId: string): CollectionModel | undefined;
   public getCollection(nameOrId: string): Promise<CollectionModel | undefined>;
   public getCollection(nameOrId: string): any {
-    const rootDriver = typeof (this.db as any).getRootDriver === 'function'
-      ? (this.db as any).getRootDriver()
-      : (this.db as any).getDriver?.();
-    if (rootDriver && typeof (rootDriver as any).prepareSync === 'function') {
-      const row = (rootDriver as any).prepareSync(
+    const activeDriver = typeof (this.db as any).getDriver === 'function'
+      ? (this.db as any).getDriver()
+      : (this.db as any).getRootDriver?.();
+    if (activeDriver && typeof (activeDriver as any).prepareSync === 'function') {
+      const row = (activeDriver as any).prepareSync(
         'SELECT * FROM _collections WHERE id = ? OR name = ?'
       ).get(nameOrId, nameOrId);
       if (!row) return undefined;
@@ -984,15 +984,15 @@ export class SchemaService {
     const createSql = dialect.createViewSql(targetName, selectSql);
     const verifySql = `SELECT * FROM ${dialect.quoteIdentifier(targetName)} WHERE 1 = 0`;
 
-    const rootDriver = typeof (this.db as any).getRootDriver === 'function'
-      ? (this.db as any).getRootDriver()
-      : (this.db as any).getDriver?.();
+    const activeDriver = typeof (this.db as any).getDriver === 'function'
+      ? (this.db as any).getDriver()
+      : (this.db as any).getRootDriver?.();
 
-    if (rootDriver && typeof (rootDriver as any).execSync === 'function') {
-      (rootDriver as any).execSync(dropOld);
-      if (dropTarget) (rootDriver as any).execSync(dropTarget);
-      (rootDriver as any).execSync(createSql);
-      (rootDriver as any).prepareSync(verifySql).all();
+    if (activeDriver && typeof (activeDriver as any).execSync === 'function') {
+      (activeDriver as any).execSync(dropOld);
+      if (dropTarget) (activeDriver as any).execSync(dropTarget);
+      (activeDriver as any).execSync(createSql);
+      (activeDriver as any).prepareSync(verifySql).all();
       return;
     }
 
@@ -1348,13 +1348,18 @@ export class SchemaService {
     now: string
   ): void {
     const removedSet = new Set<string>();
-    const initialKnown = new Set(this.getAllCollections().map((c) => c.name.toLowerCase()));
+    const initialCols = (this.db.allSync<any>('SELECT * FROM _collections ORDER BY name ASC') || []).map(
+      (r: any) => this.mapRowToCollection(r)
+    );
+    const collectionsById = new Map<string, CollectionModel>(initialCols.map((c) => [c.id, c]));
+    const initialKnown = new Set(initialCols.map((c) => c.name.toLowerCase()));
     for (const d of dependents) initialKnown.add(d.name.toLowerCase());
 
     for (const dep of dependents) {
       if (this.depReferencesRemoved(dep, removedSet, initialKnown)) {
         this.db.execSync(this.db.dialect.dropViewIfExists(dep.name));
         this.db.prepareSync('DELETE FROM _collections WHERE id = ?').run(dep.id);
+        collectionsById.delete(dep.id);
         removedSet.add(dep.name.toLowerCase());
         continue;
       }
@@ -1364,7 +1369,7 @@ export class SchemaService {
         : { ...(dep.options || {}) };
 
       try {
-        const allColsNow = this.getAllCollections();
+        const allColsNow = Array.from(collectionsById.values());
         const authCols = this.getAuthCollectionNames(allColsNow);
         const viewSql = this.validateViewQueriesForOptions(
           nextOptions,
@@ -1383,12 +1388,19 @@ export class SchemaService {
         this.db
           .prepareSync('UPDATE _collections SET schema = ?, options = ?, updated = ? WHERE id = ?')
           .run(JSON.stringify(nextSchema), JSON.stringify(nextOptions), now, dep.id);
+        collectionsById.set(dep.id, {
+          ...dep,
+          schema: nextSchema,
+          options: nextOptions,
+          updated: now,
+        });
       } catch (err) {
         if (!this.isDependentViewIncompatibilityError(err)) {
           throw err;
         }
         this.db.execSync(this.db.dialect.dropViewIfExists(dep.name));
         this.db.prepareSync('DELETE FROM _collections WHERE id = ?').run(dep.id);
+        collectionsById.delete(dep.id);
         removedSet.add(dep.name.toLowerCase());
       }
     }
@@ -1402,7 +1414,10 @@ export class SchemaService {
     now: string
   ): Promise<void> {
     const removedSet = new Set<string>();
-    const initialCols = await this.getAllCollections();
+    const initialCols = (await this.db.all<any>('SELECT * FROM _collections ORDER BY name ASC')).map(
+      (r: any) => this.mapRowToCollection(r)
+    );
+    const collectionsById = new Map<string, CollectionModel>(initialCols.map((c) => [c.id, c]));
     const initialKnown = new Set(initialCols.map((c) => c.name.toLowerCase()));
     for (const d of dependents) initialKnown.add(d.name.toLowerCase());
     const usePgSavepoint = this.db.dialect?.name === 'postgres';
@@ -1411,6 +1426,7 @@ export class SchemaService {
       if (this.depReferencesRemoved(dep, removedSet, initialKnown)) {
         await this.db.exec(this.db.dialect.dropViewIfExists(dep.name));
         await this.db.prepare('DELETE FROM _collections WHERE id = ?').run(dep.id);
+        collectionsById.delete(dep.id);
         removedSet.add(dep.name.toLowerCase());
         continue;
       }
@@ -1423,7 +1439,7 @@ export class SchemaService {
         await this.db.exec('SAVEPOINT nodestack_dep_replay');
       }
       try {
-        const allColsNow = await this.getAllCollections();
+        const allColsNow = Array.from(collectionsById.values());
         const authCols = this.getAuthCollectionNames(allColsNow);
         const viewSql = this.validateViewQueriesForOptions(
           nextOptions,
@@ -1442,6 +1458,12 @@ export class SchemaService {
         await this.db
           .prepare('UPDATE _collections SET schema = ?, options = ?, updated = ? WHERE id = ?')
           .run(JSON.stringify(nextSchema), JSON.stringify(nextOptions), now, dep.id);
+        collectionsById.set(dep.id, {
+          ...dep,
+          schema: nextSchema,
+          options: nextOptions,
+          updated: now,
+        });
         if (usePgSavepoint) {
           await this.db.exec('RELEASE SAVEPOINT nodestack_dep_replay');
         }
@@ -1455,6 +1477,7 @@ export class SchemaService {
         }
         await this.db.exec(this.db.dialect.dropViewIfExists(dep.name));
         await this.db.prepare('DELETE FROM _collections WHERE id = ?').run(dep.id);
+        collectionsById.delete(dep.id);
         removedSet.add(dep.name.toLowerCase());
       }
     }
